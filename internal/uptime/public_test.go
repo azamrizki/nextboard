@@ -285,3 +285,32 @@ func TestPublicPageIgnoresBlips(t *testing.T) {
 		t.Fatalf("a blip:\n%s", page)
 	}
 }
+
+// The headline claims only what was checked.
+func TestPublicPageHeadline(t *testing.T) {
+	r := newRig(t, t.TempDir())
+	a, err := r.s.Create(Monitor{ProjectID: testProject, Name: "a", Type: TypeHTTP, URL: "https://a.example/", Active: true, Public: true, PublicName: "One"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := r.s.Create(Monitor{ProjectID: testProject, Name: "b", Type: TypeHTTP, URL: "https://b.example/", Active: true, Public: true, PublicName: "Two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := r.s.SetPublic(testProject, true, "")
+	headline := func(want string) {
+		t.Helper()
+		r.s.dropPublicCache()
+		if page := openPublic(t, r, c.Token); !strings.Contains(page, want) {
+			t.Fatalf("no %q in:\n%s", want, page)
+		}
+	}
+	headline("No data yet")
+	r.beat(a.ID, Result{OK: true})
+	headline("No known problems, some services have no data")
+	r.beat(b.ID, Result{OK: true})
+	headline("All services operational")
+	r.beat(b.ID, Result{Msg: "x"})
+	r.beat(b.ID, Result{Msg: "x"})
+	headline("Some services are down")
+}

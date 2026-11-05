@@ -283,16 +283,19 @@ func (s *Service) publicPage(pid, title string, now time.Time) publicPage {
 	}
 	page.State, page.Overall = "none", "No services to show"
 	if len(page.Monitors) > 0 {
-		page.State, page.Overall = "up", "All services operational"
-		known := false
+		counts := map[string]int{}
 		for _, m := range page.Monitors {
-			known = known || m.State != "none"
-			if m.State == "down" {
-				page.State, page.Overall = "down", "Some services are down"
-			}
+			counts[m.State]++
 		}
-		if !known {
+		switch {
+		case counts["down"] > 0:
+			page.State, page.Overall = "down", "Some services are down"
+		case counts["up"] == 0:
 			page.State, page.Overall = "none", "No data yet"
+		case counts["none"] > 0: // "all operational" would claim what nobody has checked
+			page.State, page.Overall = "none", "No known problems, some services have no data"
+		default:
+			page.State, page.Overall = "up", "All services operational"
 		}
 	}
 	return page
