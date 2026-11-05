@@ -8,7 +8,9 @@
 package screen
 
 import (
+	"fmt"
 	"io"
+	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,7 +28,8 @@ const ReplayBytes = 256 << 10
 
 // Model is the narrow emulator interface the hub depends on.
 type Model interface {
-	Write(p []byte)
+	// Write feeds the emulator. false means part of p was lost: see vtModel.Write.
+	Write(p []byte) bool
 	Resize(cols, rows int)
 	Lines() []string // visible rows, trailing spaces trimmed
 	Cursor() (x, y int)
@@ -38,6 +41,11 @@ type Model interface {
 // screenScrollback is the least the emulator accepts as history.
 const screenScrollback = 1
 
+const (
+	writeChunk   = 32 << 10
+	maxPanicLogs = 3 // per console: the same output can trip it again and again
+)
+
 // vtModel implements Model with charmbracelet/x/vt. Queries from the
 // program (DA, DSR, OSC 10/11) are answered only when respond is set
 // (hidden sessions); for normal consoles xterm.js in the client answers and
@@ -47,6 +55,7 @@ type vtModel struct {
 	respond    func([]byte)
 	e          *vt.Emulator
 	paste      atomic.Bool
+	panics     int
 }
 
 // NewModel returns a vt-backed model.
@@ -86,6 +95,18 @@ func (m *vtModel) Reset() {
 			}
 		},
 	})
+	// The emulator takes a bottom margin past the screen as it comes, and its next
+	// scroll runs off the end of its buffer and panics. It happens when output for a
+	// taller terminal reaches this one, as in a replay at hub start. Terminals clamp it.
+	e.RegisterCsiHandler('r', func(params ansi.Params) bool {
+		bottom, _, _ := params.Param(1, 0)
+		if bottom <= e.Height() {
+			return false // the emulator's own handler goes on
+		}
+		top, _, _ := params.Param(0, 1)
+		_, _ = e.Write(fmt.Appendf(nil, "\x1b[%d;%dr", top, e.Height()))
+		return true
+	})
 	m.e = e
 	// The emulator answers queries into a pipe; it must always be drained
 	// or Write blocks.
@@ -104,30 +125,67 @@ func (m *vtModel) Reset() {
 	}()
 }
 
-func (m *vtModel) Write(p []byte) { _, _ = m.e.Write(p) }
+// guard runs one call into the emulator. It parses whatever a program prints, and a
+// panic in it runs on a goroutine of the hub: one console's output must not take
+// every console down, least of all at start, when the same output is replayed and
+// the hub would die again each time. The emulator starts over instead.
+func (m *vtModel) guard(f func()) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			if m.panics++; m.panics <= maxPanicLogs {
+				log.Printf("screen: emulator panic, starting it over: %v", r)
+			}
+			m.Reset()
+		}
+	}()
+	f()
+	return true
+}
+
+// Write feeds p in pieces: a panic costs its piece, and the model still catches up
+// with what follows. false means something was lost.
+func (m *vtModel) Write(p []byte) bool {
+	ok := true
+	for len(p) > 0 {
+		n := min(len(p), writeChunk)
+		chunk := p[:n]
+		p = p[n:]
+		ok = m.guard(func() { _, _ = m.e.Write(chunk) }) && ok
+	}
+	return ok
+}
 
 func (m *vtModel) Resize(cols, rows int) {
 	if cols < 1 || rows < 1 || (cols == m.cols && rows == m.rows) {
 		return
 	}
 	m.cols, m.rows = cols, rows
-	m.e.Resize(cols, rows)
+	m.guard(func() { m.e.Resize(cols, rows) })
 }
 
-func (m *vtModel) Lines() []string {
-	lines := strings.Split(m.e.String(), "\n")
-	if len(lines) > m.rows {
-		lines = lines[:m.rows]
-	}
+func (m *vtModel) Lines() (lines []string) {
+	m.guard(func() {
+		lines = strings.Split(m.e.String(), "\n")
+		if len(lines) > m.rows {
+			lines = lines[:m.rows]
+		}
+	})
 	return lines
 }
 
-func (m *vtModel) Cursor() (int, int) {
-	p := m.e.CursorPosition()
-	return p.X, p.Y
+func (m *vtModel) Cursor() (x, y int) {
+	m.guard(func() {
+		p := m.e.CursorPosition()
+		x, y = p.X, p.Y
+	})
+	return x, y
 }
 
-func (m *vtModel) AltScreen() bool      { return m.e.IsAltScreen() }
+func (m *vtModel) AltScreen() (alt bool) {
+	m.guard(func() { alt = m.e.IsAltScreen() })
+	return alt
+}
+
 func (m *vtModel) BracketedPaste() bool { return m.paste.Load() }
 
 func (m *vtModel) close() { m.stop() }
@@ -227,9 +285,12 @@ func (s *Screen) loop() {
 			}
 			s.mu.Lock()
 			for _, b := range q {
-				s.m.Write(b)
+				lost := !s.m.Write(b)
 				if s.stale && isRedraw(b) {
 					s.stale = false
+				}
+				if lost {
+					s.stale = true // the screen is not what the program drew
 				}
 			}
 			s.version++
