@@ -93,6 +93,7 @@ make dev-hub    # hub only
 make dev-web    # Vite only
 make test       # go vet + go test -race
 make test-web   # web unit tests; needs web/node_modules
+make test-e2e   # browser tests with fake agents; needs `cd web && npx playwright install chromium` once
 make test-ssh   # SSH tests against a throwaway local sshd
 make build      # web + bin/nextboard
 make snapshot   # goreleaser build for linux/darwin, amd64/arm64

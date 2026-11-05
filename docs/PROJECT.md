@@ -719,6 +719,7 @@ Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go in
 | `make dev-hub`, `make dev-web` | Satu sisi saja |
 | `make test` | `go vet` + `go test -race ./...` |
 | `make test-web` | Test unit web (Vitest); butuh `web/node_modules` |
+| `make test-e2e` | Uji browser (Playwright) terhadap hub sementara dengan agent palsu; butuh `cd web && npx playwright install chromium` sekali. Tidak ikut di workflow rilis |
 | `make test-ssh` | Uji SSH terhadap sshd sementara |
 | `make build` | Web + `bin/nextboard` |
 | `make snapshot` | goreleaser lokal |
@@ -895,7 +896,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, kartu Android dan desktop, dan cara agent memakai credential belum ada ([API-vault.md](API-vault.md)) |
 | Uptime | Halaman status publik, jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada ([API-uptime.md](API-uptime.md)) |
-| Test | Test web baru mencakup vault, markdown, socket, blok memory, dan aturan wire (135 test); komponen dan alur UI belum, dan uji browser selama ini dijalankan di luar repo. Sisa kriteria SPEC §12 ada di §13 |
+| Test | Test unit web mencakup vault, markdown, socket, blok memory, dan aturan wire (137 test). Uji browser di repo (`make test-e2e`) baru mencakup memory tile, dialog Send, dan daftar perintah terblokir; alur UI lain masih dicoba di luar repo. Sisa kriteria SPEC §12 ada di §13 |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik
