@@ -35,6 +35,11 @@ const (
 	ignoredMaxPaths  = 5000
 	ignoredTimeout   = 10 * time.Second
 	filesDeletedMark = "//deleted//"
+	filesRepoMark    = "//repo//"
+	filesWalkMark    = "//walk//"
+	// How far the list looks for repositories below a folder that is none: the Git panel's limits.
+	filesRepoDepth = 5
+	filesRepoMax   = 50
 )
 
 // ErrBadPattern is an invalid search regular expression.
@@ -65,12 +70,29 @@ type FileList struct {
 	Source    string   `json:"source"` // "git" (ignored files left out) or "walk"
 }
 
+// walkScript lists a folder that is not a work tree: each repository below it
+// through its own git, which knows its .gitignore, and the rest with find. A
+// stray .git folder is no repository, so its folder stays in the walk. A folder
+// that cannot be read costs only itself: find's exit code says nothing else.
+func walkScript() string {
+	repos := fmt.Sprintf(`n=$#; c=0; for f do d=${f%%/.git}; [ "$c" -lt %d ] || break; `, filesRepoMax) +
+		`( cd "$d" 2>/dev/null && [ "$(` + gitSafe + `rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ] ) || continue; ` +
+		`c=$((c+1)); printf '` + filesRepoMark + `\0%s\0' "$d"; ` +
+		`( cd "$d" && ` + gitSafe + `ls-files -co --exclude-standard -z; printf '` + filesDeletedMark + `\0'; ` + gitSafe + `ls-files -d -z ); ` +
+		`set -- "$@" -o -path "$d"; done; shift "$n"; ` +
+		`printf '` + filesWalkMark + `\0'; find . \( -name .nb-none "$@" -o ` + pruneFindArgs() + ` \) -prune -o -type f -print0 2>/dev/null; exit 0`
+	// The extra name makes every xargs run the script, also those that skip an empty input.
+	return fmt.Sprintf(`printf 'walk\0'; { find . -maxdepth %d \( -name .git -prune -print0 \) -o \( %s \) -prune 2>/dev/null; printf './.nb-none/.git\0'; } | xargs -0 sh -c %s sh`,
+		filesRepoDepth, pruneFindArgs(), machine.Quote(repos))
+}
+
 // ListFiles returns every file below root relative to it. In a git work tree
-// gitignored files are left out; elsewhere the tree's prune folders are.
+// gitignored files are left out, and in the repositories below any other folder
+// too; everywhere else the tree's prune folders are.
 func ListFiles(ctx context.Context, h machine.Host, root string) (*FileList, error) {
 	script := `export GIT_OPTIONAL_LOCKS=0; if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf 'git\0'; ` +
 		gitSafe + `ls-files -co --exclude-standard -z; printf '` + filesDeletedMark + `\0'; ` + gitSafe + `ls-files -d -z; ` +
-		`else printf 'walk\0'; find . \( ` + pruneFindArgs() + ` \) -prune -o -type f -print0; fi`
+		`else ` + walkScript() + `; fi`
 	res, err := execScriptIn(ctx, h, root, script, nil, filesTimeout, filesMaxOutput)
 	if err != nil {
 		return nil, err
@@ -90,19 +112,36 @@ func parseFileList(out []byte, truncated bool) *FileList {
 	fl.Source = string(parts[0])
 	rest := parts[1:]
 	deleted := map[string]bool{}
-	for i, p := range rest {
-		if string(p) == filesDeletedMark {
-			for _, d := range rest[i+1:] {
-				deleted[string(d)] = true
+	names := make([]string, 0, len(rest))
+	prefix, isDeleted := "", false
+	for i := 0; i < len(rest); i++ {
+		s := string(rest[i])
+		switch s {
+		case filesDeletedMark:
+			isDeleted = true
+			continue
+		case filesWalkMark:
+			prefix, isDeleted = "", false
+			continue
+		case filesRepoMark:
+			i++
+			if i < len(rest) {
+				prefix, isDeleted = strings.TrimPrefix(string(rest[i]), "./")+"/", false
 			}
-			rest = rest[:i]
-			break
+			continue
+		}
+		s = prefix + strings.TrimPrefix(s, "./")
+		if isDeleted {
+			deleted[s] = true
+		} else {
+			names = append(names, s)
 		}
 	}
-	seen := make(map[string]bool, len(rest))
-	for _, p := range rest {
-		s := strings.TrimPrefix(string(p), "./")
-		if s == "" || seen[s] || deleted[s] || strings.HasPrefix(s, ".nextboard-trash/") {
+	seen := make(map[string]bool, len(names))
+	for _, s := range names {
+		// A name ending in a slash is a repository inside a repository, not a file.
+		if s == "" || strings.HasSuffix(s, "/") || seen[s] || deleted[s] ||
+			strings.HasPrefix(s, ".nextboard-trash/") || strings.Contains(s, "/.nextboard-trash/") {
 			continue
 		}
 		seen[s] = true
@@ -182,7 +221,7 @@ func searchScript(o SearchOptions) string {
 	var rg, gg, gr []string
 	rg = append(rg, "rg", "--null", "--line-number", "--no-heading", "--color=never", "--no-messages", "--hidden", "--max-filesize", "1M", "-g", "'!.git'")
 	gg = append(gg, gitSafe+"grep", "-z", "-n", "-I", "--untracked", "--exclude-standard")
-	gr = append(gr, "grep", "-rnI", "--null", "--exclude-dir=.git")
+	gr = append(gr, "grep", "-rnIs", "--null", "--exclude-dir=.git")
 	for name := range PruneDirs {
 		gr = append(gr, "--exclude-dir="+machine.Quote(name))
 	}
@@ -235,9 +274,11 @@ func Search(ctx context.Context, h machine.Host, root string, o SearchOptions) (
 		return nil, err
 	}
 	// Tools exit 1 for "no match" and 2 (git grep: 128) for a bad pattern or
-	// usage; a partial run is still useful.
-	if res.ExitCode > 1 && !res.TimedOut && !res.Truncated && len(bytes.TrimSpace(res.Stdout)) <= 5 {
-		msg := strings.TrimSpace(string(res.Stderr))
+	// usage; a partial run is still useful. They also exit 2 for a folder they
+	// could not read, but rg --no-messages and grep -s say nothing about that:
+	// silence means nothing matched in what could be read.
+	msg := strings.TrimSpace(string(res.Stderr))
+	if res.ExitCode > 1 && msg != "" && !res.TimedOut && !res.Truncated && len(bytes.TrimSpace(res.Stdout)) <= 5 {
 		if o.Regex {
 			return nil, fmt.Errorf("%w: %s", ErrBadPattern, msg)
 		}

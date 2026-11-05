@@ -218,7 +218,13 @@ Folder project boleh berupa folder induk yang berisi beberapa repository, dengan
 
 **Web:** pilihan repository disimpan per project di browser dan dipakai bersama oleh pill, panel Git, kartu Branches, dan Source Control di Code studio. Picker tersembunyi bila repository kurang dari dua. Dekorasi Explorer dan gutter editor mengikuti repository terpilih saja.
 
-**Belum:** daftar file studio (Explorer, Go to file, Search) di folder induk yang bukan repository memakai `find` dengan daftar prune, bukan `.gitignore` tiap repository. Baris project di home screen masih membaca repository project itu sendiri. Android dan desktop belum punya picker; tanpa `?repo=` perilakunya tetap.
+**Folder induk yang bukan repository:**
+- Go to file membaca tiap repository di bawahnya (≤ 5 level, ≤ 50 repository) lewat git-nya sendiri, sehingga `.gitignore`-nya berlaku. Sisanya lewat `find` dengan daftar prune, `source` tetap `walk`.
+- Search dengan ripgrep juga mengikuti `.gitignore` tiap repository. Tanpa ripgrep, hanya daftar prune yang berlaku.
+- Folder yang tidak bisa dibaca hanya menghilangkan folder itu, bukan seluruh daftar atau pencarian.
+- Baris project di home screen menjumlahkan repository di bawah folder itu.
+
+**Belum:** Explorer tidak meredupkan file yang di-ignore di repository di bawah folder induk. Android dan desktop belum punya picker; tanpa `?repo=` perilakunya tetap.
 
 **Verifikasi (This PC, 2026-11-03):** `go test -race ./internal/gitsvc` (`TestRepos*`, `TestSubRepo*`, `TestNestedInOuterRepo`, `TestInitRefusedAboveRepos`, `TestPick`), `internal/server TestGitMultiRepo`, `internal/orch TestGitSteps`. `NEXTBOARD_SSHD_TEST=1 go test ./internal/machine -run TestGitReposOverSSH` (sshd sementara, login shell zsh, nama folder dengan spasi). Chrome headless lewat Playwright terhadap hub dan Vite sementara: folder induk, repository + nested, satu repository, folder kosong (panel, pill, kartu Branches, Source Control, command bar).
 
