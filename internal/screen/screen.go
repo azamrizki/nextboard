@@ -107,17 +107,22 @@ func (m *vtModel) Reset() {
 		_, _ = e.Write(fmt.Appendf(nil, "\x1b[%d;%dr", top, e.Height()))
 		return true
 	})
-	// It also repeats a character as often as it is told, while the screen's lock is
-	// held. More than the screen can show changes nothing.
-	e.RegisterCsiHandler('b', func(params ansi.Params) bool {
-		n, _, _ := params.Param(0, 1)
-		limit := e.Width() * e.Height()
-		if n <= limit {
-			return false
-		}
-		_, _ = e.Write(fmt.Appendf(nil, "\x1b[%db", limit))
-		return true
-	})
+	// It also does as often as it is told what has no effect past the screen, while
+	// the screen's lock is held: repeat a character, erase characters, tab either way.
+	limitCount := func(final rune, limit func() int) {
+		e.RegisterCsiHandler(int(final), func(params ansi.Params) bool {
+			n, _, _ := params.Param(0, 1)
+			if n <= limit() {
+				return false
+			}
+			_, _ = e.Write(fmt.Appendf(nil, "\x1b[%d%c", limit(), final))
+			return true
+		})
+	}
+	limitCount('b', func() int { return e.Width() * e.Height() })
+	for _, final := range "IZX" {
+		limitCount(final, e.Width)
+	}
 	m.e = e
 	// The emulator answers queries into a pipe; it must always be drained
 	// or Write blocks.

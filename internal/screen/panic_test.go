@@ -93,6 +93,28 @@ func TestEmulatorPanicStartsItOver(t *testing.T) {
 	}
 }
 
+func TestCountsPastTheScreenDoWhatTheySay(t *testing.T) {
+	m := model(t, 10, 2)
+	m.Write([]byte("abcdefghij\x1b[1;4H\x1b[99999999X"))
+	if got := strings.TrimRight(m.Lines()[0], " "); got != "abc" {
+		t.Errorf("erase to the end of the line: %q", got)
+	}
+	m = model(t, 20, 2)
+	m.Write([]byte("\x1b[99999999Ix"))
+	if x, _ := m.Cursor(); x != 20 && x != 19 {
+		t.Errorf("tab to the right edge: cursor at %d", x)
+	}
+	m.Write([]byte("\r\x1b[1;15H\x1b[99999999Zy"))
+	if x, _ := m.Cursor(); x != 1 {
+		t.Errorf("back tab to the left edge: cursor at %d", x)
+	}
+	m = model(t, 20, 2)
+	m.Write([]byte("\x1b[2Ix"))
+	if x, _ := m.Cursor(); x != 17 {
+		t.Errorf("a small tab count: cursor at %d", x)
+	}
+}
+
 // A model that loses output, to see what the screen makes of it.
 type losingModel struct {
 	Model
