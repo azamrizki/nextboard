@@ -32,7 +32,7 @@ Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini
 |---|---|
 | Versi | `0.1.0-dev` |
 | Teknologi | Go 1.26, React 19 + TypeScript + Vite |
-| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 35 ribu baris tes (119 file, 660 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
+| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 35 ribu baris tes (121 file, 660 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
 | Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
 | Penyimpanan | File JSON di `~/.nextboard/`, tanpa database |
 | Target build | Linux dan macOS, amd64 dan arm64. Tile aplikasi desktop hanya Linux. Semua uji nyata yang tercatat dilakukan di Linux |
@@ -736,7 +736,7 @@ Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go in
 
 **Aturan di host bersama.** Kalau This PC juga menjalankan layanan lain, test ikut memakai memori yang sama, dan `/tmp` bisa punya kuota per user. Helper test rekursif pernah memunculkan ratusan `Xtigervnc` sampai OOM killer menghantam layanan lain. Jadi: test yang memunculkan proses dijalankan satu kasus kecil dulu dengan `-timeout`, proses sisa dihitung sesudahnya, dan test tidak boleh meng-exec dirinya sendiri tanpa guard.
 
-**CI dan rilis.** Belum aktif di GitHub: `.github/workflows` belum ikut di repo, karena token yang dipakai untuk push belum punya scope `workflow`. Isinya nanti: `make web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...`; tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`.
+**CI dan rilis.** Belum aktif di GitHub: `.github/workflows` belum ikut di repo, karena token yang dipakai untuk push belum punya scope `workflow`. Isinya nanti: `make web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...`; tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`. `go vet` dan perintah test itu lolos pada 2026-11-05 di container Ubuntu 24.04 (user biasa, bash, tanpa identitas git, tmux, sway, dan `ping`, memakai `-p 2` dan batas memori 4 GB). Di runner GitHub sendiri belum pernah jalan, dan `release.yml` belum pernah diuji.
 
 **Deploy.** `deploy/nginx.conf.example` + `deploy/nextboard-proxy.inc`:
 
