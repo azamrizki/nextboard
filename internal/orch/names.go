@@ -61,7 +61,30 @@ func Similar(typed, name string) bool {
 		return true
 	}
 	p, q := Metaphone(typed), Metaphone(name)
-	return p != "" && p == q
+	return p != "" && p == q || indonesianKey(typed) == indonesianKey(name)
+}
+
+var (
+	indonesianLetters = strings.NewReplacer("dj", "j", "tj", "c", "oe", "u", "kh", "k", "dh", "d", "sy", "s", "sh", "s", "ch", "c",
+		"ph", "p", "f", "p", "v", "p", "z", "s", "q", "k", "y", "i")
+	indonesianVowels = strings.NewReplacer("ai", "e", "ei", "e", "au", "o")
+)
+
+// indonesianKey folds the ways one Indonesian name gets written: old spelling
+// (Djihan), loan letters (Arkhan, Syifa, Nopal for Naufal), two-way diphthongs
+// (Raihan, Reyhan), doubled letters (Daffa) and a final h (Aisyah). Default
+// handles are Indonesian names, which Metaphone is not made for.
+func indonesianKey(name string) string {
+	s := indonesianVowels.Replace(indonesianLetters.Replace(name))
+	var b strings.Builder
+	var last rune
+	for _, r := range s {
+		if r != last {
+			b.WriteRune(r)
+		}
+		last = r
+	}
+	return strings.TrimSuffix(b.String(), "h")
 }
 
 // Metaphone returns the primary Double Metaphone key (Lawrence Philips'

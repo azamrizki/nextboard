@@ -174,7 +174,7 @@ Teks yang tidak cocok dan tanpa addressee → planner bila tersedia; tanpa plann
 - **Lingkup:** command bar utama menjangkau **semua board (workspace) project**; `workspaceId` request hanya menentukan board yang sedang dibuka (tempat `spawn`, `node.add`, loop mendarat, dan grup yang menang bila namanya kembar). Kartu orchestrator tetap hanya board-nya sendiri. "Semua"/`@everyone`, `pause`, `kill all`, `status`, `push memory` berlaku untuk semua board project; project lain hanya tercapai lewat handle eksplisit. Prompt konfirmasi kill menyebut jumlah board bila lebih dari satu.
 - Grup tetap satu board: anggota dari board berbeda ditolak (`consoles on different boards cannot share a group`), wire kartu hanya ke console di board-nya, dan loop `allAgents` hanya agen di board tempat loop dibuat.
 - Urutan resolusi: handle (hub-wide; dalam lingkup kartu hanya yang ter-wire) → nama grup (board yang dibuka dulu, lalu board lain urut tab) → role (`@reviewers` = anggota semua grup ber-role itu) → agen (`@codex` = semua console agen itu dalam lingkup).
-- Cocok persis setelah normalisasi (huruf kecil, buang non-alfanumerik) → target langsung. Tidak persis → kandidat dengan jarak Damerau-Levenshtein ≤ 1 (nama ≤ 4 huruf) atau ≤ 2 (lebih panjang), atau kunci primer Double Metaphone sama → konfirmasi `didYouMean` (satu kandidat) atau `sendToAll` (beberapa).
+- Cocok persis setelah normalisasi (huruf kecil, buang non-alfanumerik) → target langsung. Tidak persis → kandidat dengan jarak Damerau-Levenshtein ≤ 1 (nama ≤ 4 huruf) atau ≤ 2 (lebih panjang), atau kunci primer Double Metaphone sama, atau ejaan Indonesia yang sama (Nopal/Naufal, Raihan/Reyhan, Djihan/Jihan) → konfirmasi `didYouMean` (satu kandidat) atau `sendToAll` (beberapa).
 - Mention tanpa teks → balasan hub "What should @Ash do?" tanpa order.
 - Satu mention + teks → verbatim. Beberapa target atau grup/role → planner (membagi kerja); tanpa planner → §3.11.
 
@@ -697,7 +697,7 @@ Status per butir setelah implementasi dan verifikasi ada di §21; butir 1 dan 2 
 4. **`whileWorking:"type"`**: hanya aman untuk CLI yang mengantrekan input saat bekerja; perlu daftar per CLI.
 5. **SIGSTOP pada TUI Node/Rust**: permintaan API yang sedang berjalan bisa timeout; redraw setelah SIGCONT; `ps -o tpgid=`/`sid=` di BusyBox mungkin tidak ada → `409 pid_unknown`.
 6. **Bingkai grup** dihitung klien; dua klien memindahkan anggota bersamaan bisa membuat bingkai sedikit tidak akurat sampai patch berikutnya (last-writer-wins).
-7. **Pencocokan fonetik** (Double Metaphone) hanya cocok untuk nama berbahasa Inggris; nama handle bawaan dipilih supaya berbeda bunyi.
+7. **Pencocokan fonetik:** Double Metaphone hanya cocok untuk nama berbahasa Inggris, sedangkan ejaan Indonesia punya pelipatan sendiri (`indonesianKey`). Nama handle bawaan tetap berbeda menurut pelipatan itu (`TestDefaultHandlesFoldApart`).
 8. **Ringkasan handoff di This PC** untuk sumber remote memindahkan isi transcript remote ke This PC (masih milik user); butuh persetujuan pemilik bila dianggap sensitif.
 9. **Cron** memakai zona waktu hub; klien di zona lain melihat `nextRunAt` UTC.
 10. **Laporan untuk agen tanpa transcript** diambil dari layar dan bisa berisi sisa UI.
