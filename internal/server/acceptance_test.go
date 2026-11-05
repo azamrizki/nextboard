@@ -617,6 +617,60 @@ func TestServerConsoleComesBackAfterADrop(t *testing.T) {
 	again.mustSee("nb-after-2")
 }
 
+// An agent the hub has no rules for: it says when it waits for an answer, and a
+// silent stretch without its prompt does not end its turn.
+func TestAgentWithoutRules(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "plainagent")
+	script := `#!/bin/sh
+printf '> '
+read order
+printf 'I will change a file.\r\n'
+printf 'Apply this change? (y/n) '
+read answer
+sleep 7
+printf 'Done.\r\n> '
+read next
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if st, a := h.do("POST", "/api/agents", map[string]any{"id": "plain", "name": "Plain", "command": bin}, nil); st != 201 {
+		t.Fatalf("agent %d %v", st, a)
+	}
+	st, in := h.do("POST", "/api/sessions", map[string]any{"agent": "plain", "cwd": dir}, nil)
+	if st != 201 {
+		t.Fatalf("console %d %v", st, in)
+	}
+	id := in["id"].(string)
+	state := func(want string) func(map[string]any) bool {
+		return func(in map[string]any) bool { return in["agentState"] == want }
+	}
+	h.waitInfo(id, "ready at its prompt", state("ready"))
+	if st, _ := h.do("POST", "/api/sessions/"+id+"/input", map[string]any{"data": "go\r"}, nil); st != 200 {
+		t.Fatalf("input %d", st)
+	}
+	asked := h.waitInfo(id, "the question", state("needsYou"))
+	if !strings.Contains(fmt.Sprint(asked["activity"]), "(y/n)") {
+		t.Errorf("activity %v", asked["activity"])
+	}
+	if st, _ := h.do("POST", "/api/sessions/"+id+"/input", map[string]any{"data": "y\r"}, nil); st != 200 {
+		t.Fatalf("answer %d", st)
+	}
+	h.waitInfo(id, "back to work", state("working"))
+	// Silent, with no prompt on the screen, past the old 3 seconds.
+	time.Sleep(5 * time.Second)
+	if _, in := h.do("GET", "/api/sessions/"+id, nil, nil); in["agentState"] != "working" {
+		t.Errorf("silent work read as %v", in["agentState"])
+	}
+	done := h.waitInfo(id, "done, at its prompt", state("ready"))
+	if turn, _ := done["lastTurn"].(map[string]any); turn == nil || turn["endedAt"] == nil {
+		t.Errorf("the turn did not end: %v", done["lastTurn"])
+	}
+}
+
 func asJSON(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)

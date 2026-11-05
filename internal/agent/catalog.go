@@ -168,6 +168,9 @@ func Catalog() []Agent {
 		if e.cont != nil {
 			a.Resume = Resume{Kind: ResumeContinue, ContinueArgs: e.cont}
 		}
+		if e.id == "opencode" {
+			a.ScreenRules = "opencode" // its input prompt only, see inputShapes
+		}
 		out = append(out, a.normalize())
 	}
 	return out

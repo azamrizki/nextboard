@@ -221,6 +221,124 @@ func TestActivityMode(t *testing.T) { // T18 without screen rules
 	e.mustBe(t, Working, SrcActivity)
 }
 
+// A Return starts a turn even when the agent prints nothing for a while: the quiet
+// before it says nothing about the turn. It ended at the next tick.
+func TestActivityModeSubmitInTheQuiet(t *testing.T) {
+	e, now := running(Config{}, LiveScreen)
+	e.Tick(adv(now, 10*time.Second))
+	e.mustBe(t, Ready, SrcActivity)
+	e.Input([]byte("go\r"), *now)
+	e.mustBe(t, Working, SrcActivity)
+	e.Tick(adv(now, 250*time.Millisecond))
+	e.mustBe(t, Working, SrcActivity)
+	e.Tick(adv(now, 3*time.Second))
+	e.mustBe(t, Ready, SrcActivity)
+}
+
+func TestGenericScreenSilentThinking(t *testing.T) {
+	e, now := running(Config{}, LiveScreen)
+	e.GenericScreen(Screen{Ready: true}, adv(now, 10*time.Second))
+	e.Tick(*now)
+	e.mustBe(t, Ready, SrcActivity)
+	e.Input([]byte("\r"), *now)
+	e.Output(adv(now, 100*time.Millisecond)) // the echo
+
+	// No output and no input prompt: it may be thinking.
+	e.GenericScreen(Screen{}, adv(now, 5*time.Second))
+	e.Tick(*now)
+	e.mustBe(t, Working, SrcActivity)
+	// But not for ever: a CLI whose prompt we do not know must still end.
+	e.Tick(adv(now, UnknownIdleAfter))
+	e.mustBe(t, Ready, SrcActivity)
+}
+
+func TestGenericScreenPromptEndsTheTurnAtOnce(t *testing.T) {
+	e, now := running(Config{}, LiveScreen)
+	e.Output(adv(now, time.Second))
+	e.Tick(*now)
+	e.mustBe(t, Working, SrcActivity)
+	e.GenericScreen(Screen{Ready: true}, adv(now, IdleAfter))
+	e.Tick(*now)
+	e.mustBe(t, Ready, SrcActivity)
+}
+
+func TestGenericScreenWorkingHintOutlastsTheQuiet(t *testing.T) {
+	e, now := running(Config{}, LiveScreen)
+	e.GenericScreen(Screen{Working: true}, adv(now, time.Minute))
+	e.Tick(*now)
+	e.mustBe(t, Working, SrcActivity)
+	e.Tick(adv(now, 5*time.Minute))
+	e.mustBe(t, Working, SrcActivity)
+	e.GenericScreen(Screen{Ready: true}, adv(now, time.Second))
+	e.Tick(*now)
+	e.mustBe(t, Ready, SrcActivity)
+}
+
+func TestGenericScreenDialog(t *testing.T) {
+	e, now := running(Config{}, LiveScreen)
+	e.Output(adv(now, time.Second))
+	e.Tick(*now)
+	e.mustBe(t, Working, SrcActivity)
+
+	// Text still arriving: prose in a reply, not a dialog.
+	q := Screen{NeedsYou: "Do you want me to go on?"}
+	e.GenericScreen(q, adv(now, StableFor))
+	e.Output(adv(now, time.Second))
+	e.GenericScreen(q, *now)
+	e.mustBe(t, Working, SrcActivity)
+
+	// It stands still.
+	e.GenericScreen(Screen{NeedsYou: "Apply? (y/n)"}, adv(now, ReadyQuiet))
+	e.GenericScreen(Screen{NeedsYou: "Apply? (y/n)"}, adv(now, StableFor))
+	e.mustBe(t, NeedsYou, SrcScreen)
+	if ev := e.TakeEvents(); len(ev) == 0 || ev[len(ev)-1].Kind != EvNeedsYou {
+		t.Fatalf("no needsYou event: %+v", ev)
+	}
+	// Waiting is not idle: the timer must not call it ready.
+	e.Tick(adv(now, time.Hour))
+	e.mustBe(t, NeedsYou, SrcScreen)
+
+	// Answered.
+	e.GenericScreen(Screen{}, adv(now, time.Second))
+	e.mustBe(t, Working, SrcScreen)
+	e.GenericScreen(Screen{Ready: true}, adv(now, time.Second))
+	e.Tick(*now)
+	e.mustBe(t, Ready, SrcActivity)
+}
+
+// A line-based CLI leaves the question on the screen. Return answers it, and the
+// same text is not a new question until something else has been on the screen.
+func TestGenericScreenAnsweredQuestionStaysDrawn(t *testing.T) {
+	e, now := running(Config{}, LiveScreen)
+	q := Screen{NeedsYou: "Do you want me to go on?"}
+	e.GenericScreen(q, adv(now, 5*time.Second))
+	e.GenericScreen(q, adv(now, StableFor))
+	e.mustBe(t, NeedsYou, SrcScreen)
+
+	e.Input([]byte("y\r"), adv(now, time.Second))
+	e.mustBe(t, Working, SrcActivity)
+	e.GenericScreen(q, adv(now, 3*time.Second))
+	e.GenericScreen(q, adv(now, 3*time.Second))
+	e.mustBe(t, Working, SrcActivity)
+
+	e.GenericScreen(Screen{}, adv(now, time.Second))
+	e.GenericScreen(q, adv(now, 3*time.Second))
+	e.GenericScreen(q, adv(now, StableFor))
+	e.mustBe(t, NeedsYou, SrcScreen)
+}
+
+// Screen rules and hooks stay in charge where they exist.
+func TestGenericScreenIgnoredElsewhere(t *testing.T) {
+	e, now := running(Config{HasRules: true}, LiveScreen)
+	e.Screen(Screen{Ready: true}, adv(now, 5*time.Second))
+	before := e.Snapshot().AgentState
+	e.GenericScreen(Screen{NeedsYou: "Apply? (y/n)"}, adv(now, time.Minute))
+	e.GenericScreen(Screen{NeedsYou: "Apply? (y/n)"}, adv(now, time.Minute))
+	if got := e.Snapshot().AgentState; got != before {
+		t.Errorf("rules mode: %s, then %s", before, got)
+	}
+}
+
 func TestStartingTimeout(t *testing.T) { // T19
 	e, now := running(Config{HasRules: true}, LivePending)
 	e.Tick(adv(now, 59*time.Second))

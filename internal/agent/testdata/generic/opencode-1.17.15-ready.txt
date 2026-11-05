@@ -1,0 +1,30 @@
+cursor=16,15 alt=true rules=opencode
+
+
+
+
+
+
+
+
+                                                                ▄
+                               █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                               █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                               ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+             ┃
+             ┃  Ask anything... "What is the tech stack of this project?"
+             ┃
+             ┃  Build · Big Pickle OpenCode
+             ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                             tab agents  ctrl+p commands
+
+
+
+                      ● Tip Run /connect to add an AI provider and start coding
+
+
+
+
+  /home/alice/project  ⊙ 1 MCP /status                       1.17.15

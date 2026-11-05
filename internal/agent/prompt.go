@@ -39,6 +39,9 @@ var inputShapes = map[string][]inputShape{
 	"codex": {{cursor: regexp.MustCompile(`^›(\s|$)`)}, {cursor: regexp.MustCompile(`^▌(\s|$)`)}},
 	// Gemini (unverified): "│ > Type your message…" in a box.
 	"gemini": {{cursor: regexp.MustCompile(`^\s*│\s*>\s`)}},
+	// OpenCode 1.17.15: no prompt character, the cursor sits in a box with a heavy
+	// bar at its left, on "┃  Ask anything…" or on what was typed.
+	"opencode": {{cursor: regexp.MustCompile(`^\s*┃\s{2}`)}},
 	// Agents without screen rules: a prompt character at the cursor line.
 	"": {{cursor: regexp.MustCompile(`^\s*(│\s*)?[>❯›»](\s|$)`)}},
 }
@@ -48,24 +51,40 @@ var inputShapes = map[string][]inputShape{
 // dialog wording that also occurs in replies ("Do you want me to …?"), so
 // they are only checked right next to the cursor of agents without a
 // structural input box.
-var strongDialog = compileAll(
+var strongDialog = append(append(compileAll(`(?i)\besc(ape)?\s+(to\s+)?cancel\b`), uiDialog...), lineQuestion...)
+
+// uiDialog are the markers of a dialog a TUI draws and removes again.
+var uiDialog = compileAll(
 	`^\s*[❯›>▶➤→»]\s*\d+[.)]\s`, // selected numbered option
 	`(?i)\b(enter|return)\s+(to\s+)?(confirm|continue|select|submit|accept|choose)\b`,
-	`(?i)\besc(ape)?\s+(to\s+)?(cancel|skip|exit|go back|dismiss|close)\b`,
+	`(?i)\besc(ape)?\s+(to\s+)?(skip|exit|go back|dismiss|close)\b`,
 	`(?i)\bupdate now\b`,
 	`(?i)\bskip until next version\b`,
-	`(?i)\[\s*y\s*/\s*n\s*\]|\(\s*y\s*/\s*n\s*\)`,
-	`(?i)\bpress any key\b`,
 	`(?i)\buse arrow keys\b|↑/↓|\(↑↓\)`,
 )
 
-var weakDialog = compileAll(
+// lineQuestion are questions a line-based CLI prints: once answered they stay on
+// the screen, so only the one the cursor is on is still asking.
+var lineQuestion = compileAll(
+	`(?i)\[\s*y\s*/\s*n\s*\]|\(\s*y\s*/\s*n\s*\)`,
+	`(?i)\(y\)es\s*/\s*\(n\)o`, // aider: (Y)es/(N)o/(D)on't ask again
+	`(?i)\bpress any key\b`,
+)
+
+var weakDialog = append(append([]*regexp.Regexp{}, dialogWording...), proseQuestion...)
+
+// dialogWording is what dialogs say; proseQuestion is how a reply may end as well.
+var dialogWording = compileAll(
 	`(?i)^[^│╭╰|]*\bupdate available\b`,
 	`(?i)^\s*\d+[.)]\s+(yes|no|skip|update|allow|deny|cancel|continue|exit|quit|trust|always|never|approve|reject)\b`,
-	`(?i)\bdo you (want|trust|wish|agree)\b`,
-	`(?i)\b(would you like to|allow (this|command|access|execution))\b`,
+	`(?i)\b(allow (this|command|access|execution))\b`,
 	`(?i)\b(select|choose)\s+(a|an|the|your)\s+(login|account|theme|model|method|option|folder|directory|plan|style)\b`,
 	`(?i)\b(log|sign)\s?in\s+(with|to|using)\b`,
+)
+
+var proseQuestion = compileAll(
+	`(?i)\bdo you (want|trust|wish|agree)\b`,
+	`(?i)\bwould you like to\b`,
 )
 
 func compileAll(ps ...string) []*regexp.Regexp {
@@ -148,6 +167,10 @@ func neighbour(lines []string, y, dir int) string {
 // replaced the box. Otherwise strong markers are searched in the bottom
 // lines and around the cursor, weak wording right next to the cursor.
 func dialogLine(lines []string, cursorY int, boxed bool) string {
+	return dialogLineIn(lines, cursorY, boxed, strongDialog, weakDialog)
+}
+
+func dialogLineIn(lines []string, cursorY int, boxed bool, strong, weak []*regexp.Regexp) string {
 	check := func(i int, pats []*regexp.Regexp) string {
 		if i < 0 || i >= len(lines) || strings.TrimSpace(lines[i]) == "" {
 			return ""
@@ -161,7 +184,7 @@ func dialogLine(lines []string, cursorY int, boxed bool) string {
 	}
 	if boxed {
 		for i := cursorY - 1; i < len(lines); i++ {
-			if l := check(i, strongDialog); l != "" {
+			if l := check(i, strong); l != "" {
 				return l
 			}
 		}
@@ -173,17 +196,17 @@ func dialogLine(lines []string, cursorY int, boxed bool) string {
 			continue
 		}
 		n++
-		if l := check(i, strongDialog); l != "" {
+		if l := check(i, strong); l != "" {
 			return l
 		}
 	}
 	for i := cursorY - cursorWindow; i <= cursorY+cursorWindow; i++ {
-		if l := check(i, strongDialog); l != "" {
+		if l := check(i, strong); l != "" {
 			return l
 		}
 	}
 	for i := cursorY - weakWindow; i <= cursorY+weakWindow; i++ {
-		if l := check(i, weakDialog); l != "" {
+		if l := check(i, weak); l != "" {
 			return l
 		}
 	}

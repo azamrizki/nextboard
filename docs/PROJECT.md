@@ -877,8 +877,8 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Area | Celah |
 |---|---|
 | Workbench | Debug Node belum punya source map dan proses anak. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History hanya untuk project di This PC |
-| Agent di server | Preview. Skill dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git memakai kredensial server. OpenCode belum punya aturan layar (tile selalu `WORKING`); login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
-| Status dan delivery | Agent tanpa hooks bisa salah terbaca `ready`. Daftar CLI aman untuk `whileWorking:"type"` belum ada. Ctrl-Z, serta Ctrl-U di vi-mode dan fish, belum diuji |
+| Agent di server | Preview. Skill dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git memakai kredensial server. OpenCode belum pernah diamati saat menjalankan giliran; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
+| Status dan delivery | Agent tanpa aturan layar dibaca secara generik: berpikir tanpa output di layar prompt masih bisa terbaca `ready` sesudah 3 detik, di layar lain sesudah 15 detik. Daftar CLI aman untuk `whileWorking:"type"` belum ada. Ctrl-Z, serta Ctrl-U di vi-mode dan fish, belum diuji |
 | Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan. Parser hanya bahasa Inggris |
 | Multi-repo | Explorer tidak meredupkan file yang di-ignore di repo di bawah folder induk. Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
 | Git | Menulis ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup. Hook commit yang butuh TTY belum diuji |

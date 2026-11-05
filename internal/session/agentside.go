@@ -229,6 +229,14 @@ func (s *Session) tick(now time.Time) {
 			s.scrVersion, s.scrEvalAt = sn.Version, now
 		}
 		s.eng.Screen(s.match, now)
+	} else if s.ag.Kind == agent.KindAgent {
+		if v := s.scr.Version(); v != s.scrVersion && (now.Sub(s.scrEvalAt) >= evalEvery || now.Sub(s.lastOutput) >= evalQuiet) {
+			sn := s.scr.Snapshot()
+			m := agent.GenericEvaluate(s.ag.ScreenRules, sn.Lines, sn.CursorY)
+			s.match = agentstate.Screen{NeedsYou: m.NeedsYou, Working: m.Working, Ready: m.Ready}
+			s.scrVersion, s.scrEvalAt = sn.Version, now
+		}
+		s.eng.GenericScreen(s.match, now)
 	}
 	s.eng.Tick(now)
 	force := s.actPending && now.Sub(s.actSentAt) >= activityEvery

@@ -331,7 +331,7 @@ Field pendamping: `stateSource` (`hooks|notify|screen|activity|process|wrapper`;
 | T15 | pola needsYou cocok, stabil 300 ms | screen | `working`, `ready` | `needsYou` | baris yang cocok |
 | T16 | pola needsYou hilang | screen | `needsYou` | `working` | — |
 | T17 | pola ready cocok dan output diam ≥ 1,5 dtk | screen | `working`, `starting` | `ready` | — |
-| T18 | output tercetak dalam 2 dtk terakhir / diam ≥ 3 dtk | activity | — | `working` / `ready` | — |
+| T18 | output tercetak dalam 2 dtk terakhir, atau layar memuat petunjuk kerja / diam ≥ 3 dtk di prompt input, ≥ 15 dtk di layar lain | activity | — | `working` / `ready` | — |
 | T19 | `starting` > 60 dtk tanpa sinyal ready | timer | `starting` | `ready` (`stateSource:"activity"`) | — |
 
 Bila hooks aktif tapi `Stop` terlewat, T8 menyelamatkan state. `session_id` dan `transcript_path` dari payload hook memperbarui `agentSessionId`/`transcriptPath` (sumber otoritatif, termasuk setelah resume yang membuat id baru).
@@ -356,7 +356,13 @@ Data di binary (bukan file user), per id `screenRules`:
   "ready":    [{ "re": "^\\s*[>❯]\\s", "where": "cursorLine" }] }
 ```
 
-Pola di atas hanya ilustrasi. Pola nyata ada di `internal/agent/rules.go`, diuji terhadap dump layar versi terpasang di `internal/agent/testdata/screens/<cli>-<versi>-<state>[-ket].txt` (baris pertama `cursor=x,y alt=…`; path disanitasi). RE2, dievaluasi ≤ 2×/dtk atau 150 ms setelah output diam; NO-BREAK SPACE dinormalisasi ke spasi sebelum evaluasi (Claude menggambar `❯`+U+00A0). Agen katalog/custom memakai aturan generik (T18).
+Pola di atas hanya ilustrasi. Pola nyata ada di `internal/agent/rules.go`, diuji terhadap dump layar versi terpasang di `internal/agent/testdata/screens/<cli>-<versi>-<state>[-ket].txt` (baris pertama `cursor=x,y alt=…`; path disanitasi). RE2, dievaluasi ≤ 2×/dtk atau 150 ms setelah output diam; NO-BREAK SPACE dinormalisasi ke spasi sebelum evaluasi (Claude menggambar `❯`+U+00A0). Agen katalog/custom memakai pembacaan generik (`agent.GenericEvaluate`), diuji terhadap dump Claude dan Codex yang sama:
+
+- **needsYou:** penanda dialog TUI di mana saja, `(y/n)` dan sejenisnya hanya di baris kursor, dan pertanyaan seperti `Do you want…` hanya bila kursor tidak di prompt input. Penanda harus diam ≥ 1,5 dtk, supaya prosa balasan yang sedang mengalir tidak memicunya. `\r` dianggap menjawab: teks yang sama tidak dibaca sebagai pertanyaan baru sampai layar berubah.
+- **working:** `esc to interrupt`, `esc to cancel`, `ctrl+c to stop` dan sejenisnya di 6 baris terbawah.
+- **ready:** diam ≥ 3 dtk bila kursor di prompt input. Di layar lain ≥ 15 dtk, karena agen mungkin berpikir tanpa mencetak apa pun dan `ready` palsu mengakhiri order lebih awal. Hitungan diam juga mulai dari `\r` terakhir.
+
+OpenCode tidak punya aturan state, hanya bentuk prompt input (`┃  …` di baris kursor) dari dump 1.17.15. Saat diam, status 1.17.15 di This PC menjadi `ready` sekitar 7 dtk sesudah start (tanpa provider, tanpa prompt). Giliran sungguhan belum pernah diamati.
 
 | CLI | needsYou | working | ready (baris kursor) |
 |---|---|---|---|
@@ -696,7 +702,7 @@ Yolo di server tidak pernah memakai flag lewati-semua milik CLI, sehingga tidak 
 
 Codex 0.165.0 di server yang sama: order lewat command bar sampai, tiga prompt izin MCP terbaca `needsYou`, edit dan `pwd` terjadi di server, `AGENTS.md` server dipatuhi, folder lokal tetap kosong; percobaan langsung lewat `codex exec` menunjukkan shell lokal tidak tersedia dan `apply_patch` lokal ditolak sandbox. Membuka Codex menaikkan penghitung pemberitahuan model di `config.toml` folder config yang dipakai.
 
-**Batas yang diketahui:** skills dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git di server memakai kredensial server; OpenCode belum punya aturan layar, jadi tile selalu `WORKING`, dan login-nya masih di folder OpenCode sendiri karena config-nya tersebar di beberapa variabel XDG. Agen katalog lain belum didukung karena belum terpasang di mesin uji.
+**Batas yang diketahui:** skills dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git di server memakai kredensial server; OpenCode belum pernah diamati saat menjalankan giliran, dan login-nya masih di folder OpenCode sendiri karena config-nya tersebar di beberapa variabel XDG. Agen katalog lain belum didukung karena belum terpasang di mesin uji.
 
 ## 22. Konteks peluncuran
 

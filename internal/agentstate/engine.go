@@ -54,12 +54,15 @@ const (
 
 // Timings of the transition table (§6.3, §15).
 const (
-	StableFor      = 300 * time.Millisecond  // T15 / screen working
-	ReadyQuiet     = 1500 * time.Millisecond // T17
-	ActiveWindow   = 2 * time.Second         // T18 working
-	IdleAfter      = 3 * time.Second         // T18 ready
-	StartingMax    = 60 * time.Second        // T19
-	ActivityMaxLen = 120
+	StableFor    = 300 * time.Millisecond  // T15 / screen working
+	ReadyQuiet   = 1500 * time.Millisecond // T17
+	ActiveWindow = 2 * time.Second         // T18 working
+	IdleAfter    = 3 * time.Second         // T18 ready
+	// UnknownIdleAfter is T18 when the screen is not the agent's input prompt: it
+	// may be thinking in silence, and a false ready ends an order early.
+	UnknownIdleAfter = 15 * time.Second
+	StartingMax      = 60 * time.Second // T19
+	ActivityMaxLen   = 120
 )
 
 // Process statuses the engine receives (session.Status*).
@@ -154,6 +157,12 @@ type Engine struct {
 
 	startedAt  time.Time
 	lastOutput time.Time
+	lastSubmit time.Time // Return typed: the turn starts now, whatever was printed before
+
+	// generic is the last reading of the screen of an agent without rules.
+	generic     Screen
+	genericSeen bool
+	answered    string // the dialog a Return just answered
 
 	// screen stability
 	needsCand   string
@@ -416,8 +425,15 @@ func (e *Engine) Input(data []byte, now time.Time) {
 	if e.cfg.Shell || e.hooksMode() || e.fg == FgShell {
 		return
 	}
-	if e.layer == Ready && strings.ContainsRune(string(data), '\r') {
-		e.setLayer(Working, SrcActivity, "", now)
+	if strings.ContainsRune(string(data), '\r') {
+		e.lastSubmit = now
+		switch {
+		case e.layer == Ready:
+			e.setLayer(Working, SrcActivity, "", now)
+		case e.layer == NeedsYou && e.needsSrc == SrcScreen && e.genericSeen:
+			e.answered = e.needsCand
+			e.setLayer(Working, SrcActivity, "", now)
+		}
 	}
 }
 
@@ -510,6 +526,41 @@ func (e *Engine) hookScreen(m Screen, now time.Time) {
 	}
 }
 
+// GenericScreen takes the reading of the screen of an agent without rules
+// (agent.GenericEvaluate). A dialog raises needsYou once it stands still, which
+// keeps prose in a streaming reply from doing so, and its end returns to working;
+// the rest of the reading refines T18 in Tick.
+func (e *Engine) GenericScreen(m Screen, now time.Time) {
+	if e.cfg.Shell || e.cfg.HasRules || e.fg == FgShell || e.hooksMode() {
+		return
+	}
+	e.generic, e.genericSeen = m, true
+	if m.NeedsYou != "" && m.NeedsYou == e.answered {
+		return // the question just answered, still on the screen
+	}
+	e.answered = ""
+	if m.NeedsYou == "" {
+		e.needsCand = ""
+		if e.layer == NeedsYou && e.needsSrc == SrcScreen { // T16
+			e.setLayer(Working, SrcScreen, "", now)
+		}
+		return
+	}
+	if m.NeedsYou != e.needsCand {
+		e.needsCand, e.needsCandAt = m.NeedsYou, now
+	}
+	if now.Sub(e.needsCandAt) >= StableFor && now.Sub(e.lastOutput) >= ReadyQuiet {
+		switch e.layer {
+		case Working, Ready, Starting:
+			e.setNeedsYou(SrcScreen, clip(m.NeedsYou, ActivityMaxLen), now)
+		case NeedsYou:
+			if e.needsSrc == SrcScreen {
+				e.activity = clip(m.NeedsYou, ActivityMaxLen)
+			}
+		}
+	}
+}
+
 // Tick runs the timers: T18 for agents without screen rules and T19.
 func (e *Engine) Tick(now time.Time) {
 	if e.cfg.Shell || e.fg == FgShell || e.proc != ProcRunning {
@@ -524,12 +575,16 @@ func (e *Engine) Tick(now time.Time) {
 		e.refresh(now)
 		return
 	}
+	idleAfter := IdleAfter
+	if e.genericSeen && !e.generic.Ready {
+		idleAfter = UnknownIdleAfter
+	}
 	switch { // T18
-	case !e.lastOutput.IsZero() && now.Sub(e.lastOutput) < ActiveWindow:
+	case !e.lastOutput.IsZero() && now.Sub(e.lastOutput) < ActiveWindow, e.generic.Working:
 		if e.layer == Ready || e.layer == Starting {
 			e.setLayer(Working, SrcActivity, "", now)
 		}
-	case now.Sub(e.lastOutput) >= IdleAfter && now.Sub(e.startedAt) >= IdleAfter:
+	case now.Sub(e.lastOutput) >= idleAfter && now.Sub(e.lastSubmit) >= idleAfter && now.Sub(e.startedAt) >= IdleAfter:
 		if e.layer == Working || e.layer == Starting {
 			e.setLayer(Ready, SrcActivity, "", now)
 		}
