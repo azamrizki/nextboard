@@ -359,6 +359,37 @@ func TestExpiredCookieIsRefusedAndDropped(t *testing.T) {
 	}
 }
 
+func TestCookieAliveDoesNotExtendASession(t *testing.T) {
+	s := withPassword(t)
+	tok := login(t, s)
+	h := hashSecret(tok)
+	if !s.CookieAlive(tok) || s.CookieAlive("nope") || s.CookieAlive("") {
+		t.Error("wrong answer for a live and a made-up cookie")
+	}
+	s.mu.Lock()
+	old := time.Now().Add(-2 * time.Hour)
+	expires := time.Now().Add(time.Minute)
+	s.file.Sessions[h].LastUsed, s.file.Sessions[h].Expires = old, expires
+	s.mu.Unlock()
+	if !s.CookieAlive(tok) {
+		t.Error("session went away")
+	}
+	if got := s.file.Sessions[h]; !got.LastUsed.Equal(old) || !got.Expires.Equal(expires) {
+		t.Error("asking extended the session")
+	}
+	s.mu.Lock()
+	s.file.Sessions[h].Expires = time.Now().Add(-time.Second)
+	s.mu.Unlock()
+	if s.CookieAlive(tok) {
+		t.Error("an expired session counts as alive")
+	}
+	tok = login(t, s)
+	s.Logout(tok)
+	if s.CookieAlive(tok) {
+		t.Error("alive after logout")
+	}
+}
+
 // --- changes from CLI subcommands while the service runs ---
 
 func TestServiceSeesCLIChanges(t *testing.T) {

@@ -2,7 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
+	"time"
 )
 
 // Broker fans JSON events out to /api/events subscribers.
@@ -71,17 +73,57 @@ func (b *Broker) Publish(v any) {
 	}
 }
 
-// connRegistry tracks live WebSockets per paired device so revoking a
-// device can cut them immediately.
+// cookieConnPrefix marks the sockets of a browser login in connRegistry, next to
+// those of paired devices. loginCheckEvery is how late they notice a login ended
+// from outside: `nextboard reset-password` is another process.
+const (
+	cookieConnPrefix = "cookie:"
+	loginCheckEvery  = 2 * time.Second
+)
+
+// connRegistry tracks live WebSockets per paired device and per browser login,
+// so the end of either can cut them immediately. A socket must not outlive its
+// login: a stolen session would keep its shell after a password reset.
 type connRegistry struct {
 	mu       sync.Mutex
 	next     int
 	conns    map[string]map[int]func()
 	onChange func(deviceID string)
+	// cookieAlive answers for browser logins; watching says loginWatch runs,
+	// which it does only while such sockets are open.
+	cookieAlive func(cookie string) bool
+	watching    bool
 }
 
 func newConnRegistry() *connRegistry {
 	return &connRegistry{conns: map[string]map[int]func(){}}
+}
+
+// loginWatch closes the sockets of browser logins that ended.
+func (c *connRegistry) loginWatch() {
+	t := time.NewTicker(loginCheckEvery)
+	defer t.Stop()
+	for range t.C {
+		var cookies []string
+		c.mu.Lock()
+		for key := range c.conns {
+			if cookie, ok := strings.CutPrefix(key, cookieConnPrefix); ok {
+				cookies = append(cookies, cookie)
+			}
+		}
+		if len(cookies) == 0 {
+			c.watching = false
+			c.mu.Unlock()
+			return
+		}
+		alive := c.cookieAlive
+		c.mu.Unlock()
+		for _, cookie := range cookies {
+			if alive != nil && !alive(cookie) {
+				c.kill(cookieConnPrefix + cookie)
+			}
+		}
+	}
 }
 
 // add registers a kill func for deviceID; the returned func unregisters.
@@ -97,6 +139,10 @@ func (c *connRegistry) add(deviceID string, kill func()) func() {
 	}
 	c.conns[deviceID][id] = kill
 	first := len(c.conns[deviceID]) == 1
+	if strings.HasPrefix(deviceID, cookieConnPrefix) && !c.watching {
+		c.watching = true
+		go c.loginWatch()
+	}
 	c.mu.Unlock()
 	if first && c.onChange != nil {
 		c.onChange(deviceID)

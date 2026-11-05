@@ -115,7 +115,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, p *pri
 	}
 	defer c.Close()
 	conn := newWSConn(c)
-	unregister := s.conns.add(p.DeviceID, conn.revoke)
+	unregister := s.conns.add(p.connKey(), conn.revoke)
 	defer unregister()
 
 	snapshot, sub := sess.Subscribe()
@@ -231,7 +231,7 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request, p *princ
 	}
 	sub := s.events.Subscribe(topics...)
 	defer s.events.Unsubscribe(sub)
-	unregister := s.conns.add(p.DeviceID, conn.revoke)
+	unregister := s.conns.add(p.connKey(), conn.revoke)
 	defer unregister()
 
 	readerDone := make(chan struct{})

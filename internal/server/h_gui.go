@@ -187,7 +187,7 @@ func (s *Server) handleGUIWS(w http.ResponseWriter, r *http.Request, p *principa
 	}
 	defer c.Close()
 	conn := newWSConn(c)
-	unregister := s.conns.add(p.DeviceID, conn.revoke)
+	unregister := s.conns.add(p.connKey(), conn.revoke)
 	defer unregister()
 
 	readerDone := make(chan struct{})
@@ -275,7 +275,7 @@ func (s *Server) handleGUIVideo(w http.ResponseWriter, r *http.Request, p *princ
 	}
 	defer c.Close()
 	conn := newWSConn(c)
-	unregister := s.conns.add(p.DeviceID, conn.revoke)
+	unregister := s.conns.add(p.connKey(), conn.revoke)
 	defer unregister()
 
 	pacer := newVideoPacer()
@@ -493,7 +493,7 @@ func (s *Server) handleGUIAudio(w http.ResponseWriter, r *http.Request, p *princ
 	}
 	defer c.Close()
 	conn := newWSConn(c)
-	unregister := s.conns.add(p.DeviceID, conn.revoke)
+	unregister := s.conns.add(p.connKey(), conn.revoke)
 	defer unregister()
 
 	readerDone := make(chan struct{})

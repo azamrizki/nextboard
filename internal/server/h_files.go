@@ -329,7 +329,7 @@ func (s *Server) bridgeFrames(w http.ResponseWriter, r *http.Request, p *princip
 	}
 	defer c.Close()
 	conn := newWSConn(c)
-	unregister := s.conns.add(p.DeviceID, conn.revoke)
+	unregister := s.conns.add(p.connKey(), conn.revoke)
 	defer unregister()
 
 	readerDone := make(chan struct{})

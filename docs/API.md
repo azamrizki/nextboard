@@ -258,6 +258,7 @@ Klien tidak perlu mengirim apa pun. Server ping setiap 30 detik.
   - `{"t":"r","c":<cols>,"r":<rows>}` resize (ukuran terminal mengikuti resize terakhir dari klien mana pun)
 - Ping setiap 30 detik. Subscriber lambat (buffer 512 penuh) diputus; klien reconnect dan repaint dari snapshot.
 - Device yang di-revoke → semua WebSocket-nya langsung ditutup (close code 4401). Token hanya dicek saat koneksi dibuka; WS yang sudah tersambung tidak diputus saat token kedaluwarsa.
+- Login browser yang berakhir → semua WebSocket login itu ditutup (close code 4401): seketika saat logout, paling lambat sekitar 2 detik saat `nextboard reset-password` dari proses lain atau saat cookie kedaluwarsa. Login lain tidak terganggu.
 - Subscriber yang terlalu lambat / sesi dihapus → close code 1013 (`resubscribe`); klien reconnect.
 
 ## Preset default

@@ -284,6 +284,7 @@ func (s *Server) wire() {
 		}
 		s.events.Publish(map[string]any{"type": "device", "device": s.deviceView(d)})
 	}
+	s.conns.cookieAlive = s.auth.CookieAlive
 	s.conns.onChange = func(deviceID string) {
 		if d, ok := s.auth.Device(deviceID); ok {
 			s.events.Publish(map[string]any{"type": "device", "device": s.deviceView(d)})

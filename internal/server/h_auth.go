@@ -99,6 +99,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, p *principal) {
 	if p.Cookie != "" {
 		s.auth.Logout(p.Cookie)
+		s.conns.kill(p.connKey())
 	}
 	s.clearCookie(w, r)
 	writeJSON(w, http.StatusOK, okBody)

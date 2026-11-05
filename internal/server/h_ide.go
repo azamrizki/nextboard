@@ -52,7 +52,7 @@ func (s *Server) handleIDESocket(w http.ResponseWriter, r *http.Request, p *prin
 	}
 	defer c.Close()
 	conn := newWSConn(c)
-	unregister := s.conns.add(p.DeviceID, conn.revoke)
+	unregister := s.conns.add(p.connKey(), conn.revoke)
 	defer unregister()
 
 	// one writer, as a websocket allows: everything for the browser passes here

@@ -36,6 +36,15 @@ type principal struct {
 	Cookie   string
 }
 
+// connKey is what the caller's open sockets are registered under, to end with
+// its login.
+func (p *principal) connKey() string {
+	if p.Cookie != "" {
+		return cookieConnPrefix + p.Cookie
+	}
+	return p.DeviceID
+}
+
 type handler func(w http.ResponseWriter, r *http.Request, p *principal)
 
 func (s *Server) routes() {

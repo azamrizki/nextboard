@@ -316,6 +316,16 @@ func (s *Store) ValidateCookie(tok string) (ok, renew bool) {
 	return true, renew
 }
 
+// CookieAlive reports whether a cookie session still exists, without extending
+// it: an open socket is not a sign that someone is there.
+func (s *Store) CookieAlive(tok string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refresh()
+	c := s.file.Sessions[hashSecret(tok)]
+	return c != nil && time.Now().Before(c.Expires)
+}
+
 // Logout deletes a cookie session.
 func (s *Store) Logout(tok string) {
 	s.mu.Lock()
