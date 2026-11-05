@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/gitsvc"
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/preview"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/gitsvc"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/preview"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 func sshGit(t *testing.T, dir string, args ...string) string {

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 func b64(n int) string { return base64.StdEncoding.EncodeToString(make([]byte, n)) }

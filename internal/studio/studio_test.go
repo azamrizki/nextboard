@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/board"
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // fakeRunner imitates `claude -p --output-format stream-json` for the

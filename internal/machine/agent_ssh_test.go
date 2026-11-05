@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/machine"
-	"nextboard/internal/marker"
-	"nextboard/internal/transcript"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
 func builtin(id string) agent.Agent {

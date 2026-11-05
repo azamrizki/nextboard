@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/board"
 )
 
 // Landing a diagram (docs/API-studio.md §6) turns nb.diagram/v1 into loose

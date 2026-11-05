@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"nextboard/internal/config"
+	"github.com/azamrizki/nextboard/internal/config"
 )
 
 // In dev mode the accepted Vite origin follows --dev-web-port; outside dev

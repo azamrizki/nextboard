@@ -17,8 +17,8 @@ import (
 
 	"github.com/creack/pty"
 
-	"nextboard/internal/marker"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 func newStore(t *testing.T) *Store {

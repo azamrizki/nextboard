@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // The hidden runner (docs/API-studio.md §2) drives a CLI in headless mode

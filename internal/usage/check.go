@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/machine"
-	"nextboard/internal/screen"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/screen"
 )
 
 // A check (docs/API-studio.md §10.1) starts the CLI in a hidden PTY (not in

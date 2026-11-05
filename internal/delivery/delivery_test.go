@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/session"
-	"nextboard/internal/settings"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/settings"
 )
 
 var t0 = time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)

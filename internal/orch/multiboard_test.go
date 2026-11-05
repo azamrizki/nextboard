@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/project"
 )
 
 func twoBoards(t *testing.T) (*fakeHub, *Service, project.Project, string, string) {

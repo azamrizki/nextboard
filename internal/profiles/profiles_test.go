@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 func TestProfiles(t *testing.T) {

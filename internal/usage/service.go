@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/screen"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/screen"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const reportsFile = "usage/reports.json"

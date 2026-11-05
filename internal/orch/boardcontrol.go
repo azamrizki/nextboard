@@ -6,8 +6,8 @@ import (
 	"path"
 	"strings"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
 )
 
 // Board control (docs/API-orchestration.md §3.6): what lets the planner act on

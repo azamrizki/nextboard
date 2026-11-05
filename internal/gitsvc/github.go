@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // GitHub is GET /api/projects/{id}/github (docs/API-studio.md §3.3). The

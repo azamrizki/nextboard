@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // cleanPath validates a repo-relative path from a client: relative, inside

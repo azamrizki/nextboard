@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/profiles"
-	"nextboard/internal/settings"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/profiles"
+	"github.com/azamrizki/nextboard/internal/settings"
 )
 
 // localEnvVar reads the hub's own environment for This PC (consoles

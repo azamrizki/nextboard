@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/machine"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // A usage check runs the CLI in a private empty folder (owner decision #2).

@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"nextboard/internal/cli"
+	"github.com/azamrizki/nextboard/internal/cli"
 )
 
 func main() {

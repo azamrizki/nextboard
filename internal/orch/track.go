@@ -4,10 +4,10 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/auth"
-	"nextboard/internal/delivery"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Order tracking (docs/API-orchestration.md §4): delivery changes move

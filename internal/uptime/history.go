@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // What a monitor remembers, in its own folder of append-only files (the store's

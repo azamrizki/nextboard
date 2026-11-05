@@ -18,9 +18,9 @@ import (
 	"time"
 	"unicode"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/jobs"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // DocTypes and their titles (§5).

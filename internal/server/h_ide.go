@@ -7,7 +7,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // The editor card's side of the link to Claude consoles (docs/API-agents.md §24).

@@ -12,11 +12,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/agentstate"
-	"nextboard/internal/machine"
-	"nextboard/internal/marker"
-	"nextboard/internal/transcript"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
 // Errors of POST /api/sessions/{id}/agent (§3.3). The server maps them to

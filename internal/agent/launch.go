@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Launch modes (docs/API-agents.md §3.1).

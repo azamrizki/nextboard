@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Step is one unit of work of a command (docs/API-orchestration.md §3.4).

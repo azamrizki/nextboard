@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/machine"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // argAfter returns the value following flag in argv.

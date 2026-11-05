@@ -14,7 +14,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"nextboard/internal/gui"
+	"github.com/azamrizki/nextboard/internal/gui"
 )
 
 // Desktop apps of This PC on board tiles (docs/API-gui.md).

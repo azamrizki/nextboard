@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"regexp"
 
-	"nextboard/internal/board"
-	"nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/project"
 )
 
 var clientIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{0,64}$`)

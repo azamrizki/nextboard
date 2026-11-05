@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Against a real sshd: a key locked with a passphrase, through the same calls the dialog makes.

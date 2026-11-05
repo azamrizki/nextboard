@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/machine"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Token history (docs/API-studio.md §10.3, F4): an incremental index per

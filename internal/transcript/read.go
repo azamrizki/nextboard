@@ -5,7 +5,7 @@ import (
 	"io/fs"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // readTail returns the last n bytes of p. partial reports that the file

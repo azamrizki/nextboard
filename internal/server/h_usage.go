@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"nextboard/internal/machine"
-	"nextboard/internal/usage"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/usage"
 )
 
 // ---- Usage (§10) ----

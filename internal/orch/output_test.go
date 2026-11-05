@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/delivery"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // reportsOf waits until a thread holds n reports.

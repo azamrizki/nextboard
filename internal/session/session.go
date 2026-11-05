@@ -8,12 +8,12 @@ import (
 
 	"sync"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/agentstate"
-	"nextboard/internal/machine"
-	"nextboard/internal/marker"
-	"nextboard/internal/screen"
-	"nextboard/internal/transcript"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/screen"
+	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
 const (

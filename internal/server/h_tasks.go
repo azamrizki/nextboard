@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/studio"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/studio"
 )
 
 // Tasks of a project (docs/API-studio.md §7.12): only what its files name can run.

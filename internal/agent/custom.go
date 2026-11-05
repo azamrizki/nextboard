@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // File holds custom agents (the phase 1–4 presets.json, extended).

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // FindClaude locates <id>.jsonl: the slug folder of cwd first, then any

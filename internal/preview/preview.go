@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/auth"
 )
 
 // Limits and timeouts (docs/API-studio.md §4, §15).

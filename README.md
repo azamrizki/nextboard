@@ -44,6 +44,8 @@ Once a release is tagged, `install.sh` will install prebuilt binaries:
 curl -fsSL https://raw.githubusercontent.com/azamrizki/nextboard/main/install.sh | sh
 ```
 
+Do not use `go install` for now. It builds a hub without the web UI, because the built bundle is not in the repository.
+
 ### Optional tools
 
 | Tool | Used for |

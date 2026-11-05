@@ -3,8 +3,8 @@ package orch
 import (
 	"slices"
 
-	"nextboard/internal/board"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // SyncPeers lists the consoles that also get what is typed in sid: the other

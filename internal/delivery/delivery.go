@@ -19,11 +19,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/agentstate"
-	"nextboard/internal/auth"
-	"nextboard/internal/session"
-	"nextboard/internal/settings"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/settings"
 )
 
 // States (state machine of §2).

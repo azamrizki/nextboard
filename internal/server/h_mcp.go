@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"nextboard/internal/mcpreg"
+	"github.com/azamrizki/nextboard/internal/mcpreg"
 )
 
 // routesMCP serves the registry. A server can name any command, so changing or

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/secret"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/secret"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // testSSHD runs an unprivileged OpenSSH sshd on a random loopback port with

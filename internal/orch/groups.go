@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/board"
 )
 
 // Hub-understood board kinds (docs/API-orchestration.md §1): group,

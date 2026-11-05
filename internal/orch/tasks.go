@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Task boards (docs/API-orchestration.md §3.10): a kanban or checklist tile wired

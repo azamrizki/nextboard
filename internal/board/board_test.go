@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const wid = "w_testboard1"

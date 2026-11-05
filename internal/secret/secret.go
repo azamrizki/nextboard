@@ -11,7 +11,7 @@ import (
 	"io/fs"
 	"os"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Box seals and opens blobs with the hub master key.

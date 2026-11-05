@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Branch is one local branch.

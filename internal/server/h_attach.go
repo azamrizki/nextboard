@@ -15,8 +15,8 @@ import (
 	"time"
 	"unicode"
 
-	"nextboard/internal/machine"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Files pasted into a console or an order (docs/API-studio.md §7.9). A console

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/jobs"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // loopEnv implementation and project memory operations of the Service.

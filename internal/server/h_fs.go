@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 const fsTimeout = 30 * time.Second

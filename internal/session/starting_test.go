@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/machine"
-	"nextboard/internal/secret"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/secret"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // startingShell is a console in the moment a client can already reach it: its process

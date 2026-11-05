@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/jobs"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // execute runs steps in order; a failing step is recorded and later

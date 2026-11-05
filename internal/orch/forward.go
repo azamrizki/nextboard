@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Forwards (docs/API-orchestration.md §10) pass replies between agents:

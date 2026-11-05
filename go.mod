@@ -1,4 +1,4 @@
-module nextboard
+module github.com/azamrizki/nextboard
 
 go 1.26.0
 

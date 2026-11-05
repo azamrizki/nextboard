@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/agentstate"
 )
 
 // One project has one memory: the same folder for the panel, every CLI and the

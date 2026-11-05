@@ -4,7 +4,7 @@ import (
 	"log"
 	"sync"
 
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // maxMirrorPending bounds what waits for one peer that stopped reading.

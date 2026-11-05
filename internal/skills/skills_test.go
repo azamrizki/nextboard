@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/machine"
-	"nextboard/internal/skills"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/skills"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 func write(t *testing.T, p, body string) {

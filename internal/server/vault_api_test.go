@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/vault"
+	"github.com/azamrizki/nextboard/internal/vault"
 )
 
 func vaultKey() map[string]any {

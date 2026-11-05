@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/machine"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // fakeClaude imitates `claude -p` (stream-json or json); FAKE_MODE picks

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 func fixture(t *testing.T, name string) []byte {

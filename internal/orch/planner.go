@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/jobs"
 )
 
 // The optional planner (docs/API-orchestration.md §3.5, owner decision

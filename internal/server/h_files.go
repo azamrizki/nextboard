@@ -13,10 +13,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/project"
-	"nextboard/internal/studio"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/studio"
 )
 
 // Code workbench endpoints (docs/API-studio.md §7.2–§7.4): the file list of "Go

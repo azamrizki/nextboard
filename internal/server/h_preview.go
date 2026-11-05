@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/machine"
-	"nextboard/internal/preview"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/preview"
 )
 
 // Web previews (docs/API-studio.md §4, B17–B19).

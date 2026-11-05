@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 func TestTasksFromFiles(t *testing.T) {

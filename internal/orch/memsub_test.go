@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/project"
 )
 
 func (h *fakeHub) lastEvent(kind string) map[string]any {

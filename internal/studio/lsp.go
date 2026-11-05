@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Language servers (docs/API-studio.md §7.3): the hub starts the machine's own

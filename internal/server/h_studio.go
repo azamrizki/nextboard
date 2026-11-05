@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/board"
-	"nextboard/internal/machine"
-	"nextboard/internal/studio"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/studio"
 )
 
 // ---- Documents (§5) ----

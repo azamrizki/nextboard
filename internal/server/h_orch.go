@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/orch"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/orch"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // HTTP endpoints of docs/API-orchestration.md.

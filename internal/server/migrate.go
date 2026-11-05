@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"nextboard/internal/board"
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 const legacyBoardFile = "board.json"

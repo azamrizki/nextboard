@@ -10,7 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 const (

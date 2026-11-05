@@ -16,12 +16,12 @@ import (
 	"text/template"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/config"
-	"nextboard/internal/machine"
-	"nextboard/internal/server"
-	"nextboard/internal/session"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/config"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/server"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const (

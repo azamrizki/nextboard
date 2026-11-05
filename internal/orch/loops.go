@@ -13,11 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/auth"
-	"nextboard/internal/delivery"
-	"nextboard/internal/session"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Loops (docs/API-orchestration.md §11) run in the hub around the clock,

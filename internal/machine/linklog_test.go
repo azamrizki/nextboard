@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/connlog"
+	"github.com/azamrizki/nextboard/internal/connlog"
 )
 
 // flakyLink sits between the hub and a server. cut closes everything, like a

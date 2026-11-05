@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // The live file watch (E5 "changes by an agent show up within 3 s") polls

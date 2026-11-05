@@ -3,7 +3,7 @@ package settings
 import (
 	"testing"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 func TestModelFor(t *testing.T) {

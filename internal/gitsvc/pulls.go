@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Pull requests through the gh CLI of the project's machine (docs/API-studio.md §3.3): its login

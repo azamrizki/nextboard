@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/machine"
-	"nextboard/internal/project"
-	"nextboard/internal/review"
-	"nextboard/internal/session"
-	"nextboard/internal/studio"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/review"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/studio"
 )
 
 // Review of what agents changed, and the local history (docs/API-studio.md §7.10, §7.11).

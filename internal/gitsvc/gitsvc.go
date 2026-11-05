@@ -21,9 +21,9 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Timeouts (docs/API-studio.md §3.2, §15).

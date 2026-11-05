@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Staging parts of a file, the stash, and what can be done with a commit of the history graph

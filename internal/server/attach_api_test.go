@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 func TestAttachName(t *testing.T) {

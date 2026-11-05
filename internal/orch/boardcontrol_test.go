@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/board"
-	"nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/project"
 )
 
 // putTile places a tile through the same ops a client uses.

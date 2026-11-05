@@ -14,8 +14,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"nextboard/internal/board"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // doRaw sends a raw body and returns status, body and headers.

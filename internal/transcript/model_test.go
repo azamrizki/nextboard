@@ -27,7 +27,7 @@ func TestClaudeModelFromTranscript(t *testing.T) {
 	// from the picker: only the printed name to go on
 	for shown, want := range map[string]string{
 		"Set model to `Sonnet 5.5` and saved as your default for new sessions": "claude-sonnet-5-5",
-		"Set model to \\u001b[1mHaiku 5.5\\u001b[22m":                            "claude-haiku-5-5",
+		"Set model to \\u001b[1mHaiku 5.5\\u001b[22m":                          "claude-haiku-5-5",
 		"Set model to `Fable 5.1 (1M context)`":                                "claude-fable-5-1[1m]",
 		"Set model to `claude-opus-5-5`":                                       "claude-opus-5-5",
 		"Set model to `Default (Opus 5.5)`":                                    "",

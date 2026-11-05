@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/connlog"
-	"nextboard/internal/secret"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/connlog"
+	"github.com/azamrizki/nextboard/internal/secret"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const machinesFile = "machines.json"

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"nextboard/internal/webui"
+	"github.com/azamrizki/nextboard/internal/webui"
 )
 
 // spaHandler serves the embedded frontend, falling back to index.html for
@@ -42,7 +42,7 @@ func spaHandlerFS(files fs.FS) http.Handler {
 		}
 		b, err := fs.ReadFile(files, "index.html")
 		if err != nil {
-			http.Error(w, "frontend belum di-build", http.StatusNotFound)
+			http.Error(w, "This binary has no web UI: the bundle is not in the repository, so `go install` and a plain `go build` leave it out. Clone the repository and run `make build`.", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

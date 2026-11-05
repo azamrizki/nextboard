@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"os"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/machine"
-	"nextboard/internal/transcript"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
 func agentErr(w http.ResponseWriter, err error) {

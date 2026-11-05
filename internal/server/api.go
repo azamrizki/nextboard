@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/preview"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/preview"
 )
 
 // Session cookie names, one per scheme. Cookies ignore scheme and port, and a

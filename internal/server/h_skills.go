@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"nextboard/internal/delivery"
-	"nextboard/internal/machine"
-	"nextboard/internal/profiles"
-	"nextboard/internal/skills"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/profiles"
+	"github.com/azamrizki/nextboard/internal/skills"
 )
 
 // ---- Skills manager (§9, owner decision #3) ----

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/usage"
+	"github.com/azamrizki/nextboard/internal/usage"
 )
 
 // Phase 7 part B over HTTP: documents and diagrams with a fake runner CLI,

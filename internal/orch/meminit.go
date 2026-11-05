@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/jobs"
 )
 
 // Init memory: a hidden read-only run of a CLI reads the project and proposes its

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // File is one changed path of GitStatus.

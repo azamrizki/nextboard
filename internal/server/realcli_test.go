@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/marker"
-	"nextboard/internal/session"
-	"nextboard/internal/transcript"
+	"github.com/azamrizki/nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
 // TestRealCLI drives the installed Claude Code / Codex through the hub to

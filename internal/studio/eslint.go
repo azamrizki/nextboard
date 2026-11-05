@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // ESLint (docs/API-studio.md §7.6): the project's own eslint, or else the

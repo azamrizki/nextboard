@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // File lists the profiles.

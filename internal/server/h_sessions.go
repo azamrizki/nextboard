@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"nextboard/internal/board"
-	"nextboard/internal/machine"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 func (s *Server) sessionErr(w http.ResponseWriter, err error) {

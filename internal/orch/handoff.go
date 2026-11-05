@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/agentstate"
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Handoff (docs/API-orchestration.md §9): summarise a console's work with

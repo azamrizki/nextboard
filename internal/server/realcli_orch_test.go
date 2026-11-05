@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/jobs"
 )
 
 // TestRealOrchestration verifies phase 6 against the installed Claude Code

@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Threads (docs/API-orchestration.md §4): one per project (id p_…) and one

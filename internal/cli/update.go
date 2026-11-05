@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/version"
+	"github.com/azamrizki/nextboard/internal/version"
 )
 
 type ghRelease struct {

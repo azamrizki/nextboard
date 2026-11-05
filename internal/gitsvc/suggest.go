@@ -12,7 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/jobs"
 )
 
 const maxSubject = 72

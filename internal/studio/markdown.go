@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Markdown studio (docs/API-studio.md §8, E5): the vault index of a

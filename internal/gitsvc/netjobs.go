@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // NetResult is the result of a push/pull/fetch job.

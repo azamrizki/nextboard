@@ -1,5 +1,5 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)
-LDFLAGS := -s -w -X nextboard/internal/version.Version=$(VERSION)
+LDFLAGS := -s -w -X github.com/azamrizki/nextboard/internal/version.Version=$(VERSION)
 DATA    ?= $(CURDIR)/.devdata
 LISTEN  ?= 0.0.0.0:12312
 WEB_PORT ?= 15173

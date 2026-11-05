@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Scan limits (docs/API-studio.md §3.6).

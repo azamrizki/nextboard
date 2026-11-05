@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/machine"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
-	"nextboard/internal/transcript"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
 // handleSessionAgent is §3.3: start/resume the agent from the idle shell

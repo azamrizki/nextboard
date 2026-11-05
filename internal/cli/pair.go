@@ -7,8 +7,8 @@ import (
 
 	"rsc.io/qr"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/server"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/server"
 )
 
 func cmdPair(args []string) error {

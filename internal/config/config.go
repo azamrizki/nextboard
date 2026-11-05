@@ -5,7 +5,7 @@ import (
 	"net"
 	"strconv"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const (

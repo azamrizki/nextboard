@@ -18,14 +18,14 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/connlog"
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/orch"
-	"nextboard/internal/profiles"
-	"nextboard/internal/session"
-	"nextboard/internal/transcript"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/connlog"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/orch"
+	"github.com/azamrizki/nextboard/internal/profiles"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
 // Remote tools (docs/API-agents.md §21): an agent always runs on This PC, and

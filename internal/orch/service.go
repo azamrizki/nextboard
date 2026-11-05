@@ -19,16 +19,16 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/agentstate"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/jobs"
-	"nextboard/internal/preview"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
-	"nextboard/internal/settings"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/preview"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/settings"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Attention is a loopHeld / loopEnded notification (API-agents §12).

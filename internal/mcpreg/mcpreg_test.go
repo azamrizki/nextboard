@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/secret"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/secret"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 func openStore(t *testing.T) (*Store, string) {

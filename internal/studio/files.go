@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Workbench helpers (docs/API-studio.md §7.2): the whole file list for "Go to

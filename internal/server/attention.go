@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/auth"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // attentionRingSize is how many attention events are kept (§12, §15).

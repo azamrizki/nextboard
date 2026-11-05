@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/board"
-	"nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/jobs"
 )
 
 // leadHub is a hub with the lead talking first and two consoles.

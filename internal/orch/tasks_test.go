@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // taskBoardSetup: a lead wired to a console and to a kanban.

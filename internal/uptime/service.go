@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/machine"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const (

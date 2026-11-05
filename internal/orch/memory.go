@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Project memory (docs/API-orchestration.md §12). One project has one memory:

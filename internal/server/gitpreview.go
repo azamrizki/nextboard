@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/gitsvc"
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/preview"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/gitsvc"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/preview"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Phase 7 part A wiring (docs/API-studio.md §3–§4): the Git service, the

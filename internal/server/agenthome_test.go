@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // TestAgentHomeDefaults: built-in agents get a state folder in the NextBoard

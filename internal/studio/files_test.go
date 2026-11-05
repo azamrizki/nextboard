@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 func filesHost(t *testing.T) machine.Host {

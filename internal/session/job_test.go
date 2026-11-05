@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/agentstate"
 )
 
 // waitJob drives the session's ticks until the console says what it runs.

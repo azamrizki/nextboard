@@ -20,7 +20,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"nextboard/internal/connlog"
+	"github.com/azamrizki/nextboard/internal/connlog"
 )
 
 // Creds are credentials uploaded through the UI (stored encrypted).

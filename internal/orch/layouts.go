@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Layout templates (docs/API-orchestration.md §13). Coordinates are

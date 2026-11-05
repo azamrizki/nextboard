@@ -32,7 +32,7 @@ Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini
 |---|---|
 | Versi | `0.1.0-dev` |
 | Teknologi | Go 1.26, React 19 + TypeScript + Vite |
-| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 34 ribu baris tes (116 file, 613 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
+| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 35 ribu baris tes (119 file, 660 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
 | Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
 | Penyimpanan | File JSON di `~/.nextboard/`, tanpa database |
 | Target build | Linux dan macOS, amd64 dan arm64. Tile aplikasi desktop hanya Linux. Semua uji nyata yang tercatat dilakukan di Linux |
@@ -710,7 +710,7 @@ Jangan mengubah, membangun, atau menguji folder Android dan desktop kecuali dimi
 
 ## 11. Pengembangan, test, deploy
 
-Butuh Go 1.26+ dan Node 22+.
+Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go install` membangun hub tanpa UI, karena bundle web tidak ada di repo; halaman utamanya lalu menyuruh memakai `make build`.
 
 | Perintah | Fungsi |
 |---|---|
@@ -865,7 +865,7 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, kartu Android dan desktop, dan cara agent memakai credential belum ada ([API-vault.md](API-vault.md)) |
 | Uptime | Halaman status publik, jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada ([API-uptime.md](API-uptime.md)) |
-| Test | Web tidak punya test di repo; uji browser selama ini dijalankan di luar repo. `internal/auth`, `secret`, dan `store` tanpa file test sendiri. Kriteria SPEC §12 tidak pernah dicentang |
+| Test | Web tidak punya test di repo; uji browser selama ini dijalankan di luar repo. Kriteria SPEC §12 tidak pernah dicentang |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik

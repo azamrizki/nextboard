@@ -3,9 +3,9 @@ package orch
 import (
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/board"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Mission Map (docs/API-orchestration.md §7): who directs whom, groups,

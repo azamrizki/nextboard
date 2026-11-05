@@ -11,6 +11,15 @@ import (
 	"testing/fstest"
 )
 
+// `go install` builds without the bundle, which is not in the repository.
+func TestSPAWithoutBundleSaysWhatToDo(t *testing.T) {
+	w := httptest.NewRecorder()
+	spaHandlerFS(fstest.MapFS{}).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "make build") {
+		t.Errorf("status %d, body %q", w.Code, w.Body.String())
+	}
+}
+
 func TestSPAGzipsTextAssets(t *testing.T) {
 	big := strings.Repeat("console.log('x');\n", 1000)
 	files := fstest.MapFS{

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 func (s *Server) machineInfo(w http.ResponseWriter, id string) {

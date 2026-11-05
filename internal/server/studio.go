@@ -8,14 +8,14 @@ import (
 	"sort"
 	"strings"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/profiles"
-	"nextboard/internal/project"
-	"nextboard/internal/skills"
-	"nextboard/internal/studio"
-	"nextboard/internal/transcript"
-	"nextboard/internal/usage"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/profiles"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/skills"
+	"github.com/azamrizki/nextboard/internal/studio"
+	"github.com/azamrizki/nextboard/internal/transcript"
+	"github.com/azamrizki/nextboard/internal/usage"
 )
 
 // Phase 7 part B wiring (docs/API-studio.md §5–§10): Documents, Diagrams,

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/connlog"
+	"github.com/azamrizki/nextboard/internal/connlog"
 )
 
 // tcpGate is a network between the hub and a server that can be cut.

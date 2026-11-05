@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Task is something a project knows how to run: found in its files, never given by a client

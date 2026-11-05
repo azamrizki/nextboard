@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // ModelSeen is what a transcript says about the model and effort of a console:

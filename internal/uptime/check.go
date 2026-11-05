@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
-	"nextboard/internal/version"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/version"
 )
 
 const (

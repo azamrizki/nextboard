@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/jobs"
 )
 
 // conventional is the header of https://www.conventionalcommits.org/en/v1.0.0/.

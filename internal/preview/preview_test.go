@@ -21,7 +21,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // freeRange finds n consecutive free loopback ports for preview listeners

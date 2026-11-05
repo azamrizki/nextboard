@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/preview"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/preview"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 func forwardOp(id, src, dst string) board.Op {

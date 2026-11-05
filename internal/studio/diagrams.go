@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/jobs"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // nb.diagram/v1 (docs/API-studio.md §6) is the JSON the runner produces.

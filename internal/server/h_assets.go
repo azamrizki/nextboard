@@ -15,8 +15,8 @@ import (
 
 	_ "golang.org/x/image/webp"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const maxAssetBytes = 20 << 20

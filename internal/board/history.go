@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const keepSnapshots = 24

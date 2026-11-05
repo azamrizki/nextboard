@@ -16,13 +16,13 @@ import (
 
 	"golang.org/x/term"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/config"
-	"nextboard/internal/connlog"
-	"nextboard/internal/nodedap"
-	"nextboard/internal/server"
-	"nextboard/internal/store"
-	"nextboard/internal/version"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/config"
+	"github.com/azamrizki/nextboard/internal/connlog"
+	"github.com/azamrizki/nextboard/internal/nodedap"
+	"github.com/azamrizki/nextboard/internal/server"
+	"github.com/azamrizki/nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/version"
 )
 
 const usage = `NextBoard — visual board untuk AI coding agents

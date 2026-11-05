@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Errors of POST /api/projects/{id}/commands.

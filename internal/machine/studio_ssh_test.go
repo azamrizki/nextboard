@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/jobs"
-	"nextboard/internal/machine"
-	"nextboard/internal/skills"
-	"nextboard/internal/store"
-	"nextboard/internal/studio"
-	"nextboard/internal/usage"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/skills"
+	"github.com/azamrizki/nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/studio"
+	"github.com/azamrizki/nextboard/internal/usage"
 )
 
 // Phase 7 part B over a real SSH connection (throwaway sshd on loopback,

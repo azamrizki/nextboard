@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/agentstate"
-	"nextboard/internal/board"
-	"nextboard/internal/delivery"
-	"nextboard/internal/preview"
+	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/delivery"
+	"github.com/azamrizki/nextboard/internal/preview"
 )
 
 // Content tiles (docs/API-orchestration.md §1): a wire from a note, a kanban, a

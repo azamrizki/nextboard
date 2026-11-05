@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/auth"
-	"nextboard/internal/board"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Spawning consoles with groups and wires in one board change

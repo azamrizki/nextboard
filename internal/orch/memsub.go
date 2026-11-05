@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // Sub-memories (docs/API-orchestration.md §12). A main memory, of a project or

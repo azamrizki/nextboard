@@ -16,7 +16,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/marker"
 )
 
 // fakeClaude behaves like Claude Code for the hub: it parses

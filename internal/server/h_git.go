@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/gitsvc"
-	"nextboard/internal/jobs"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/gitsvc"
+	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Git panel, branches card and GitHub publishing (docs/API-studio.md §3).

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"nextboard/internal/vault"
+	"github.com/azamrizki/nextboard/internal/vault"
 )
 
 // Credential vault (docs/API-vault.md). Everything that passes through here is ciphertext: the

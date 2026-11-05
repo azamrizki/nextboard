@@ -11,7 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"nextboard/internal/orch"
+	"github.com/azamrizki/nextboard/internal/orch"
 )
 
 // TestLinkedGroupInput: with a group's input linked, keys typed in one console

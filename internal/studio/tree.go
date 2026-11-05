@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Code studio helpers (docs/API-studio.md §7) on top of the Phase 4 file

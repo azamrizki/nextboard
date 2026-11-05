@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/auth"
 )
 
 // FuncJob is a non-runner job (usage checks; docs/API-studio.md §1.2)

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"nextboard/internal/auth"
-	"nextboard/internal/version"
+	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/version"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

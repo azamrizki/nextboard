@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // ListConversations lists the conversations of cwd for the resume picker.

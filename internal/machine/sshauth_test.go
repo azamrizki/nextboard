@@ -15,8 +15,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"nextboard/internal/secret"
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/secret"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // authServer is an SSH server of which each test decides what it accepts. It counts

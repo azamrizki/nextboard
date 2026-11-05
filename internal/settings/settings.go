@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // File is the settings document (0600, atomic writes).

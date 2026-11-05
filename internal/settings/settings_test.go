@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 func open(t *testing.T, dir string) *Store {

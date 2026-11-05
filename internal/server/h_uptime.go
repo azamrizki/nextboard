@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"nextboard/internal/uptime"
+	"github.com/azamrizki/nextboard/internal/uptime"
 )
 
 // Uptime monitoring (docs/API-uptime.md). The checks run in internal/uptime, for as long

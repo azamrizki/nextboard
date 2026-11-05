@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // fakeESLint answers like eslint --format json. It records its folder, arguments

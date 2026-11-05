@@ -16,8 +16,8 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w
-      - -X nextboard/internal/version.Version={{ .Version }}
-      - -X nextboard/internal/version.Repo={{ envOrDefault "GITHUB_REPOSITORY" "azamrizki/nextboard" }}
+      - -X github.com/azamrizki/nextboard/internal/version.Version={{ .Version }}
+      - -X github.com/azamrizki/nextboard/internal/version.Repo={{ envOrDefault "GITHUB_REPOSITORY" "azamrizki/nextboard" }}
 
 archives:
   - formats: [tar.gz]

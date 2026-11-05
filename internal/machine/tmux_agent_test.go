@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"nextboard/internal/agent"
-	"nextboard/internal/machine"
-	"nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/agent"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/marker"
 )
 
 // TestSSHTmuxAgentPassthrough needs a disposable sshd with tmux (as for

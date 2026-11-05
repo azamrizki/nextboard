@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"nextboard/internal/board"
-	"nextboard/internal/machine"
-	"nextboard/internal/project"
-	"nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // counts returns live session counts per project and per workspace.
