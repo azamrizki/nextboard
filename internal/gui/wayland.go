@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// The zero copy display (docs/API-gui.md §8). With Xtigervnc a picture goes from
+// The zero copy display (docs/API-gui.md §9). With Xtigervnc a picture goes from
 // the GPU to the CPU and back: the app renders on the GPU, the X server reads it
 // out, ffmpeg copies and converts it and uploads it for the encoder. That costs
 // over a core for one scrolling tile. With a headless compositor apps hand it GPU

@@ -2,7 +2,7 @@
 
 Gambaran utuh hub NextBoard: tujuan, cara kerja, seluruh fitur, batas sistem, status, dan yang belum selesai. Baca dokumen ini dulu kalau baru masuk ke proyek. Bentuk JSON dan kode error persis ada di `API*.md` (peta di §15).
 
-**Keadaan per 2026-11-03.** Angka dan daftar di sini dicocokkan ke kode pada tanggal itu. Status "teruji" berasal dari catatan verifikasi di docs; tes tidak dijalankan ulang saat dokumen ini ditulis. Kalau dokumen ini berbeda dengan kode, kode yang benar.
+**Keadaan per 2026-11-05.** Angka di sini dicocokkan ke kode pada tanggal itu. Status "teruji" berasal dari catatan verifikasi di docs; tes tidak dijalankan ulang saat dokumen ini ditulis. Kalau dokumen ini berbeda dengan kode, kode yang benar.
 
 ## Daftar isi
 
@@ -26,13 +26,13 @@ Gambaran utuh hub NextBoard: tujuan, cara kerja, seluruh fitur, batas sistem, st
 
 NextBoard adalah board visual self-hosted untuk AI coding agent. Satu binary Go (`nextboard`) dipasang sekali di sebuah komputer, berjalan sebagai service, lalu menyajikan Web UI dan API. Dari sana pemilik menjalankan banyak agent CLI (Claude Code, Codex, Gemini CLI, dan lain-lain) sebagai tile terminal di kanvas tak terbatas, melihat status tiap agent, memberi perintah lewat satu command bar, dan mengerjakan git, file, preview web, serta aplikasi desktop dari board yang sama.
 
-Ini proyek pribadi dengan satu pemilik, bukan produk untuk dijual. Tidak ada multi-tenant, billing, atau relay cloud.
+Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini disebut pemilik. Bukan produk untuk dijual. Tidak ada multi-tenant, billing, atau relay cloud.
 
 | | |
 |---|---|
 | Versi | `0.1.0-dev` |
 | Teknologi | Go 1.26, React 19 + TypeScript + Vite |
-| Ukuran | 30 paket Go, sekitar 54 ribu baris kode dan 22 ribu baris tes (81 file, 364 fungsi `Test`); sekitar 48 ribu baris TS/TSX; 225 pola route HTTP |
+| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 34 ribu baris tes (116 file, 613 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
 | Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
 | Penyimpanan | File JSON di `~/.nextboard/`, tanpa database |
 | Target build | Linux dan macOS, amd64 dan arm64. Tile aplikasi desktop hanya Linux. Semua uji nyata yang tercatat dilakukan di Linux |
@@ -463,7 +463,7 @@ Panel Git (`G`), pill di kiri bawah, kartu branch, dan Source Control di workben
 - **Branch:** buat, switch (`--no-guess`), hapus (`-d`).
 - **GitHub lewat `gh`:** login di console biasa, publish `gh repo create`. Token tetap di keyring `gh`, hub tidak membacanya. Publish ditolak kalau sudah ada remote.
 - **Multi-repo:** scan read-only (≤ 50 repo, 10 detik), state per repo, command bar menolak bila repo tidak disebut dan ada lebih dari satu. Tidak pernah commit ke semua repo, dan repo baru tidak dibuat di atas repo yang ada.
-- **Keamanan:** tidak ada prompt, dan path divalidasi di dalam repo. `core.fsmonitor=false` baru terpasang di jalur workbench (`gitSafe`), belum di panel Git dan home screen (§14).
+- **Keamanan:** tidak ada prompt, dan path divalidasi di dalam repo. Perintah baca tidak menjalankan kode dari config repo: `core.fsmonitor`, filter driver milik repo, dan `gpg.program` lewat `log.showSignature` dimatikan (filter butuh git 2.31). Aksi tulis seperti commit tetap menjalankan hook dan filter.
 
 ### 5.12 Web tile
 
@@ -694,8 +694,8 @@ Di luar `/api`: `/nb/hook`, `/nb/mcp/{sid}`, `/nb/mcp-job` di listener loopback 
 | Klien | Lokasi | Status |
 |---|---|---|
 | Web | `web/`, tertanam di binary | Aktif, mengikuti hub |
-| Android | `../nextboard-android` (Kotlin, Compose, tanpa Google Play Services) | **Ditunda.** Mencakup sampai Fase 7, tanpa edit kanvas di HP |
-| Desktop | `../nextboard-desktop` (Tauri v2) | **Ditunda.** Multi-hub, menampilkan SPA hub lewat proxy lokal |
+| Android | Proyek terpisah, belum dipublikasikan (Kotlin, Compose, tanpa Google Play Services) | **Ditunda.** Mencakup sampai Fase 7, tanpa edit kanvas di HP |
+| Desktop | Proyek terpisah, belum dipublikasikan (Tauri v2) | **Ditunda.** Multi-hub, menampilkan SPA hub lewat proxy lokal |
 
 Jangan mengubah, membangun, atau menguji folder Android dan desktop kecuali diminta pemilik.
 
@@ -736,7 +736,7 @@ Butuh Go 1.26+ dan Node 22+.
 
 **Aturan di host bersama.** Kalau This PC juga menjalankan layanan lain, test ikut memakai memori yang sama, dan `/tmp` bisa punya kuota per user. Helper test rekursif pernah memunculkan ratusan `Xtigervnc` sampai OOM killer menghantam layanan lain. Jadi: test yang memunculkan proses dijalankan satu kasus kecil dulu dengan `-timeout`, proses sisa dihitung sesudahnya, dan test tidak boleh meng-exec dirinya sendiri tanpa guard.
 
-**CI dan rilis.** `.github/workflows/ci.yml` menjalankan `make web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...`. Tag `v*` menjalankan goreleaser: linux/darwin × amd64/arm64 + `checksums.txt`.
+**CI dan rilis.** Belum aktif di GitHub: `.github/workflows` belum ikut di repo, karena token yang dipakai untuk push belum punya scope `workflow`. Isinya nanti: `make web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...`; tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`.
 
 **Deploy.** `deploy/nginx.conf.example` + `deploy/nextboard-proxy.inc`:
 
@@ -770,10 +770,29 @@ Sumber: [ROADMAP.md](ROADMAP.md).
 | 10 | 11-03 | Agent selalu di This PC, state di folder NextBoard, server lewat tool hub (opsi A) |
 | 11 | 11-03 | 1 project = 1 memory, apa pun agent-nya |
 | 12 | 11-03 | 1 project boleh banyak repo; tidak pernah commit ke semua repo |
-| 13 | 11-03 | Situs luar di web tile memakai browser sungguhan, bukan iframe atau proxy |
+| 13 | 11-03 | Situs luar di web tile memakai browser sungguhan, bukan iframe atau proxy. *Diubah #19 dan #26* |
 | 14 | 11-03 | Critical notes wajib; permintaan langsung tidak dihitung sebagai izin |
 | 15 | 11-03 | Ganti agent di tile yang sama; percakapan lama bisa dilanjutkan |
 | 16 | 11-03 | MCP diatur di NextBoard, diberikan per launch, tidak ditulis ke config CLI |
+| 17 | 11-03 | Isi tile dikirim sekali saat dikabelkan, tidak otomatis tiap agent bekerja |
+| 18 | 11-03 | File yang dipaste disimpan hub di luar project |
+| 19 | 11-03 | Alamat yang resolve ke IP Tailscale tampil lewat proxy hub |
+| 20 | 11-03 | Uptime: hub yang mengecek, monitor milik project, kartu hanya menampilkan |
+| 21 | 11-03 | Password SSH salah: machine berhenti dan bertanya, tidak mencoba ulang |
+| 22 | 11-03 | Mematikan agent: satu switch untuk semua machine, console yang jalan tidak disentuh |
+| 23 | 11-04 | Rail kanan hanya yang penting, sisanya di ring klik kanan |
+| 24 | 11-04 | Review agent dan Local History lewat repo bayangan di folder data hub |
+| 25 | 11-04 | Debugger Node.js buatan sendiri di hub, bukan `js-debug` |
+| 26 | 11-04 | Situs publik dicoba lewat proxy hub dulu, Chrome untuk yang tidak bisa |
+| 27 | 11-04 | Tema terang dan gelap monokrom, pilihan per browser |
+| 28 | 11-04 | Model dan effort disimpan per console, dikirim sebagai flag tiap peluncuran |
+| 29 | 11-04 | Papan tugas digerakkan hub dari status order; pembagian otomatis hanya bila dinyalakan |
+| 30 | 11-04 | Credentials zero-knowledge seperti Bitwarden, HTTP biasa juga didukung |
+| 31 | 11-04 | Master password minimal 8; PIN 6 digit butuh browser dan hub; isi form selalu klik orang |
+| 32 | 11-04 | Group project adalah tree sendiri, bukan path di nama |
+| 33 | 11-04 | Agent tidak menandatangani commit, berlaku global |
+| 34 | 11-05 | Order yang belum diketik saat hub restart ditawarkan untuk dikirim ulang, hub tidak mengirim sendiri |
+| 35 | 11-05 | Open source: repo publik, lisensi MIT, data pribadi tidak masuk repo |
 
 ## 13. Status dan riwayat
 
@@ -786,7 +805,7 @@ Sumber: [ROADMAP.md](ROADMAP.md).
 | 7 | Web, Git, studio, usage, suara | Selesai: hub, web, Android, desktop |
 | 8 | Aplikasi desktop di board | Selesai: hub, web |
 
-Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil default, agent di server (preview), MCP, switch agent di tile yang sama, memory galaxy dengan critical notes dan Init, multi-repo, browser sungguhan, Code workbench sebagai card dengan LSP, DAP, extension, AI, kontrol board oleh planner, log koneksi, batas memori hub.
+Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil default, agent di server (preview), MCP, switch agent di tile yang sama, memory galaxy dengan critical notes dan Init, multi-repo, browser sungguhan, Code workbench sebagai card dengan LSP, DAP, extension, AI, review agent dan Local History, kontrol board oleh planner, lead agent dan papan tugas, Credentials, uptime, tema terang dan gelap, group project, log koneksi, batas memori hub.
 
 **Belum ada rencana tertulis sesudah ini.** Kandidat pekerjaan berikutnya adalah §14, dan urutannya keputusan pemilik.
 
@@ -803,14 +822,19 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 | Critical notes | Haiku menolak `npm run db:reset` |
 | Chrome 156 di Wayland | github.com, Wikipedia, tab, restart hub (lewat Playwright) |
 | Video | Intel Arc A380 |
-| Workbench | gopls, dua extension Open VSX |
+| Workbench | gopls, pyright, typescript-language-server, Vue, Tailwind, ESLint, rust-analyzer, taplo, Delve, debugpy di browser; dua extension Open VSX |
+| Diagram | Dua job Claude Code di hub dev, masing-masing sekitar 95 detik |
+| Lead agent | Satu giliran model asli, 33 detik |
 
 ### Belum pernah diuji nyata
 
 - Gemini CLI (tidak terpasang) dan flag katalog bertanda † di API-agents.
-- Delve, debugpy, dan debugger lain (tes memakai adapter DAP palsu).
 - Jalur AI di workbench dengan model sungguhan (tes memakai CLI palsu).
-- Diagram dengan CLI sungguhan.
+- Field `danger` milik lead dan langkah tugas planner dari model sungguhan.
+- `idelink` dengan Claude yang login dan model sungguhan.
+- Review agent dengan Codex, dan Codex melewati layar login di panel card.
+- Pull request ke GitHub sungguhan (tes memakai `gh` palsu).
+- Panel agent di project yang ada di server lewat SSH.
 - OpenCode sampai menjawab di server.
 - Log koneksi pada jaringan sungguhan (baru lewat proxy TCP lokal).
 - macOS, NVENC, iframe preview dengan sertifikat self-signed.
@@ -819,16 +843,16 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 
 ### Risiko utama
 
-1. **Folder ini bukan repo git.** Tidak ada `.git` di `nextboard/` maupun folder induknya, padahal `.github/workflows` dan `Makefile` mengandaikan repo. Kalau ada repo di tempat lain, folder ini tidak tersambung dengannya, jadi di mesin ini tidak ada riwayat kode. `install.sh` masih berisi `OWNER/nextboard` dan `version.Repo` kosong, jadi `install` dan `update` butuh nama repo yang diisi dulu.
-2. **`git status` panel Git bisa menjalankan perintah dari config repo.** `internal/gitsvc/status.go:86`, `internal/gitsvc/repos.go:144`, dan `internal/machine/git.go:37` tidak memasang `core.fsmonitor=false`, sedangkan jalur workbench (`gitSafe` di `internal/studio/files.go:45`) memasangnya. Dicoba pada git 2.53 dengan flag yang sama (langsung lewat git, bukan lewat endpoint hub): hook `core.fsmonitor` di `.git/config` jalan tanpa `gitSafe`, dan tidak jalan dengan `gitSafe`. `git clone` tidak membawa `.git/config`, jadi jalurnya adalah repo dari arsip atau folder bersama, atau config yang ditulis agent. Perintah berjalan di machine project sebagai user-nya. Saat diperbaiki, `core.hooksPath=/dev/null` jangan ikut untuk commit, karena hook commit milik pengguna memang harus jalan.
-3. **Delivery antre hilang saat hub restart**, begitu juga konfirmasi dan handoff. Thread mencatat "interrupted by hub restart", tetapi belum diputuskan apakah antrean ikut dipersist.
-4. **Critical notes bukan kunci teknis** (§6). Blokir teknis untuk perintah tertentu adalah tawaran terbuka, belum dibangun.
+1. **Belum ada rilis dan CI.** Belum ada tag, jadi `install.sh` dan `nextboard update` belum punya apa-apa untuk diunduh; pasang dari source. Workflow CI belum ikut di repo (§11), jadi test hanya jalan lokal.
+2. **Critical notes bukan kunci teknis** (§6). Blokir teknis untuk perintah tertentu adalah tawaran terbuka, belum dibangun.
+3. **Aksi tulis git tetap memakai config repo.** Stage, commit, pull, dan push menjalankan hook, filter, dan `core.sshCommand` dari repo, sama seperti git di terminal. Perintah baca sudah tidak (§5.11), tetapi di git < 2.31 filter driver milik repo masih jalan saat `status` dan `diff`.
+4. **Handoff yang berjalan hilang saat hub restart.** Order yang belum diketik bisa dikirim ulang (keputusan #34); konfirmasi selamat dari restart.
 
 ### Celah per area
 
 | Area | Celah |
 |---|---|
-| Workbench | Tidak ada debug Node (js-debug butuh child session). Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot |
+| Workbench | Debug Node belum punya source map dan proses anak. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History hanya untuk project di This PC |
 | Agent di server | Preview. Skill dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git memakai kredensial server. OpenCode belum punya aturan layar (tile selalu `WORKING`); login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
 | Status dan delivery | Agent tanpa hooks bisa salah terbaca `ready`. Daftar CLI aman untuk `whileWorking:"type"` belum ada. Ctrl-Z, serta Ctrl-U di vi-mode dan fish, belum diuji |
 | Orkestrasi | Pembagian `split` oleh planner belum dikerjakan; tanpa planner seluruh digest ke target pertama. Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan. Pencocokan fonetik hanya untuk nama Inggris. Parser hanya bahasa Inggris |
@@ -839,14 +863,21 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 | Browser di tile | Firefox dan snap/flatpak belum. Satu tile per board |
 | Usage | Tiap pemeriksaan Claude menambah 2 baris ke `history.jsonl` pada config yang dipakai. Codex 0.165 menulis `[tui]` ke `config.toml` sekali, dan hub tidak bisa mencegahnya tanpa menulis config. Format layar bisa berubah kapan saja |
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
+| Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, kartu Android dan desktop, dan cara agent memakai credential belum ada ([API-vault.md](API-vault.md)) |
+| Uptime | Halaman status publik, jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada ([API-uptime.md](API-uptime.md)) |
+| Test | Web tidak punya test di repo; uji browser selama ini dijalankan di luar repo. `internal/auth`, `secret`, dan `store` tanpa file test sendiri. Kriteria SPEC §12 tidak pernah dicentang |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik
 
-- Dipersist atau tidak: delivery antre saat hub restart.
 - Blokir teknis perintah berbahaya: dibangun atau tetap instruksi.
 - Kapan `remoteTools` keluar dari preview.
-- Kapan Android dan desktop dilanjutkan.
+- Kapan Android dan desktop dilanjutkan, dan apa arti "core stabil".
+- Agent boleh memakai credential atau tetap tertutup.
+- Halaman status publik untuk uptime: dibuat atau tidak.
+- Runner headless yang menyimpang dari Symvibe (API-studio §19 butir 6): disahkan atau tidak.
+- Default lead yang belum dibahas: nama Nara, dan order `@Agent` yang langsung jalan.
+- Urutan kerja berikutnya.
 
 ## 15. Peta dokumen
 
@@ -862,22 +893,5 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 | [API-orchestration.md](API-orchestration.md) | Delivery, command, planner, thread, grup, handoff, forward, loop, memory, layout |
 | [API-studio.md](API-studio.md) | Job, runner, Git, preview, studio, usage, suara |
 | [API-gui.md](API-gui.md) | Aplikasi desktop, browser sungguhan, video, suara |
+| [API-uptime.md](API-uptime.md) | Monitor uptime |
 | [API-vault.md](API-vault.md) | Credentials: format enkripsi, API, perilaku, yang tidak dilindungi |
-
-### Bagian docs yang sudah tertinggal dari kode
-
-Ditemukan saat menulis dokumen ini; dokumen sumbernya belum diperbaiki.
-
-| Lokasi | Tertulis | Yang benar |
-|---|---|---|
-| README, SPEC §4 dan §7 | Agent memakai login `~/.claude`; CLI agent terpasang dan jalan di server | Keputusan 10: agent di This PC, state di `<data>/agents/<agent>` |
-| README §CLI dan §Struktur | Tanpa `connlog` dan `version`; daftar paket dan data lama | §5.1, §4.2, §8 di atas |
-| SPEC §10–11 | Body board maks 1 MB | Board ops 2 MB (`bodyLimit`) |
-| SPEC §12 | Kotak centang kriteria selesai masih kosong | Jangan dibaca sebagai status; pakai §13 |
-| SPEC §13 | Roadmap menyebut bot node | Tidak pernah dibangun, tidak ada kind-nya |
-| API-orchestration §3.5 | Langkah planner ≤ 12 | 40 (`maxPlanSteps`), seperti §3.6 |
-| API-orchestration §21 | Planner dianggap tidak login 10 menit; langkah git belum tersedia | 1 menit (`plannerLoginWait`); git sudah ada |
-| API-orchestration §15 | `memory/<projectId>.md` | `memory/<projectId>/MEMORY.md` |
-| API-studio §1.2, §17 | Purpose tanpa `code-*`; Code memakai CodeMirror | §7.4 menambah `code-*`; workbench memakai Monaco |
-| API-studio §7.2 | Membuka project tidak menjalankan kode dari config repo | Hanya benar untuk jalur workbench (§14 butir 2) |
-| API-orchestration §3.6, API-gui §8 | Dua bagian bernomor sama | Rujukan ke nomor itu ambigu |

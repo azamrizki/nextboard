@@ -167,7 +167,7 @@ Normalisasi: trim, spasi tunggal, pencocokan case-insensitive (teks asli dipakai
 | Layout | `deploy <nama layout>` | `layout.deploy` | — |
 | Basa-basi | `thanks`, `ok`, `nice`, `cool` | balasan pendek hub, tidak dikirim ke agen | — |
 
-Teks yang tidak cocok dan tanpa addressee → planner bila tersedia; tanpa planner → §3.6.
+Teks yang tidak cocok dan tanpa addressee → planner bila tersedia; tanpa planner → §3.11.
 
 ### 3.3 @mention dan resolusi nama (D2)
 
@@ -176,7 +176,7 @@ Teks yang tidak cocok dan tanpa addressee → planner bila tersedia; tanpa plann
 - Urutan resolusi: handle (hub-wide; dalam lingkup kartu hanya yang ter-wire) → nama grup (board yang dibuka dulu, lalu board lain urut tab) → role (`@reviewers` = anggota semua grup ber-role itu) → agen (`@codex` = semua console agen itu dalam lingkup).
 - Cocok persis setelah normalisasi (huruf kecil, buang non-alfanumerik) → target langsung. Tidak persis → kandidat dengan jarak Damerau-Levenshtein ≤ 1 (nama ≤ 4 huruf) atau ≤ 2 (lebih panjang), atau kunci primer Double Metaphone sama → konfirmasi `didYouMean` (satu kandidat) atau `sendToAll` (beberapa).
 - Mention tanpa teks → balasan hub "What should @Ash do?" tanpa order.
-- Satu mention + teks → verbatim. Beberapa target atau grup/role → planner (membagi kerja); tanpa planner → §3.6.
+- Satu mention + teks → verbatim. Beberapa target atau grup/role → planner (membagi kerja); tanpa planner → §3.11.
 
 | Method | Path | Response |
 |---|---|---|
@@ -207,7 +207,7 @@ Teks yang tidak cocok dan tanpa addressee → planner bila tersedia; tanpa plann
 - Hanya di **This PC**, lewat runner (API-studio §2): `claude -p --output-format json --json-schema '<PlanSchema>'`, tanpa tool (`--tools ""` bila didukung, selain itu `--disallowedTools` semua tool + `--max-turns 1`), cwd `<data>/runner/planner`, timeout 45 dtk, tidak pernah yolo, memakai profil default Claude di This PC.
 - Tersedia bila `claude` terdeteksi di This PC dan cek login terakhir sukses; `settings.commands.planner: "auto"|"off"`.
 - **Input** (JSON di stdin, tanpa isi file project atau transcript): teks order (> 600 karakter → planner dilewati, kecuali Talk first menyala: sampai batas 4000), 20 pesan thread terakhir (per pesan ≤ 600, total ≤ 6000 karakter), `pendingPlan` bila ada rencana terbuka (§3.9), snapshot: console (`handle`, agen, role, grup, `board`, `agentState`, `activity` ≤ 80, order berjalan ≤ 120), grup, orchestrator + wire, `boards` (semua board dalam lingkup: nama, `current`, ≤ 30 tile non-console per board berisi `id`, `kind`, posisi, ukuran, dan isi seperti dijelaskan di bawah), nama agen custom, nama project/workspace, nama loop, selection, lingkup kartu, `memory` (memory project + catatan + global, ≤ 4000 karakter; latar belakang, bukan perintah).
-- **Output** (`PlanSchema`): `{ "reply": string ≤ 2000, "danger"?: string ≤ 300, "steps": PlannerStep[] ≤ 12 }`. `PlannerStep` = subset op `send, spawn, group.create, group.add, pause, resume, restart, kill, handoff, forward, loop.create, node.add, git, ask, memory.push, reply`; target ditulis sebagai handle/nama grup, hub yang menerjemahkan ke id (nama tak dikenal → step dibuang + catatan). `spawn`, `group.create`, `node.add` boleh membawa `workspace` (nama board tujuan). Jawaban ke user ada di `reply` puncak; step `reply` yang mengulang teks sama dibuang hub, jadi jawaban tampil sekali.
+- **Output** (`PlanSchema`): `{ "reply": string ≤ 2000, "danger"?: string ≤ 300, "steps": PlannerStep[] ≤ 40 }`. `PlannerStep` = subset op `send, spawn, group.create, group.add, pause, resume, restart, kill, handoff, forward, loop.create, node.add, git, ask, memory.push, reply`; target ditulis sebagai handle/nama grup, hub yang menerjemahkan ke id (nama tak dikenal → step dibuang + catatan). `spawn`, `group.create`, `node.add` boleh membawa `workspace` (nama board tujuan). Jawaban ke user ada di `reply` puncak; step `reply` yang mengulang teks sama dibuang hub, jadi jawaban tampil sekali.
 - Satu giliran planner per thread; pesan "Still thinking…" setelah 3 dtk (Talk first: klien menampilkan "`nama` is thinking", tanpa pesan ini) (pesan thread yang sama diperbarui). Gagal (timeout, JSON tidak valid, belum login) → fallback parser + catatan "Planner unavailable: <alasan>"; dua kegagalan beruntun → cooldown 60 dtk. Kegagalan login (termasuk `OAuth session expired`) membuat `reason: "not_logged_in"` selama 1 menit, karena refresh token Claude bisa pulih sendiri.
 
 | Method | Path | Response |
@@ -231,13 +231,6 @@ Input planner memuat setiap tile: `id`, `kind`, posisi, ukuran, dan isi (`data`,
 | `console.rename`, `group.dissolve`, `workspace.create`, `workspace.rename`, `workspace.go` | | seperti namanya |
 
 `workspace.close` sengaja tetap di luar kewenangan planner. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot board. Klien lain menerima hasilnya seperti op board biasa.
-### 3.6 Fallback tanpa planner (D9)
-
-- Order dengan `@` atau addressee di awal → kata-kata user apa adanya. Beberapa console disebut → **satu** agen bebas (state `ready`, tanpa delivery/order aktif) yang menerima; thread mencatat "Sent to @Ash; 2 left free".
-- Teks yang sama ke semua hanya untuk permintaan eksplisit (`same prompt`, `everyone the same`, `independent reviews`) atau direktif pendek (≤ 40 karakter, satu baris).
-- Tanpa addressee: tepat satu agen di lingkup → ke dia; selain itu tidak dikirim, catatan "Name an agent with @ or enable the planner".
-- Permintaan yang butuh menyusun instruksi ("write a brief for…") tidak dikirim tanpa planner.
-
 ### 3.7 Konfirmasi (D8)
 
 ```jsonc
@@ -312,6 +305,13 @@ Kolom dicari dari namanya (Inggris dan Indonesia), lalu dari posisinya: pertama,
 
 **Planner.** Input-nya memuat `tasks`: setiap kanban dan checklist di board lingkupnya dengan `linked`, `autoRun`, dan kartunya (≤ 80). Ia punya `task.add`, `task.update`, `task.delete`, dan `send` dengan `tile` plus `card` untuk membagikan kartu yang sudah ada. Membagikan kerja tetap lewat proposal lead (§3.9); mengubah papan tidak.
 
+### 3.11 Fallback tanpa planner (D9)
+
+- Order dengan `@` atau addressee di awal → kata-kata user apa adanya. Beberapa console disebut → **satu** agen bebas (state `ready`, tanpa delivery/order aktif) yang menerima; thread mencatat "Sent to @Ash; 2 left free".
+- Teks yang sama ke semua hanya untuk permintaan eksplisit (`same prompt`, `everyone the same`, `independent reviews`) atau direktif pendek (≤ 40 karakter, satu baris).
+- Tanpa addressee: tepat satu agen di lingkup → ke dia; selain itu tidak dikirim, catatan "Name an agent with @ or enable the planner".
+- Permintaan yang butuh menyusun instruksi ("write a brief for…") tidak dikirim tanpa planner.
+
 ## 4. Thread dan order (D3, D15)
 
 ```jsonc
@@ -337,6 +337,7 @@ Kolom dicari dari namanya (Inggris dan Indonesia), lalu dari posisinya: pertama,
 - Balasan yang belum masuk saat giliran selesai tidak diganti balasan giliran sebelumnya: report terbit tanpa teks, lalu diisi (`Threads.Update`, id sama) begitu balasannya ada, dalam 60 dtk.
 - `ask`: `status` = jumlah per state + daftar needsYou; `who finished`/`what happened` = target order terakhir; `summary` = ringkasan laporan lewat runner (≤ 30 dtk) bila planner tersedia, selain itu gabungan excerpt.
 - `cancel that` = `POST /api/orders/{id}/cancel`: delivery yang belum diketik dibatalkan; teks yang sudah ditempel tetap di input agen.
+- **Setelah hub restart** semua target yang belum final jadi `failed`, "interrupted by hub restart". Target yang teksnya belum diketik (`queued`) mendapat `undelivered: true`, dan catatan thread membawa `resend: true` (UI: tombol **Send again**). Hub tidak pernah mengirim ulang sendiri. `resend` mengirim ke target itu saja, dalam order yang sama, jadi kartu tugas dan forward tetap mengikutinya. Console yang belum bisa menerima (masih resume) tetap ditawarkan; console yang sudah hilang tidak. Setelah `kill -9`, status bisa tertinggal dari yang terakhir disimpan, jadi orang yang memutuskan.
 
 | Method | Path | Response |
 |---|---|---|
@@ -347,6 +348,7 @@ Kolom dicari dari namanya (Inggris dan Indonesia), lalu dari posisinya: pertama,
 | GET | `/api/threads/{tid}/orders?active=1` | `{"items":[Order…]}` |
 | GET | `/api/orders/{id}` | `Order` |
 | POST | `/api/orders/{id}/cancel` | `Order` |
+| POST | `/api/orders/{id}/resend` | `Order`, kirim ulang setelah hub restart. `404 order_not_found`, `409 nothing_to_resend` |
 
 Thread project = `p_…`, thread kartu = id node orchestrator `n_…`. Riwayat input command bar (↑/↓, 50) disimpan per klien.
 
@@ -622,13 +624,13 @@ Built-in (nama NextBoard): **Duo** (grup 2), **Trio** (grup 3), **Quartet** (gru
 | `forwards.json` | forward satu kali yang belum selesai |
 | `loops.json` | `LoopDef[]` termasuk `state` |
 | `loops/<id>.jsonl` | riwayat (200 entri terakhir) |
-| `memory/<projectId>.md`, `memory/global.md` | memory |
+| `memory/<projectId>/MEMORY.md`, `memory/global.md` | memory |
 | `layouts.json` | layout simpanan (built-in di dalam binary) |
 | `settings.json` | key baru `delivery`, `commands` (`planner`, `confirmTtlSec`, `reportTimeoutMin`, `riskyPatterns`), `memory` (`autoPush`) |
 | `sessions.json` | + `paused` |
 | `confirmations.json` | baru: konfirmasi yang masih tersimpan beserta konteks perintahnya |
 
-Delivery dan handoff hanya di memori (hilang saat hub restart; thread mencatat "interrupted by hub restart"). Konfirmasi selamat dari restart: tombol dan jawaban lewat teks tetap jalan, TTL-nya tidak mulai dari awal, dan keputusan yang sudah diambil tidak bisa dijalankan dua kali. Giliran planner yang terputus restart tidak diulang dan tidak menjalankan apa pun; thread mencatat "The hub restarted before this was answered. Send it again."
+Delivery dan handoff hanya di memori (hilang saat hub restart; thread mencatat "interrupted by hub restart"). Teks order tetap ada di `orders.json`, jadi order yang belum diketik bisa dikirim ulang (§4). Konfirmasi selamat dari restart: tombol dan jawaban lewat teks tetap jalan, TTL-nya tidak mulai dari awal, dan keputusan yang sudah diambil tidak bisa dijalankan dua kali. Giliran planner yang terputus restart tidak diulang dan tidak menjalankan apa pun; thread mencatat "The hub restarted before this was answered. Send it again."
 
 ## 16. Batas dan timeout
 
@@ -695,7 +697,7 @@ Status per butir setelah implementasi dan verifikasi ada di §21; butir 1 dan 2 
 8. **Ringkasan handoff di This PC** untuk sumber remote memindahkan isi transcript remote ke This PC (masih milik user); butuh persetujuan pemilik bila dianggap sensitif.
 9. **Cron** memakai zona waktu hub; klien di zona lain melihat `nextRunAt` UTC.
 10. **Laporan untuk agen tanpa transcript** diambil dari layar dan bisa berisi sisa UI.
-11. **Kehilangan state saat hub restart**: delivery/handoff yang sedang berjalan hilang (konfirmasi sudah dipersist, §15); perlu diputuskan apakah delivery antre ikut dipersist.
+11. **Kehilangan state saat hub restart**: delivery/handoff yang sedang berjalan hilang (konfirmasi sudah dipersist, §15). Diputuskan (keputusan #34): antrean tidak dilanjutkan otomatis, order yang belum diketik ditawarkan untuk dikirim ulang (§4). Handoff tetap hilang.
 
 ## 21. Hasil verifikasi (This PC, 2026-10-28)
 
@@ -724,7 +726,7 @@ Claude Code **2.1.312** (`--model haiku` untuk console, model default untuk plan
 - **Delivery:** `waitReason` tambahan `"dialog"`; setting baru `delivery.promptTimeoutSec` (120, 10–3600) → `failed prompt_unrecognized`. Batas per alasan memberi `expired` dengan `code` `starting_timeout`/`needs_you_timeout`/`working_timeout`/`reconnect_timeout`/`human_typing` (humanTyping ≤ 10 dtk lalu menyerah); deadline lewat → `expired deadline`; deadline default 1 jam (`deadlineSec` 5–86400). `submit_aborted` bila kondisi berubah setelah paste (teks tetap di input). `manualAgent` selalu `not_agent` (belum ada mekanisme izin). Konfirmasi juga dianggap terjadi bila giliran baru dimulai setelah Return (`lastTurn.startedAt`), karena giliran pendek bisa selesai sebelum langkah engine berikut. `Delivery.projectId` (filter `GET /api/deliveries`). Delivery berikutnya menunggu sampai yang aktif `confirmed` atau jendela 8 dtk lewat. Cek proses sebelum mengetik = marker `agent-start` + foreground pgrp wrapper (lokal TIOCGPGRP, SSH `ps`); remote tanpa `wrapperPid` → hanya marker. `source` dari API dibatasi `api|reply|skill|dictation`. `Session.queue` dan `Session.subagents` (Mission Map) ditambah ke Info.
 - **Board:** error validasi membawa `code` dan status (`name_conflict` 409, `member_conflict`, `bad_edge`, `forward_cycle`, `bad_group`, `bad_orchestrator`, `bad_memory`, `too_many` 400); validasi hanya untuk node/edge yang disentuh batch (board lama dengan edge `wire` generik tidak ikut ditolak). Siklus forward memperlakukan grup + anggotanya sebagai satu simpul.
 - **Command:** `restart <who>` dari command = restart dengan `resume:true` (percakapan dipertahankan). `delete <group>` = `kill` anggota + `group.dissolve` (konfirmasi destructive). Fuzzy `didYouMean`/`sendToAll` hanya untuk handle. Teks yang memerlukan penyusunan instruksi (`write a brief…`, `split the work…`) tidak dikirim tanpa planner. Loop dari order: `maxRuns` 20, target `allAgents` (bar) atau `orchestrator` (kartu). `ask summary` memakai runner `thread-summary` bila planner tersedia. Error 404 `project_not_found`/`workspace_not_found`, 400 `bad_card`, 400 `bad_thread`.
-- **PlanSchema:** target berupa handle/nama grup; field `url` (web), `everySec` (loop), `group`, `source`, `sources`. Step planner `loop.create` tidak pernah membawa goal `command`. Planner dianggap tidak login selama 10 menit setelah `cli_not_logged_in`.
+- **PlanSchema:** target berupa handle/nama grup; field `url` (web), `everySec` (loop), `group`, `source`, `sources`. Step planner `loop.create` tidak pernah membawa goal `command`. Planner dianggap tidak login selama 1 menit setelah `cli_not_logged_in` (`plannerLoginWait`).
 - **Forward:** satu kali dengan sumber = target → `400 forward_cycle`; `forwardDepth` dilacak per giliran console (dari delivery yang memulai giliran; giliran manual = 0) dan direset setelah giliran selesai; `split` tanpa planner = seluruh digest ke target pertama. Forward dari edge dicatat sebagai order `source:"forward"` di thread project.
 - **Memory:** `push` menghitung `busy` = agen sedang bekerja (delivery diantre), `skipped` = paused/needsYou/exited; tanpa `targets`/node → semua console workspace. `memory.autoPush` (ekstensi) aktif saat console pertama kali `ready`.
 - **Layout:** kartu kalender disimpan sebagai note berjudul (isi kalender dibuang); nama grup saat deploy diberi sufiks bila bentrok; `fill` = `{"agent"}`.
@@ -733,5 +735,5 @@ Claude Code **2.1.312** (`--model haiku` untuk console, model default untuk plan
 
 **Efek samping di This PC:** tidak ada perubahan config. Run console interaktif menambah 2 baris (`Reply with the single word OK…`, `/exit`) ke `~/.claude/history.jsonl` milik Claude Code (riwayat input normal; tidak disunting karena proses Claude lain menulis file itu bersamaan); transcript sesi uji dihapus lagi; planner memakai `--no-session-persistence`. Dialog trust dibatalkan sehingga tidak ada entri trust baru.
 
-**Belum dikerjakan / tetap terbuka:** langkah `git` hanya membalas "Git actions are not available yet" (Fase 7); daftar CLI aman untuk `whileWorking:"type"` (#4); pembagian `split` oleh planner; persistensi delivery antre (#11); Codex interaktif tidak diuji ulang (flag update check di atas belum dipasang otomatis); BusyBox `ps` (#5) belum diuji nyata.
+**Belum dikerjakan / tetap terbuka:** daftar CLI aman untuk `whileWorking:"type"` (#4); pembagian `split` oleh planner; Codex interaktif tidak diuji ulang (flag update check di atas belum dipasang otomatis); BusyBox `ps` (#5) belum diuji nyata.
 

@@ -76,7 +76,7 @@ curl -fsSL https://raw.githubusercontent.com/<user>/nextboard/main/install.sh | 
 - Mendaftarkan service:
   - **Linux:** systemd **user** service (`~/.config/systemd/user/nextboard.service`) ditambah `loginctl enable-linger $USER`, supaya tetap jalan setelah logout dan reboot.
   - **macOS:** LaunchAgent (`~/Library/LaunchAgents/id.nextboard.plist`).
-- Service berjalan sebagai **user Anda sendiri**. Ini disengaja, karena agen butuh login CLI milik user tersebut (`~/.claude`, `~/.codex`, dll) dan kunci SSH di `~/.ssh`.
+- Service berjalan sebagai **user Anda sendiri**. Ini disengaja, karena agen berjalan dengan hak user itu dan memakai kunci SSH di `~/.ssh`. Login dan state agen ada di `<data>/agents/<agent>` (keputusan 10); `~/.claude` tidak disentuh.
 - Menyalakan service, lalu mencetak:
   ```
   NextBoard berjalan di http://127.0.0.1:12312
@@ -148,7 +148,7 @@ curl -fsSL https://raw.githubusercontent.com/<user>/nextboard/main/install.sh | 
 
 ### Prinsip
 
-> **Tidak ada perubahan di server tujuan.** Tidak ada binary, service, file config, atau entri `authorized_keys` baru. Syaratnya hanya `sshd` yang bisa diakses, dan CLI agen (claude, codex, dll) yang memang sudah terpasang dan login di sana.
+> **Tidak ada perubahan di server tujuan.** Tidak ada binary, service, file config, atau entri `authorized_keys` baru. Syaratnya hanya `sshd` yang bisa diakses, dan CLI agen (claude, codex, dll) yang memang sudah terpasang dan login di sana. Sejak keputusan 10, CLI agen selalu berjalan di This PC, jadi server cukup punya SSH.
 
 ### Menambah machine
 
@@ -262,9 +262,11 @@ Lihat [API.md](API.md) untuk kontrak lengkap (bentuk JSON persis).
 - Perintah tidak ditemukan: pesan error merah di terminal, node tetap dibuat.
 - Frontend: drag hanya lewat header; body `nodrag nowheel nopan`; FitAddon + ResizeObserver; simpan layout debounce 500 ms; sesi tanpa layout ditaruh otomatis dalam grid.
 - Tema gelap. Titik status: hijau berkedip = busy, hijau = idle, kuning = reconnecting, abu = exited, merah = error/exit ≠ 0. Header node `Claude Code @ devbox`, aksen per preset, badge machine.
-- Keamanan: file 0600/0700; kredensial SSH tidak pernah ke klien; body maks (board 1 MB, lainnya 64 KB); log tanpa password/kode/isi terminal.
+- Keamanan: file 0600/0700; kredensial SSH tidak pernah ke klien; body maks (board ops 2 MB, lainnya 64 KB); log tanpa password/kode/isi terminal.
 
 ## 12. Kriteria selesai
+
+> Kriteria asli fase 1–3. Kotak yang kosong bukan status; status ada di [PROJECT.md §13](PROJECT.md).
 
 ### Fase 1
 - [ ] `curl … | sh` memasang binary + service dan mencetak link setup.
@@ -290,7 +292,7 @@ Lihat [API.md](API.md) untuk kontrak lengkap (bentuk JSON persis).
 - [ ] App menolak sertifikat yang tidak dipercaya sistem, atau yang tidak cocok dengan pin bila pin diisi manual.
 
 ## 13. Roadmap setelah fase 3
-Status via hooks; notifikasi HP; workspaces; handoff antar agen; loop/scheduler; bot node; node pendukung (notes/kanban, web preview, git panel); usage analytics.
+Status via hooks; notifikasi HP; workspaces; handoff antar agen; loop/scheduler; node pendukung (notes/kanban, web preview, git panel); usage analytics.
 
 ## Log koneksi
 

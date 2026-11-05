@@ -4,7 +4,7 @@ ID fitur A1…G1 dan blok P1…P14 merujuk ke inventaris fitur internal yang tid
 
 **Tidak diambil:** subscription & credits (F5), instalasi khusus macOS (A1), banner iCloud, Quick Look/Finder, inspector WebKit native (B19, diganti kartu log), planner & TTS berbasis cloud (diganti CLI lokal milik user / Web Speech API).
 
-**Aturan agentless tetap berlaku** untuk machine SSH: tidak memasang apa pun dan tidak mengubah config di server tujuan. Kategori tulis yang masih menunggu keputusan pemilik ada di §Keputusan terbuka.
+**Aturan agentless tetap berlaku** untuk machine SSH: tidak memasang apa pun dan tidak mengubah config di server tujuan. Pertanyaan yang masih terbuka ada di [PROJECT.md §14](PROJECT.md).
 
 ## Fase 4 — Fondasi project & board multi-tile *(selesai: hub, web, Android)*
 
@@ -53,7 +53,7 @@ Kebijakan agentless untuk machine SSH diperhalus sebagai berikut. Semua tetap **
 
 | 7 | HTTPS (2026-11-02) | **Hub hanya HTTP, HTTPS di nginx**, baik `make dev` maupun build rilis | Hub tanpa kode TLS, default listen `127.0.0.1`. Pin sertifikat di app jadi opsional (default: CA sistem). Lihat SPEC §5, `deploy/nginx.conf.example`. |
 | 8 | Prioritas (2026-11-02) | **Core backend dulu**; klien Android & desktop ditunda sampai core stabil | Perubahan hub yang berdampak ke klien tetap boleh; kontrak di `docs/API*.md` dijaga akurat supaya klien bisa menyusul. |
-| 9 | Profil aplikasi desktop (2026-11-03) | **Profil khusus NextBoard**, satu per aplikasi | Satu tile aktif per aplikasi; login dan extension terpisah dari layar fisik. Butuh `sway`, `wayvnc`, `wf-recorder`, `xwayland` di This PC, atau `tigervnc-standalone-server` dan `openbox` tanpa GPU. Lihat API-gui.md §5 dan §8. |
+| 9 | Profil aplikasi desktop (2026-11-03) | **Profil khusus NextBoard**, satu per aplikasi | Satu tile aktif per aplikasi; login dan extension terpisah dari layar fisik. Butuh `sway`, `wayvnc`, `wf-recorder`, `xwayland` di This PC, atau `tigervnc-standalone-server` dan `openbox` tanpa GPU. Lihat API-gui.md §5 dan §9. |
 | 10 | Agent selalu di This PC (2026-11-03) | **CLI agent selalu berjalan di This PC**, seluruh state-nya (login, memory, setting) di folder NextBoard, server dijangkau lewat tool hub (opsi A) | Menggantikan bagian agen remote dari keputusan 1 dan 4. Folder `<data>/agents/<agent>` jadi profil default sekali; `~/.claude` tidak disentuh. Server hanya butuh SSH. Lihat API-agents §10 dan §21. |
 | 11 | Memory (2026-11-03) | **1 project = 1 memory**, apa pun agen atau CLI-nya | Satu folder `memory/<projectId>/` dipakai panel, planner, dan semua CLI; berganti agent atau menutup orchestrator tetap tersinkron. Lihat API-orchestration §12. |
 | 12 | Banyak repo dalam satu project (2026-11-03) | **1 project boleh berisi banyak repo**: hub scan folder project, klien memilih lewat picker | `GET /git/repos` dan `?repo=` ([API-studio §3.6](API-studio.md)). Command bar wajib menyebut repo bila ada lebih dari satu dan tidak pernah commit ke semua repo. Repo tidak dibuat di atas repo yang sudah ada. |
@@ -78,6 +78,8 @@ Kebijakan agentless untuk machine SSH diperhalus sebagai berikut. Semua tetap **
 | 31 | PIN dan isi form Credentials (2026-11-04) | **Master password minimal 8 dan kekuatan hanya peringatan (permintaan pemilik). PIN 6 digit butuh browser dan hub, hub menghitung salah. Web tile diisi lewat bridge dengan cek situs; Chrome This PC lewat tempel, bukan CDP** | PIN di hub saja bisa dicoba semua oleh agent, di browser saja oleh yang menyalin storage. Port CDP bisa dipakai user lain di host bersama, dan pipe CDP menutup Chrome saat hub restart. Mengetik lewat wayvnc membuang karakter diam-diam ([API-vault.md](API-vault.md)) |
 | 32 | Group dan tag project (2026-11-04) | **Group adalah tree tersendiri dengan id, bukan path di nama; hapus group tidak menghapus project. Project tanpa group ada di All projects. Prefix nama lama dipindah sekali saat start** | Rename dan pindah cukup satu tulis, group boleh kosong, dan isi tidak bergantung pada nama. Migrasi lewat hub karena hub menimpa `projects.json` selagi jalan. Hanya pemisah ` - `, supaya nama seperti `demo-backoffice` tidak terpecah |
 | 33 | Commit agen (2026-11-04) | **Agen tidak menandatangani commit**, berlaku global untuk semua project dan CLI | Setting CLI bila ada, instruksi agen, dan hook `commit-msg` yang meneruskan hook repo; bisa dinyalakan lagi di Settings ([API-agents §26](API-agents.md)) |
+| 34 | Order saat hub restart (2026-11-05) | **Order yang belum diketik ditawarkan untuk dikirim ulang, hub tidak mengirim sendiri** | Antrean tetap di memori; teksnya sudah ada di `orders.json`. Mengirim otomatis setelah restart bisa menjalankan kerja yang sudah basi, dan console yang sudah menerima teks tidak ditawari lagi. Tombol Send again, `POST /api/orders/{id}/resend` ([API-orchestration §4](API-orchestration.md)). |
+| 35 | Open source (2026-11-05) | **Repo publik `azamrizki/nextboard`, lisensi MIT** | Data pribadi tidak masuk repo: nama mesin, project, dan path di docs dan test memakai nama dummy. Commit memakai alamat noreply tanpa trailer co-author. Inventaris fitur internal tidak ikut. |
 
 ### Verifikasi awal flag CLI (This PC, 2026-10-28)
 

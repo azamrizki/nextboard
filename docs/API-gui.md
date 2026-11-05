@@ -228,7 +228,7 @@ Web tile (node `web`) menampilkan dua hal: dev server dan situs luar yang ringan
 
 **Verifikasi (This PC, 2026-11-03):** `go test ./internal/gui -run 'TestWebURL|TestBrowserChoice|TestOpenURL'`, `internal/server TestGUIBrowserOpen`. Chrome 156 sungguhan di display Wayland, dikendalikan Playwright lewat hub dan build web sementara: github.com, Wikipedia, example.com, iana.org; mengetik di address bar Chrome dari tile; tab kedua; hub restart lalu tab baru; tutup, reload board tanpa Chrome baru, buka lagi; hapus tile.
 
-## 8. Display tanpa salinan
+## 9. Display tanpa salinan
 
 Dengan Xtigervnc, gambar berjalan GPU → CPU → GPU: aplikasi merender di GPU, X server membacanya keluar, ffmpeg menyalin dan mengonversinya, lalu mengunggahnya ke encoder. Hub memilih display Wayland kalau `sway`, `wayvnc`, `wf-recorder`, GPU, dan encoder hardware tersedia, dan X11 kalau tidak. Tiap sesi punya compositor sendiri:
 

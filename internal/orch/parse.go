@@ -527,7 +527,7 @@ func smalltalkReply(t string) string {
 	return "👍"
 }
 
-// singleLine reports whether s is a short one-line directive (§3.6).
+// singleLine reports whether s is a short one-line directive (§3.11).
 func singleLine(s string) bool {
 	return !strings.ContainsAny(s, "\n\r") && len([]rune(s)) <= 40
 }
@@ -540,7 +540,7 @@ func explicitSame(s string) bool {
 
 // needsComposing reports requests that ask the hub to write instructions
 // for agents ("write a brief for …"), which are never sent without the
-// planner (§3.6).
+// planner (§3.11).
 func needsComposing(s string) bool {
 	l := strings.ToLower(s)
 	for _, p := range []string{"write a brief", "write instructions", "brief them", "brief everyone", "split the work", "divide the work", "assign tasks", "split this", "divide this", "plan the work"} {

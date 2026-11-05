@@ -804,7 +804,7 @@ func (s *Service) lastOrderTarget(tid string) string {
 	return ""
 }
 
-// fallback is §3.6: what happens without the planner.
+// fallback is §3.11: what happens without the planner.
 func (s *Service) fallback(c *execCtx, sc *scope, in Intent, text string, b built) built {
 	b.planner = false
 	if needsComposing(text) {

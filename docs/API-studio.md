@@ -27,7 +27,7 @@ Tambahan atas [API.md](API.md), [API-board.md](API-board.md), [API-agents.md](AP
 
 ```jsonc
 { "id": "jb_…", "kind": "runner"|"git"|"publish"|"usage",
-  "purpose": "document",   // runner: "document"|"diagram"|"memory-scan"|"memory-init"|"memory-refresh"|"loop-goal"|"planner"|"handoff-summary"|"commit-subject"|"thread-summary"
+  "purpose": "document",   // runner: "document"|"diagram"|"memory-scan"|"memory-init"|"memory-refresh"|"loop-goal"|"planner"|"handoff-summary"|"commit-subject"|"thread-summary"|"code-*" (§7.4)
   "projectId": "p_…", "machineId": "local", "agent": "claude",
   "state": "queued"|"running"|"done"|"failed"|"cancelled",
   "progress": { "phase": "launching"|"thinking"|"writing"|"finishing"|"pushing"|"…", "text": "Writing…", "pct": null },
@@ -163,6 +163,7 @@ Kode: `internal/gitsvc` (layanan), `internal/server/h_git.go` (endpoint, adapter
 
 - **Shell:** semua skrip git adalah POSIX sh dan selalu dijalankan lewat `exec /bin/sh -c …` (di SSH, `Exec` memakai login shell user; zsh membaca `"$b:r"` sebagai modifier history — ditemukan oleh uji sshd). PATH login tetap terwarisi.
 - **Env tambahan** di atas §3.2: `unset GIT_ASKPASS SSH_ASKPASS` (askpass = prompt; mis. askpass VS Code), `GIT_LITERAL_PATHSPECS=1` (glob/magic `:(…)` di path selalu literal), `GIT_SEQUENCE_EDITOR=true`, `GIT_MERGE_AUTOEDIT=no`, `GH_PROMPT_DISABLED=1`, `GH_NO_UPDATE_NOTIFIER=1`, `NO_COLOR=1`. `GIT_SSH_COMMAND` BatchMode hanya bila user tidak mengatur `GIT_SSH_COMMAND`/`GIT_SSH`/`core.sshCommand`.
+- **Config repo:** skrip baca (`prelude(…, readOnly)`, juga status di home screen) tidak menjalankan apa pun dari config repo: `core.fsmonitor=false`, `log.showSignature=false`, dan filter driver dari scope `local`/`worktree` dimatikan lewat `GIT_CONFIG_*` (butuh git 2.31; git lebih lama hanya mendapat dua yang pertama). Filter dari config global (git-lfs) tetap jalan; file yang hanya ditangani filter milik repo bisa terbaca berubah. Aksi tulis (stage, commit, pull) tetap menjalankan hook dan filter.
 - **Root repo:** semua operasi berjalan di `git rev-parse --show-toplevel` (project boleh subfolder repo; folder induk berisi banyak repo: §3.6); semua path relatif ke root repo. Path ditolak (`400 bad_path`) bila absolut, keluar repo (`..`), mengandung kontrol/newline, atau menyentuh `.git`.
 - **GitStatus** tambahan: `root`, `hasCommits`, `remoteName`, `changed` (jumlah total, `files` dibatasi 400 dan diurut per path), `largeFiles[].tracked`. Remote = remote upstream, lalu `origin`, lalu remote pertama; `remoteUrl` tanpa kredensial (`https://user:token@` dibuang); `webUrl` dari URL https/ssh/scp-like (path lokal → kosong). Jumlah baris file untracked hanya untuk 50 file pertama ≤ 1 MiB (`git diff --no-index --numstat`). `largeFiles` = path yang berubah (untracked atau ditambah/diubah) > 100 MiB (104 857 600 B), dari `wc -c` (fstat), tanpa membaca isi.
 - **Diff:** `staged=1` → `diff --cached <HEAD|empty tree>`; selain itu terhadap HEAD (repo tanpa commit: empty tree); `--no-ext-diff --no-textconv`; field tambahan `binary`.
@@ -489,7 +490,7 @@ Studio Code adalah workbench selebar jendela di atas board: activity bar, Explor
 
 - **Search:** berjalan di machine project lewat `rg`, lalu `git grep` di work tree, lalu `grep`. Kolom dihitung hub dalam unit UTF-16 supaya sama untuk semua engine. Biner dan file ignored dilewati; batas 1 MB per file hanya berlaku dengan `rg`. Maksimal 5000 hasil, 30 dtk. Regex mengikuti sintaks engine; lokasi kolom memakai RE2.
 - **Replace:** hub membaca, mengganti, dan menulis dengan `ifMtime`, byte lain tidak berubah (CRLF dan BOM aman). File di balik link keluar project gagal per file. UI melewati file yang punya edit belum tersimpan.
-- **Keamanan:** git dipanggil dengan `core.fsmonitor=false` dan `core.hooksPath=/dev/null`, sehingga membuka project tidak menjalankan kode dari config repo.
+- **Keamanan:** git dipanggil dengan `core.fsmonitor=false` dan `core.hooksPath=/dev/null`, sehingga membuka project tidak menjalankan kode dari config repo. Panel Git dan home screen: §3.
 - **Settings:** `editor.onSave` = `[{"pattern","command"}]` (≤ 50). Pola tanpa `/` mencocokkan nama file, dengan `/` dari folder project; `{file}` = path penuh (di-quote). Dijalankan berurutan di folder project, berhenti di kegagalan pertama, 60 dtk per perintah. Klien Android belum memakainya; field ini aditif.
 - **Aset:** `assets/*` teks dikirim gzip (dikompres sekali saat diminta pertama), karena worker Monaco berukuran megabyte. Biner hub bertambah sekitar 14 MB.
 
@@ -910,5 +911,5 @@ Preview dan listener-nya hanya di memori (node `web` di board yang persisten). *
 10. **Web Speech** di webview Tauri (WebKitGTK/WKWebView) dan `getUserMedia` di origin self-signed.
 11. **Git:** prioritas `core.sshCommand` user vs `BatchMode`; credential helper HTTPS di remote; hook commit yang butuh TTY; penulisan ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup.
 12. **`gh repo create --source . --push`**: verifikasi flag dan perilaku saat remote `origin` sudah ada.
-13. **Lisensi pustaka layout diagram:** `elkjs` (EPL-2.0) vs `@dagrejs/dagre` (MIT).
+13. **Pustaka layout diagram:** selesai, tidak dipakai. Tata letak ditulis sendiri (`internal/studio`, `web/src/studio/diagrams/layout.ts`).
 14. **Indeks token lewat SFTP** pada folder transcript sangat besar (ribuan file) — perlu uji performa.
