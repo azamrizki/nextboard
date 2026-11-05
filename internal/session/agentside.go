@@ -16,6 +16,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/agentstate"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/screen"
 	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
@@ -42,6 +43,12 @@ const (
 	agentWaitFor   = 10 * time.Second
 	inputQuietFor  = 2 * time.Second
 	replyScreenN   = 200
+
+	// Typing into an idle shell (typeAtPrompt).
+	promptCancel     = 0x03 // Ctrl-C
+	promptCancelWait = 200 * time.Millisecond
+	promptShowWait   = 3 * time.Second
+	promptRowsBack   = 8 // the wrapper line wraps over fewer rows, even in a narrow tile
 )
 
 // markerLocked applies one marker (already token-checked).
@@ -765,17 +772,20 @@ func (s *Session) StartAgent(ctx context.Context, mode, agentSessionID string) e
 	}
 	s.resumeOffer = false
 	s.mu.Unlock()
-	line := "\x15 " + agent.WrapperLine(m, id, spec.Yolo && ag.HasYolo(), spec.Model, spec.Effort) + "\r"
-	if _, err := cur.proc.Write([]byte(line)); err != nil {
+	line := " " + agent.WrapperLine(m, id, spec.Yolo && ag.HasYolo(), spec.Model, spec.Effort)
+	shown, err := s.typeAtPrompt(ctx, cur, line)
+	if err != nil {
 		return err
 	}
-	select {
-	case <-wait:
-		s.m.saveSoon()
-		s.m.changed(s)
-		return nil
-	case <-time.After(agentWaitFor):
-	case <-ctx.Done():
+	if shown {
+		select {
+		case <-wait:
+			s.m.saveSoon()
+			s.m.changed(s)
+			return nil
+		case <-time.After(agentWaitFor):
+		case <-ctx.Done():
+		}
 	}
 	s.mu.Lock()
 	for i, ch := range s.startWait {
@@ -786,6 +796,63 @@ func (s *Session) StartAgent(ctx context.Context, mode, agentSessionID string) e
 	}
 	s.mu.Unlock()
 	return ErrWrapMissing
+}
+
+// typeAtPrompt submits line at an idle shell's prompt, whatever the shell, its
+// editing mode and what was left on its command line. Return runs what is on the
+// line, and what was left there was never submitted:
+//
+//   - Ctrl-U only clears up to the cursor, so what is after it would join the line:
+//     a redirection there empties the file it names. In vi command mode it does
+//     nothing at all, and the typed keys edit the line as commands.
+//   - Ctrl-C cancels the line in every shell and mode here, and only the shell gets
+//     it: the caller checked that the shell itself is in the foreground.
+//   - Return is pressed only when the screen shows this line up to the cursor.
+//     Otherwise the line is cancelled again, nothing ran, and the result is false.
+func (s *Session) typeAtPrompt(ctx context.Context, cur *run, line string) (bool, error) {
+	if _, err := cur.proc.Write([]byte{promptCancel}); err != nil {
+		return false, err
+	}
+	select {
+	case <-time.After(promptCancelWait): // the input is flushed when the signal comes
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+	if _, err := cur.proc.Write([]byte(line)); err != nil {
+		return false, err
+	}
+	deadline := time.Now().Add(promptShowWait)
+	for !endsAtCursor(s.scr.Snapshot(), line) {
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			_, _ = cur.proc.Write([]byte{promptCancel})
+			return false, nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := cur.proc.Write([]byte("\r")); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// endsAtCursor reports whether the text up to the cursor ends with line. What is
+// after the cursor is not looked at: fish draws suggestions there. A long line may
+// wrap, and rows are padded, so whitespace does not count.
+func endsAtCursor(sn screen.Snapshot, line string) bool {
+	if sn.CursorY < 0 || sn.CursorY >= len(sn.Lines) {
+		return false
+	}
+	var b strings.Builder
+	for _, row := range sn.Lines[max(0, sn.CursorY-promptRowsBack):sn.CursorY] {
+		b.WriteString(row)
+	}
+	cur := []rune(sn.Lines[sn.CursorY])
+	b.WriteString(string(cur[:min(sn.CursorX, len(cur))]))
+	return strings.HasSuffix(withoutSpace(b.String()), withoutSpace(line))
+}
+
+func withoutSpace(s string) string {
+	return strings.Join(strings.Fields(s), "")
 }
 
 // baseName of a command path (for manual agent detection).

@@ -169,7 +169,9 @@ exec "${SHELL:-/bin/sh}" -l
 `POST /api/sessions/{id}/agent {"mode":"fresh"|"resume"|"continue"|"pick","agentSessionId"?}`:
 
 1. Syarat: `agentKind:"agent"`, `foreground:"shell"`, shell **idle di prompt** (cek proses §6.5: foreground pgrp = `wrapperPid`) dan tidak ada input klien ke sesi itu dalam 2 dtk terakhir.
-2. Hub menulis `\x15` (Ctrl-U, kosongkan baris) lalu satu baris yang diawali spasi: ` exec /bin/sh -c "$NB_WRAP" nb <mode> <id|-> <yolo>` + `\r`. Untuk `fresh` Claude, hub membuat UUID baru dulu.
+2. Hub menulis `\x03` (Ctrl-C, membatalkan baris di semua shell dan mode; hanya shell yang menerimanya karena syarat 1), menunggu 200 ms, lalu mengetik satu baris yang diawali spasi: ` exec /bin/sh -c "$NB_WRAP" nb <mode> <id|-> <yolo>`. `\r` hanya ditekan bila layar menampilkan persis baris itu sampai posisi kursor. Bila tidak muncul dalam 3 dtk, baris dibatalkan lagi, tidak ada yang jalan, dan responsnya `412 wrap_missing`. Untuk `fresh` Claude, hub membuat UUID baru dulu.
+
+   Ctrl-U tidak cukup: ia hanya mengosongkan sampai kursor, sehingga sisa setelah kursor menempel ke baris (`> file` ikut jalan dan mengosongkan file itu), dan di mode perintah vi tombol yang diketik menjadi perintah edit. Teruji di bash 5.2, zsh 5.9, dan fish 3.7, mode biasa dan vi (`TestStartingAnAgentInAnyShell`).
 3. Respons `200 Session` (state `starting`). Error: `409 agent_running`, `409 shell_busy` (ada job di foreground), `409 not_agent` (kind shell), `412 wrap_missing` (marker `agent-start` tidak datang dalam 10 dtk → UI menawarkan restart penuh), `503 machine_offline`.
 
 `POST /api/sessions/{id}/restart` tetap = **restart penuh** (kill wrapper + launch baru, scrollback hub tetap). Body: `{"resume"?:bool, "mode"?, "agentSessionId"?, "agent"?, "profileId"?, "yolo"?}`; `resume:true` lama = mode `resume` bila `agentSessionId` ada, selain itu `continue`. `agentSessionId` (tambahan atas permintaan klien) memindahkan console ke percakapan itu dalam satu panggilan: mode default `resume`, id disimpan sebagai `agentSessionId` baru (tanpa harus restart mode `shell` lalu §3.3). Ganti agen/profil selalu restart penuh.
@@ -622,8 +624,8 @@ Status per butir setelah verifikasi ada di §20; butir 1, 2, 3, 4, 5, 11 terjawa
 5. **tmux passthrough:** perilaku tmux < 3.3 (passthrough selalu aktif?) dan apakah `-wq` cukup bila user menimpa opsi itu di config; marker yang menyela escape milik TUI di dalam tmux.
 6. **Reverse forward:** `AllowTcpForwarding` di remote, `curl` mungkin tidak ada, port loopback terlihat user lokal lain (karena itu token wajib), port berganti setelah reconnect.
 7. **Token terlihat di `ps`** di remote selama launch (env inline). Mitigasi opsional: kirim lewat `LC_*` (sering ada di `AcceptEnv`) — perlu diuji.
-8. **Ctrl-Z** di agen (wrapper tanpa job control) membuat agen berhenti dan wrapper menunggu; pemulihan via resume proses (Fase 6 SIGCONT). Dokumentasikan atau tangani.
-9. **Mengetik ke shell** (§3.3): semantik Ctrl-U di vi-mode/fish, `NB_WRAP` bisa di-`unset` user, shell non-POSIX untuk `exec`; fallback = restart penuh.
+8. **Ctrl-Z** di agen tidak menghentikannya: wrapper memimpin sesi terminal, jadi grup prosesnya yatim dan kernel mengabaikan SIGTSTP (`TestCtrlZDoesNotStopAnAgent`). Program yang menghentikan diri dengan SIGSTOP sungguhan tetap berhenti; pemulihannya `POST …/resume`. Di console shell, job control milik shell dan Ctrl-Z berjalan seperti biasa.
+9. **Mengetik ke shell** (§3.3): `NB_WRAP` bisa di-`unset` user, shell non-POSIX untuk `exec`; fallback = restart penuh. Key binding yang mengubah ketikan berakhir dengan `412 wrap_missing`, bukan baris yang termutasi jalan.
 10. **Pustaka VT:** stabilitas API `charmbracelet/x/vt`, performa replay 256 KiB, memori per sesi; fallback `hinshun/vt10x` (perlu fork untuk mode 2004).
 11. **Slug Claude** untuk karakter titik/garis bawah/non-ASCII dan cwd yang sangat panjang; perilaku `--resume <id>` (id sama atau baru).
 12. **`base64` / `head -c`** di target (busybox/macOS) dan format output `base64` macOS (baris panjang).
@@ -649,7 +651,8 @@ Claude Code **2.1.312**, Codex **0.163.0** (lihat catatan update di bawah), tmux
 | — | `/exit` → shell, Ctrl-C tidak membunuh wrapper, §3.3 | `/exit` Claude dan `/quit` Codex → `agent-exit rc 0` → shell di tempat (`status:"running"`); §3.3 resume/fresh dari shell bekerja; `409 shell_busy` saat job di foreground (TIOCGPGRP lokal, `ps` remote) | `TestAgentConsoleHooksEndToEnd`, `TestWrapperSurvivesCtrlC`, run nyata |
 | — | Pola layar | Diambil dari dump nyata (tabel §6.4). Claude 2.1.312 memakai alt-screen, prompt `❯`+NBSP, indikator kerja `✽ <Kata>…` (tanpa "esc to interrupt"). Codex 0.163.0: prompt `› Ask Codex to do anything`. Gemini: **tidak dapat diuji** (tidak terpasang) | `TestScreenFixtures` (9 fixture) |
 | 13 | Flag katalog † | **Tidak dapat diuji** (CLI tidak terpasang, kecuali `opencode` yang tidak diuji flag-nya); tetap dikirim tanpa yolo/resume | — |
-| 7, 8, 9, 10, 14 | Token di `ps`, Ctrl-Z, Ctrl-U di vi-mode/fish, stabilitas pustaka VT, Notification API browser | Tidak diuji (di luar lingkup backend / tidak tersedia). Pustaka VT dipin ke `github.com/charmbracelet/x/vt v0.1.0` (tag rilis, bukan pseudo-version); `Emulator.Close` punya data race dengan `Read` → hub menutup pipe input langsung. Replay 256 KiB < 3 dtk (uji) | `internal/screen` |
+| 8, 9 | Ctrl-Z, mengetik ke shell | Diuji 2026-11-05, lihat butir 8 dan 9 di atas dan §3.3 | — |
+| 7, 10, 14 | Token di `ps`, stabilitas pustaka VT, Notification API browser | Tidak diuji (di luar lingkup backend / tidak tersedia). Pustaka VT dipin ke `github.com/charmbracelet/x/vt v0.1.0` (tag rilis, bukan pseudo-version); `Emulator.Close` punya data race dengan `Read` → hub menutup pipe input langsung. Replay 256 KiB < 3 dtk (uji) | `internal/screen` |
 
 **Temuan samping yang perlu diketahui pemilik:**
 

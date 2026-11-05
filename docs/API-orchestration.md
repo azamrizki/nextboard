@@ -401,7 +401,7 @@ Filter (klien): All · Working · Needs you (+ error) · Idle (`ready`, `shell`,
 | Method | Path | Response / error |
 |---|---|---|
 | POST | `/api/sessions/{id}/pause` | `Session` (`paused:true`, `pausedAt`); idempoten. `409 not_agent` bila agen tidak di foreground; `503 machine_offline` |
-| POST | `/api/sessions/{id}/resume` | `Session`; juga mengirim SIGCONT bila proses foreground berstatus `T` walau hub tidak mem-pause (pemulihan Ctrl-Z) |
+| POST | `/api/sessions/{id}/resume` | `Session`; juga mengirim SIGCONT bila proses foreground berstatus `T` walau hub tidak mem-pause (program yang menghentikan dirinya sendiri) |
 | POST | `/api/workspaces/{id}/pause-all`, `/resume-all` | `{"sessions":[id…]}` (agen saja) |
 
 | Machine | Mekanisme |

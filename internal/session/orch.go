@@ -149,8 +149,8 @@ func (s *Session) Pause(ctx context.Context) error {
 	return nil
 }
 
-// Resume continues the foreground group (also after a Ctrl-Z the hub did
-// not cause) and nudges the TUI to redraw with a one-column resize.
+// Resume continues the foreground group (also when a program stopped itself: the
+// hub did not cause that) and nudges the TUI to redraw with a one-column resize.
 func (s *Session) Resume(ctx context.Context) error {
 	s.mu.Lock()
 	r, pid, mid := s.cur, s.priv.WrapperPid, s.spec.MachineID
