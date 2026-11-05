@@ -156,14 +156,33 @@ func TestMemoryTileIntoAConsole(t *testing.T) {
 	}
 	quiet()
 
+	// /clear and /compact: what was typed is gone, what the launch gave is not. Nothing is
+	// typed by itself; the plan says what is missing, and a send makes up for it.
+	for _, command := range []string{"/clear", "/compact"} {
+		before := received(dir)
+		sess, _ := h.srv.sessions.Get(id)
+		if err := sess.Input([]byte(command + "\r")); err != nil {
+			t.Fatal(err)
+		}
+		waitTrue(t, "the plan to see "+command, 10*time.Second, func() bool { return targetChars(plan()) > 0 })
+		if got := received(dir); got != before+command+"\n" { // the fake logs what it was given
+			t.Fatalf("typed by itself after %s:\n%s", command, got)
+		}
+		quiet() // the plan knows before the fake is back at its prompt
+		st, r := h.do("POST", "/api/projects/"+pid+"/memory/push", map[string]any{"memoryNodeId": testMemTile}, nil)
+		if st != 200 || r["delivered"].(float64) != 1 {
+			t.Fatalf("after %s: %d %v", command, st, r)
+		}
+		quiet()
+		waitTrue(t, "the plan after sending", 10*time.Second, func() bool { return targetChars(plan()) == 0 })
+	}
+
 	// Send-to-agent with a chosen memory and a chosen agent, insisting.
 	st, r = h.do("POST", "/api/projects/"+pid+"/memory/push", map[string]any{"targets": []any{id}, "blocks": []any{map[string]any{"projectId": other, "name": "design"}}, "force": true}, nil)
 	if st != 200 || r["delivered"].(float64) != 1 {
 		t.Fatalf("force %d %v", st, r)
 	}
 	forced := r["deliveryIds"].([]any)[0]
-	// The fake agent takes every line as a turn of its own, so this reads what was typed, not
-	// how far it got: with the critical notes in it, that can take half a minute.
 	_, sent := h.do("GET", "/api/sessions/"+id+"/deliveries", nil, nil)
 	found := false
 	for _, x := range sent["items"].([]any) {

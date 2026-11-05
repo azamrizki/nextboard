@@ -119,6 +119,9 @@ type Manager struct {
 	OnChange func(Info)
 	// OnFileTool says that a hook named a file an agent's tool works on.
 	OnFileTool func(sp Spec, path string)
+	// OnContextLost says that an agent dropped its conversation or compacted it (/clear,
+	// /compact), so what was typed into it may be gone. Its system prompt stays.
+	OnContextLost func(sessionID string)
 	// OnRemove fires after a session was deleted, with its last spec.
 	OnRemove func(sp Spec)
 	// OnAttention receives notable transitions (needsYou, finished, error).

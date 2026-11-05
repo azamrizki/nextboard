@@ -443,16 +443,16 @@ func TestRealMemoryTile(t *testing.T) {
 		t.Fatalf("the launch should leave nothing to type: %v", c)
 	}
 
-	lastReply := ""
 	// turn waits for what a turn answered: an order typed by the hub, or a memory push.
 	turn := func(name string, start func()) string {
 		t.Helper()
 		ready(name)
+		began := time.Now()
 		start()
+		// The same words can come twice ("OK"), so it goes by when the reply was written.
 		deadline := time.Now().Add(150 * time.Second)
 		for time.Now().Before(deadline) {
-			if rep, ok := sess.Reply(); ok && rep.Text != lastReply && info().AgentState == "ready" {
-				lastReply = rep.Text
+			if rep, ok := sess.Reply(); ok && info().AgentState == "ready" && rep.At.After(began) {
 				t.Logf("%s: reply %q", name, rep.Text)
 				dump(name)
 				return rep.Text
@@ -512,6 +512,45 @@ func TestRealMemoryTile(t *testing.T) {
 	}
 	if after := must(200, "GET", "/api/sessions/"+id+"/deliveries", nil)["items"].([]any); len(after) != n {
 		t.Errorf("typed with nothing new: %d deliveries, was %d", len(after), n)
+	}
+
+	// /compact and /clear, as the CLI really signals them. The fact was typed, so it is
+	// missing again; what the launch gave is not. /clear uses no turn, /compact a short one.
+	missing := func() float64 {
+		return must(200, "POST", "/api/projects/"+pid+"/memory/plan", map[string]any{"memoryNodeId": testMemTile})["targets"].([]any)[0].(map[string]any)["chars"].(float64)
+	}
+	for _, command := range []string{"/compact", "/clear"} {
+		ready("before " + command)
+		if c := missing(); c != 0 {
+			t.Fatalf("before %s: %v", command, c)
+		}
+		if err := sess.Input([]byte(command)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(400 * time.Millisecond)
+		if err := sess.Input([]byte("\r")); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(120 * time.Second)
+		for missing() == 0 {
+			if time.Now().After(deadline) {
+				dump("timeout-" + command[1:])
+				t.Fatalf("%s: the hub did not notice:\n%s", command, sess.Screen().Text())
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+		chars := missing()
+		t.Logf("%s: %v characters missing", command, chars)
+		if chars > 400 {
+			t.Errorf("%s: more than the typed fact is missing: %v", command, chars)
+		}
+		if command == "/compact" {
+			turn("typed again", func() {
+				if r := must(200, "POST", "/api/projects/"+pid+"/memory/push", map[string]any{"memoryNodeId": testMemTile}); r["delivered"].(float64) != 1 {
+					t.Fatalf("push %v", r)
+				}
+			})
+		}
 	}
 }
 

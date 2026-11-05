@@ -709,3 +709,78 @@ func TestMemoryTileInALayout(t *testing.T) {
 		}
 	}
 }
+
+// /clear and /compact take away what was typed, and leave what the launch gave.
+func TestMemoryContextLost(t *testing.T) {
+	h, s := newFakeHub(t)
+	p, wid := h.project("app")
+	if _, err := s.WriteMemory(p.ID, "project", "- the launch fact\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WriteDoc("", "writing", "Writing style", "", "- the typed block\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	ash := h.console(p, wid, "Ash", "codex", agentstate.Ready)
+	s.LaunchMemory(ash.ID, wid, p.ID, false)
+	blocks := []MemoryBlock{{ProjectID: p.ID, Name: MainDoc}, {Name: "writing"}}
+	send := func() PushResult {
+		t.Helper()
+		r, err := s.SendMemory(p.ID, MemorySend{Targets: []string{ash.ID}, Blocks: blocks})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	if r := send(); r.Delivered != 1 {
+		t.Fatalf("first %+v", r)
+	}
+	h.setDelivery(s, h.deliveriesTo(ash.ID)[0].ID, delivery.Sent)
+	if r := send(); r.UpToDate != 1 {
+		t.Fatalf("second %+v", r)
+	}
+
+	h.mu.Lock()
+	events := len(h.events)
+	h.mu.Unlock()
+	s.MemoryContextLost(ash.ID)
+	h.mu.Lock()
+	published := len(h.events) > events
+	h.mu.Unlock()
+	if !published {
+		t.Fatal("the tile would not know")
+	}
+	// Nothing typed by itself, and it holds through a hub restart.
+	if n := len(h.deliveriesTo(ash.ID)); n != 1 {
+		t.Fatalf("typed by itself: %d", n)
+	}
+	s2 := afterRestart(h, s)
+	if r := func() PushResult {
+		r, err := s2.SendMemory(p.ID, MemorySend{Targets: []string{ash.ID}, Blocks: blocks})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}(); r.Delivered != 1 {
+		t.Fatalf("after /clear %+v", r)
+	}
+	text := lastText(t, h, ash.ID)
+	if !strings.Contains(text, "the typed block") || strings.Contains(text, "the launch fact") || strings.Contains(text, "Critical rules") {
+		t.Fatalf("what the launch gave stays had:\n%s", text)
+	}
+
+	// A console that never had a launch had only what was typed.
+	gem := h.console(p, wid, "Gem", "gemini", agentstate.Ready)
+	if _, err := s2.SendMemory(p.ID, MemorySend{Targets: []string{gem.ID}, Blocks: blocks}); err != nil {
+		t.Fatal(err)
+	}
+	h.setDelivery(s2, h.deliveriesTo(gem.ID)[0].ID, delivery.Sent)
+	s2.MemoryContextLost(gem.ID)
+	if r, err := s2.SendMemory(p.ID, MemorySend{Targets: []string{gem.ID}, Blocks: blocks}); err != nil || r.Delivered != 1 {
+		t.Fatalf("%v %+v", err, r)
+	}
+	if !strings.Contains(lastText(t, h, gem.ID), "the launch fact") {
+		t.Fatal("it has nothing any more")
+	}
+	// Nobody noted: nothing happens.
+	s2.MemoryContextLost("s_nobody")
+}

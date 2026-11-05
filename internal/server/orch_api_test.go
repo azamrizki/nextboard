@@ -37,9 +37,23 @@ printf '\033[?2004h'
 hook SessionStart "{\"session_id\":\"$sid\",\"transcript_path\":\"$tp\",\"hook_event_name\":\"SessionStart\"}"
 box
 while IFS= read -r line; do
+  # A paste is one message, sent with the Return after it, as in a real CLI.
+  case "$line" in *"${esc}[200~"*)
+    while :; do
+      case "$line" in *"${esc}[201~"*) break;; esac
+      IFS= read -r more || break
+      line="$line
+$more"
+    done;;
+  esac
   line=$(printf '%s' "$line" | sed "s/${esc}\[20[01]~//g")
   printf '%s\n' "$line" >> "$FAKE_DIR/received.log"
   case "$line" in quit) exit 0;; esac
+  case "$line" in /clear|/compact)
+    hook SessionStart "{\"session_id\":\"$sid\",\"transcript_path\":\"$tp\",\"hook_event_name\":\"SessionStart\",\"source\":\"${line#/}\"}"
+    box
+    continue;;
+  esac
   hook UserPromptSubmit '{"hook_event_name":"UserPromptSubmit"}'
   if [ "$line" = perm ]; then
     hook PreToolUse '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"npm test"}}'

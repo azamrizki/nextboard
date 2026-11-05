@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -97,6 +98,8 @@ type seenPending struct {
 type seenSession struct {
 	Docs    map[string]seenDoc `json:"docs"`
 	Pending []seenPending      `json:"pending,omitempty"`
+	// Launched is what its system prompt holds, which /clear and /compact leave alone.
+	Launched map[string]seenDoc `json:"launched,omitempty"`
 }
 
 // memorySeen survives a hub restart: consoles do, and what they were told is still in
@@ -186,8 +189,24 @@ func (m *memorySeen) sending(sid, deliveryID string, docs map[string]seenDoc) {
 func (m *memorySeen) launched(sid string, docs map[string]seenDoc) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sessions[sid] = &seenSession{Docs: docs}
+	m.sessions[sid] = &seenSession{Docs: docs, Launched: maps.Clone(docs)}
 	m.save()
+}
+
+// contextLost goes back to what the launch gave: what was typed left with the conversation.
+func (m *memorySeen) contextLost(sid string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ss := m.sessions[sid]
+	if ss == nil {
+		return false
+	}
+	ss.Docs, ss.Pending = maps.Clone(ss.Launched), nil
+	if ss.Docs == nil {
+		ss.Docs = map[string]seenDoc{}
+	}
+	m.save()
+	return true
 }
 
 // learned adds a line the console wrote itself, which it does not need back.
@@ -827,6 +846,17 @@ func (s *Service) MemorySaved(sid, pid, doc, fact string) {
 		owner, name = splitDocName(pid, doc)
 	}
 	s.seen.learned(sid, memoryKey(owner, name), "- "+cleanFact(fact))
+}
+
+// MemoryContextLost notes a console that dropped or compacted its conversation. Nothing is
+// typed for it: the tile shows it behind, and the owner decides.
+func (s *Service) MemoryContextLost(sid string) {
+	if !s.seen.contextLost(sid) {
+		return
+	}
+	if in, ok := s.hub.SessionInfo(sid); ok {
+		s.hub.Publish(map[string]any{"type": "memory", "projectId": in.ProjectID, "scope": "seen"})
+	}
 }
 
 // MemoryForgotten drops what a console was noted to have: a CLI that takes nothing at

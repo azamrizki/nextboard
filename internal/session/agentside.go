@@ -113,6 +113,13 @@ func (s *Session) markerLocked(mk marker.Marker, now time.Time) {
 		}
 		s.countSubagentsLocked(h)
 		s.eng.Hook(h, now)
+		if h.Event == "SessionStart" && s.m.OnContextLost != nil {
+			switch marker.ScanString(raw, "source") {
+			case "clear", "compact":
+				id, cb := s.spec.ID, s.m.OnContextLost
+				go cb(id)
+			}
+		}
 		if (h.Event == "PreToolUse" || h.Event == "PostToolUse") && fileTools[h.ToolName] && s.m.OnFileTool != nil {
 			path := first(marker.ScanString(raw, "file_path"), marker.ScanString(raw, "notebook_path"))
 			if path != "" {

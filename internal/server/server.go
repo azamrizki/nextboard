@@ -200,6 +200,11 @@ func New(opts Options) (*Server, error) {
 // wire connects component callbacks to the event broker.
 func (s *Server) wire() {
 	s.sessions.HubName = s.hubName
+	s.sessions.OnContextLost = func(id string) {
+		if s.orch != nil {
+			s.orch.MemoryContextLost(id)
+		}
+	}
 	s.sessions.OnChange = func(in session.Info) {
 		s.events.Publish(map[string]any{"type": "session", "session": in})
 		s.trackSession(in)
