@@ -292,9 +292,8 @@ func TestAttachAndCopyOverSSH(t *testing.T) {
 	port, key := startSSHServer(t)
 	h := newTestHub(t)
 	h.setup()
-	old := attachRoot
-	attachRoot = t.TempDir()
-	t.Cleanup(func() { attachRoot = old })
+	attachRoot := t.TempDir()
+	h.srv.attachRoot = attachRoot
 	mid := h.connectMachine(port, key)
 
 	dir := t.TempDir()

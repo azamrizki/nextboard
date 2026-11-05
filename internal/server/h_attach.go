@@ -35,8 +35,8 @@ const (
 	attachSweep   = 20 * time.Second
 )
 
-// attachRoot is the parent of a server's paste folders (tests use a scratch one).
-var attachRoot = "/tmp"
+// defaultAttachRoot is the parent of a server's paste folders.
+const defaultAttachRoot = "/tmp"
 
 // attachID limits what a fixed folder name may hold: it goes into a script.
 var attachID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -93,7 +93,7 @@ func (s *Server) attachDir(ctx context.Context, h machine.Host, key string) (str
 		dir := s.st.Path("attachments", key)
 		return dir, os.MkdirAll(dir, 0o700)
 	}
-	res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachMakeScript(attachRoot, key), MaxOutput: 4 << 10})
+	res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachMakeScript(s.attachRoot, key), MaxOutput: 4 << 10})
 	if err != nil {
 		return "", err
 	}
@@ -246,13 +246,14 @@ func (s *Server) sweepRemoteAttachments(machineID string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), attachSweep)
 	defer cancel()
-	if res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachSweepScript(attachRoot, live), MaxOutput: 4 << 10}); err != nil || res.ExitCode > 1 {
+	if res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachSweepScript(s.attachRoot, live), MaxOutput: 4 << 10}); err != nil || res.ExitCode > 1 {
 		log.Printf("folder paste di %s: %v", machineID, err)
 	}
 }
 
 // setupAttachments hooks the cleanup up to consoles going and servers coming.
 func (s *Server) setupAttachments() {
+	s.attachRoot = defaultAttachRoot
 	s.sweepAttachments(time.Now())
 	onRemove := s.sessions.OnRemove
 	s.sessions.OnRemove = func(sp session.Spec) {

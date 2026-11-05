@@ -282,7 +282,7 @@ func TestDiagramLargestIsQuick(t *testing.T) {
 	if ops := Land(d, "ink", "dg_x", 0, 0, Look{}); len(ops) < 120 {
 		t.Fatalf("%d ops", len(ops))
 	}
-	if took := time.Since(start); took > 2*time.Second {
+	if took := time.Since(start); took > 2*time.Second*raceSlowdown {
 		t.Fatalf("took %v", took)
 	}
 }
@@ -550,7 +550,7 @@ func TestWiresLargestIsQuick(t *testing.T) {
 	took := time.Since(start)
 	wireTrouble(t, d, l)
 	t.Logf("took %v", took)
-	if took > 3*time.Second {
+	if took > 3*time.Second*raceSlowdown {
 		t.Fatalf("took %v", took)
 	}
 }

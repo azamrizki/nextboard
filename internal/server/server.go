@@ -58,6 +58,7 @@ type Options struct {
 
 // Server wires every component together.
 type Server struct {
+	attachRoot string // a server's paste folders; tests set a scratch one before connecting
 	st         *store.Store
 	cfgMu      sync.Mutex
 	cfg        *config.Config
