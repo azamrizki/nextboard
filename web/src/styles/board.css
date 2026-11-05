@@ -1,0 +1,340 @@
+/* Board: canvas, dock, terminal nodes, React Flow overrides (DESIGN.md §3.5). */
+
+.page-board {
+  height: 100%;
+  padding-top: 0;
+}
+.board-canvas {
+  position: fixed;
+  inset: 0;
+}
+.board-canvas .react-flow {
+  --xy-background-color: transparent;
+  --xy-background-pattern-dots-color: var(--canvas-dot);
+  --xy-minimap-background-color: var(--glass-1);
+  --xy-minimap-mask-background-color: var(--minimap-mask);
+  --xy-minimap-node-background-color: var(--minimap-node);
+  --xy-controls-button-background-color: transparent;
+  --xy-controls-button-background-color-hover: var(--surface-hover);
+  --xy-controls-button-color: var(--text-2);
+  --xy-controls-button-color-hover: var(--text);
+  --xy-controls-button-border-color: var(--glass-border);
+  --xy-controls-box-shadow: var(--e-2), var(--glass-highlight);
+  background: transparent;
+}
+
+/* zoom controls (bottom-left) + minimap (bottom-right): glass */
+.board-canvas .react-flow__controls {
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--glass-1);
+  -webkit-backdrop-filter: var(--glass-blur-1);
+  backdrop-filter: var(--glass-blur-1);
+  border: var(--hairline) solid var(--glass-border);
+}
+.board-canvas .react-flow__controls-button {
+  width: var(--h-icon-btn);
+  height: var(--h-icon-btn);
+  padding: var(--s-2);
+}
+.board-canvas .react-flow__controls-button:last-child {
+  border-bottom: 0;
+}
+.board-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+}
+.board-canvas .react-flow__controls-button:focus-visible {
+  outline-offset: -2px;
+}
+.board-canvas .react-flow__minimap {
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  -webkit-backdrop-filter: var(--glass-blur-1);
+  backdrop-filter: var(--glass-blur-1);
+  border: var(--hairline) solid var(--glass-border);
+  box-shadow: var(--e-2), var(--glass-highlight);
+}
+.board-canvas .react-flow__panel.bottom {
+  margin-bottom: var(--s-4);
+}
+.board-canvas .react-flow__panel.left {
+  margin-left: var(--s-4);
+}
+.board-canvas .react-flow__panel.right {
+  margin-right: var(--s-4);
+}
+/* keep corners clear of the dock on medium widths */
+@media (min-width: 900px) and (max-width: 1379px) {
+  .board-canvas .react-flow__panel.bottom {
+    margin-bottom: calc(var(--s-4) + var(--h-dock) + var(--s-3));
+  }
+}
+@media (max-width: 719px) {
+  .board-canvas .react-flow__minimap {
+    display: none;
+  }
+}
+
+/* ---- empty state ---- */
+.board-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: var(--z-canvas-ui);
+  transform: translate(-50%, -50%);
+  width: min(var(--w-modal-sm), calc(100vw - var(--s-8)));
+  pointer-events: none;
+}
+.board-empty .card {
+  align-items: center;
+  text-align: center;
+  gap: var(--s-2);
+  padding: var(--s-8) var(--s-6);
+}
+.board-empty .empty-icon {
+  display: inline-grid;
+  place-content: center;
+  width: var(--s-12);
+  height: var(--s-12);
+  margin-bottom: var(--s-2);
+  border-radius: var(--r-lg);
+  background: var(--tint-info-bg);
+  color: var(--c-primary-300);
+}
+.board-empty .empty-icon svg {
+  width: var(--size-icon-xl);
+  height: var(--size-icon-xl);
+}
+.board-empty p {
+  color: var(--text-2);
+}
+.board-empty .hint-down {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+  font-size: var(--fs-xs);
+  color: var(--c-primary-300);
+}
+.board-empty .hint-down svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+
+.board-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: var(--z-canvas-ui);
+}
+
+/* ---- dock ---- */
+.dock {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-4);
+  z-index: var(--z-header);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: calc(100vw - var(--s-8));
+  padding: var(--s-2);
+  border-radius: var(--r-xl);
+  background: var(--glass-1);
+  -webkit-backdrop-filter: var(--glass-blur-1);
+  backdrop-filter: var(--glass-blur-1);
+  border: var(--hairline) solid var(--glass-border);
+  box-shadow: var(--e-3), var(--glass-highlight);
+}
+.dock .dock-machine,
+.dock .dock-preset {
+  width: var(--w-dock-select);
+}
+.dock .dock-cwd {
+  flex: 1 1 var(--w-dock-cwd);
+  min-width: var(--w-dock-cwd-min);
+  max-width: var(--w-dock-cwd-max);
+}
+.dock .dock-name {
+  width: var(--w-dock-name);
+}
+.dock-sep {
+  width: var(--hairline);
+  align-self: stretch;
+  margin: var(--s-1) 0;
+  background: var(--glass-border);
+}
+.swatch {
+  display: inline-block;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: var(--r-pill);
+  background: var(--swatch, var(--c-grey));
+}
+
+.fab {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-4);
+  z-index: var(--z-header);
+  transform: translateX(-50%);
+  display: inline-grid;
+  place-content: center;
+  width: var(--size-fab);
+  height: var(--size-fab);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--c-primary);
+  color: var(--text-on-primary);
+  box-shadow: var(--primary-highlight), var(--e-3);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.fab:hover {
+  background: var(--c-primary-600);
+}
+.fab svg {
+  width: var(--size-icon-xl);
+  height: var(--size-icon-xl);
+}
+
+/* ---- terminal node ---- */
+
+.react-flow__node-terminal {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-lg);
+}
+
+.nb-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--r-lg);
+  border: var(--hairline) solid var(--glass-border);
+  background: var(--surface-solid);
+  box-shadow: var(--e-3), var(--glass-highlight);
+  overflow: hidden;
+  transition: box-shadow var(--t-fast) var(--ease);
+}
+.nb-node.selected {
+  box-shadow: var(--ring-selected), var(--e-3);
+}
+/* 2px preset accent along the top edge, fading out to the right */
+.nb-node::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: var(--accent-line);
+  background: linear-gradient(90deg, var(--node-accent, var(--c-primary-300)) 0%, transparent 85%);
+  pointer-events: none;
+}
+
+.node-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-1);
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.node-name {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.node-at {
+  flex: 0 1 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.node-status {
+  color: var(--text-3);
+}
+.node-rename {
+  flex: 1 1 auto;
+  height: var(--s-6);
+}
+.node-error {
+  padding: var(--s-1) var(--s-3);
+  font-size: var(--fs-xs);
+  color: var(--c-danger-300);
+  background: var(--tint-danger-bg);
+  border-bottom: var(--hairline) solid var(--tint-danger-border);
+}
+.nb-node-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--s-2);
+  background: var(--surface-solid);
+  cursor: text;
+}
+.nb-term {
+  width: 100%;
+  height: 100%;
+}
+.nb-term .xterm {
+  height: 100%;
+}
+.nb-term .xterm-viewport {
+  background-color: var(--term-bg) !important;
+}
+.nb-term .xterm-viewport::-webkit-scrollbar {
+  width: var(--s-2);
+}
+.nb-term .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--surface-active);
+  border-radius: var(--r-pill);
+}
+
+/* resize: invisible edges; 10px handles on hover / selection.
+   Scoped under .board-canvas so these win over @xyflow/react's stylesheet (loaded later). */
+.board-canvas .react-flow__resize-control.nb-resize-line {
+  border-color: transparent;
+}
+.board-canvas .react-flow__resize-control.line.nb-resize-line.left,
+.board-canvas .react-flow__resize-control.line.nb-resize-line.right {
+  width: var(--s-2);
+}
+.board-canvas .react-flow__resize-control.line.nb-resize-line.top,
+.board-canvas .react-flow__resize-control.line.nb-resize-line.bottom {
+  height: var(--s-2);
+}
+.board-canvas .react-flow__resize-control.nb-resize-handle {
+  width: var(--size-resize-handle);
+  height: var(--size-resize-handle);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--c-primary-300);
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.board-canvas .react-flow__node:hover .nb-resize-handle,
+.board-canvas .react-flow__node.selected .nb-resize-handle {
+  opacity: 1;
+}
+
+@media (max-width: 559px) {
+  .board-canvas .react-flow__panel.left {
+    margin-left: var(--s-3);
+  }
+}
+/* the left rail reaches the zoom controls on short windows: they sit beside it */
+@media (max-width: 1379px) and (max-height: 820px), (max-height: 600px) {
+  .board-canvas .react-flow__panel.bl-panel {
+    margin-left: calc(var(--s-3) + var(--h-icon-btn) + 2 * var(--s-1) + 2 * var(--hairline) + var(--s-2));
+  }
+}

@@ -1,0 +1,5 @@
+cursor=1,3 alt=true rules=
+
+ I will run: rm -rf build
+ Allow execution of this command?
+> 

@@ -1,0 +1,19 @@
+# systemd user unit — `nextboard install` menulis file ini ke
+# ~/.config/systemd/user/nextboard.service dengan path yang sudah terisi.
+[Unit]
+Description=NextBoard hub (visual board untuk AI coding agents)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/nextboard serve --data-dir %h/.nextboard
+Restart=on-failure
+RestartSec=3
+Environment=SHELL=/bin/bash
+# Keep remote tmux sessions alive; local agents are relaunched with resumeArgs.
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LaunchAgent — `nextboard install` menulis file ini ke
+     ~/Library/LaunchAgents/id.nextboard.plist dengan path yang sudah terisi. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>id.nextboard</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USER/.local/bin/nextboard</string>
+    <string>serve</string>
+    <string>--data-dir</string>
+    <string>/Users/USER/.nextboard</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SHELL</key><string>/bin/zsh</string>
+    <key>HOME</key><string>/Users/USER</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/USER/.nextboard/nextboard.log</string>
+  <key>StandardErrorPath</key><string>/Users/USER/.nextboard/nextboard.log</string>
+</dict>
+</plist>

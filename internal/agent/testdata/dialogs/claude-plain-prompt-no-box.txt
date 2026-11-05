@@ -1,0 +1,4 @@
+cursor=1,2 alt=true rules=claude
+
+ some output
+❯ 

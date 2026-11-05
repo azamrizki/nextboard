@@ -1,0 +1,3 @@
+cursor=1,1 alt=true rules=claude
+
+alice@devbox:~/apps/nextboard$ 

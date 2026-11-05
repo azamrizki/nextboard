@@ -1,0 +1,15 @@
+/bin/
+/dist/
+/.devdata/
+/web/node_modules/
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep
+*.test
+*.tsbuildinfo
+.env
+.env.*
+*.pem
+*.key
+.claude/
+# Internal notes on another product's docs; not part of the public repo.
+/docs/research/

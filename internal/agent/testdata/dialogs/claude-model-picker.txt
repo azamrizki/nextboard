@@ -1,0 +1,11 @@
+cursor=1,5 alt=true rules=claude
+
+ ────────────────────────────────────────────────────────────────────
+ Select model
+ Switch between Claude models. Applies to this session and future Claude Code sessions.
+
+ ❯ 1. Default (recommended)   Use the default model
+   2. Opus                    Most capable for complex work
+   3. Haiku                   Fastest for quick answers
+
+ Enter to confirm · Esc to exit

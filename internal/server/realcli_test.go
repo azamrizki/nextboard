@@ -1,0 +1,338 @@
+package server
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"nextboard/internal/marker"
+	"nextboard/internal/session"
+	"nextboard/internal/transcript"
+)
+
+// TestRealCLI drives the installed Claude Code / Codex through the hub to
+// verify the open items of docs/API-agents.md §19. It spends the owner's
+// plan, so it never runs in a normal `go test`:
+//
+//	NEXTBOARD_REAL_CLI_TEST=1 NEXTBOARD_REAL_CLI=claude|codex \
+//	NEXTBOARD_REAL_CLI_PROMPTS=0|1|2|perm NEXTBOARD_SCREEN_DUMP=/scratch/dir \
+//	[NEXTBOARD_REAL_CLI_DIR=/scratch] [NEXTBOARD_REAL_CLI_CWD=/trusted/dir] \
+//	[NEXTBOARD_REAL_CLI_CHANNEL=tty|auto|http] [NEXTBOARD_REAL_CLI_EXTRA="--debug-file x"] \
+//	go test -run TestRealCLI -v ./internal/server/
+//
+// PROMPTS=0 only starts, exits and resumes (no model turn); "perm" asks
+// for one file write and denies it. Prompts are tiny; nothing runs with
+// yolo. Answering CLI dialogs by keystroke can trigger them (Codex's
+// update dialog defaults to "Update now"): watch the screen dumps.
+func TestRealCLI(t *testing.T) {
+	if os.Getenv("NEXTBOARD_REAL_CLI_TEST") != "1" {
+		t.Skip("set NEXTBOARD_REAL_CLI_TEST=1 (memakai plan CLI pemilik)")
+	}
+	cli := os.Getenv("NEXTBOARD_REAL_CLI")
+	prompts := os.Getenv("NEXTBOARD_REAL_CLI_PROMPTS")
+	dump := os.Getenv("NEXTBOARD_SCREEN_DUMP")
+	for _, k := range []string{"CLAUDE_EFFORT", "CLAUDE_PID", "CLAUDE_AGENT_SDK_VERSION"} {
+		if v, ok := os.LookupEnv(k); ok {
+			os.Unsetenv(k)
+			t.Cleanup(func() { os.Setenv(k, v) })
+		}
+	}
+	home, _ := os.UserHomeDir()
+	sum := func(p string) string {
+		b, _ := os.ReadFile(p)
+		h := sha256.Sum256(b)
+		return hex.EncodeToString(h[:8])
+	}
+	cfgFiles := []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".codex", "config.toml")}
+	before := map[string]string{}
+	for _, f := range cfgFiles {
+		before[f] = sum(f)
+	}
+
+	h := newTestHub(t)
+	h.setup()
+	channel := os.Getenv("NEXTBOARD_REAL_CLI_CHANNEL")
+	if channel == "" {
+		channel = "tty"
+	}
+	if _, err := h.srv.settings.Patch([]byte(`{"agents":{"hookChannel":"` + channel + `"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var log []string
+	h.srv.sessions.OnMarker = func(id string, mk marker.Marker) {
+		mu.Lock()
+		defer mu.Unlock()
+		rb := mk.RawBytes()
+		raw := ""
+		for _, k := range []string{"hook_event_name", "source", "notification_type", "message", "tool_name", "command", "file_path", "type", "thread-id", "turn-id", "last-assistant-message", "cwd"} {
+			if v := marker.ScanString(rb, k); v != "" {
+				raw += fmt.Sprintf(" %s=%q", k, v)
+			}
+		}
+		if mk.Type == marker.TypeNotify {
+			raw += " json=" + string(rb)
+		}
+		log = append(log, fmt.Sprintf("%s %s ev=%s mode=%s sid=%s pid=%d rc=%v raw=%s", time.Now().Format("15:04:05.000"), mk.Type, mk.Payload.Ev, mk.Payload.Mode, mk.Payload.Sid, mk.Payload.Pid, deref(mk.Payload.Rc), raw))
+	}
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, l := range log {
+			t.Log("MARKER " + l)
+		}
+		for _, f := range cfgFiles {
+			if a := sum(f); a != before[f] {
+				t.Errorf("%s changed during the run", f)
+			} else {
+				t.Logf("unchanged: %s (%s)", f, a)
+			}
+		}
+	})
+	base := os.Getenv("NEXTBOARD_REAL_CLI_DIR") // scratch root; default the OS temp dir
+	if base == "" {
+		base = filepath.Join(os.TempDir(), "nb-realcli")
+	}
+	scratch := filepath.Join(base, cli+"-"+time.Now().Format("150405"))
+	if d := os.Getenv("NEXTBOARD_REAL_CLI_CWD"); d != "" {
+		scratch = d // reuse an already trusted folder
+	}
+	os.MkdirAll(scratch, 0o755)
+	var args []string
+	switch cli {
+	case "claude":
+		args = []string{"--model", "haiku", "--permission-mode", "manual"}
+	case "codex":
+		// Trust the scratch folder for this launch only (no config.toml write).
+		args = []string{"-s", "read-only", "-a", "on-request", "-c", `projects."` + scratch + `".trust_level="trusted"`}
+	default:
+		t.Fatalf("NEXTBOARD_REAL_CLI=claude|codex")
+	}
+	if x := os.Getenv("NEXTBOARD_REAL_CLI_EXTRA"); x != "" {
+		args = append(args, strings.Fields(x)...)
+	}
+	if st, a := h.do("POST", "/api/agents", map[string]any{"id": "real-" + cli, "name": "Real " + cli, "command": cli, "args": args, "base": cli}, nil); st != 201 {
+		t.Fatalf("agent %d %v", st, a)
+	}
+	st, in := h.do("POST", "/api/sessions", map[string]any{"agent": "real-" + cli, "cwd": scratch, "cols": 110, "rows": 34}, nil)
+	if st != 201 {
+		t.Fatalf("create %d %v", st, in)
+	}
+	id := in["id"].(string)
+	sess, _ := h.srv.sessions.Get(id)
+	n := 0
+	shot := func(name string) string {
+		sn := sess.Screen()
+		txt := sn.Text()
+		n++
+		if dump != "" {
+			os.MkdirAll(dump, 0o755)
+			os.WriteFile(filepath.Join(dump, fmt.Sprintf("%s-%02d-%s.txt", cli, n, name)), []byte(fmt.Sprintf("cursor=%d,%d alt=%v\n%s\n", sn.CursorX, sn.CursorY, sn.Alt, txt)), 0o644)
+		}
+		return txt
+	}
+	info := func() session.Info { i, _ := h.srv.sessions.Info(id); return i }
+	waitFor := func(what string, d time.Duration, cond func(session.Info, string) bool) bool {
+		deadline := time.Now().Add(d)
+		for time.Now().Before(deadline) {
+			if cond(info(), sess.Screen().Text()) {
+				return true
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		i := info()
+		t.Logf("TIMEOUT %s: state=%s src=%s act=%q fg=%s", what, i.AgentState, i.StateSource, i.Activity, i.Foreground)
+		shot("timeout-" + strings.ReplaceAll(what, " ", "_"))
+		return false
+	}
+	send := func(s string) {
+		if err := sess.Input([]byte(s)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type stamp struct {
+		at    time.Duration
+		state string
+	}
+	var states []stamp
+	start := time.Now()
+	stop := make(chan struct{})
+	go func() {
+		last := ""
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+			i := info()
+			k := i.AgentState + "/" + i.StateSource + " " + i.Activity
+			if time.Since(i.LastOutputAt) < 150*time.Millisecond {
+				k += " [output]"
+			}
+			if k != last {
+				last = k
+				mu.Lock()
+				states = append(states, stamp{time.Since(start).Round(100 * time.Millisecond), k})
+				mu.Unlock()
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		close(stop)
+		mu.Lock()
+		defer mu.Unlock()
+		for _, s := range states {
+			t.Logf("STATE +%v %s", s.at, s.state)
+		}
+	})
+	trustRe := regexp.MustCompile(`(?i)trust`)
+	answerTrust := func() {
+		if waitFor("startup screen", 25*time.Second, func(i session.Info, s string) bool {
+			return trustRe.MatchString(s) || i.AgentState == "ready"
+		}) && trustRe.MatchString(sess.Screen().Text()) && info().AgentState != "ready" {
+			time.Sleep(800 * time.Millisecond)
+			shot("trust-dialog")
+			t.Logf("trust dialog: state=%s src=%s act=%q", info().AgentState, info().StateSource, info().Activity)
+			if strings.Contains(sess.Screen().Text(), "❯ No, exit") { // 2.1.312 defaults to "No"
+				send("\x1b[B")
+				time.Sleep(400 * time.Millisecond)
+				shot("trust-yes-selected")
+			}
+			send("\r")
+		}
+	}
+	answerTrust()
+	if !waitFor("ready", 40*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "ready" }) {
+		t.Fatal("agent never became ready")
+	}
+	time.Sleep(1500 * time.Millisecond)
+	shot("ready")
+	i := info()
+	t.Logf("ready: src=%s live=%s agentSessionId=%s", i.StateSource, i.LiveStatus, i.AgentSessionID)
+
+	if prompts == "perm" {
+		send("Create a file named nb.txt containing the word hi.")
+		time.Sleep(300 * time.Millisecond)
+		send("\r")
+		if waitFor("needsYou", 90*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "needsYou" }) {
+			time.Sleep(1200 * time.Millisecond)
+			shot("needsYou")
+			i := info()
+			t.Logf("needsYou: src=%s activity=%q", i.StateSource, i.Activity)
+			send("\x1b") // deny
+		}
+		time.Sleep(8 * time.Second)
+		shot("after-deny")
+		i := info()
+		t.Logf("after deny: state=%s src=%s activity=%q", i.AgentState, i.StateSource, i.Activity)
+		waitFor("ready after deny", 60*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "ready" })
+	}
+	if prompts >= "1" && prompts != "perm" {
+		send("Reply with the single word OK.")
+		time.Sleep(300 * time.Millisecond)
+		send("\r")
+		waitFor("working", 20*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "working" })
+		time.Sleep(700 * time.Millisecond)
+		shot("working")
+		waitFor("ready after turn", 120*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "ready" && i.Reply != nil })
+		time.Sleep(1500 * time.Millisecond)
+		shot("ready-after-turn")
+		if rep, ok := sess.Reply(); ok {
+			t.Logf("reply: source=%s text=%q chars=%d", rep.Source, rep.Text, rep.Chars)
+		}
+		i = info()
+		_, _, tp, _ := sess.TranscriptLocation(t.Context())
+		t.Logf("after turn: agentSessionId=%s transcript=%s lastTurn=%+v", i.AgentSessionID, tp, i.LastTurn)
+		if cli == "claude" {
+			want := transcript.ClaudePath(filepath.Join(home, ".claude"), scratch, i.AgentSessionID)
+			t.Logf("computed slug path %s (match=%v)", want, want == tp)
+		}
+	}
+	if prompts >= "2" && prompts != "perm" {
+		q := "Run the shell command: echo nb-check"
+		if cli == "codex" {
+			q = "Create a file named nb.txt containing the word hi."
+		}
+		send(q)
+		time.Sleep(300 * time.Millisecond)
+		send("\r")
+		if waitFor("needsYou", 90*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "needsYou" }) {
+			time.Sleep(1200 * time.Millisecond)
+			shot("needsYou")
+			i = info()
+			t.Logf("needsYou: src=%s activity=%q", i.StateSource, i.Activity)
+			if cli == "claude" {
+				send("1") // approve the harmless echo
+			} else {
+				send("\x1b") // decline the write
+			}
+		}
+		waitFor("ready after second turn", 120*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "ready" })
+		time.Sleep(1500 * time.Millisecond)
+		shot("ready-after-second")
+		if cli == "claude" {
+			// The idle notification arrives ~60 s after the turn (T8 payload).
+			waitFor("idle notification", 75*time.Second, func(session.Info, string) bool {
+				mu.Lock()
+				defer mu.Unlock()
+				for _, l := range log {
+					if strings.Contains(l, "ev=Notification") && strings.Contains(l, "idle") {
+						return true
+					}
+				}
+				return false
+			})
+			i = info()
+			t.Logf("after idle notification: state=%s", i.AgentState)
+		}
+	}
+	// Exit the agent → shell in place.
+	exitCmd := "/exit"
+	if cli == "codex" {
+		exitCmd = "/quit"
+	}
+	send(exitCmd)
+	time.Sleep(400 * time.Millisecond)
+	send("\r")
+	if !waitFor("shell", 20*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "shell" }) {
+		send("\x03")
+		time.Sleep(300 * time.Millisecond)
+		send("\x03")
+		waitFor("shell after ^C", 10*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "shell" })
+	}
+	shot("shell")
+	i = info()
+	t.Logf("shell: status=%s exit=%v fg=%s", i.Status, deref(i.AgentExitCode), i.Foreground)
+	prev := i.AgentSessionID
+	// Resume the exact conversation from the shell (§3.3).
+	time.Sleep(2200 * time.Millisecond)
+	st, body := h.do("POST", "/api/sessions/"+id+"/agent", map[string]any{"mode": "resume"}, nil)
+	t.Logf("POST agent resume: %d %v", st, body["code"])
+	answerTrust()
+	waitFor("ready after resume", 40*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "ready" })
+	time.Sleep(2 * time.Second)
+	shot("resumed")
+	i = info()
+	t.Logf("resumed: agentSessionId=%s (before %s, same=%v)", i.AgentSessionID, prev, i.AgentSessionID == prev)
+	send(exitCmd)
+	time.Sleep(400 * time.Millisecond)
+	send("\r")
+	waitFor("shell after resume", 20*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "shell" })
+	send("exit\r")
+	waitFor("exited", 10*time.Second, func(i session.Info, _ string) bool { return i.AgentState == "exited" })
+}
+
+func deref(p *int) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}

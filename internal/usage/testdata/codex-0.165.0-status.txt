@@ -1,0 +1,40 @@
+
+  >_ OpenAI Codex (v0.165.0)
+     /tmp/nb-usage-1000
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+/status
+
+  >_ OpenAI Codex (v0.165.0)
+
+  Visit https://chatgpt.com/settings/usage for up-to-date
+  information on rate limits and credits
+
+  Model:               GPT-6.1-Sol (reasoning low, summaries auto)
+  Model provider:      openai
+  Directory:           /tmp/nb-usage-1000
+  Permissions:         Workspace (granular)
+  Agents.md:           <none>
+  Account:             me@example.com       (Plus)
+  Collaboration mode:  Default
+  Session:             00000000-0000-7000-8000-000000000000
+
+  5h limit:            [████████████████████] 100% left (resets 12:52 AM on 29 Oct)
+  Weekly limit:        [████████████████████] 100% left (resets 1:53 PM on 4 Nov)
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  GPT-6.1-Sol default · /tmp/nb-usage-1000
+  ? for shortcuts                                                                              ⚠ 1 warning · f2 to view

@@ -1,0 +1,8 @@
+cursor=1,4 alt=true rules=claude
+
+ ────────────────────────────────────────────────────────────────────
+ Update available: 2.1.312 → 2.2.0
+
+ ❯ 1. Update now
+   2. Skip this version
+

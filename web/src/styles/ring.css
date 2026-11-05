@@ -1,0 +1,410 @@
+/* The board's right-click ring, its panels and the team form (DESIGN.md §3.5). Menu glass; only
+   shown for a moment, so the blur on each button costs nothing while the board moves. */
+
+:root {
+  --ring-btn: 48px;
+  --ring-hub: 56px;
+  --ring-radius: 88px;
+  --ring-radius-more: 112px; /* thirteen buttons, a little air between them */
+  --ring-caption-room: 40px;
+  --w-ring-panel: 360px;
+  --h-ring-grid: 324px; /* cuts a row in half, so that it shows there is more */
+  --h-compose-slot: 64px;
+  --size-agent-badge: 28px;
+  --size-agent-badge-sm: 22px;
+}
+
+.ring,
+.ring-panel {
+  position: fixed;
+  z-index: var(--z-menu);
+  animation: nb-ring-in var(--t-base) var(--ease);
+}
+@keyframes nb-ring-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+/* ---- the ring: a real box, so that it can be kept inside the window ---- */
+.ring {
+  width: calc(2 * (var(--ring-radius) + var(--ring-btn) / 2 + var(--ring-caption-room)));
+  height: calc(2 * (var(--ring-radius) + var(--ring-btn) / 2 + var(--ring-caption-room)));
+  /* the gaps between the buttons belong to the board: a press there closes the ring */
+  pointer-events: none;
+}
+.ring.is-more {
+  --ring-radius: var(--ring-radius-more);
+}
+.ring-btn {
+  position: absolute;
+  top: calc(50% - var(--ring-btn) / 2);
+  left: calc(50% - var(--ring-btn) / 2);
+  display: grid;
+  place-content: center;
+  width: var(--ring-btn);
+  height: var(--ring-btn);
+  padding: 0;
+  border: var(--hairline) solid var(--glass-border-strong);
+  border-radius: var(--r-pill);
+  background: var(--glass-3);
+  -webkit-backdrop-filter: var(--glass-blur-3);
+  backdrop-filter: var(--glass-blur-3);
+  box-shadow: var(--e-2), var(--glass-highlight);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: rotate(var(--ring-a)) translateY(calc(-1 * var(--ring-radius))) rotate(calc(-1 * var(--ring-a)));
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.ring-btn svg {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+}
+.ring-btn:hover:not(.is-disabled) {
+  border-color: var(--c-primary-300);
+  background: var(--surface-active);
+}
+.ring-btn:focus-visible {
+  outline: 2px solid var(--c-primary-300);
+  outline-offset: 2px;
+}
+.ring-btn.is-disabled {
+  color: var(--text-3);
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+.ring-hub {
+  top: calc(50% - var(--ring-hub) / 2);
+  left: calc(50% - var(--ring-hub) / 2);
+  width: var(--ring-hub);
+  height: var(--ring-hub);
+  gap: var(--nudge);
+  justify-items: center;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  transform: none;
+}
+.ring-hub svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+
+/* one name for the whole ring, always in the same place under it */
+.ring-caption {
+  position: absolute;
+  top: calc(50% + var(--ring-radius) + var(--ring-btn) / 2 + var(--s-2));
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: max-content;
+  padding: var(--s-1) var(--s-3);
+  border: var(--hairline) solid var(--glass-border-strong);
+  border-radius: var(--r-pill);
+  background: var(--glass-3);
+  -webkit-backdrop-filter: var(--glass-blur-3);
+  backdrop-filter: var(--glass-blur-3);
+  box-shadow: var(--e-2);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity var(--t-fast) var(--ease);
+}
+.ring-caption.is-on {
+  opacity: 1;
+}
+.ring-caption kbd,
+.ring-caption-note {
+  color: var(--text-3);
+  font: inherit;
+  font-weight: var(--fw-regular);
+}
+
+/* ---- a panel in the ring's place ---- */
+.ring-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(var(--w-ring-panel), calc(100vw - 2 * var(--s-2)));
+  max-height: calc(100dvh - 2 * var(--s-2));
+  border-radius: var(--r-xl);
+  border: var(--hairline) solid var(--glass-border-strong);
+  background: var(--glass-3);
+  -webkit-backdrop-filter: var(--glass-blur-3);
+  backdrop-filter: var(--glass-blur-3);
+  box-shadow: var(--e-3), var(--glass-highlight);
+}
+.ring-panel:focus {
+  outline: none;
+}
+.ring-panel-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3) var(--s-2) var(--s-2);
+  border-bottom: var(--hairline) solid var(--glass-border);
+}
+.ring-panel-head h2 {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+.ring-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-3);
+}
+.ring-empty {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.ring-loading {
+  display: grid;
+  place-items: center;
+  min-height: var(--h-ring-grid);
+}
+
+.ring-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-2);
+  max-height: var(--h-ring-grid);
+  overflow-y: auto;
+}
+.ring-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  min-width: 0;
+  height: var(--h-compose-slot);
+  padding: var(--s-1);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+  background: var(--surface-input);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.ring-tile:hover:not(:disabled) {
+  border-color: var(--glass-border-strong);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.ring-tile.is-active {
+  border-color: var(--c-primary-300);
+  color: var(--text);
+}
+.ring-tile:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+.ring-tile-mark {
+  display: inline-grid;
+  place-items: center;
+  height: var(--size-agent-badge);
+}
+.ring-tile-mark > svg {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+}
+.ring-tile-name {
+  max-width: 100%;
+}
+
+/* ---- an agent's badge: logo on its own colour, or letters on a gradient of it ---- */
+.agent-badge {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: var(--size-agent-badge);
+  height: var(--size-agent-badge);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+}
+.agent-badge.has-mark {
+  border: var(--hairline) solid color-mix(in srgb, var(--agent-c, var(--c-grey)) 40%, transparent);
+  background: color-mix(in srgb, var(--agent-c, var(--c-grey)) 16%, transparent);
+  color: color-mix(in srgb, var(--agent-c, var(--c-grey)) 45%, var(--text));
+}
+.agent-badge.has-letters {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--agent-c, var(--c-grey)) 82%, black), color-mix(in srgb, var(--agent-c, var(--c-grey)) 50%, black));
+  color: var(--text-on-color);
+}
+.agent-badge svg,
+.agent-badge .agent-logo {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+}
+.agent-badge.is-small {
+  width: var(--size-agent-badge-sm);
+  height: var(--size-agent-badge-sm);
+  font-size: calc(var(--fs-xs) - 2px);
+}
+.agent-badge.is-small svg,
+.agent-badge.is-small .agent-logo {
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+}
+
+/* ---- the team form ---- */
+.compose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.compose-name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: var(--h-control);
+  padding: 0 var(--s-3);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+  background: var(--surface-input);
+}
+.compose-name:focus-within {
+  border-color: var(--c-primary);
+  box-shadow: var(--ring-input);
+}
+.compose-dot {
+  flex: 0 0 auto;
+  width: var(--s-3);
+  height: var(--s-3);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--compose-c);
+  cursor: pointer;
+}
+.compose-dot:focus-visible {
+  outline: 2px solid var(--c-primary-300);
+  outline-offset: 2px;
+}
+.compose-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+.compose-name-input::placeholder {
+  color: var(--text-3);
+  font-weight: var(--fw-medium);
+}
+.compose .compose-role {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: var(--h-chip);
+  padding: 0 var(--s-2);
+}
+.compose-slots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.compose-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  min-width: 0;
+  height: var(--h-compose-slot);
+  padding: var(--s-1);
+  border: var(--hairline) solid color-mix(in srgb, var(--agent-c, var(--c-grey)) 40%, transparent);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--agent-c, var(--c-grey)) 10%, transparent);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.compose-slot:hover {
+  border-color: var(--agent-c, var(--glass-border-strong));
+  background: color-mix(in srgb, var(--agent-c, var(--c-grey)) 18%, transparent);
+  color: var(--text);
+}
+.compose-slot:focus-visible,
+.compose-fill-btn:focus-visible,
+.ring-tile:focus-visible {
+  outline: 2px solid var(--c-primary-300);
+  outline-offset: 2px;
+}
+.compose-slot-name {
+  max-width: 100%;
+}
+.compose-fill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nudge);
+}
+.compose-fill-label {
+  margin-right: var(--s-1);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.compose-fill-btn {
+  display: inline-grid;
+  place-items: center;
+  width: var(--size-agent-badge);
+  height: var(--size-agent-badge);
+  padding: 0;
+  border: var(--hairline) solid transparent;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.compose-fill-btn:hover {
+  border-color: var(--glass-border-strong);
+  background: var(--surface-hover);
+}
+.compose-fill-btn > svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+.compose-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+.compose-n {
+  min-width: var(--s-6);
+  text-align: center;
+  font-weight: var(--fw-semibold);
+}
+
+@media (max-width: 400px) {
+  :root {
+    --ring-btn: 42px;
+    --ring-radius-more: 96px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ring,
+  .ring-panel {
+    animation: none;
+  }
+}

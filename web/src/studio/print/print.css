@@ -1,0 +1,311 @@
+/*
+ * Print / PDF route (docs/API-studio.md §5): always light, cover page, contents, running
+ * header and page numbers (@page margin boxes, set inline per paper size), every h1 on a
+ * new page. On screen the page shows as a sheet with a toolbar.
+ * Physical units (mm, pt) are deliberate here: they describe paper, not screen UI.
+ */
+
+:root.print-mode,
+:root.print-mode body {
+  color-scheme: light;
+  background: var(--print-code-bg);
+}
+:root.print-mode #root {
+  min-height: 100dvh;
+}
+.print-root {
+  min-height: 100dvh;
+  color: var(--print-ink);
+  font-family: var(--font-ui);
+  font-size: 10.5pt;
+  line-height: 1.55;
+}
+.print-loading,
+.print-error {
+  padding: var(--s-12);
+  text-align: center;
+  color: var(--print-ink-2);
+}
+.print-error {
+  color: var(--c-danger-600);
+}
+.print-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-6);
+  background: var(--print-bg);
+  border-bottom: var(--hairline) solid var(--print-rule);
+}
+.print-toolbar-title {
+  font-weight: var(--fw-semibold);
+}
+.print-spacer {
+  flex: 1 1 auto;
+}
+.print-btn {
+  display: inline-flex;
+  align-items: center;
+  height: var(--h-control-sm);
+  padding: 0 var(--s-4);
+  border-radius: var(--r-md);
+  border: var(--hairline) solid var(--print-rule);
+  background: var(--print-bg);
+  color: var(--print-ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  cursor: pointer;
+}
+.print-btn.is-primary {
+  background: var(--print-accent);
+  border-color: var(--print-accent);
+  color: var(--text-on-primary);
+}
+.print-btn:focus-visible {
+  outline: 2px solid var(--print-accent);
+  outline-offset: 2px;
+}
+.print-doc {
+  max-width: 190mm;
+  margin: var(--s-8) auto;
+  padding: 18mm 18mm 22mm;
+  background: var(--print-bg);
+  box-shadow: var(--e-2);
+}
+.paper-letter .print-doc {
+  max-width: 196mm;
+}
+.is-embed .print-doc {
+  margin: var(--s-4) auto;
+}
+/* inside the app: each part on its own sheet, like the pages of the PDF */
+.is-inline .print-doc {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.is-inline .print-cover,
+.is-inline .print-toc,
+.is-inline .print-body {
+  padding: 18mm;
+  background: var(--print-bg);
+  box-shadow: var(--e-2);
+  border-bottom: 0;
+}
+.is-inline .print-cover {
+  min-height: 0;
+  aspect-ratio: 210 / 297;
+}
+.paper-letter.is-inline .print-cover {
+  aspect-ratio: 216 / 279;
+}
+.print-cover {
+  min-height: 220mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--s-4);
+  padding: 0 0 var(--s-12);
+  border-bottom: var(--hairline) solid var(--print-rule);
+}
+.cover-kicker {
+  margin: 0;
+  font-size: 9pt;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--print-accent);
+  font-weight: var(--fw-semibold);
+}
+.cover-title {
+  margin: 0;
+  font-size: 30pt;
+  line-height: 1.15;
+  font-weight: var(--fw-heavy);
+}
+.cover-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s-1) var(--s-6);
+  margin: var(--s-6) 0 0;
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-md);
+  background: var(--print-cover-band);
+}
+.cover-meta > div {
+  display: contents;
+}
+.cover-meta dt {
+  color: var(--print-ink-3);
+}
+.cover-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cover-foot {
+  margin-top: auto;
+  color: var(--print-ink-3);
+  font-size: 8.5pt;
+}
+.print-toc {
+  padding: var(--s-8) 0;
+  border-bottom: var(--hairline) solid var(--print-rule);
+}
+.print-toc h2 {
+  margin: 0 0 var(--s-3);
+  font-size: 15pt;
+}
+.print-toc ol {
+  margin: 0;
+  padding-left: var(--s-5);
+}
+.print-toc li {
+  padding: var(--nudge) 0;
+}
+.print-toc .toc-l2 {
+  margin-left: var(--s-5);
+  list-style: circle;
+  color: var(--print-ink-2);
+}
+.print-toc a {
+  color: inherit;
+  text-decoration: none;
+}
+.print-body {
+  padding-top: var(--s-6);
+}
+.print-body.md-doc,
+.print-body {
+  color: var(--print-ink);
+  font-size: 10.5pt;
+}
+.print-body h1,
+.print-body h2,
+.print-body h3 {
+  color: var(--print-ink);
+  break-after: avoid;
+}
+.print-body h1 {
+  font-size: 20pt;
+  margin: 0 0 var(--s-3);
+}
+.print-body h2 {
+  font-size: 14pt;
+  margin: var(--s-6) 0 var(--s-2);
+  padding-bottom: var(--s-1);
+  border-bottom: var(--hairline) solid var(--print-rule);
+}
+.print-body h3 {
+  font-size: 12pt;
+  margin: var(--s-4) 0 var(--s-1);
+}
+.print-body p,
+.print-body ul,
+.print-body ol,
+.print-body table,
+.print-body pre,
+.print-body blockquote {
+  margin: 0 0 var(--s-3);
+}
+.print-body ul,
+.print-body ol {
+  padding-left: var(--s-6);
+}
+.print-body a {
+  color: var(--print-accent);
+}
+.print-body code {
+  padding: 0 var(--s-1);
+  border-radius: calc(var(--r-sm) / 2);
+  background: var(--print-code-bg);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.print-body pre {
+  padding: var(--s-3);
+  border-radius: var(--r-sm);
+  background: var(--print-code-bg);
+  border: var(--hairline) solid var(--print-rule);
+  white-space: pre-wrap;
+  break-inside: avoid;
+}
+.print-body pre code {
+  padding: 0;
+  background: transparent;
+}
+.print-body blockquote {
+  padding-left: var(--s-3);
+  border-left: var(--accent-line) solid var(--print-rule);
+  color: var(--print-ink-2);
+}
+.print-body table {
+  border-collapse: collapse;
+  width: 100%;
+  break-inside: avoid;
+}
+.print-body th,
+.print-body td {
+  padding: var(--s-1) var(--s-2);
+  border: var(--hairline) solid var(--print-rule);
+  text-align: left;
+}
+.print-body hr {
+  border: 0;
+  border-top: var(--hairline) solid var(--print-rule);
+}
+.print-body img {
+  max-width: 100%;
+}
+.print-body .img-ph {
+  display: inline-flex;
+  padding: var(--s-2) var(--s-3);
+  border: var(--hairline) dashed var(--print-rule);
+  border-radius: var(--r-sm);
+  color: var(--print-ink-3);
+  font-size: 9pt;
+}
+
+@media print {
+  :root.print-mode,
+  :root.print-mode body {
+    background: var(--print-bg);
+  }
+  .print-toolbar {
+    display: none;
+  }
+  .print-doc {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+  .print-cover {
+    min-height: 230mm;
+    border-bottom: 0;
+    break-after: page;
+  }
+  .print-toc {
+    border-bottom: 0;
+    break-after: page;
+  }
+  .print-body {
+    padding-top: 0;
+  }
+  .print-body h1 {
+    break-before: page;
+  }
+  .print-body > h1:first-child {
+    break-before: auto;
+  }
+  /* the app's toasts and overlays never print */
+  .toasts {
+    display: none;
+  }
+}

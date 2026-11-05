@@ -1,0 +1,77 @@
+# NextBoard behind nginx: HTTPS ends here, the hub only speaks plain HTTP on
+# 127.0.0.1 (`nextboard install --public-url https://board.example.com`).
+#
+# Replace board.example.com, PUBLIC_IP and the certificate paths. PUBLIC_IP is
+# the server's address on the interface clients reach (LAN, public, Tailscale);
+# add a `listen` line per address if there are several.
+#
+#   sed -e 's/board\.example\.com/your.domain/g' -e 's/PUBLIC_IP/203.0.113.10/g' \
+#     deploy/nginx.conf.example > /etc/nginx/conf.d/nextboard.conf
+
+map $http_upgrade $nextboard_connection {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name board.example.com;
+    return 301 https://$host$request_uri;
+}
+
+# Web UI, API and WebSockets.
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name board.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/board.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/board.example.com/privkey.pem;
+
+    client_max_body_size 25m;   # asset upload and file write: 20 MB
+
+    location / {
+        proxy_pass http://127.0.0.1:12312;
+        include /etc/nginx/nextboard-proxy.inc;
+    }
+}
+
+# Web tile previews: one HTTPS port per hub preview listener, the same numbers
+# as settings.previews.portRange (default 12320-12339). Open them in the
+# firewall.
+#
+# These bind PUBLIC_IP, not all interfaces: the hub holds 127.0.0.1:<port> and
+# nginx listening on 0.0.0.0:<port> would make the hub's bind fail.
+server {
+    listen PUBLIC_IP:12320 ssl;
+    listen PUBLIC_IP:12321 ssl;
+    listen PUBLIC_IP:12322 ssl;
+    listen PUBLIC_IP:12323 ssl;
+    listen PUBLIC_IP:12324 ssl;
+    listen PUBLIC_IP:12325 ssl;
+    listen PUBLIC_IP:12326 ssl;
+    listen PUBLIC_IP:12327 ssl;
+    listen PUBLIC_IP:12328 ssl;
+    listen PUBLIC_IP:12329 ssl;
+    listen PUBLIC_IP:12330 ssl;
+    listen PUBLIC_IP:12331 ssl;
+    listen PUBLIC_IP:12332 ssl;
+    listen PUBLIC_IP:12333 ssl;
+    listen PUBLIC_IP:12334 ssl;
+    listen PUBLIC_IP:12335 ssl;
+    listen PUBLIC_IP:12336 ssl;
+    listen PUBLIC_IP:12337 ssl;
+    listen PUBLIC_IP:12338 ssl;
+    listen PUBLIC_IP:12339 ssl;
+    server_name board.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/board.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/board.example.com/privkey.pem;
+
+    client_max_body_size 100m;  # preview request limit
+
+    location / {
+        proxy_pass http://127.0.0.1:$server_port;
+        include /etc/nginx/nextboard-proxy.inc;
+    }
+}

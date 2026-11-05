@@ -1,0 +1,5 @@
+cursor=1,3 alt=true rules=
+
+ foo-agent 1.4.0
+ A new version (1.5.0) is available.
+> Update now? [Y/n] 

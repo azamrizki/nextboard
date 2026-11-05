@@ -1,0 +1,226 @@
+/* Reset, typography, focus ring and small utilities. Tokens only. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  min-height: 100%;
+  background: var(--bg-ambient);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: var(--font-features);
+}
+
+/* the faint grid behind the pages (not the board: it has its dots; not the sky of Memory) */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(var(--page-grid) 1px, transparent 1px), linear-gradient(90deg, var(--page-grid) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(ellipse 72% 60% at 50% 0, #000 28%, transparent 76%);
+  mask-image: radial-gradient(ellipse 72% 60% at 50% 0, #000 28%, transparent 76%);
+}
+body:has(.page-board, .page-memory)::before {
+  display: none;
+}
+@media print {
+  body::before {
+    display: none;
+  }
+}
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* a subtree with a theme of its own: colour is inherited as a value, so it must be set again */
+[data-theme] {
+  color: var(--text);
+}
+.theme-switching,
+.theme-switching * {
+  transition: none !important;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  line-height: var(--lh-heading);
+  letter-spacing: var(--tracking-snug);
+}
+h1 {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-title);
+}
+h2 {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+}
+h3 {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+}
+p {
+  margin: 0 0 var(--s-2);
+}
+p:last-child {
+  margin-bottom: 0;
+}
+a {
+  color: var(--c-primary-300);
+  text-underline-offset: 2px;
+}
+strong {
+  font-weight: var(--fw-semibold);
+}
+
+code,
+kbd,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.93em;
+}
+code {
+  padding: 0 var(--s-1);
+  border-radius: var(--r-sm);
+  background: var(--surface-input);
+  border: var(--hairline) solid var(--glass-border);
+  color: var(--text-2);
+}
+
+/* Global focus ring (§3.1): never remove without a replacement. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+::selection {
+  background: var(--editor-selection);
+}
+
+/* ---- utilities ---- */
+.text-2 {
+  color: var(--text-2);
+}
+.text-3,
+.muted {
+  color: var(--text-3);
+}
+.text-danger {
+  color: var(--c-danger-300);
+}
+.text-success {
+  color: var(--tint-success-text);
+}
+.text-warning {
+  color: var(--tint-warning-text);
+}
+.fs-xs {
+  font-size: var(--fs-xs);
+}
+.fs-sm {
+  font-size: var(--fs-sm);
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+.spacer {
+  flex: 1 1 auto;
+}
+.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+ul.plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- glass helpers ---- */
+.glass-1 {
+  background: var(--glass-1);
+  -webkit-backdrop-filter: var(--glass-blur-1);
+  backdrop-filter: var(--glass-blur-1);
+  border: var(--hairline) solid var(--glass-border);
+  box-shadow: var(--e-2), var(--glass-highlight);
+}
+.glass-2 {
+  background: var(--glass-2);
+  -webkit-backdrop-filter: var(--glass-blur-2);
+  backdrop-filter: var(--glass-blur-2);
+  border: var(--hairline) solid var(--glass-border);
+  box-shadow: var(--e-2), var(--glass-highlight);
+}
+.glass-3 {
+  background: var(--glass-3);
+  -webkit-backdrop-filter: var(--glass-blur-3);
+  backdrop-filter: var(--glass-blur-3);
+  border: var(--hairline) solid var(--glass-border-strong);
+  box-shadow: var(--e-3), var(--glass-highlight);
+}
+.mb-3 {
+  margin-bottom: var(--s-3);
+}
+.mb-4 {
+  margin-bottom: var(--s-4);
+}
+.mt-4 {
+  margin-top: var(--s-4);
+}

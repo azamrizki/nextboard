@@ -1,0 +1,35 @@
+cursor=2,30 alt=true
+
+ ▐▛███▛█   Claude Code v2.1.312
+▝▜██████▀  Haiku 5.5 · Claude Pro
+ ▝▝   ▝▝   /…/work/app
+
+
+❯ Create a file named nb.txt containing the word hi.
+
+● Write(nb.txt)
+  ⎿  User rejected write to nb.txt
+      1 hi
+
+✻ Churned for 4s · done 2:54 PM
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                          ◐ medium · /effort
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  ⏸ manual mode on

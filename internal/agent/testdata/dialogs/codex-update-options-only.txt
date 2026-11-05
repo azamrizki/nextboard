@@ -1,0 +1,4 @@
+cursor=1,1 alt=true rules=codex
+
+› 1. Update now
+  2. Skip

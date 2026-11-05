@@ -1,0 +1,86 @@
+# NextBoard — roadmap paritas fitur (terinspirasi Symvibe)
+
+ID fitur A1…G1 dan blok P1…P14 merujuk ke inventaris fitur internal yang tidak ikut di repo ini. Desain visual tetap [DESIGN.md](DESIGN.md) (NextBoard Glass); tidak menyalin tampilan, branding, atau teks Symvibe.
+
+**Tidak diambil:** subscription & credits (F5), instalasi khusus macOS (A1), banner iCloud, Quick Look/Finder, inspector WebKit native (B19, diganti kartu log), planner & TTS berbasis cloud (diganti CLI lokal milik user / Web Speech API).
+
+**Aturan agentless tetap berlaku** untuk machine SSH: tidak memasang apa pun dan tidak mengubah config di server tujuan. Kategori tulis yang masih menunggu keputusan pemilik ada di §Keputusan terbuka.
+
+## Fase 4 — Fondasi project & board multi-tile *(selesai: hub, web, Android)*
+
+| Blok | Fitur |
+|---|---|
+| P1 Project/Workspace | B5 home screen project (machine + path, branch git), B6 tab workspace, sesi terikat workspace, migrasi `board.json` lama |
+| Board v2 | dokumen board per workspace berbasis **ops** (sinkron live antar klien), B7 `.prev` + snapshot per jam (24) + arsip |
+| Interaksi | B1 navigasi (zoom 20–300 %), B2 seleksi/marquee/clipboard/duplikat/undo-redo 80 langkah/guide, B3 rail kiri (tools), rail kanan (insert), menu klik-kanan kanvas & node, B4 tombol satu huruf |
+| Tile | B9 sticky note & teks, B10 checklist, B11 kanban, B12 kalender, B13 shape/garis/panah + inspector (rough.js), B14 pen & eraser (perfect-freehand), B15 gambar + editor markup, B16 kartu file (code snapshot, markdown live, file, folder) |
+| P10 Exec & file API | stat/read/raw/write (lokal; SSH lewat SFTP subsystem, fallback exec read-only) |
+| Aset | blob store hub untuk gambar yang di-paste/upload |
+| Klien | Web penuh; Android: navigasi project → workspace → sesi |
+
+## Fase 5 — Agen & status *(selesai: hub, web, Android; kontrak: [API-agents.md](API-agents.md), hasil verifikasi CLI di §20)*
+
+Termasuk **E1 runner CLI tersembunyi** (dimajukan dari Fase 7 karena dibutuhkan planner, handoff, loop, dan memory di Fase 6; kontrak di [API-studio.md](API-studio.md) §E1).
+
+C1 nama console (handle) & header, C2 entry point spawn, **C3/C11 status WORKING / NEEDS YOU / READY** (P3 model layar VT di hub, P4 engine status, hooks lokal + injeksi per-launch bila terverifikasi, fallback pengenalan prompt di layar), P5 pembaca transcript, C5 output viewer, C7 katalog agen + deteksi, C8 Yolo, C9 agen custom, C10 resume presisi (pemilih percakapan), C4 perilaku exit, P13 notifikasi ke Android saat agen butuh input, chip "needs you" + tombol `N`.
+
+## Fase 6 — Orkestrasi *(selesai: hub, web, Android; kontrak: [API-orchestration.md](API-orchestration.md))*
+
+D1–D4 command bar (+ @mention, thread per project, parser lokal), D6 delivery engine (paste + Return dengan guard), D7–D8 pembagian kerja & konfirmasi, D5 planner opsional via CLI headless lokal (`claude -p`, plan milik user — bukan cloud), D10 kartu orchestrator, D14 grup/tim + peran, D15 laporan tim, D16 Mission Map, D17 pause/resume, D18 handoff, D19 forward, D20 loop (cron / idle / pola output + goal check), D21 memory project, B8 template layout.
+
+## Fase 7 — Web, Git, Studios, Usage, Suara *(selesai: hub, web, Android, desktop; kontrak: [API-studio.md](API-studio.md))*
+
+Cek usage memakai satu path temp tetap per machine (`/tmp/nb-usage-<uid>`), dibuat ulang lalu dihapus tiap kali, supaya Claude Code hanya mencatat satu entri trust.
+
+B17 web tile via proxy preview hub (lokal / SSH `direct-tcpip`), B18 preview localhost otomatis, B19 kartu log konsol/jaringan, B20–B22 panel Git + publish GitHub (`gh`) + kartu branch, E1 runner CLI tersembunyi, E2 Documents (PDF), E3 Diagrams (mendarat sebagai shape), E4 Code studio, E5 Markdown studio + link graph, E6 Skills, F1 profil login CLI, F2 usage pill, F3 chime reset, F4 grafik token, D11–D13 suara (push-to-talk, balasan suara lokal, dikte) via Web Speech API / Android SpeechRecognizer, pengaturan & rebinding shortcut.
+
+## Fase 8 — Aplikasi desktop di board *(selesai: hub, web; kontrak: [API-gui.md](API-gui.md))*
+
+Aplikasi GUI This PC (Chrome, VS Code, dan lain-lain) tampil di tile lewat compositor headless per aplikasi (sway + wayvnc, dengan cadangan Xtigervnc + openbox) dan noVNC, dengan AV1 atau H.264 dari GPU untuk gerakan besar dan suara per aplikasi. Hanya This PC; machine SSH tetap agentless. Android dan desktop menyusul sesuai keputusan 8.
+
+## Keputusan pemilik (2026-10-28)
+
+Kebijakan agentless untuk machine SSH diperhalus sebagai berikut. Semua tetap **tanpa memasang binary/service** dan **tanpa mengubah file config** yang sudah ada di server tujuan.
+
+| # | Topik | Keputusan | Implikasi implementasi |
+|---|---|---|---|
+| 1 | Status live di machine SSH | **Boleh** injeksi hooks per-launch lewat flag CLI (mis. `--settings` inline / `-c notify=…`), tanpa menulis file config | Hooks mengirim event ke hub lewat jalur yang dibuka hub sendiri (mis. reverse port-forward SSH dari koneksi hub). Fallback baca-saja (transcript + prompt di layar) bila flag tidak didukung CLI tsb. Wajib diverifikasi per CLI sebelum dipakai. |
+| 2 | Folder sementara di remote | **Boleh** `mktemp -d` di `/tmp` untuk cek usage dll. | Selalu dibersihkan setelah dipakai; tidak ada sisa permanen. |
+| 3 | Skills/commands di remote (`~/.claude/skills`) | **Boleh** ditulis, hanya atas aksi eksplisit user | Konfirmasi di UI sebelum menulis; tampilkan path yang akan diubah. |
+| 4 | Profil login CLI di remote | **Hanya memakai folder yang sudah ada** | Hub tidak membuat folder profil baru di remote; profil remote = referensi path yang sudah ada. (Di This PC tetap boleh membuat.) |
+| 5 | Perilaku exit agen | **Seperti Symvibe**: saat agen keluar, console jatuh ke shell di tempat (wrapper shell) | Butuh deteksi "agen sedang di foreground" sebelum mengirim order; resume dari shell. Berlaku lokal & remote (tmux/direct). |
+| 6 | Planner kalimat → langkah | **Claude Code lokal di This PC** (`claude -p`, plan milik user) | Tidak ada planner cloud. Bila Claude Code tidak ada/belum login di This PC, command bar memakai parser lokal saja. |
+
+| 7 | HTTPS (2026-11-02) | **Hub hanya HTTP, HTTPS di nginx**, baik `make dev` maupun build rilis | Hub tanpa kode TLS, default listen `127.0.0.1`. Pin sertifikat di app jadi opsional (default: CA sistem). Lihat SPEC §5, `deploy/nginx.conf.example`. |
+| 8 | Prioritas (2026-11-02) | **Core backend dulu**; klien Android & desktop ditunda sampai core stabil | Perubahan hub yang berdampak ke klien tetap boleh; kontrak di `docs/API*.md` dijaga akurat supaya klien bisa menyusul. |
+| 9 | Profil aplikasi desktop (2026-11-03) | **Profil khusus NextBoard**, satu per aplikasi | Satu tile aktif per aplikasi; login dan extension terpisah dari layar fisik. Butuh `sway`, `wayvnc`, `wf-recorder`, `xwayland` di This PC, atau `tigervnc-standalone-server` dan `openbox` tanpa GPU. Lihat API-gui.md §5 dan §8. |
+| 10 | Agent selalu di This PC (2026-11-03) | **CLI agent selalu berjalan di This PC**, seluruh state-nya (login, memory, setting) di folder NextBoard, server dijangkau lewat tool hub (opsi A) | Menggantikan bagian agen remote dari keputusan 1 dan 4. Folder `<data>/agents/<agent>` jadi profil default sekali; `~/.claude` tidak disentuh. Server hanya butuh SSH. Lihat API-agents §10 dan §21. |
+| 11 | Memory (2026-11-03) | **1 project = 1 memory**, apa pun agen atau CLI-nya | Satu folder `memory/<projectId>/` dipakai panel, planner, dan semua CLI; berganti agent atau menutup orchestrator tetap tersinkron. Lihat API-orchestration §12. |
+| 12 | Banyak repo dalam satu project (2026-11-03) | **1 project boleh berisi banyak repo**: hub scan folder project, klien memilih lewat picker | `GET /git/repos` dan `?repo=` ([API-studio §3.6](API-studio.md)). Command bar wajib menyebut repo bila ada lebih dari satu dan tidak pernah commit ke semua repo. Repo tidak dibuat di atas repo yang sudah ada. |
+| 13 | Situs luar di web tile (2026-11-03) | **Browser sungguhan di This PC**, bukan iframe atau proxy | Satu Chrome dan satu profil yang berbagi dengan tile Desktop app; alamat berikutnya jadi tab ([API-gui §8](API-gui.md)). Dua situs berdampingan lewat Split View bawaan Chrome di satu tile. |
+| 14 | Critical notes (2026-11-03) | **Tiap main memory wajib punya critical notes**; permintaan langsung tidak dihitung sebagai izin | Isinya masuk paling depan dan utuh ke tiap agent, hanya pemilik yang mengubahnya ([API-orchestration §12](API-orchestration.md)). Ini instruksi, bukan kunci teknis: agent di This PC punya Bash sendiri. Blokir teknis untuk perintah tertentu belum diputuskan |
+| 15 | Ganti agent (2026-11-03) | **Ganti agent terjadi di tile yang sama**, membawa ringkasan, dan percakapan lama bisa dilanjutkan saat kembali | Menu Switch agent memakai handoff in place ([API-orchestration §9.1](API-orchestration.md)); handoff ke console baru tetap ada |
+| 16 | MCP (2026-11-03) | **MCP diatur di NextBoard**, diberikan per launch, tidak ditulis ke config CLI | Rahasia tersegel di hub dan hanya lewat environment proses ([API-agents §23](API-agents.md)). Login OAuth tetap per CLI |
+| 17 | Sambungan tile (2026-11-03) | **Isi tile dikirim sekali saat dikabelkan**, tidak ikut otomatis tiap agent bekerja | Kiriman ulang hanya atas permintaan, jadi tile tidak menghabiskan token sendiri ([API-orchestration §1](API-orchestration.md)) |
+| 18 | Paste file (2026-11-03) | **File yang dipaste ke console atau order disimpan hub di luar project**: This PC 7 hari di folder data hub, server di `/tmp` selama console hidup | Project tidak kotor dan tidak ikut git; lihat API-studio §7.9. Ctrl+V di shell tetap `^V` kecuali clipboard berisi file. |
+| 19 | Situs di tailnet (2026-11-03) | **Alamat yang resolve ke IP Tailscale tampil lewat proxy hub**, bukan Chrome; sisanya tetap keputusan 13 | IP dicek ulang tiap koneksi, cookie tiap situs terpisah, URL situs ditulis ulang ke origin preview. Port lain di host yang sama tidak di-proxy ([API-studio §4.9](API-studio.md)). |
+| 20 | Uptime monitoring (2026-11-03) | **Hub yang mengecek, monitor milik project**; kartu hanya menampilkan | Monitoring tidak boleh bergantung pada browser yang terbuka. Menghapus kartu tidak menghentikan cek. Halaman status publik belum dibuat karena membuka sesuatu ke publik. Lihat [API-uptime.md](API-uptime.md). |
+| 21 | Password SSH (2026-11-03) | **Machine berhenti dan bertanya, tidak mencoba ulang**; jawaban disimpan terenkripsi hanya setelah terbukti benar, dan bisa memilih tidak disimpan | Mencoba ulang password salah berujung ban. Lihat API.md "Password dan passphrase". |
+| 22 | Mematikan agent (2026-11-03) | **Satu switch per agent untuk semua machine**, console yang jalan tidak disentuh | Tujuannya daftar bersih, bukan menghentikan pekerjaan. Lihat API-agents §1. |
+| 23 | Menu board (2026-11-04) | **Rail kanan hanya yang penting, sisanya di ring klik kanan**; ring, Compose group, dan tombol display mengikuti gambar referensi pemilik | Pengecualian atas "tidak menyalin tampilan" di atas untuk susunan tiga bagian ini; warna, ikon, dan teks tetap NextBoard Glass. Lihat DESIGN §3.5. |
+| 24 | Review agent dan Local History (2026-11-04) | **Repo bayangan di folder data hub**, bukan commit di repo project dan bukan hook saja | Satu snapshot worktree berlaku untuk semua CLI, folder tanpa git, dan edit lewat shell; repo asli tidak disentuh. Hook hanya memperjelas pemiliknya. Hanya project di This PC ([API-studio §7.10](API-studio.md)). |
+| 25 | Debugger Node.js (2026-11-04) | **Adapter buatan sendiri di hub**, bukan `js-debug` | Tidak perlu unduhan, dan bisa diuji dengan Node sungguhan. Belum ada source map dan proses anak ([API-studio §7.5](API-studio.md)). |
+| 26 | Situs luar yang ringan (2026-11-04) | **Situs publik dicoba lewat proxy hub dulu**, Chrome untuk yang tidak bisa; mengubah keputusan 13 | Situs ringan milik sendiri tidak perlu Chrome yang memakan RAM. Satu klik ke Chrome, dan pilihan itu diingat per situs. Halaman publik berbagi hostname dengan hub, jadi antar-tile dipisahkan ([API-studio §4.9](API-studio.md)). |
+| 27 | Tema terang dan gelap (2026-11-04) | **Sistem monokrom, warna utama = tinta (putih di gelap, hitam di terang), Geist, pilihan per browser dengan System sebagai bawaan** | Permintaan pemilik. Biru dan violet lama hilang; warna tinggal untuk status, agent, kode, dan gambar. Chip command bar tetap berwarna (§3.12, referensi pemilik). Langit Memory tetap gelap. Hanya web: layar Hubs desktop dan Android masih palet lama, sesuai fokus hub. |
+| 28 | Model per console (2026-11-04) | **Hub menyimpan model dan effort per console dan mengirimnya sebagai flag di setiap peluncuran**, termasuk yang dipilih di dalam CLI lewat `/model` | `/model` Claude menulis default bersama satu login, jadi restart mengikuti pilihan console lain. Daftar model dibaca dari CLI (cache Codex, `opencode models`); Claude tidak punya daftar, jadi aliasnya plus opsi akun di `.claude.json` |
+| 29 | Lead dan papan tugas (2026-11-04) | **Hub yang menggerakkan kartu dari status order, tanpa model**; pembagian otomatis hanya bila dinyalakan per papan | Status order sudah pasti diketahui hub, jadi tidak perlu giliran agent untuk mencatatnya. Menjalankan tugas memakai giliran, karena itu default mati |
+| 30 | Credentials (2026-11-04) | **Vault mengikuti Bitwarden: enkripsi di browser dengan master password, hub hanya menyimpan ciphertext, satu vault per hub. HTTP biasa juga didukung, atas permintaan pemilik: proyek ini local-first** | Agent di This PC bisa membaca `<data>`, jadi kunci di `secret.key` berarti setiap agent bisa membaca setiap password. Konsekuensinya: lupa master password berarti isi hilang, agent belum bisa memakai credential, dan di HTTP biasa siapa pun yang bisa mengubah lalu lintas bisa menangkap master password ([API-vault.md](API-vault.md)) |
+| 31 | PIN dan isi form Credentials (2026-11-04) | **Master password minimal 8 dan kekuatan hanya peringatan (permintaan pemilik). PIN 6 digit butuh browser dan hub, hub menghitung salah. Web tile diisi lewat bridge dengan cek situs; Chrome This PC lewat tempel, bukan CDP** | PIN di hub saja bisa dicoba semua oleh agent, di browser saja oleh yang menyalin storage. Port CDP bisa dipakai user lain di host bersama, dan pipe CDP menutup Chrome saat hub restart. Mengetik lewat wayvnc membuang karakter diam-diam ([API-vault.md](API-vault.md)) |
+| 32 | Group dan tag project (2026-11-04) | **Group adalah tree tersendiri dengan id, bukan path di nama; hapus group tidak menghapus project. Project tanpa group ada di All projects. Prefix nama lama dipindah sekali saat start** | Rename dan pindah cukup satu tulis, group boleh kosong, dan isi tidak bergantung pada nama. Migrasi lewat hub karena hub menimpa `projects.json` selagi jalan. Hanya pemisah ` - `, supaya nama seperti `demo-backoffice` tidak terpecah |
+| 33 | Commit agen (2026-11-04) | **Agen tidak menandatangani commit**, berlaku global untuk semua project dan CLI | Setting CLI bila ada, instruksi agen, dan hook `commit-msg` yang meneruskan hook repo; bisa dinyalakan lagi di Settings ([API-agents §26](API-agents.md)) |
+
+### Verifikasi awal flag CLI (This PC, 2026-10-28)
+
+- **Claude Code 2.1.312:** `--settings <file-or-json>` menerima string JSON → hooks bisa diinjeksi per-launch tanpa menulis `~/.claude/settings.json`. `--session-id <uuid>` → hub menentukan ID percakapan (resume presisi `--resume <uuid>`, path transcript bisa dihitung). `--bare` mematikan hooks (jangan dipakai untuk sesi interaktif).
+- **Codex 0.163.0:** `-c key=value` meng-override `~/.codex/config.toml` per-launch (kandidat `-c notify=[…]`); `resume --last` / picker.
+- **Belum diverifikasi (tugas Fase 5):** hooks dari `--settings` benar-benar terpanggil di mode interaktif; apakah proses hook punya akses `/dev/tty` (opsi kanal event tanpa jaringan: hook menulis escape OSC ke TTY yang dibaca hub; di tmux perlu `allow-passthrough` per sesi); alternatif kanal: reverse port-forward SSH dari koneksi hub. Uji dengan prompt minimal karena memakai plan user.

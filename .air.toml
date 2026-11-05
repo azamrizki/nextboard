@@ -1,0 +1,20 @@
+# `make dev`: rebuilds the hub when Go code changes (scripts/dev.sh). Air runs dev-hub.sh again
+# after every build, failed or not; that script decides whether the hub restarts.
+root = "."
+tmp_dir = "bin/air"
+
+[build]
+cmd = "scripts/dev-build.sh"
+entrypoint = ["scripts/dev-hub.sh"]
+include_ext = ["go"]
+include_dir = ["cmd", "internal"]
+exclude_dir = ["internal/webui/dist"]
+exclude_regex = ["_test\\.go$"]
+exclude_unchanged = true
+delay = 500
+stop_on_error = false
+send_interrupt = true
+kill_delay = "2s"
+
+[log]
+main_only = true

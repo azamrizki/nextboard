@@ -1,0 +1,18 @@
+cursor=0,11 alt=false
+
+• I'll read notes.txt, update beta to gamma, and run pwd.
+
+• Calling nextboard.read_file
+  + Show details
+
+  Field 1/1
+  Allow the nextboard MCP server to run tool "read_file"?
+
+  path: notes.txt
+
+› 1. Allow          Run the tool and continue
+  2. Allow for this session  Run the tool and remember this choice for this session
+  3. Always allow   Run the tool and remember this choice for future tool calls
+  4. Cancel         Cancel this tool call
+
+  enter to submit | esc to cancel

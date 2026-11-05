@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="dark" />
+    <title>NextBoard desktop app</title>
+    <style>
+      html,
+      body,
+      #screen {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0d1117;
+      }
+      #video {
+        position: fixed;
+        pointer-events: none;
+      }
+      #copy {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        padding: 6px 12px;
+        border: 1px solid #58a6ff;
+        border-radius: 8px;
+        background: #161b22;
+        color: #e6edf3;
+        font: 13px system-ui, sans-serif;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="screen"></div>
+    <canvas id="video" hidden></canvas>
+    <button id="copy" type="button" hidden>Copy text from the app</button>
+    <script type="module" src="/src/gui/viewer.ts"></script>
+  </body>
+</html>

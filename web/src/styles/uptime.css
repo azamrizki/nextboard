@@ -1,0 +1,354 @@
+/* Uptime card (DESIGN.md §3.14). Status colours say up, down and pending and nothing else. */
+
+.up-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  container: uptime / inline-size;
+}
+.up-grid {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  width: 100%;
+}
+.up-load-error {
+  margin: var(--s-3);
+}
+
+/* ---- list ---- */
+.up-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: var(--hairline) solid var(--tile-border);
+}
+.up-search {
+  margin: var(--s-2) var(--s-2) 0;
+  width: auto;
+}
+.up-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.up-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: 100%;
+  padding: var(--s-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.up-row:hover {
+  background: var(--surface-hover);
+}
+.up-row.is-selected {
+  background: var(--surface-active);
+}
+.up-row-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.up-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.up-row-pct {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.up-no-match {
+  padding: var(--s-2);
+}
+
+/* ---- heartbeats: a thin cell per check, grown from one baseline ---- */
+.up-beats {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+  width: 100%;
+}
+.up-beat {
+  flex: 1;
+  min-width: 0;
+  height: 45%;
+  border-radius: 2px;
+  background: var(--viz-grid);
+}
+.up-beat.is-up {
+  height: 60%;
+  background: var(--c-success);
+}
+.up-beat.is-pending {
+  height: 80%;
+  background: var(--c-warning);
+}
+.up-beat.is-down {
+  height: 100%;
+  background: var(--c-danger);
+}
+.up-beats-detail .up-beats {
+  height: 28px;
+}
+.up-beats-hit {
+  padding: var(--s-1) 0;
+}
+.up-beats-caption {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* ---- a monitor's page ---- */
+.up-detail {
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--s-3) var(--s-4) var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.up-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.up-back {
+  display: none;
+}
+.up-detail-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.up-detail-title h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+}
+.up-target {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+a.up-target:hover {
+  color: var(--text-2);
+}
+.up-now {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.up-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+.up-status svg {
+  width: 12px;
+  height: 12px;
+}
+.up-now-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.up-now-msg {
+  color: var(--text-3);
+}
+.up-stats {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+.up-stat-warn {
+  width: 14px;
+  height: 14px;
+  margin-right: var(--s-1);
+  color: var(--c-warning);
+  vertical-align: -1px;
+}
+.up-section-title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+}
+.up-meta-down {
+  color: var(--tint-danger-text);
+}
+
+/* ---- chart ---- */
+.up-chart-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-2);
+  margin-bottom: var(--s-2);
+}
+.up-chart-head .up-section-title {
+  margin: 0;
+}
+.up-chart-sum {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.up-chart-empty {
+  display: grid;
+  place-items: center;
+  height: 200px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.up-line {
+  fill: none;
+  stroke: var(--viz-1);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.up-area {
+  fill: var(--viz-1);
+  opacity: 0.1;
+}
+.up-band {
+  fill: var(--c-danger);
+  opacity: 0.22;
+}
+.up-cross {
+  stroke: var(--viz-axis);
+  stroke-width: 1;
+}
+.up-dot {
+  fill: var(--viz-1);
+  stroke: var(--viz-gap);
+  stroke-width: 2;
+}
+.up-plot svg:focus-visible {
+  outline: 2px solid var(--c-primary-300);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.up-table-wrap {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.up-events-msg {
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- push ---- */
+.up-push-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+.up-push-url {
+  flex: 1;
+  min-width: 0;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-sm);
+  background: var(--surface-active);
+  font-size: var(--fs-xs);
+}
+
+/* ---- empty ---- */
+.up-empty {
+  margin: auto;
+  max-width: 340px;
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  text-align: center;
+  color: var(--text-2);
+}
+.up-empty > svg {
+  width: 28px;
+  height: 28px;
+  color: var(--text-3);
+}
+.up-empty h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+.up-empty p {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-sm);
+}
+
+/* ---- form ---- */
+.up-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.up-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+.up-grow {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+.up-narrow {
+  flex: 0 0 110px;
+}
+.up-form-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+/* ---- a narrow card: one side at a time ---- */
+@container uptime (max-width: 620px) {
+  .up-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .up-side {
+    border-right: 0;
+  }
+  .up-detail {
+    display: none;
+  }
+  .up-body.is-picked .up-side {
+    display: none;
+  }
+  .up-body.is-picked .up-detail {
+    display: flex;
+  }
+  .up-back {
+    display: inline-flex;
+  }
+}

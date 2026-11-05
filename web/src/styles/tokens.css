@@ -1,0 +1,752 @@
+/*
+ * NextBoard design tokens (docs/DESIGN.md §2).
+ * This is the ONLY file allowed to contain raw colours, spacing and radii.
+ *
+ * A neutral, monochrome system: the primary colour is the ink itself
+ * (white on near-black, black on white), hairline borders, Geist. Colour is kept for what it
+ * means: status, agents, code, and what people draw.
+ *
+ * Three blocks:
+ *   :root                     sizes, type, motion: the same in every theme
+ *   :root, [data-theme=dark]  colours, dark
+ *   [data-theme=light]        colours, light; every colour token again, keep the two in step
+ *
+ * data-theme is set on <html> before the first paint (public/theme-boot.js, lib/theme.ts).
+ * It also works on any element: a subtree can stay dark inside a light page (the Memory sky,
+ * a console kept dark). So a colour token that refers to another one belongs in the colour
+ * blocks, where it is worked out again for that subtree.
+ */
+
+:root {
+  /* print / PDF (always light) */
+  --print-bg: #ffffff;
+  --print-ink: #14171f;
+  --print-ink-2: #3d4454;
+  --print-ink-3: #5b6478;
+  --print-rule: #d7dbe4;
+  --print-accent: #171717;
+  --print-code-bg: #f5f5f5;
+  --print-cover-band: #f0f0f0;
+
+  /* QR codes need pure black on white for scanners */
+  --qr-bg: #ffffff;
+  --qr-ink: #0a0a0a;
+
+  /* custom select chevron (16px, mid grey: reads on both themes) */
+  --icon-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238C8C8C' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+
+  /* sticky-note paper (named colours stored in board data): paper in every theme */
+  --note-yellow: #f6e7a1;
+  --note-pink: #f5c6d6;
+  --note-blue: #c3d5fb;
+  --note-green: #c2e8d1;
+  --note-violet: #d9cffa;
+  --note-orange: #f8d1b0;
+  --note-ink: #1b1b1b;
+  --note-ink-2: #4d4d4d;
+  --note-fold: rgba(27, 27, 27, 0.14);
+
+  /* draw cursors (pen dot, eraser ring): both edges, so they read on either canvas */
+  --cursor-pen: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Ccircle cx='10' cy='10' r='3' fill='%23ffffff' stroke='%230a0a0a' stroke-width='1.5'/%3E%3C/svg%3E");
+  --cursor-eraser: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23ffffff' stroke-width='1.5'/%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%230a0a0a' stroke-width='0.75' stroke-dasharray='2 2'/%3E%3C/svg%3E");
+
+  --glass-blur-1: blur(18px) saturate(140%);
+  --glass-blur-2: blur(24px) saturate(150%);
+  --glass-blur-3: blur(14px) saturate(130%);
+  --backdrop-blur: blur(6px);
+
+  /* ---- Phase 5: agent states ---- */
+  --h-agent-bar: 32px;
+  --h-pill: 20px;
+  --h-switch: 20px;
+  --w-switch: 36px;
+  --size-knob-switch: 14px;
+  --w-settings-nav: 248px;
+  --w-flyout-agents: 248px;
+  --w-node-activity: 220px;
+  --w-dock-profile: 168px;
+  --h-picker-list: 360px;
+  --h-output: 56vh;
+
+  /* ---- Phase 6: orchestration ---- */
+  --group-fill-mix: 7%;
+  --group-border-mix: 42%;
+  --group-head-mix: 18%;
+  --w-cmdbar: 760px;
+  --h-cmdbar: 124px; /* chips row + input panel */
+  --h-cmd-tool: 28px; /* the input panel's toolbar */
+  --h-cmd-chip: 32px;
+  --cmd-chip-ring-w: 1.5px;
+  --w-cmd-agent: 196px;
+  --h-thread: min(56vh, 560px);
+  --h-chip: 28px;
+  --w-side-panel-wide: 400px;
+  --w-mission: 1180px;
+  --h-mission: min(78vh, 760px);
+  --w-mm-inspector: 280px;
+  --h-memory-text: 220px;
+  --size-handle: 12px;
+  --h-mention-menu: 300px;
+
+  /* ---- Phase 7: web previews, git, studios, usage, voice ---- */
+  --voice-orb-size: 44px;
+  /* r, g, b: the orb's canvas mixes its own alpha */
+  --voice-orb-core: 255, 240, 180;
+  --voice-orb-mid: 255, 170, 48;
+  --voice-orb-edge: 236, 74, 24;
+  --w-git-panel: 440px;
+  --w-studio: 1240px;
+  --h-studio: calc(100dvh - var(--s-12));
+  --w-studio-side: 280px;
+  --h-git-diff: 300px;
+  --h-usage-bar: 6px;
+  --w-usage-pop: 420px;
+  --usage-ring-size: 64px;
+
+  /* ---- board tiles (Phase 4) ---- */
+  --font-serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Times New Roman', serif;
+  --font-hand: 'Caveat', 'Segoe Print', 'Bradley Hand', cursive;
+  --w-rail: 48px;
+  --w-inspector: 264px;
+  --w-side-panel: 340px;
+  --w-kanban-col: 240px;
+  --w-modal-xl: 960px;
+  --w-project-switch: 220px;
+  --w-project-menu: 340px;
+  --w-tab-max: 180px;
+  --size-swatch: 22px;
+  --size-knob: 14px;
+  --h-tab: 26px; /* item in a header tab strip: --h-control-sm minus strip padding and border */
+
+  /* ---- 2.4 typography ---- */
+  --font-ui: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-features: 'ss01' 1, 'cv11' 1;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --fs-3xl: 28px;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-heavy: 800;
+  --lh-body: 1.5;
+  --lh-heading: 1.25;
+  --tracking-caps: 0.06em;
+  --tracking-title: -0.025em; /* large headings, as the reference sets them */
+  --tracking-snug: -0.012em; /* small headings, names in a header */
+
+  /* ---- 2.5 spacing (base 4) ---- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --field-gap: 6px; /* label → control, control → hint (§3.2) */
+  --menu-pad: 6px; /* menu/popover inner padding (§3.6) */
+  --nudge: 2px; /* optical alignment of icons next to text */
+  --hairline: 1px;
+
+  /* radii */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* motion */
+  --t-fast: 120ms;
+  --t-base: 180ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --pulse-duration: 1.6s;
+
+  /* ---- component dimensions ---- */
+  --h-control: 40px;
+  --h-control-sm: 32px;
+  --h-control-lg: 44px;
+  --h-icon-btn: 36px;
+  --h-icon-btn-sm: 32px;
+  --h-badge: 22px;
+  --h-menu-item: 34px;
+  --h-header: 56px;
+  --h-header-nav-row: 40px; /* second header row on narrow screens: control + bottom padding */
+  --h-node-header: 38px;
+  --h-dock: 48px;
+  --size-dot: 8px;
+  --size-check: 18px;
+  --size-icon: 16px;
+  --size-icon-lg: 18px;
+  --size-icon-xl: 24px;
+  --size-tile-mark: 20px; /* what a card header shows first: icon, ring, avatar, status dot */
+  --size-spinner: 14px;
+  --size-brand: 24px;
+  --size-brand-lg: 40px;
+  --size-fab: 52px;
+  --size-resize-handle: 10px;
+  --accent-line: 2px;
+  --toast-stripe: 3px;
+  --minimap-w: 180px;
+  --minimap-h: 120px;
+  --h-textarea: 120px;
+  --h-list: 320px;
+  --w-dock-select: 168px;
+  --w-dock-cwd: 240px;
+  --w-dock-cwd-min: 160px;
+  --w-dock-cwd-max: 280px;
+  --w-dock-name: 132px;
+  --w-chip-max: 160px;
+
+  --w-modal-sm: 440px;
+  --w-modal-md: 560px;
+  --w-modal-lg: 720px;
+  --w-auth: 420px;
+  --w-auth-wide: 520px;
+  --w-content: 1200px;
+  --w-popover: 380px;
+  --w-menu: 200px;
+  --w-toast: 400px;
+  --min-card: 320px;
+  --w-home-search: 320px;
+  --w-home-time: 148px;
+
+  /* glass panel opacity used for disabled controls */
+  --opacity-disabled: 0.45;
+  --opacity-disabled-field: 0.5;
+
+  /* z-index scale */
+  --z-canvas-ui: 5;
+  --z-header: 40;
+  --z-popover: 60;
+  --z-modal: 100;
+  --z-menu: 150;
+  --z-toast: 200;
+}
+
+/* ==== colours: dark ==== */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* ---- 2.1 brand / semantic ---- */
+  --c-primary: #f5f5f5; /* the ink: buttons are white on near-black */
+  --c-primary-300: #e5e5e5; /* lines, dots and text that mark what is active */
+  --c-primary-600: #d4d4d4; /* primary hover */
+  --c-success: #22c55e;
+  --c-warning: #f59e0b;
+  --c-danger: #ef4444;
+  --c-danger-300: #f87171;
+  --c-danger-600: #d13030;
+  --c-danger-700: #b92b2b; /* danger hover */
+  --c-info: #a3a3a3;
+  --c-grey: #8c8c8c;
+
+  /* ---- 2.2 text ---- */
+  --text: #f5f5f5;
+  --text-2: #a8a8a8;
+  --text-3: #8c8c8c;
+  --text-on-primary: #0a0a0a;
+  --text-on-danger: #ffffff;
+  --text-on-color: #ffffff; /* on an agent or project colour */
+  --text-on-warning: #1c1204;
+
+  /* tinted text used by badges / chips (§3.7) */
+  --tint-success-text: #4ade80;
+  --tint-warning-text: #fbbf24;
+  --tint-danger-text: var(--c-danger-300);
+  --tint-info-text: var(--text);
+  --tint-grey-text: var(--text-2);
+
+  --tint-success-bg: rgba(34, 197, 94, 0.12);
+  --tint-warning-bg: rgba(245, 158, 11, 0.12);
+  --tint-danger-bg: rgba(239, 68, 68, 0.13);
+  --tint-info-bg: rgba(245, 245, 245, 0.08);
+  --tint-grey-bg: rgba(245, 245, 245, 0.06);
+
+  --tint-success-border: rgba(34, 197, 94, 0.32);
+  --tint-warning-border: rgba(245, 158, 11, 0.36);
+  --tint-danger-border: rgba(239, 68, 68, 0.5);
+  --tint-info-border: rgba(245, 245, 245, 0.22);
+
+  /* project monograms: hues that only tell projects apart, none reads as a status */
+  --mono-0-bg: rgba(96, 165, 250, 0.14);
+  --mono-0-text: #93c5fd;
+  --mono-1-bg: rgba(167, 139, 250, 0.14);
+  --mono-1-text: #c4b5fd;
+  --mono-2-bg: rgba(56, 189, 248, 0.13);
+  --mono-2-text: #7dd3fc;
+  --mono-3-bg: rgba(244, 114, 182, 0.13);
+  --mono-3-text: #f9a8d4;
+  --mono-4-bg: rgba(45, 212, 191, 0.13);
+  --mono-4-text: #5eead4;
+  --mono-5-bg: rgba(163, 163, 163, 0.14);
+  --mono-5-text: #d4d4d4;
+
+  /* ---- 2.3 background & glass layers ---- */
+  --bg: #0a0a0a;
+  --bg-ambient: radial-gradient(ellipse 60% 42% at 50% 0, rgba(245, 245, 245, 0.06), transparent 70%), #0a0a0a;
+  --page-grid: rgba(245, 245, 245, 0.04);
+
+  --glass-1: rgba(17, 17, 17, 0.66);
+  --glass-2: rgba(19, 19, 19, 0.86); /* cards and dialogs: a bright note behind must not wash them out */
+  --glass-3: rgba(23, 23, 23, 0.9);
+  --glass-3-dense: rgba(23, 23, 23, 0.98); /* menus over text-heavy glass (thread) */
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-border-strong: rgba(255, 255, 255, 0.17);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --solid-1: #111111; /* the glass layers where blur is off */
+  --solid-2: #141414;
+  --solid-3: #191919;
+
+  --surface-solid: #0f0f0f;
+  --surface-input: rgba(255, 255, 255, 0.04);
+  --surface-input-focus: rgba(255, 255, 255, 0.06);
+  --surface-hover: rgba(255, 255, 255, 0.07);
+  --surface-active: rgba(255, 255, 255, 0.11);
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --backdrop-solid: rgba(0, 0, 0, 0.8);
+
+  /* terminal node chrome: opaque header (no per-node backdrop-filter, §3.5) */
+  --node-header-bg: rgba(17, 17, 17, 0.96);
+  --node-bar-bg: #171717; /* solid bar under a node header (no glass on nodes) */
+  --canvas-dot: rgba(255, 255, 255, 0.08);
+  --minimap-mask: rgba(10, 10, 10, 0.6);
+  --minimap-node: rgba(255, 255, 255, 0.22);
+
+  /* elevation (always paired with --glass-highlight) */
+  --e-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --e-2: 0 16px 40px -16px rgba(0, 0, 0, 0.7);
+  --e-3: 0 28px 72px -12px rgba(0, 0, 0, 0.75);
+
+  /* interaction rings */
+  --focus-ring-color: #e5e5e5;
+  --ring-input: 0 0 0 3px rgba(255, 255, 255, 0.13);
+  --ring-input-error: 0 0 0 3px rgba(239, 68, 68, 0.28);
+  --ring-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 4px rgba(255, 255, 255, 0.12);
+  --primary-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --selected-bg: rgba(255, 255, 255, 0.07);
+  --danger-ghost-hover: rgba(239, 68, 68, 0.12);
+  --danger-ghost-active: rgba(239, 68, 68, 0.18);
+  --pulse-ring: rgba(34, 197, 94, 0.45);
+  --pulse-ring-static: rgba(34, 197, 94, 0.3);
+
+  /* ---- Phase 5: agent states ---- */
+  --c-warning-hover: #fbbf24;
+  --needs-ring: rgba(245, 158, 11, 0.3);
+  --ring-needs-you: 0 0 0 2px var(--c-warning), 0 0 0 6px var(--needs-ring);
+  --ring-needs-you-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 3px var(--c-warning), 0 0 0 7px var(--needs-ring);
+  --kbd-bg: rgba(255, 255, 255, 0.07);
+
+  /* ---- Phase 6: orchestration ---- */
+  --wire: #a3a3a3; /* card → console wires */
+  --wire-soft: rgba(163, 163, 163, 0.35);
+  --wire-flow: #e5e5e5; /* light travelling down a busy wire */
+  --wire-spark: #ffffff;
+  --wire-flow-halo: rgba(255, 255, 255, 0.1);
+  --wire-spark-halo: rgba(255, 255, 255, 0.28);
+  --forward: #fbbf24; /* forward edges (warning tint) */
+  --forward-bg: rgba(251, 191, 36, 0.14);
+
+  /* command bar chips (DESIGN.md §3.12): words in a coloured ring */
+  --cmd-chip-fill: rgba(17, 17, 17, 0.88);
+  --cmd-chip-fill-hover: rgba(38, 38, 38, 0.94);
+  --cmd-chip-glow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  --cmd-ring-0: linear-gradient(100deg, #2dd4bf, #60a5fa 50%, #f87171);
+  --cmd-ring-1: linear-gradient(100deg, #4ade80, #facc15 50%, #e879f9);
+  --cmd-ring-2: linear-gradient(100deg, #eab308, #84cc16 50%, #a78bfa);
+  --cmd-ring-3: linear-gradient(100deg, #fb923c, #facc15 50%, #22d3ee);
+  --cmd-ring-4: linear-gradient(100deg, #f87171, #f59e0b 50%, #60a5fa);
+  --cmd-ring-5: linear-gradient(100deg, #f472b6, #f87171 50%, #4ade80);
+  --cmd-ring-6: linear-gradient(100deg, #a78bfa, #f472b6 50%, #fbbf24);
+
+  /* ---- Phase 7: web previews, git, studios, usage, voice ---- */
+  --edge-preview: #22d3ee; /* console → auto preview (terminal cyan) */
+  --edge-log: rgba(34, 211, 238, 0.55);
+  --edge-preview-soft: rgba(34, 211, 238, 0.16);
+  --diff-add: var(--tint-success-text);
+  --diff-del: var(--c-danger-300);
+  --diff-add-bg: rgba(34, 197, 94, 0.12);
+  --diff-del-bg: rgba(239, 68, 68, 0.12);
+  --editor-selection: rgba(255, 255, 255, 0.16);
+  --editor-active-line: rgba(255, 255, 255, 0.03);
+  --editor-match: rgba(255, 255, 255, 0.1);
+  --editor-search: rgba(245, 158, 11, 0.25);
+  --editor-search-current: rgba(245, 158, 11, 0.5);
+  --voice-live: var(--c-danger);
+  --voice-ring: rgba(239, 68, 68, 0.3);
+  --voice-text: #f87171;
+  --voice-wave: #fb923c;
+  /* one accent per CLI; amber and red still mean "running out" */
+  --usage-claude: #f0793f;
+  --usage-codex: #45c9b0;
+  /* charts (dataviz): categorical slots validated for this surface (--tile-bg #111111: lightness
+     band, chroma, CVD ΔE ≥ 9.4, contrast ≥ 3:1). Colour follows the CLI: 1 Claude Code, 2 Codex,
+     3 Gemini, 4 other. */
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #9085e9;
+  --viz-grid: rgba(255, 255, 255, 0.08);
+  --viz-axis: rgba(255, 255, 255, 0.18);
+  --viz-gap: var(--tile-bg);
+
+  /* brand mark */
+  --brand-gradient: linear-gradient(135deg, #ffffff 0%, #c9c9c9 100%);
+
+  /* ---- board tiles (Phase 4) ---- */
+  /* solid tile surfaces: no glass on nodes (§3.5 performance) */
+  --tile-bg: #111111;
+  --tile-card-bg: #1a1a1a;
+  --tile-card-hover: #212121;
+  --tile-border: rgba(255, 255, 255, 0.09);
+  --tile-outline: rgba(255, 255, 255, 0.42);
+  --note-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  /* kanban columns / calendar events (named colours) */
+  --tag-amber: #e8b062;
+  --tag-sage: #8dbf8b;
+  --tag-sky: #6eb6ff;
+  --tag-violet: #b49cff;
+  --tag-rose: #ff7f9f;
+  --tag-teal: #4fd1c5;
+  /* what people draw: the hex stored in board data stays, it shows as one of these (board/palette.ts) */
+  --ink-chalk: #e6e6e6;
+  --ink-slate: #8c8c8c;
+  --ink-blue: #6e95ff;
+  --ink-violet: #b49cff;
+  --ink-cyan: #4fd6e8;
+  --ink-green: #2fdc8a;
+  --ink-amber: #f2b27a;
+  --ink-red: #ff5c77;
+  /* halo behind labels drawn on top of shape fills */
+  --text-halo: 0 1px 2px rgba(10, 10, 10, 0.95), 0 0 6px rgba(10, 10, 10, 0.8);
+  /* alignment guides while dragging */
+  --guide: #f472b6;
+  /* code cards */
+  --syn-comment: #7f7f7f;
+  --syn-keyword: #c4b5fd;
+  --syn-string: #86efac;
+  --syn-number: #fdba74;
+  --syn-title: #93c5fd;
+  --syn-attr: #67e8f9;
+  --syn-builtin: #fde68a;
+  --syn-meta: #fca5a5;
+  --syn-type: #7dd3fc;
+  --syn-text: #ededed;
+  /* commit graph lanes */
+  --wb-lane-0: #4f9dff;
+  --wb-lane-1: #2ece9d;
+  --wb-lane-2: #c77dff;
+  --wb-lane-3: #ff7ab8;
+  --wb-lane-4: #f2ca33;
+  --wb-lane-5: #ff8a4c;
+  --wb-lane-6: #7bd938;
+  --wb-lane-7: #4dd0e1;
+  --wb-on-lane: #0a0a0a;
+  /* consoles (board/useTerminal.ts reads these): DESIGN.md §3.9 */
+  --term-bg: #111111;
+  --term-fg: #e5e5e5;
+  --term-cursor: #f5f5f5;
+  --term-cursor-accent: #111111;
+  --term-selection: rgba(255, 255, 255, 0.24);
+  --term-black: #262626;
+  --term-red: #f87171;
+  --term-green: #4ade80;
+  --term-yellow: #fbbf24;
+  --term-blue: #60a5fa;
+  --term-magenta: #c084fc;
+  --term-cyan: #22d3ee;
+  --term-white: #d4d4d4;
+  --term-bright-black: #737373;
+  --term-bright-red: #fca5a5;
+  --term-bright-green: #86efac;
+  --term-bright-yellow: #fde68a;
+  --term-bright-blue: #93c5fd;
+  --term-bright-magenta: #d8b4fe;
+  --term-bright-cyan: #67e8f9;
+  --term-bright-white: #ffffff;
+  --term-min-contrast: 1;
+}
+
+/* ==== colours: light ==== */
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* ---- 2.1 brand / semantic ---- */
+  --c-primary: #0d0d0d;
+  --c-primary-300: #262626;
+  --c-primary-600: #2e2e2e;
+  --c-success: #15803d;
+  --c-warning: #b45309; /* takes white text as a fill (5:1) */
+  --c-danger: #dc2626;
+  --c-danger-300: #b91c1c; /* the readable red: text and thin lines on light */
+  --c-danger-600: #c52020;
+  --c-danger-700: #a81b1b;
+  --c-info: #6b6b6b;
+  --c-grey: #737373;
+
+  /* ---- 2.2 text ---- */
+  --text: #0d0d0d;
+  --text-2: #525252;
+  --text-3: #6b6b6b;
+  --text-on-primary: #ffffff;
+  --text-on-danger: #ffffff;
+  --text-on-color: #ffffff;
+  --text-on-warning: #ffffff;
+
+  --tint-success-text: #166534;
+  --tint-warning-text: #92400e;
+  --tint-danger-text: var(--c-danger-300);
+  --tint-info-text: var(--text);
+  --tint-grey-text: var(--text-2);
+
+  --tint-success-bg: rgba(22, 163, 74, 0.1);
+  --tint-warning-bg: rgba(217, 119, 6, 0.11);
+  --tint-danger-bg: rgba(220, 38, 38, 0.08);
+  --tint-info-bg: rgba(13, 13, 13, 0.06);
+  --tint-grey-bg: rgba(13, 13, 13, 0.05);
+
+  --tint-success-border: rgba(22, 163, 74, 0.35);
+  --tint-warning-border: rgba(217, 119, 6, 0.42);
+  --tint-danger-border: rgba(220, 38, 38, 0.42);
+  --tint-info-border: rgba(13, 13, 13, 0.2);
+
+  --mono-0-bg: rgba(59, 130, 246, 0.11);
+  --mono-0-text: #1d4ed8;
+  --mono-1-bg: rgba(139, 92, 246, 0.11);
+  --mono-1-text: #6d28d9;
+  --mono-2-bg: rgba(14, 165, 233, 0.13);
+  --mono-2-text: #0369a1;
+  --mono-3-bg: rgba(236, 72, 153, 0.11);
+  --mono-3-text: #be185d;
+  --mono-4-bg: rgba(20, 184, 166, 0.14);
+  --mono-4-text: #0f766e;
+  --mono-5-bg: rgba(82, 82, 82, 0.1);
+  --mono-5-text: #404040;
+
+  /* ---- 2.3 background & glass layers ---- */
+  --bg: #fafafa;
+  --bg-ambient: radial-gradient(ellipse 60% 42% at 50% 0, rgba(13, 13, 13, 0.035), transparent 70%), #fafafa;
+  --page-grid: rgba(13, 13, 13, 0.045);
+
+  --glass-1: rgba(255, 255, 255, 0.72);
+  --glass-2: rgba(255, 255, 255, 0.94); /* cards and dialogs: must stay white over the backdrop */
+  --glass-3: rgba(255, 255, 255, 0.96);
+  --glass-3-dense: rgba(255, 255, 255, 0.985);
+  --glass-border: rgba(0, 0, 0, 0.09);
+  --glass-border-strong: rgba(0, 0, 0, 0.17);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --solid-1: #ffffff;
+  --solid-2: #ffffff;
+  --solid-3: #ffffff;
+
+  --surface-solid: #ffffff;
+  --surface-input: rgba(0, 0, 0, 0.022);
+  --surface-input-focus: #ffffff;
+  --surface-hover: rgba(0, 0, 0, 0.05);
+  --surface-active: rgba(0, 0, 0, 0.085);
+  --backdrop: rgba(10, 10, 10, 0.3);
+  --backdrop-solid: rgba(10, 10, 10, 0.5);
+
+  --node-header-bg: rgba(255, 255, 255, 0.97);
+  --node-bar-bg: #f5f5f5;
+  --canvas-dot: rgba(0, 0, 0, 0.16);
+  --minimap-mask: rgba(250, 250, 250, 0.7);
+  --minimap-node: rgba(0, 0, 0, 0.2);
+
+  --e-1: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --e-2: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px -16px rgba(0, 0, 0, 0.18);
+  --e-3: 0 2px 6px rgba(0, 0, 0, 0.05), 0 28px 64px -16px rgba(0, 0, 0, 0.26);
+
+  --focus-ring-color: #262626;
+  --ring-input: 0 0 0 3px rgba(0, 0, 0, 0.09);
+  --ring-input-error: 0 0 0 3px rgba(220, 38, 38, 0.2);
+  --ring-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 4px rgba(0, 0, 0, 0.09);
+  --primary-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --selected-bg: rgba(0, 0, 0, 0.045);
+  --danger-ghost-hover: rgba(220, 38, 38, 0.08);
+  --danger-ghost-active: rgba(220, 38, 38, 0.13);
+  --pulse-ring: rgba(22, 163, 74, 0.4);
+  --pulse-ring-static: rgba(22, 163, 74, 0.25);
+
+  --c-warning-hover: #92400e;
+  --needs-ring: rgba(217, 119, 6, 0.26);
+  --ring-needs-you: 0 0 0 2px var(--c-warning), 0 0 0 6px var(--needs-ring);
+  --ring-needs-you-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 3px var(--c-warning), 0 0 0 7px var(--needs-ring);
+  --kbd-bg: rgba(0, 0, 0, 0.05);
+
+  --wire: #737373;
+  --wire-soft: rgba(115, 115, 115, 0.35);
+  --wire-flow: #262626;
+  --wire-spark: #0d0d0d;
+  --wire-flow-halo: rgba(0, 0, 0, 0.08);
+  --wire-spark-halo: rgba(0, 0, 0, 0.2);
+  --forward: #b45309;
+  --forward-bg: rgba(217, 119, 6, 0.12);
+
+  --cmd-chip-fill: rgba(255, 255, 255, 0.94);
+  --cmd-chip-fill-hover: rgba(245, 245, 245, 0.98);
+  --cmd-chip-glow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  --cmd-ring-0: linear-gradient(100deg, #14b8a6, #3b82f6 50%, #ef4444);
+  --cmd-ring-1: linear-gradient(100deg, #22c55e, #eab308 50%, #d946ef);
+  --cmd-ring-2: linear-gradient(100deg, #ca8a04, #65a30d 50%, #8b5cf6);
+  --cmd-ring-3: linear-gradient(100deg, #f97316, #eab308 50%, #06b6d4);
+  --cmd-ring-4: linear-gradient(100deg, #ef4444, #f59e0b 50%, #3b82f6);
+  --cmd-ring-5: linear-gradient(100deg, #ec4899, #ef4444 50%, #22c55e);
+  --cmd-ring-6: linear-gradient(100deg, #8b5cf6, #ec4899 50%, #f59e0b);
+
+  --edge-preview: #0e7490;
+  --edge-log: rgba(14, 116, 144, 0.55);
+  --edge-preview-soft: rgba(14, 116, 144, 0.12);
+  --diff-add: var(--tint-success-text);
+  --diff-del: var(--c-danger-300);
+  --diff-add-bg: rgba(22, 163, 74, 0.12);
+  --diff-del-bg: rgba(220, 38, 38, 0.1);
+  --editor-selection: rgba(0, 0, 0, 0.11);
+  --editor-active-line: rgba(0, 0, 0, 0.028);
+  --editor-match: rgba(0, 0, 0, 0.07);
+  --editor-search: rgba(217, 119, 6, 0.2);
+  --editor-search-current: rgba(217, 119, 6, 0.42);
+  --voice-live: var(--c-danger);
+  --voice-ring: rgba(220, 38, 38, 0.25);
+  --voice-text: #b91c1c;
+  --voice-wave: #c2410c;
+  --usage-claude: #c2531f;
+  --usage-codex: #0f8a75;
+  /* charts: the same four jobs, stepped for this surface (--tile-bg #ffffff; validated: CVD ΔE ≥ 9.3,
+     contrast ≥ 3:1). Selected for light, not flipped from dark. */
+  --viz-1: #2a78d6;
+  --viz-2: #d9551f;
+  --viz-3: #14886a;
+  --viz-4: #7a63d9;
+  --viz-grid: rgba(0, 0, 0, 0.08);
+  --viz-axis: rgba(0, 0, 0, 0.2);
+  --viz-gap: var(--tile-bg);
+
+  --brand-gradient: linear-gradient(135deg, #2b2b2b 0%, #0a0a0a 100%);
+
+  --tile-bg: #ffffff;
+  --tile-card-bg: #f7f7f7;
+  --tile-card-hover: #f0f0f0;
+  --tile-border: rgba(0, 0, 0, 0.1);
+  --tile-outline: rgba(0, 0, 0, 0.42);
+  --note-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --tag-amber: #b7791f;
+  --tag-sage: #4d7c4f;
+  --tag-sky: #2b7bd4;
+  --tag-violet: #7c5ce0;
+  --tag-rose: #d9486e;
+  --tag-teal: #0f8f85;
+  --ink-chalk: #1f1f1f;
+  --ink-slate: #6b6b6b;
+  --ink-blue: #2563eb;
+  --ink-violet: #7c3aed;
+  --ink-cyan: #0891b2;
+  --ink-green: #16a34a;
+  --ink-amber: #d97706;
+  --ink-red: #dc2626;
+  --text-halo: 0 1px 2px rgba(255, 255, 255, 0.95), 0 0 6px rgba(255, 255, 255, 0.85);
+  --guide: #db2777;
+  --syn-comment: #6b6b6b;
+  --syn-keyword: #6d28d9;
+  --syn-string: #15803d;
+  --syn-number: #b45309;
+  --syn-title: #1d4ed8;
+  --syn-attr: #0e7490;
+  --syn-builtin: #a16207;
+  --syn-meta: #be123c;
+  --syn-type: #0369a1;
+  --syn-text: #171717;
+  --wb-lane-0: #2563eb;
+  --wb-lane-1: #0f9d78;
+  --wb-lane-2: #9333ea;
+  --wb-lane-3: #db2777;
+  --wb-lane-4: #b58900;
+  --wb-lane-5: #ea580c;
+  --wb-lane-6: #4d8f12;
+  --wb-lane-7: #0891b2;
+  --wb-on-lane: #ffffff;
+  --term-bg: #ffffff;
+  --term-fg: #1f1f1f;
+  --term-cursor: #0d0d0d;
+  --term-cursor-accent: #ffffff;
+  --term-selection: rgba(0, 0, 0, 0.14);
+  --term-black: #171717;
+  --term-red: #b91c1c;
+  --term-green: #15803d;
+  --term-yellow: #a16207;
+  --term-blue: #1d4ed8;
+  --term-magenta: #7e22ce;
+  --term-cyan: #0e7490;
+  --term-white: #525252;
+  --term-bright-black: #737373;
+  --term-bright-red: #dc2626;
+  --term-bright-green: #16a34a;
+  --term-bright-yellow: #ca8a04;
+  --term-bright-blue: #2563eb;
+  --term-bright-magenta: #9333ea;
+  --term-bright-cyan: #0891b2;
+  --term-bright-white: #262626;
+  --term-min-contrast: 4.5; /* CLIs made for a dark terminal print very light text */
+}
+
+/* ---- fallbacks: no backdrop-filter / reduced transparency / forced (class) ---- */
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root,
+  [data-theme] {
+    --glass-1: var(--solid-1);
+    --glass-2: var(--solid-2);
+    --glass-3: var(--solid-3);
+    --glass-blur-1: none;
+    --glass-blur-2: none;
+    --glass-blur-3: none;
+    --backdrop: var(--backdrop-solid);
+    --backdrop-blur: none;
+    --node-header-bg: var(--solid-1);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  [data-theme] {
+    --glass-1: var(--solid-1);
+    --glass-2: var(--solid-2);
+    --glass-3: var(--solid-3);
+    --glass-blur-1: none;
+    --glass-blur-2: none;
+    --glass-blur-3: none;
+    --backdrop: var(--backdrop-solid);
+    --backdrop-blur: none;
+    --node-header-bg: var(--solid-1);
+  }
+}
+
+/* Manual switch (debugging / QA): <html class="no-glass"> */
+:root.no-glass,
+.no-glass [data-theme] {
+  --glass-1: var(--solid-1);
+  --glass-2: var(--solid-2);
+  --glass-3: var(--solid-3);
+  --glass-blur-1: none;
+  --glass-blur-2: none;
+  --glass-blur-3: none;
+  --backdrop: var(--backdrop-solid);
+  --backdrop-blur: none;
+  --node-header-bg: var(--solid-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-base: 0ms;
+  }
+}
