@@ -99,16 +99,38 @@ func TestMemoryTileIntoAConsole(t *testing.T) {
 		t.Fatalf("plan %v", p)
 	}
 
+	// quiet: what was typed is through and the agent is at its prompt again. Typing into an
+	// agent that is just finishing a turn is refused by the delivery guard, as it should be.
+	quiet := func() {
+		t.Helper()
+		waitTrue(t, "the console to settle", 30*time.Second, func() bool {
+			st, out := h.do("GET", "/api/sessions/"+id+"/deliveries", nil, nil)
+			if st != 200 {
+				return false
+			}
+			items, _ := out["items"].([]any)
+			for _, x := range items {
+				switch x.(map[string]any)["state"] {
+				case "confirmed", "failed", "expired", "cancelled":
+				default:
+					return false
+				}
+			}
+			in, ok := h.srv.sessions.Info(id)
+			return ok && in.AgentState == "ready"
+		})
+		time.Sleep(300 * time.Millisecond)
+	}
 	// The wire was just made: the board sends through the tile push.
 	st, r := h.do("POST", "/api/workspaces/"+wid+"/tiles/"+testMemTile+"/push", map[string]any{"targets": []any{node}}, nil)
 	if st != 200 || r["delivered"].(float64) != 1 {
 		t.Fatalf("tile push %d %v", st, r)
 	}
-	waitTrue(t, "the stack arrives", 10*time.Second, func() bool {
+	waitTrue(t, "the stack arrives", 30*time.Second, func() bool {
 		got := received(dir)
 		return strings.Contains(got, "the project fact") && strings.Contains(got, "buttons are square") && strings.Contains(got, "another project, Acme")
 	})
-	h.waitInfo(id, "ready again", state("ready"))
+	quiet()
 
 	// Nothing new: no turn.
 	waitTrue(t, "the plan knows", 10*time.Second, func() bool { return targetChars(plan()) == 0 })
@@ -128,19 +150,34 @@ func TestMemoryTileIntoAConsole(t *testing.T) {
 	if st, r := h.do("POST", "/api/projects/"+pid+"/memory/push", map[string]any{"memoryNodeId": testMemTile}, nil); st != 200 || r["delivered"].(float64) != 1 {
 		t.Fatalf("new fact %d %v", st, r)
 	}
-	waitTrue(t, "the new fact arrives", 10*time.Second, func() bool { return strings.Contains(received(dir), "scratch HOME") })
+	waitTrue(t, "the new fact arrives", 30*time.Second, func() bool { return strings.Contains(received(dir), "scratch HOME") })
 	if got := received(dir); strings.Count(got, "the project fact") != 1 || strings.Count(got, "buttons are square") != 1 {
 		t.Fatalf("repeated what it had:\n%s", got)
 	}
-	h.waitInfo(id, "ready again", state("ready"))
+	quiet()
 
 	// Send-to-agent with a chosen memory and a chosen agent, insisting.
-	if st, r := h.do("POST", "/api/projects/"+pid+"/memory/push", map[string]any{"targets": []any{id}, "blocks": []any{map[string]any{"projectId": other, "name": "design"}}, "force": true}, nil); st != 200 || r["delivered"].(float64) != 1 {
+	st, r = h.do("POST", "/api/projects/"+pid+"/memory/push", map[string]any{"targets": []any{id}, "blocks": []any{map[string]any{"projectId": other, "name": "design"}}, "force": true}, nil)
+	if st != 200 || r["delivered"].(float64) != 1 {
 		t.Fatalf("force %d %v", st, r)
 	}
-	waitTrue(t, "sent again", 10*time.Second, func() bool { return strings.Count(received(dir), "buttons are square") == 2 })
-	if got := received(dir); strings.Count(got, "the project fact") != 1 {
-		t.Fatalf("sent a memory that was not picked:\n%s", got)
+	forced := r["deliveryIds"].([]any)[0]
+	// The fake agent takes every line as a turn of its own, so this reads what was typed, not
+	// how far it got: with the critical notes in it, that can take half a minute.
+	_, sent := h.do("GET", "/api/sessions/"+id+"/deliveries", nil, nil)
+	found := false
+	for _, x := range sent["items"].([]any) {
+		m := x.(map[string]any)
+		if m["id"] != forced {
+			continue
+		}
+		found = true
+		if text := m["text"].(string); !strings.Contains(text, "buttons are square") || !strings.Contains(text, "Critical rules") || strings.Contains(text, "the project fact") {
+			t.Fatalf("sent something else than was picked:\n%s", text)
+		}
+	}
+	if !found {
+		t.Fatalf("no delivery %v in %v", forced, sent)
 	}
 
 	// Wires: the tile also goes to an orchestrator card and the editor. A note does not.
