@@ -32,7 +32,7 @@ Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini
 |---|---|
 | Versi | `0.1.0-dev` |
 | Teknologi | Go 1.26, React 19 + TypeScript + Vite |
-| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 36 ribu baris tes (122 file, 674 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
+| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 38 ribu baris tes (130 file, 713 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
 | Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
 | Penyimpanan | File JSON di `~/.nextboard/`, tanpa database |
 | Target build | Linux dan macOS, amd64 dan arm64. Tile aplikasi desktop hanya Linux. Semua uji nyata yang tercatat dilakukan di Linux |
@@ -579,7 +579,7 @@ Password manager di board, mengikuti Bitwarden; kontrak dan model keamanannya di
 | Lapisan | Perlindungan |
 |---|---|
 | Jaringan | Default bind loopback, HTTPS di nginx, peringatan bila bind non-loopback. `X-Forwarded-Proto` hanya dipercaya dari peer loopback |
-| Browser | argon2id, cookie `HttpOnly` + `SameSite=Strict`, header CSRF, cek Origin WebSocket, rate limit, CSP dengan `font-src 'self'` |
+| Browser | argon2id, cookie `HttpOnly` + `SameSite=Strict`, header CSRF, cek Origin WebSocket, rate limit, CSP dengan `font-src 'self'`. WebSocket berakhir bersama loginnya: logout dan reset password memutus terminal yang terbuka |
 | Device | Ed25519, challenge sekali pakai 60 detik, token opaque 1 jam, revoke seketika, token tidak di URL |
 | Kredensial SSH | AES-256-GCM dengan `secret.key` 0600, tidak pernah ke klien; host key berubah ditolak |
 | Credentials | Dienkripsi di browser dengan master password yang tidak pernah ke hub; board, log, dan agent tidak pernah melihat isinya |
@@ -798,7 +798,7 @@ Sumber: [ROADMAP.md](ROADMAP.md).
 
 | Fase | Isi | Status |
 |---|---|---|
-| 1–3 | Hub inti, SSH agentless, pairing dan app | Kodenya ada dan dipakai fase berikutnya; kriteria SPEC §12 tidak pernah dicentang |
+| 1–3 | Hub inti, SSH agentless, pairing dan app | Selesai; kriteria SPEC §12 ada di tabel di bawah |
 | 4 | Project, workspace, board multi-tile | Selesai: hub, web, Android |
 | 5 | Agent, status, notifikasi | Selesai: hub, web, Android |
 | 6 | Orkestrasi | Selesai: hub, web, Android |
@@ -808,6 +808,30 @@ Sumber: [ROADMAP.md](ROADMAP.md).
 Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil default, agent di server (preview), MCP, switch agent di tile yang sama, memory galaxy dengan critical notes dan Init, multi-repo, browser sungguhan, Code workbench sebagai card dengan LSP, DAP, extension, AI, review agent dan Local History, kontrol board oleh planner, lead agent dan papan tugas, Credentials, uptime, tema terang dan gelap, group project, log koneksi, batas memori hub.
 
 **Belum ada rencana tertulis sesudah ini.** Kandidat pekerjaan berikutnya adalah §14, dan urutannya keputusan pemilik.
+
+### Kriteria selesai fase 1–3 (SPEC §12), dicek 2026-11-05
+
+Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test di `internal/cli` menjalankan binary asli dengan `HOME` sementara dan `systemctl`, `loginctl`, serta `curl` palsu.
+
+| Kriteria | Status | Bukti dan batasnya |
+|---|---|---|
+| Pasang lewat `curl … \| sh`, cetak link setup | Teruji, rilis palsu | `TestInstallScriptFromReleaseToSetup`, `TestInstallScriptRefusesABadChecksum`. Rilis GitHub sungguhan belum ada |
+| HTTPS di nginx, wizard, login | Teruji | `TestBehindTheNginxExample` memakai file `deploy/` di nginx 1.24 dan 1.28. Halaman wizard hanya dicek bila build punya bundle web. Port preview hanya dimuat, tidak dicoba |
+| Reboot, service hidup lagi | Sebagian | Test memastikan `enable-linger` dipanggil. Reboot sungguhan belum pernah dicoba |
+| Terminal: output, `vim`, `htop`, Ctrl-C | Teruji | `TestTerminalIsARealOne`: raw mode, alternate screen, Ctrl-C, resize, `vi`, `htop` |
+| Browser ditutup dan dibuka | Teruji | `TestTerminalGoesOnWhileTheBrowserIsGone` |
+| Restart service: posisi, scrollback, lanjut | Teruji, tanpa systemctl asli | `TestHubProcessComesBackFromSIGTERM` memakai proses dan sinyal asli. Claude kini lanjut dengan `--resume <uuid>`, bukan `--continue` (`TestHubRestartResumeModes`) |
+| Tanpa auth 401, link setup sekali pakai | Teruji | `TestEveryRouteRefusesAnonymous` menelusuri semua route dari sumbernya. `TestPublicRoutesAreOnlyThese` mengunci daftar route publik |
+| Machine dari `~/.ssh/config` | Teruji | `TestAddMachineFromSSHConfig`, `TestSSHConfig*` |
+| Fingerprint host baru, host key berubah | Teruji | `TestSSHAgentlessEndToEnd`, di lapisan machine |
+| Probe preset dan tmux | Teruji | `TestProbeFindsEveryCommandInEachShell` di sh, dash, bash, zsh, dengan `PATH` palsu |
+| Claude Code di remote | Tergantikan | Keputusan #10: agent selalu di This PC (`TestAgentsStayOnThisPC`) |
+| Mode tmux kembali setelah putus | Sebagian, tidak di CI | `TestSSHTmuxPersistence` butuh sshd dengan tmux. Restart hub dalam mode ini belum diuji |
+| Mode direct kembali setelah putus | Tergantikan sebagian | Di server tinggal console shell: `TestServerConsoleComesBackAfterADrop`. `resumeArgs` tidak berlaku untuk shell |
+| Server tujuan tidak berubah | Dicek sekali, bukan test | Di container, sesudah test SSH hanya `.bash_history` yang berubah, karena test mengetik di shell interaktif. Keputusan #2, #3, dan #18 mengizinkan `/tmp` dan skill atas perintah |
+| Pair lewat QR, device terdaftar | Teruji tanpa QR | `TestPairingDeviceAuthAndRevoke`, `TestRevokeCutsADeviceOffAtOnce`. QR-nya sendiri tidak |
+| Revoke memutus koneksi | Teruji | `TestRevokeCutsADeviceOffAtOnce`: terminal dan event. GUI, LSP, dan IDE memakai daftar socket yang sama, tanpa test sendiri |
+| App menolak sertifikat tak dipercaya | Di luar repo | Klien Android |
 
 ### Yang pernah diuji nyata
 
@@ -865,7 +889,7 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, kartu Android dan desktop, dan cara agent memakai credential belum ada ([API-vault.md](API-vault.md)) |
 | Uptime | Halaman status publik, jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada ([API-uptime.md](API-uptime.md)) |
-| Test | Web tidak punya test di repo; uji browser selama ini dijalankan di luar repo. Kriteria SPEC §12 tidak pernah dicentang |
+| Test | Web tidak punya test di repo; uji browser selama ini dijalankan di luar repo. Sisa kriteria SPEC §12 ada di §13 |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik

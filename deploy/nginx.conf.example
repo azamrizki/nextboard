@@ -21,8 +21,9 @@ server {
 
 # Web UI, API and WebSockets.
 server {
-    listen 443 ssl;
-    http2 on;
+    # `http2 on;` only exists from nginx 1.25.1, and Ubuntu 24.04 ships 1.24. Newer
+    # versions accept this form too, with a deprecation warning.
+    listen 443 ssl http2;
     server_name board.example.com;
 
     ssl_certificate     /etc/letsencrypt/live/board.example.com/fullchain.pem;

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/webui"
 )
 
 type testHub struct {
@@ -164,8 +166,11 @@ func TestSetupLoginAndCSRF(t *testing.T) {
 		t.Fatalf("rate limit: %d", st)
 	}
 	// SPA fallback.
-	if st, body := h.do("GET", "/devices", nil, nil); st != 200 || !strings.Contains(body["_raw"].(string), "<html") {
-		t.Fatalf("spa %d", st)
+	// Only with a bundle: `go test` works before `make web`.
+	if _, err := fs.Stat(webui.FS(), "index.html"); err == nil {
+		if st, body := h.do("GET", "/devices", nil, nil); st != 200 || !strings.Contains(body["_raw"].(string), "<html") {
+			t.Fatalf("spa %d", st)
+		}
 	}
 }
 
