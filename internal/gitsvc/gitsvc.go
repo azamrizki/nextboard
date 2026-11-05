@@ -240,9 +240,14 @@ func prelude(repo, readOnly bool) string {
 	b.WriteString(gitEnv)
 	if readOnly {
 		b.WriteString(`export GIT_OPTIONAL_LOCKS=0; `)
+		b.WriteString(machine.GitNoRepoCode)
 	}
 	if repo {
 		b.WriteString(fmt.Sprintf(`top=$(git rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] || { echo %s >&2; exit %d; }; cd "$top" || exit 122; `, markNoRepo, exitNoRepo))
+	}
+	if readOnly {
+		// Looking at a repository must never run anything out of its config.
+		b.WriteString(machine.GitNoRepoFilters)
 	}
 	return b.String()
 }

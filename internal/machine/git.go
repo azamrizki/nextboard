@@ -27,13 +27,32 @@ const (
 	gitNoRepo  = "__NB_NOREPO__"
 )
 
+// GitNoRepoCode makes `git` in a POSIX sh script ignore settings that run a
+// command out of a repository's own config, which can arrive with an archive or
+// a shared folder: core.fsmonitor on anything that reads the index, and gpg.program
+// through log.showSignature on signed commits. Hooks stay, a commit must run them.
+const GitNoRepoCode = `git() { command git -c core.fsmonitor=false -c log.showSignature=false "$@"; }; `
+
+// GitNoRepoFilters turns off the filter drivers set in the repository's own config
+// (local or worktree scope, includes too): git runs them on `status` and `diff` for
+// any file whose stat changed. It goes through the environment, so nested shells and
+// xargs get it too, and needs git 2.31. Drivers from the user's global config stay
+// (git-lfs); a driver only in the repo's config means a file it handles can read as
+// modified. Run it inside the repository, in read-only scripts only: staging needs
+// the filters. set -f: a driver named "*" must not expand to a file name.
+const GitNoRepoFilters = `nb_n=${GIT_CONFIG_COUNT:-0}; set -f; ` +
+	`for nb_k in $(command git config --show-scope --name-only --get-regexp '^filter\..*\.(clean|smudge|process|required)$' 2>/dev/null | grep -E '^(local|worktree)[[:space:]]' | cut -f2); do ` +
+	`export "GIT_CONFIG_KEY_$nb_n=$nb_k" "GIT_CONFIG_VALUE_$nb_n="; nb_n=$((nb_n+1)); done; ` +
+	`set +f; export GIT_CONFIG_COUNT=$nb_n; `
+
 // gitScript is strictly read-only: GIT_OPTIONAL_LOCKS=0 stops `git status`
-// from refreshing (writing) the index.
+// from refreshing (writing) the index. It runs under /bin/sh on every machine.
 func gitScript(dir string) string {
 	return cdExpr(dir) + ` || exit 3; echo ` + gitMarker + `; ` +
 		`command -v git >/dev/null 2>&1 || { echo ` + gitNoGit + `; exit 0; }; ` +
 		`export GIT_OPTIONAL_LOCKS=0 LC_ALL=C; ` +
 		`[ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || { echo ` + gitNoRepo + `; exit 0; }; ` +
+		GitNoRepoCode + GitNoRepoFilters +
 		`git status --porcelain -b 2>/dev/null`
 }
 
@@ -52,7 +71,7 @@ func GitStatus(ctx context.Context, h Host, dir string) *GitInfo {
 		b, err = cmd.Output()
 		out = string(b)
 	case *SSH:
-		out, err = m.Exec(ctx, loginWrap(gitScript(dir)))
+		out, err = m.Exec(ctx, loginWrap("exec /bin/sh -c "+Quote(gitScript(dir))))
 	default:
 		return &GitInfo{Error: "machine tidak didukung"}
 	}

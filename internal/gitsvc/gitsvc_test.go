@@ -1485,3 +1485,142 @@ esac`)
 		t.Errorf("missing: %v", err)
 	}
 }
+
+// A repository that arrives with its .git/config (archive, shared folder) must not
+// run anything when it is only looked at. Each case first proves that plain git runs
+// the command, so a passing test means the hub stopped it.
+func TestReadsRunNothingFromRepoConfig(t *testing.T) {
+	f := newFixture(t, true)
+	f.initRepo()
+	marks := t.TempDir()
+	hook := func(name string) string {
+		p := filepath.Join(marks, name+".sh")
+		body := "#!/bin/sh\ntouch '" + filepath.Join(marks, name+".ran") + "'\ncat >/dev/null 2>&1\nexit 0\n"
+		if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	ran := func() []string {
+		l, _ := filepath.Glob(filepath.Join(marks, "*.ran"))
+		for _, p := range l {
+			os.Remove(p)
+		}
+		slices.Sort(l)
+		for i, p := range l {
+			l[i] = strings.TrimSuffix(filepath.Base(p), ".ran")
+		}
+		return l
+	}
+	inc := filepath.Join(marks, "included.cfg")
+	if err := os.WriteFile(inc, []byte("[filter \"inc\"]\n\tclean = "+hook("included")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	write(t, f.dir, ".gitattributes", "tracked.txt filter=evil\nstar.txt filter=*\ninc.txt filter=inc\n")
+	for _, n := range []string{"tracked.txt", "star.txt", "inc.txt"} {
+		write(t, f.dir, n, "one\n")
+	}
+	git(t, f.dir, "add", "-A")
+	git(t, f.dir, "commit", "-qm", "files")
+	// A file git would glob "*" to if the driver name were expanded.
+	write(t, f.dir, "filter.decoy.clean", "x\n")
+
+	// A signed commit: log.showSignature hands it to gpg.program.
+	head := strings.TrimSpace(git(t, f.dir, "rev-parse", "HEAD"))
+	tree := strings.TrimSpace(git(t, f.dir, "rev-parse", "HEAD^{tree}"))
+	raw := "tree " + tree + "\nparent " + head + "\nauthor T <t@example.invalid> 1700000000 +0000\ncommitter T <t@example.invalid> 1700000000 +0000\n" +
+		"gpgsig -----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----\n\nsigned\n"
+	obj := filepath.Join(marks, "commit.txt")
+	if err := os.WriteFile(obj, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	signed := strings.TrimSpace(git(t, f.dir, "hash-object", "-t", "commit", "-w", obj))
+	git(t, f.dir, "update-ref", "refs/heads/main", signed)
+
+	for k, v := range map[string]string{
+		"core.fsmonitor":    hook("fsmonitor"),
+		"filter.evil.clean": hook("filter"),
+		"filter.*.clean":    hook("star"),
+		"log.showSignature": "true",
+		"gpg.program":       hook("gpg"),
+		"include.path":      inc,
+	} {
+		git(t, f.dir, "config", k, v)
+	}
+
+	// Same size: a size change alone tells git the file differs, without the filter.
+	dirty := func() {
+		for _, n := range []string{"tracked.txt", "star.txt", "inc.txt"} {
+			write(t, f.dir, n, "two\n")
+		}
+	}
+	dirty()
+	git(t, f.dir, "status", "--porcelain")
+	git(t, f.dir, "log", "-n", "1", "--format=%H")
+	if got, want := ran(), []string{"filter", "fsmonitor", "gpg", "included", "star"}; !slices.Equal(got, want) {
+		t.Fatalf("plain git ran %v, want %v: the test proves nothing", got, want)
+	}
+
+	dirty()
+	st := f.status()
+	if got := ran(); len(got) > 0 {
+		t.Errorf("Status ran %v", got)
+	}
+	if st.Changed == 0 {
+		t.Errorf("Status lost the changes: %+v", st)
+	}
+	if _, err := f.svc.Diff(ctx(t), f.repo, "tracked.txt", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := ran(); len(got) > 0 {
+		t.Errorf("Diff ran %v", got)
+	}
+	if l, err := f.svc.Log(ctx(t), f.repo, 5); err != nil || len(l) == 0 {
+		t.Fatalf("log %v %v", l, err)
+	}
+	if _, err := f.svc.LogGraph(ctx(t), f.repo, GraphOptions{Limit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ran(); len(got) > 0 {
+		t.Errorf("Log ran %v", got)
+	}
+	if _, err := f.svc.Repos(ctx(t), f.repo); err != nil {
+		t.Fatal(err)
+	}
+	if got := ran(); len(got) > 0 {
+		t.Errorf("Repos ran %v", got)
+	}
+	host, _ := f.svc.Host(machine.LocalID)
+	if info := machine.GitStatus(ctx(t), host, f.dir); !info.IsRepo || info.Error != "" {
+		t.Fatalf("home screen status: %+v", info)
+	}
+	if got := ran(); len(got) > 0 {
+		t.Errorf("home screen status ran %v", got)
+	}
+
+	// Staging is an explicit action and keeps the repo's own filter.
+	git(t, f.dir, "add", "tracked.txt")
+	if got := ran(); !slices.Contains(got, "filter") {
+		t.Errorf("git add should run the filter, ran %v", got)
+	}
+}
+
+// A driver from the user's own config, such as git-lfs, keeps working.
+func TestReadsKeepGlobalFilters(t *testing.T) {
+	f := newFixture(t, true)
+	f.initRepo()
+	mark := filepath.Join(t.TempDir(), "global.ran")
+	cfg := os.Getenv("GIT_CONFIG_GLOBAL")
+	git(t, f.dir, "config", "--file", cfg, "filter.lfslike.clean", "touch '"+mark+"'; cat")
+	write(t, f.dir, ".gitattributes", "data.bin filter=lfslike\n")
+	write(t, f.dir, "data.bin", "one\n")
+	git(t, f.dir, "add", "-A")
+	git(t, f.dir, "commit", "-qm", "data")
+	os.Remove(mark)
+	write(t, f.dir, "data.bin", "two\n")
+	f.status()
+	if _, err := os.Stat(mark); err != nil {
+		t.Fatal("the global filter did not run on status")
+	}
+}
