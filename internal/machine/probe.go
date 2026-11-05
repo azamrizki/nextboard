@@ -25,7 +25,8 @@ func probeScript(commands []string) string {
 		seen[c] = true
 		words = append(words, c)
 	}
-	return "echo " + probeBegin + `; uname -sm; echo "$SHELL"; command -v ` + Join(words...) +
+	// One name at a time: dash's `command -v a b` only answers for a.
+	return "echo " + probeBegin + `; uname -sm; echo "$SHELL"; for c in ` + Join(words...) + `; do command -v "$c"; done` +
 		` 2>/dev/null; echo "` + probeTmuxV + `$(tmux -V 2>/dev/null)"; echo "$HOME"; echo ` + probeEnd
 }
 
