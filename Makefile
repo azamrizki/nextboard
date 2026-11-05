@@ -5,7 +5,7 @@ LISTEN  ?= 0.0.0.0:12312
 WEB_PORT ?= 15173
 RELOAD  ?= 1
 
-.PHONY: all web build test test test-web-ssh dev dev-hub dev-web clean snapshot
+.PHONY: all web build test test-web test-ssh dev dev-hub dev-web clean snapshot
 
 all: build
 
