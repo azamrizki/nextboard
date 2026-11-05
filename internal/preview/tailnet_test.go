@@ -79,23 +79,23 @@ func codeOf(err error) string {
 
 func TestIsTailnet(t *testing.T) {
 	for addr, want := range map[string]bool{
-		"100.64.0.1":           true,
+		"100.64.0.1":          true,
 		"100.64.10.20":        true,
-		"100.127.255.254":      true,
+		"100.127.255.254":     true,
 		"::ffff:100.64.10.20": true,
-		"fd7a:115c:a1e0::1":    true,
-		"100.63.255.255":       false,
-		"100.128.0.1":          false,
-		"100.100.100.100":      false,
-		"100.115.92.1":         false,
-		"fd7a:115c:a1e0::53":   false,
-		"127.0.0.1":            false,
-		"::1":                  false,
-		"10.0.0.1":             false,
-		"192.168.1.1":          false,
-		"169.254.169.254":      false,
-		"8.8.8.8":              false,
-		"fd7a:115c:a1e1::1":    false,
+		"fd7a:115c:a1e0::1":   true,
+		"100.63.255.255":      false,
+		"100.128.0.1":         false,
+		"100.100.100.100":     false,
+		"100.115.92.1":        false,
+		"fd7a:115c:a1e0::53":  false,
+		"127.0.0.1":           false,
+		"::1":                 false,
+		"10.0.0.1":            false,
+		"192.168.1.1":         false,
+		"169.254.169.254":     false,
+		"8.8.8.8":             false,
+		"fd7a:115c:a1e1::1":   false,
 	} {
 		if got := IsTailnet(netip.MustParseAddr(addr)); got != want {
 			t.Errorf("%s: %v", addr, got)

@@ -28,7 +28,7 @@ func TestIsPublic(t *testing.T) {
 		"fe80::1":              false,
 		"fc00::1":              false,
 		"100.64.0.1":           false, // CGNAT, and the tailnet has its own rule
-		"100.64.10.20":        false,
+		"100.64.10.20":         false,
 		"192.0.2.1":            false,
 		"198.18.0.1":           false,
 		"224.0.0.1":            false,

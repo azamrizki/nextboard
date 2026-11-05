@@ -189,11 +189,11 @@ func TestReplyCap(t *testing.T) {
 
 func TestClaudeSlug(t *testing.T) {
 	cases := map[string]string{
-		"/home/alice/apps/nextboard":  "-home-alice-apps-nextboard",
-		"/home/alice/.agent/w1": "-home-alice--agent-w1",
-		"/srv/my_app-2.0":           "-srv-my-app-2-0",
-		"/tmp/café":                 "-tmp-caf-", // one BMP rune → one '-'
-		"/tmp/a😀b":                  "-tmp-a--b", // outside the BMP: two UTF-16 units
+		"/home/alice/apps/nextboard": "-home-alice-apps-nextboard",
+		"/home/alice/.agent/w1":      "-home-alice--agent-w1",
+		"/srv/my_app-2.0":            "-srv-my-app-2-0",
+		"/tmp/café":                  "-tmp-caf-", // one BMP rune → one '-'
+		"/tmp/a😀b":                   "-tmp-a--b", // outside the BMP: two UTF-16 units
 	}
 	for in, want := range cases {
 		if got := ClaudeSlug(in); got != want {

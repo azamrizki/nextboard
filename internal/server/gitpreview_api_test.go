@@ -494,7 +494,7 @@ func TestPreviewOfSiteAPI(t *testing.T) {
 		"http://127.0.0.1:1/":    "private_address",
 		"http://192.168.1.1/":    "private_address",
 		"http://169.254.169.254": "private_address",
-		"ftp://100.64.10.20/":   "bad_url",
+		"ftp://100.64.10.20/":    "bad_url",
 		"https://u:p@100.64.0.1": "bad_url",
 	} {
 		status, body, _ := h.doRaw("POST", "/api/previews", "application/json", []byte(`{"url":"`+url+`"}`))
