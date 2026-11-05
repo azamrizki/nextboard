@@ -895,16 +895,15 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Usage | Tiap pemeriksaan Claude menambah 2 baris ke `history.jsonl` pada config yang dipakai. Codex 0.165 menulis `[tui]` ke `config.toml` sekali, dan hub tidak bisa mencegahnya tanpa menulis config. Format layar bisa berubah kapan saja |
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, kartu Android dan desktop, dan cara agent memakai credential belum ada ([API-vault.md](API-vault.md)) |
-| Uptime | Halaman status publik, jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada ([API-uptime.md](API-uptime.md)) |
+| Uptime | Jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada. Halaman status publik mati bersama hub, jadi tidak bisa memberi tahu hub-nya sendiri mati ([API-uptime.md](API-uptime.md)) |
 | Test | Test unit web mencakup vault, markdown, socket, blok memory, dan aturan wire (137 test). Uji browser di repo (`make test-e2e`) baru mencakup memory tile, dialog Send, dan daftar perintah terblokir; alur UI lain masih dicoba di luar repo. Sisa kriteria SPEC §12 ada di §13 |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik
 
 - Kapan `remoteTools` keluar dari preview.
-- Kapan Android dan desktop dilanjutkan, dan apa arti "core stabil".
+- Android dan desktop: dilanjutkan hanya bila pemilik memintanya (keputusan 2026-11-05).
 - Agent boleh memakai credential atau tetap tertutup.
-- Halaman status publik untuk uptime: dibuat atau tidak.
 - Runner headless yang menyimpang dari Symvibe (API-studio §19 butir 6): disahkan atau tidak.
 - Default lead yang belum dibahas: nama Nara, dan order `@Agent` yang langsung jalan.
 - Urutan kerja berikutnya.

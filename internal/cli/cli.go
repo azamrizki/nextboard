@@ -105,13 +105,14 @@ func newFlags(name string) (*flag.FlagSet, *string) {
 func cmdServe(args []string) error {
 	fs, dir := newFlags("serve")
 	listen := fs.String("listen", "", "alamat listen (default dari config.json, 127.0.0.1:12312)")
+	statusListen := fs.String("status-listen", "", "alamat kedua yang hanya menyajikan halaman status publik (default dari config.json)")
 	dev := fs.Bool("dev", false, "mode dev: izinkan Origin server Vite lokal")
 	devWebPort := fs.Int("dev-web-port", 5173, "mode dev: port server Vite")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	opts := server.Options{
-		DataDir: *dir, Listen: *listen, Dev: *dev, DevWebPort: *devWebPort,
+		DataDir: *dir, Listen: *listen, StatusListen: *statusListen, Dev: *dev, DevWebPort: *devWebPort,
 		PrintSetup: term.IsTerminal(int(os.Stdout.Fd())),
 	}
 	srv, err := server.New(opts)

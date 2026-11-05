@@ -48,6 +48,8 @@ import (
 type Options struct {
 	DataDir string
 	Listen  string
+	// StatusListen serves public status pages and nothing else; "" means no such address.
+	StatusListen string
 	// Dev accepts WebSocket Origin http://localhost:5173 (Vite dev server).
 	Dev bool
 	// DevWebPort is the Vite port accepted in Dev mode (default 5173).
@@ -84,7 +86,8 @@ type Server struct {
 	dev        bool
 	devWeb     int // Vite port accepted in dev mode
 
-	listen string
+	listen       string
+	statusListen string
 
 	limiter  *auth.RateLimiter
 	mirror   inputMirror
@@ -122,6 +125,9 @@ func New(opts Options) (*Server, error) {
 	cfg, err := config.Load(st)
 	if err != nil {
 		return nil, err
+	}
+	if opts.StatusListen != "" {
+		cfg.StatusListen = opts.StatusListen
 	}
 	if opts.Listen != "" {
 		cfg.Listen = opts.Listen
@@ -168,9 +174,10 @@ func New(opts Options) (*Server, error) {
 		projects: projects, boards: board.NewManager(st),
 		mcp: mcpServers, agents: mgr.Agents, settings: sets, extensions: studio.NewExtensions(st.Path("extensions")), profiles: profs, jobs: jobs.NewManager(st, reg.Host), attn: newAttentionRing(),
 		events: NewBroker(), conns: newConnRegistry(), dev: opts.Dev, devWeb: cmp.Or(opts.DevWebPort, 5173),
-		listen:  cfg.Listen,
-		limiter: auth.NewRateLimiter(5, 10*time.Minute),
-		running: map[string]bool{},
+		listen:       cfg.Listen,
+		statusListen: cfg.StatusListen,
+		limiter:      auth.NewRateLimiter(5, 10*time.Minute),
+		running:      map[string]bool{},
 	}
 	if err := s.startHookListener(); err != nil {
 		log.Printf("listener hook lokal gagal: %v", err)
@@ -347,6 +354,8 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
+	stopStatus := s.serveStatusOnly()
+	defer stopStatus()
 
 	log.Printf("NextBoard %s berjalan di http://%s", version.Version, s.listen)
 	if !isLoopbackListen(s.listen) {
@@ -448,6 +457,10 @@ func (s *Server) announceSetup(print bool) {
 
 // ServeHTTP applies global headers, CSRF and body limits.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, publicStatusPrefix) {
+		s.handlePublicStatus(w, r)
+		return
+	}
 	h := w.Header()
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")

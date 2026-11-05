@@ -108,6 +108,8 @@ func (s *Server) routes() {
 	authed("PATCH /api/uptime/{id}", s.handleUptimeUpdate)
 	authed("DELETE /api/uptime/{id}", s.handleUptimeDelete)
 	authed("POST /api/uptime/{id}/check", s.handleUptimeCheck)
+	authed("PUT /api/projects/{id}/uptime/public", s.handleUptimePublic)
+	authed("POST /api/projects/{id}/uptime/public/rotate", s.handleUptimePublicRotate)
 	authed("GET /api/uptime/{id}/history", s.handleUptimeHistory)
 	authed("GET /api/uptime/{id}/events", s.handleUptimeEvents)
 	// no login: a cron job on another machine has only the token in the URL

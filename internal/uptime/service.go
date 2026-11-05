@@ -89,6 +89,8 @@ type ProjectSettings struct {
 	Webhook     string    `json:"webhook,omitempty"`
 	LastError   string    `json:"lastError,omitempty"`
 	LastErrorAt time.Time `json:"lastErrorAt,omitzero"`
+	// Public is the project's public status page (public.go).
+	Public PublicSettings `json:"publicPage,omitzero"`
 }
 
 // View is a monitor with what is known about it.
@@ -156,6 +158,8 @@ type Service struct {
 	entries  map[string]*entry
 	byToken  map[string]*entry
 	settings map[string]ProjectSettings
+
+	publicCache publicCacheT
 }
 
 // New loads what is on disk. Nothing is checked before Start.
@@ -534,6 +538,9 @@ func (s *Service) prepare(m *Monitor) error {
 	if err := m.normalize(); err != nil {
 		return err
 	}
+	if err := m.checkPublic(); err != nil {
+		return err
+	}
 	if m.MachineID != "" {
 		if _, ok := s.Host(m.MachineID); !ok {
 			return machine.ErrNotFound
@@ -556,6 +563,7 @@ func (s *Service) prepare(m *Monitor) error {
 func (s *Service) Create(m Monitor) (View, error) {
 	s.admin.Lock()
 	defer s.admin.Unlock()
+	defer s.dropPublicCache()
 	s.mu.Lock()
 	count := 0
 	for _, e := range s.entries {
@@ -600,6 +608,7 @@ func (s *Service) Create(m Monitor) (View, error) {
 func (s *Service) Update(id string, apply func(*Monitor) error) (View, error) {
 	s.admin.Lock()
 	defer s.admin.Unlock()
+	defer s.dropPublicCache()
 	e := s.entry(id)
 	if e == nil {
 		return View{}, ErrNotFound
@@ -683,6 +692,7 @@ func (s *Service) RemoveProject(projectID string) {
 }
 
 func (s *Service) deleteLocked(id string, save bool) error {
+	defer s.dropPublicCache()
 	e := s.entry(id)
 	if e == nil {
 		return ErrNotFound
@@ -830,7 +840,7 @@ func (s *Service) SetWebhook(projectID, webhook string) (ProjectSettings, error)
 		}
 	}
 	s.mu.Lock()
-	c := ProjectSettings{Webhook: webhook}
+	c := ProjectSettings{Webhook: webhook, Public: s.settings[projectID].Public}
 	s.settings[projectID] = c
 	s.mu.Unlock()
 	s.saveSettings()

@@ -17,7 +17,7 @@ NextBoard is a single Go binary. Run it on a machine you control, open the web U
 - **Desktop apps in a tile** (Linux). GUI apps run on a virtual display and stream to the board.
 - **SSH machines.** Agentless: nothing is installed on the server. Uses tmux when available, so sessions survive disconnects.
 - **Studios.** Documents to PDF, diagrams, a Markdown vault with a link graph, and a skills manager.
-- **And more.** A zero-knowledge credentials vault, uptime monitors, usage and token charts, voice input through the Web Speech API, and notifications.
+- **And more.** A zero-knowledge credentials vault, uptime monitors with an optional public status page, usage and token charts, voice input through the Web Speech API, and notifications.
 
 ## Quick start
 

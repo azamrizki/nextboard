@@ -80,6 +80,11 @@ type Monitor struct {
 	Active  bool `json:"active"`
 	Notify  bool `json:"notify"`
 
+	// Public puts it on the project's public status page, under PublicName and nothing else
+	// of it (public.go).
+	Public     bool   `json:"public,omitempty"`
+	PublicName string `json:"publicName,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 
 	// Which warning a certificate already got, so that a restart does not repeat it.

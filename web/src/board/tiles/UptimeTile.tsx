@@ -14,6 +14,7 @@ import { copyText } from '../../lib/clipboard';
 import { formatDateTime } from '../../lib/format';
 import { useMachine } from '../../store';
 import { AlertsDialog } from '../../uptime/AlertsDialog';
+import { PublicPageDialog } from '../../uptime/PublicPageDialog';
 import { uptimeApi, type Monitor, type UptimeEvent } from '../../uptime/api';
 import { byUrgency, dateTime, duration, millis, percent, STATUS_BADGE, STATUS_DOT, STATUS_LABEL } from '../../uptime/format';
 import { Heartbeats, HeartbeatsDetail } from '../../uptime/Heartbeats';
@@ -234,6 +235,7 @@ function UptimeTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [query, setQuery] = useState('');
   const [form, setForm] = useState<'add' | Monitor | null>(null);
   const [alerts, setAlerts] = useState(false);
+  const [publicPage, setPublicPage] = useState(false);
   const [remove, setRemove] = useState<Monitor | null>(null);
   const [delCard, setDelCard] = useState(false);
 
@@ -255,7 +257,10 @@ function UptimeTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
 
   const down = monitors.filter((m) => m.status === 'down').length;
   const meta = !monitors.length ? '' : down ? `${down} down of ${monitors.length}` : monitors.length === 1 ? '1 monitor' : `${monitors.length} monitors`;
-  const menu: MenuEntry[] = [{ label: 'Alerts…', icon: 'bell', onSelect: () => setAlerts(true) }];
+  const menu: MenuEntry[] = [
+    { label: 'Alerts…', icon: 'bell', onSelect: () => setAlerts(true) },
+    { label: 'Public status page…', icon: 'globe', onSelect: () => setPublicPage(true) },
+  ];
 
   return (
     <TileFrame id={id} kind="uptime" selected={!!selected} label={`Uptime ${d.title}`} minW={420} minH={320}>
@@ -313,6 +318,7 @@ function UptimeTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         />
       )}
       {alerts && <AlertsDialog projectId={project.id} settings={settings} onClose={() => setAlerts(false)} />}
+      {publicPage && <PublicPageDialog projectId={project.id} settings={settings} publicCount={monitors.filter((m) => m.public).length} onClose={() => setPublicPage(false)} />}
       {remove && (
         <ConfirmDialog
           title={`Delete ${remove.name}?`}

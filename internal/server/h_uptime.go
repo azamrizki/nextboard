@@ -1,10 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/azamrizki/nextboard/internal/uptime"
 )
@@ -174,4 +179,97 @@ func (s *Server) handleUptimePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, okBody)
+}
+
+// handleUptimePublic turns a project's public status page on or off.
+func (s *Server) handleUptimePublic(w http.ResponseWriter, r *http.Request, p *principal) {
+	pid, ok := s.uptimeProject(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Enabled bool   `json:"enabled"`
+		Title   string `json:"title"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	c, err := s.uptime.SetPublic(pid, req.Enabled, req.Title)
+	if err != nil {
+		uptimeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+// handleUptimePublicRotate gives the page a new address; the old one stops working.
+func (s *Server) handleUptimePublicRotate(w http.ResponseWriter, r *http.Request, p *principal) {
+	pid, ok := s.uptimeProject(w, r)
+	if !ok {
+		return
+	}
+	c, err := s.uptime.RotatePublic(pid)
+	if err != nil {
+		uptimeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+const (
+	publicStatusPrefix = "/status/"
+	// publicStatusCSP: no script and nothing loaded from anywhere. The page's only style is inline.
+	publicStatusCSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+)
+
+// handlePublicStatus serves /status/{token}, with no login. It sets no cookie and reads none,
+// and whatever is wrong with the address gets the same answer, which says nothing of the hub.
+func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
+	h := w.Header()
+	// Never kept by a browser or by a CDN in front: turning a page off, or taking a monitor
+	// off it, has to count at once. PublicHTML keeps the work down by itself.
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Robots-Tag", "noindex, nofollow")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Content-Security-Policy", publicStatusCSP)
+	token := strings.TrimPrefix(r.URL.Path, publicStatusPrefix)
+	body, ok := []byte(nil), false
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(r.URL.Path, publicStatusPrefix) && !strings.Contains(token, "/") {
+		body, ok = s.uptime.PublicHTML(token)
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(body)
+}
+
+// serveStatusOnly starts the second address, when there is one. It knows one route, so a
+// mistake in what is put in front of it cannot reach the hub. It fails alone: the hub goes on.
+func (s *Server) serveStatusOnly() (stop func()) {
+	if s.statusListen == "" {
+		return func() {}
+	}
+	ln, err := net.Listen("tcp", s.statusListen)
+	if err != nil {
+		log.Printf("halaman status publik: %v", err)
+		return func() {}
+	}
+	srv := &http.Server{
+		Handler:           http.HandlerFunc(s.handlePublicStatus),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		MaxHeaderBytes:    8 << 10,
+	}
+	go func() { _ = srv.Serve(ln) }()
+	log.Printf("halaman status publik di http://%s/status/…", ln.Addr())
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}
 }

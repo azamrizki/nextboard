@@ -106,6 +106,7 @@ func runQuiet(name string, args ...string) (string, error) {
 
 func cmdInstall(args []string) error {
 	fs, dir := newFlags("install")
+	statusListen := fs.String("status-listen", "", "alamat kedua yang hanya menyajikan halaman status publik (disimpan di config.json)")
 	listen := fs.String("listen", "", "alamat listen, default 127.0.0.1:12312 (disimpan di config.json)")
 	publicURL := fs.String("public-url", "", "URL HTTPS publik di nginx, mis. https://board.example.com (disimpan di config.json)")
 	noStart := fs.Bool("no-start", false, "pasang tanpa menyalakan service")
@@ -122,6 +123,9 @@ func cmdInstall(args []string) error {
 	}
 	if *listen != "" {
 		cfg.Listen = *listen
+	}
+	if *statusListen != "" {
+		cfg.StatusListen = *statusListen
 	}
 	if *publicURL != "" {
 		if !strings.HasPrefix(*publicURL, "https://") {

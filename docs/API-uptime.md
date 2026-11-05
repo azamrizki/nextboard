@@ -69,9 +69,36 @@ Event `/api/events`:
 
 Planner dan command bar: `add an uptime monitor` (`node.add` kind `uptime`) menambah kartunya. Monitor sendiri belum bisa dibuat lewat planner.
 
+## Halaman status publik
+
+Satu halaman per project, tanpa login, di `/status/{token}`. Mati secara bawaan, dan monitor tidak ikut kecuali ditandai satu per satu.
+
+**Yang tampil, dan hanya ini:** judul pilihan pemilik (bawaan `Status`), lalu per monitor bertanda `public`: `publicName`, `Operational` / `Down` / `No data`, persentase uptime 30 hari, satu kotak per hari selama 30 hari, dan gangguan 30 hari terakhir (waktu mulai dibulatkan ke menit, lama gangguan). Waktu dalam UTC. Blip dalam jatah `retries` tidak terlihat sebagai gangguan.
+
+**Yang tidak pernah tampil:** URL, host, port, tipe monitor, machine, header, keyword, pesan error (sering memuat IP internal), waktu respons, sertifikat, id monitor, token push, nama monitor asli, nama project, nama hub, versi, atau tanda bahwa ini NextBoard.
+
+Ini dijamin oleh bentuk kodenya, bukan oleh menyaring keluaran: halaman dibangun dari struct `publicPage` (`internal/uptime/public.go`) yang tidak memegang `Monitor`, dengan `html/template`. `public_test.go` menanam nilai penanda di semua field itu dan memeriksa tidak satu pun muncul.
+
+- `publicName` wajib untuk monitor publik, karena nama monitor sering berisi host. Ditolak (`400`) bila memuat host yang dipantau, alamat IP, atau `://`. Ini menangkap salah ketik, bukan segalanya: isinya tetap tanggung jawab pemilik.
+- Tidak ada skrip, tidak ada sumber luar, tidak ada cookie, tidak ada form. `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`, `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` (browser atau CDN yang menyimpan halaman akan terus menampilkannya sesudah dimatikan). Halaman menyegarkan diri tiap 60 detik lewat `<meta refresh>`.
+- Token 192 bit dari `crypto/rand`. Token asing, halaman mati, dan jalur lain di bawah `/status/` mendapat `404` yang sama persis, tanpa HTML aplikasi. `POST …/public/rotate` membuat alamat baru dan alamat lama langsung mati; mematikan lalu menyalakan mempertahankan alamat.
+- Halaman dihitung paling sering sekali per 15 detik per token, jadi pengunjung tidak menambah beban cek. Mengubah monitor, mematikan halaman, atau rotate berlaku saat itu juga.
+
+| Method | Path | Body | Respons |
+|---|---|---|---|
+| PUT | `/api/projects/{id}/uptime/public` | `{"enabled","title"}` | `{"enabled","token","title"}`; token dibuat saat pertama kali menyala |
+| POST | `/api/projects/{id}/uptime/public/rotate` | — | seperti di atas |
+| GET | `/status/{token}` | — | **Tanpa login.** HTML; `404` selain itu |
+
+`GET /api/projects/{id}/uptime` membawa pengaturannya di `settings.publicPage`. Monitor membawa `public` dan `publicName`.
+
+**Menaruhnya di internet.** Port utama hub pada dasarnya shell di mesin ini, jadi jangan dibuka. `nextboard serve --status-listen 127.0.0.1:12340` (atau `install --status-listen`, disimpan di `config.json` sebagai `statusListen`) membuka alamat kedua yang hanya mengenal `GET /status/{token}`; selain itu `404`, termasuk `/`, `/api/*`, `/setup`, dan aset web. Arahkan Cloudflare Tunnel, `tailscale funnel 12340`, atau nginx (`deploy/nginx-status.conf.example`) ke port itu saja. HTTPS tetap urusan yang di depannya. Alamat yang ditampilkan dialog memakai alamat hub yang sedang dibuka, jadi ganti host-nya dengan domain publik. Gagal bind hanya dicatat di log; hub tetap jalan.
+
+Monitor tetap dicek selama hub hidup, jadi bila hub mati halamannya ikut mati, dan pengunjung tidak bisa membedakannya dari layanan yang mati. Status page yang berdiri sendiri perlu tempat lain.
+
 ## Penyimpanan
 
-`<data>/uptime/`: `monitors.json`, `settings.json`, dan satu folder per monitor. File JSON store ditulis ulang seluruhnya, yang tidak pantas untuk heartbeat tiap menit, jadi riwayat append-only:
+`<data>/uptime/`: `monitors.json`, `settings.json` (termasuk token halaman publik), dan satu folder per monitor. File JSON store ditulis ulang seluruhnya, yang tidak pantas untuk heartbeat tiap menit, jadi riwayat append-only:
 
 | File | Isi | Disimpan |
 |---|---|---|
@@ -87,13 +114,13 @@ Isi `monitors.json` termasuk `headers` dan URL webhook **tertulis apa adanya** (
 
 - Target ditentukan pemilik dan alamat privat memang boleh, karena memantau layanan internal adalah gunanya. Hanya user yang login bisa menambah monitor; agent tidak punya tool untuk itu.
 - `host` divalidasi (`hostRe`) sebelum jadi argumen `ping`: tidak bisa diawali `-` dan tidak bisa memuat spasi atau karakter shell. `ping` dijalankan lewat `Argv`, bukan shell.
-- `GET /api/push/{token}` satu-satunya route tanpa login: token 192 bit dari `crypto/rand`, hanya bisa menambah heartbeat monitor itu, laporan lebih cepat dari satu per detik dihitung satu.
+- `GET /api/push/{token}` dan `GET /status/{token}` satu-satunya route uptime tanpa login. Push: token 192 bit dari `crypto/rand`, hanya bisa menambah heartbeat monitor itu, laporan lebih cepat dari satu per detik dihitung satu. Status: lihat di atas.
 - `ignoreTls` pilihan per monitor, mati secara bawaan.
 - Tiap cek HTTP memakai koneksi baru dan mengabaikan proxy dari environment hub, karena pertanyaannya adalah apakah target ini menjawab.
 
 ## Belum ada
 
-Halaman status publik, jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam. Halaman status publik sengaja belum: itu membuka sesuatu ke publik, jadi keputusan pemilik.
+Jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam.
 
 ## Verifikasi (2026-11-03)
 

@@ -35,6 +35,9 @@ export interface MonitorConfig {
   retries?: number;
   active?: boolean;
   notify?: boolean;
+  /** On the project's public status page, under publicName and nothing else of it. */
+  public?: boolean;
+  publicName?: string;
 }
 
 export interface Cert {
@@ -69,10 +72,18 @@ export interface Monitor extends MonitorConfig {
   recent?: Beat[];
 }
 
+/** The public status page of a project. The token is its address. */
+export interface PublicPageSettings {
+  enabled: boolean;
+  token?: string;
+  title?: string;
+}
+
 export interface UptimeSettings {
   webhook?: string;
   lastError?: string;
   lastErrorAt?: string;
+  publicPage?: PublicPageSettings;
 }
 
 export interface UptimeEvent {
@@ -114,5 +125,7 @@ export const uptimeApi = {
   history: (id: string, range: SeriesRange) => apiRequest<Series>('GET', `/api/uptime/${enc(id)}/history?range=${range}`),
   events: (id: string) => apiRequest<{ items: UptimeEvent[] | null }>('GET', `/api/uptime/${enc(id)}/events?limit=50`),
   setWebhook: (pid: string, webhook: string) => apiRequest<UptimeSettings>('PUT', `/api/projects/${enc(pid)}/uptime/settings`, { webhook }),
+  setPublicPage: (pid: string, body: { enabled: boolean; title: string }) => apiRequest<PublicPageSettings>('PUT', `/api/projects/${enc(pid)}/uptime/public`, body),
+  rotatePublicPage: (pid: string) => apiRequest<PublicPageSettings>('POST', `/api/projects/${enc(pid)}/uptime/public/rotate`, {}),
   testWebhook: (pid: string) => apiRequest<{ ok: boolean }>('POST', `/api/projects/${enc(pid)}/uptime/settings/test`, {}),
 };

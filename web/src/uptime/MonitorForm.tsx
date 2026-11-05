@@ -72,6 +72,8 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
   const [retryInterval, setRetryInterval] = useState(m?.retryIntervalSec ? String(m.retryIntervalSec) : '');
   const [timeout, setTimeoutSec] = useState(m?.timeoutSec ? String(m.timeoutSec) : '');
   const [notify, setNotify] = useState(m?.notify ?? true);
+  const [isPublic, setIsPublic] = useState(!!m?.public);
+  const [publicName, setPublicName] = useState(m?.publicName ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -84,6 +86,8 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
       type,
       machineId,
       notify,
+      public: isPublic,
+      publicName,
       url,
       method,
       accepted,
@@ -211,6 +215,17 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
           </FormSection>
         )}
         <Checkbox checked={notify} onChange={setNotify} label="Tell me when it goes down or comes back" />
+        <Checkbox checked={isPublic} onChange={setIsPublic} label="Show on the public status page" />
+        {isPublic && (
+          <TextField
+            label="Name on the public page"
+            value={publicName}
+            maxLength={60}
+            placeholder="Website"
+            hint="All the public sees of this monitor: this name, up or down, uptime and outage times. Never its address, its error messages or its response times."
+            onChange={(e) => setPublicName(e.target.value)}
+          />
+        )}
       </form>
     </Modal>
   );

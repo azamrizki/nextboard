@@ -1,0 +1,29 @@
+# Puts one status page on the internet, and nothing else of the hub.
+#
+# Start the hub with a second address that knows only the status route:
+#   nextboard install --status-listen 127.0.0.1:12340
+#
+# Never proxy the hub's main port (12312) to the internet: it is effectively a shell on this
+# machine. Fill in status.example.com and your certificate. The token is in the address itself,
+# so keep it out of your access log.
+server {
+    listen 443 ssl;
+    server_name status.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/status.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/status.example.com/privkey.pem;
+
+    access_log off;
+
+    location /status/ {
+        limit_except GET { deny all; }
+        proxy_pass http://127.0.0.1:12340;
+        proxy_set_header Host $host;
+        proxy_set_header Cookie "";
+        proxy_set_header Authorization "";
+    }
+
+    location / {
+        return 404;
+    }
+}

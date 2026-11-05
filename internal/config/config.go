@@ -20,6 +20,9 @@ const (
 type Config struct {
 	HubName string `json:"hubName"`
 	Listen  string `json:"listen"`
+	// StatusListen, when set, is a second address that serves public status pages and nothing
+	// else: the one to expose, since the main address is effectively a shell.
+	StatusListen string `json:"statusListen,omitempty"`
 	// ExtraURLs are advertised to paired apps first (the public HTTPS URL).
 	ExtraURLs []string `json:"extraUrls,omitempty"`
 }
