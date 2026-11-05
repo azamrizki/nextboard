@@ -279,11 +279,12 @@ func TestHubRestartResumeModes(t *testing.T) {
 		{"never", hook, "shell", false},
 	} {
 		t.Run(c.setting+"/"+c.wantMode+"/"+c.saved, func(t *testing.T) {
-			dir := t.TempDir()
+			dir := hubDataDir(t)
 			srv1, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Cleanup(srv1.review.Close) // a snapshot still running would write the folder back
 			bin := filepath.Join(dir, "fakeclaude")
 			os.WriteFile(bin, []byte(fakeClaude), 0o755)
 			fakeDir := t.TempDir()
@@ -327,6 +328,7 @@ func TestHubRestartResumeModes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Cleanup(srv2.review.Close) // a snapshot still running would write the folder back
 			defer srv2.sessions.Shutdown()
 			defer srv2.boards.Close()
 			srv2.sessions.Start()
@@ -372,11 +374,12 @@ func TestHubRestartResumeModes(t *testing.T) {
 func TestHubStopKeepsAgentForeground(t *testing.T) {
 	signal.Ignore(syscall.SIGHUP)
 	t.Cleanup(func() { signal.Reset(syscall.SIGHUP) })
-	dir := t.TempDir()
+	dir := hubDataDir(t)
 	srv1, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv1.review.Close) // a snapshot still running would write the folder back
 	quit := filepath.Join(dir, "quit")
 	t.Setenv("FAKE_QUIT", quit)
 	bin := filepath.Join(dir, "fakeclaude")
@@ -411,6 +414,7 @@ func TestHubStopKeepsAgentForeground(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv2.review.Close) // a snapshot still running would write the folder back
 	defer srv2.sessions.Shutdown()
 	defer srv2.boards.Close()
 	srv2.sessions.Start()

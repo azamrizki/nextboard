@@ -570,7 +570,7 @@ func TestSessionTerminalNodes(t *testing.T) {
 }
 
 func TestMigrationFromLegacyBoard(t *testing.T) {
-	dir := t.TempDir()
+	dir := hubDataDir(t)
 	st, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -622,6 +622,7 @@ func TestMigrationFromLegacyBoard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv1.review.Close) // a snapshot still running would write the folder back
 	pid1, wid1 := check(srv1, 2)
 	note := &board.Node{ID: "n_migrnote1", Kind: "note", Y: 600, W: 100, H: 100, Data: json.RawMessage(`{"text":"x"}`)}
 	rev, err := srv1.boards.Apply(wid1, "c_x", []board.Op{{Op: "put", Node: note}})
@@ -635,6 +636,7 @@ func TestMigrationFromLegacyBoard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv2.review.Close) // a snapshot still running would write the folder back
 	defer srv2.shutdown()
 	pid2, wid2 := check(srv2, 3)
 	if pid2 != pid1 || wid2 != wid1 {

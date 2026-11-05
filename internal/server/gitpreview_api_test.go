@@ -33,7 +33,7 @@ func newP7Hub(t *testing.T) *testHub {
 		os.Unsetenv(k)
 	}
 	lo, hi := freePreviewRange(t, 3)
-	dir := t.TempDir()
+	dir := hubDataDir(t)
 	body := fmt.Sprintf(`{"schemaVersion":1,"commands":{"planner":"off"},"previews":{"auto":true,"portRange":[%d,%d]}}`, lo, hi)
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -42,6 +42,7 @@ func newP7Hub(t *testing.T) *testHub {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv.review.Close) // a snapshot still running would write the folder back
 	ts := httptest.NewServer(srv)
 	srv.sessions.Start()
 	srv.startOrchestration()

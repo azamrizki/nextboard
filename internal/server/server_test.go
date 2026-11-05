@@ -12,6 +12,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -29,9 +30,32 @@ type testHub struct {
 	c   *http.Client
 }
 
+// hubDataDir is a hub's data folder for a test. t.TempDir fails the test when something writes
+// while it is being removed, and a hub has background writers that can finish just after it
+// stops, which is harmless and shows only on a busy machine. A folder still being written after
+// 5 seconds is a failure all the same.
+func hubDataDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "nb-hub-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		var err error
+		for range 50 {
+			if err = os.RemoveAll(dir); err == nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Errorf("data folder still being written after the hub stopped: %v", err)
+	})
+	return dir
+}
+
 func newTestHub(t *testing.T) *testHub {
 	t.Helper()
-	srv, err := New(Options{DataDir: t.TempDir(), Listen: "127.0.0.1:0"})
+	srv, err := New(Options{DataDir: hubDataDir(t), Listen: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,11 +397,12 @@ func TestPairingDeviceAuthAndRevoke(t *testing.T) {
 }
 
 func TestHubRestartResumesSessions(t *testing.T) {
-	dir := t.TempDir()
+	dir := hubDataDir(t)
 	srv1, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv1.review.Close) // a snapshot still running would write the folder back
 	if err := srv1.st.Save("presets.json", []map[string]any{{
 		"id": "echoer", "name": "Echoer", "command": "sh",
 		"args": []string{"-c", "echo RUN:$0; exec sleep 60"}, "resumeArgs": []string{"resumed"},
@@ -397,6 +422,7 @@ func TestHubRestartResumesSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(srv2.review.Close) // a snapshot still running would write the folder back
 	defer srv2.sessions.Shutdown()
 	defer srv2.boards.Close()
 	srv2.sessions.Start()
