@@ -246,6 +246,33 @@ function MsgActions({ m, lead, actions }: { m: ThreadMessage; lead: string; acti
   );
 }
 
+/** After a hub restart: the order stays where it was until a person sends it again. */
+function ResendOrder({ orderId }: { orderId: string }) {
+  const order = useOrch((s) => s.orders[orderId]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    // Only active orders load with the thread, and this one has ended.
+    if (!order) void orchApi.order(orderId).then((o) => orchStore.upsertOrder(o)).catch(() => undefined);
+  }, [order, orderId]);
+  const missed = (order?.targets ?? []).filter((t) => t.undelivered);
+  if (!missed.length) return null;
+  const send = async () => {
+    setBusy(true);
+    try {
+      orchStore.upsertOrder(await orchApi.resendOrder(orderId));
+    } catch (err) {
+      toast.error(`Could not send: ${orchError(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button size="sm" variant="ghost" icon="send" loading={busy} onClick={() => void send()} title={`Send this order to ${missed.map((t) => `@${t.handle}`).join(', ')}`}>
+      Send again
+    </Button>
+  );
+}
+
 function MessageView({ m, onOutput, compact, lead, actions, onGoTo }: { m: ThreadMessage; onOutput: (m: ThreadMessage) => void; compact?: boolean; lead: string; actions?: ThreadActions; onGoTo: (id: string) => void }) {
   const order = useOrch((s) => (m.orderId ? s.orders[m.orderId] : undefined));
   const conf = useOrch((s) => (m.confirmationId ? s.confirmations[m.confirmationId] : undefined));
@@ -366,6 +393,7 @@ function MessageView({ m, onOutput, compact, lead, actions, onGoTo }: { m: Threa
         {tools}
       </div>
       {order && <OrderProgress order={order} />}
+      {m.resend && m.orderId && <ResendOrder orderId={m.orderId} />}
     </li>
   );
 }

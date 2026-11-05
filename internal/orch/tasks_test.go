@@ -379,3 +379,31 @@ func TestPlannerRunsATaskBoard(t *testing.T) {
 		t.Fatalf("%+v", in)
 	}
 }
+
+// A card follows the order through a restart and a resend, with no second card.
+func TestTaskBoardFollowsResend(t *testing.T) {
+	h, s := newFakeHub(t)
+	p, wid, tile, cons := taskBoardSetup(t, h, false, "Ash")
+	c := &execCtx{threadID: p.ID, projectID: p.ID, workspaceID: wid}
+	o := s.sendOrder(c, []string{cons[0].ID}, "@Ash Fix the login page", "order", 0)
+	card := func() (n int, state string) {
+		for _, col := range readBoardKanban(t, h, wid, tile).Columns {
+			for _, k := range col.Cards {
+				n++
+				state = k.State
+			}
+		}
+		return
+	}
+	if n, _ := card(); n != 1 {
+		t.Fatalf("cards %d", n)
+	}
+	s = restart(t, h, s)
+	if _, err := s.ResendOrder(o.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.setDelivery(s, h.deliveriesTo(cons[0].ID)[1].ID, delivery.Confirmed)
+	if n, state := card(); n != 1 || state != taskStateOf(TWorking) {
+		t.Fatalf("after resend: %d cards, state %q", n, state)
+	}
+}

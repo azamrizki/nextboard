@@ -161,8 +161,17 @@ func New(hub Hub, st *store.Store) *Service {
 func (s *Service) Start() {
 	now := s.Now()
 	for _, o := range s.Orders.interrupted(now) {
-		s.Threads.Add(ThreadMessage{ThreadID: o.ThreadID, Role: "hub", Kind: "note", OrderID: o.ID,
-			Text: "Order \"" + clipText(o.Text, 80) + "\" was interrupted by hub restart."})
+		text := "Order \"" + clipText(o.Text, 80) + "\" was interrupted by hub restart."
+		var missed []string
+		for _, t := range o.Targets {
+			if t.Undelivered {
+				missed = append(missed, "@"+t.Handle)
+			}
+		}
+		if len(missed) > 0 {
+			text += " " + joinAnd(missed) + " did not get it."
+		}
+		s.Threads.Add(ThreadMessage{ThreadID: o.ThreadID, Role: "hub", Kind: "note", OrderID: o.ID, Text: text, Resend: len(missed) > 0})
 	}
 	s.Orders.Save(now)
 	s.Loops.Restart(now)
@@ -562,7 +571,7 @@ func joinAnd(l []string) string {
 	return strings.Join(l[:len(l)-1], ", ") + " and " + l[len(l)-1]
 }
 
-// free reports whether a console can take an order now (§3.6): ready,
+// free reports whether a console can take an order now (§3.11): ready,
 // no active delivery or order.
 func (s *Service) free(in session.Info) bool {
 	if !isAgent(in) || in.AgentState != agentstate.Ready || in.Paused || in.Queue > 0 {

@@ -454,3 +454,117 @@ func TestOrdersReachAnAgentInTheEditor(t *testing.T) {
 		t.Fatalf("a shell of the editor got an order: %s %+v", texts(r), h.dels)
 	}
 }
+
+// restart stops s the way a hub does and starts a new service on the same data.
+func restart(t *testing.T, h *fakeHub, s *Service) *Service {
+	t.Helper()
+	s.Orders.Save(t0)
+	n := New(h, h.st)
+	n.Now = func() time.Time { return t0 }
+	n.Threads.Now = n.Now
+	n.Start()
+	t.Cleanup(n.Close)
+	return n
+}
+
+func TestResendAfterRestart(t *testing.T) {
+	h, s := newFakeHub(t)
+	p, wid := h.project("app")
+	ash := h.console(p, wid, "Ash", "claude", agentstate.Ready)
+	bea := h.console(p, wid, "Bea", "claude", agentstate.Ready)
+	cal := h.console(p, wid, "Cal", "claude", agentstate.Ready)
+	r := cmd(t, s, wid, "@Ash @Bea @Cal run the tests")
+	// Bea already has the text. Ash and Cal are still queued.
+	h.setDelivery(s, h.deliveriesTo(bea.ID)[0].ID, delivery.Confirmed)
+
+	s = restart(t, h, s)
+	o, _ := s.Orders.Get(r.OrderID)
+	state := map[string]OrderTarget{}
+	for _, x := range o.Targets {
+		state[x.Handle] = x
+	}
+	if !state["Ash"].Undelivered || !state["Cal"].Undelivered || state["Bea"].Undelivered || o.Active() {
+		t.Fatalf("after restart %+v", o.Targets)
+	}
+	var note ThreadMessage
+	for _, m := range s.Threads.Last(p.ID, 20) {
+		if m.OrderID == r.OrderID && m.Resend {
+			note = m
+		}
+	}
+	if !strings.Contains(note.Text, "interrupted by hub restart") || !strings.Contains(note.Text, "@Ash and @Cal did not get it") {
+		t.Fatalf("note %+v", note)
+	}
+	// Nothing goes out on its own.
+	if n := len(h.deliveriesTo(ash.ID)); n != 1 {
+		t.Fatalf("Ash got %d deliveries by itself", n)
+	}
+
+	// Ash is still resuming, so it stays offered. Cal takes it. Bea had it and gets nothing.
+	h.delErr[ash.ID] = delivery.ErrTargetBusy
+	o, err := s.ResendOrder(r.OrderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range o.Targets {
+		state[x.Handle] = x
+	}
+	if !state["Ash"].Undelivered || state["Ash"].State != TFailed {
+		t.Fatalf("busy Ash %+v", state["Ash"])
+	}
+	if state["Cal"].Undelivered || state["Cal"].State != TQueued || state["Cal"].Error != "" || state["Cal"].FinishedAt != nil || !o.Active() {
+		t.Fatalf("Cal %+v", state["Cal"])
+	}
+	if len(h.deliveriesTo(cal.ID)) != 2 || len(h.deliveriesTo(bea.ID)) != 1 {
+		t.Fatalf("deliveries cal=%d bea=%d", len(h.deliveriesTo(cal.ID)), len(h.deliveriesTo(bea.ID)))
+	}
+
+	// The same order goes on: its delivery still updates the target.
+	last := h.deliveriesTo(cal.ID)[1]
+	if last.OrderID != r.OrderID || last.Text != "run the tests" || last.Source != "order" {
+		t.Fatalf("delivery %+v", last)
+	}
+	h.setDelivery(s, last.ID, delivery.Confirmed)
+	if o, _ = s.Orders.Get(r.OrderID); targetOf(o, "Cal").State != TWorking {
+		t.Fatalf("Cal after delivery %+v", targetOf(o, "Cal"))
+	}
+
+	// Ash is ready now, and a second click finds nothing left.
+	delete(h.delErr, ash.ID)
+	if o, err = s.ResendOrder(r.OrderID); err != nil || targetOf(o, "Ash").Undelivered || len(h.deliveriesTo(ash.ID)) != 2 {
+		t.Fatalf("Ash resend %v %+v", err, targetOf(o, "Ash"))
+	}
+	if _, err := s.ResendOrder(r.OrderID); !errors.Is(err, ErrNothingToResend) {
+		t.Fatalf("second resend %v", err)
+	}
+	if _, err := s.ResendOrder("o_missing"); !errors.Is(err, ErrOrderNotFound) {
+		t.Fatalf("missing order %v", err)
+	}
+}
+
+func TestResendForAGoneConsoleEnds(t *testing.T) {
+	h, s := newFakeHub(t)
+	p, wid := h.project("app")
+	ash := h.console(p, wid, "Ash", "claude", agentstate.Ready)
+	r := cmd(t, s, wid, "@Ash run the tests")
+	s = restart(t, h, s)
+	h.mu.Lock()
+	delete(h.sessions, ash.ID)
+	h.mu.Unlock()
+	o, err := s.ResendOrder(r.OrderID)
+	if err != nil || targetOf(o, "Ash").Undelivered || targetOf(o, "Ash").State != TFailed {
+		t.Fatalf("%v %+v", err, o.Targets)
+	}
+	if _, err := s.ResendOrder(r.OrderID); !errors.Is(err, ErrNothingToResend) {
+		t.Fatalf("still offered: %v", err)
+	}
+}
+
+func targetOf(o Order, handle string) OrderTarget {
+	for _, t := range o.Targets {
+		if t.Handle == handle {
+			return t
+		}
+	}
+	return OrderTarget{}
+}

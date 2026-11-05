@@ -88,6 +88,8 @@ type ThreadMessage struct {
 	Report         *Report    `json:"report,omitempty"`
 	ConfirmationID string     `json:"confirmationId,omitempty"`
 	ReplyTo        *ReplyRef  `json:"replyTo,omitempty"`
+	// Resend: the client offers to send OrderID again while a target is Undelivered.
+	Resend bool `json:"resend,omitempty"`
 }
 
 type thread struct {
@@ -371,6 +373,10 @@ type OrderTarget struct {
 	// SentAt is when the delivery's Return went out (turn matching).
 	SentAt *time.Time `json:"sentAt,omitempty"`
 	Depth  int        `json:"forwardDepth,omitempty"`
+	// Undelivered: the hub restarted before the text reached this console. A person
+	// can send it again (POST /api/orders/{id}/resend); the hub never does so itself,
+	// the moment may have passed.
+	Undelivered bool `json:"undelivered,omitempty"`
 }
 
 // TargetFinal reports whether a target state is final.
@@ -441,6 +447,7 @@ func (o *Orders) interrupted(now time.Time) []Order {
 		for i := range x.Targets {
 			if !TargetFinal(x.Targets[i].State) {
 				t := now.UTC()
+				x.Targets[i].Undelivered = x.Targets[i].State == TQueued
 				x.Targets[i].State, x.Targets[i].Error, x.Targets[i].FinishedAt = TFailed, "interrupted by hub restart", &t
 				touched = true
 			}

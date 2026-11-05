@@ -589,3 +589,21 @@ func TestMemoryDocsAPI(t *testing.T) {
 		t.Fatalf("delete %d %v", st, b)
 	}
 }
+
+func TestOrderResendRoute(t *testing.T) {
+	h := newTestHub(t)
+	pid, wid, _ := orchSetup(t, h)
+	in := h.spawnAgent(wid)
+	h.waitInfo(in["id"].(string), "ready", state("ready"))
+	if st, b := h.do("POST", "/api/orders/o_none/resend", nil, nil); st != http.StatusNotFound || b["code"] != "order_not_found" {
+		t.Fatalf("missing order: %d %v", st, b)
+	}
+	st, r := h.do("POST", "/api/projects/"+pid+"/commands", map[string]any{"text": "@Arkan run the tests", "workspaceId": wid}, nil)
+	if st != 202 {
+		t.Fatalf("command %d %v", st, r)
+	}
+	// Nothing was interrupted, so there is nothing to send again.
+	if st, b := h.do("POST", "/api/orders/"+r["orderId"].(string)+"/resend", nil, nil); st != http.StatusConflict || b["code"] != "nothing_to_resend" {
+		t.Fatalf("not interrupted: %d %v", st, b)
+	}
+}

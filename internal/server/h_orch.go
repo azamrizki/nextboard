@@ -40,6 +40,7 @@ func (s *Server) orchRoutes(authed func(string, handler)) {
 	authed("GET /api/threads/{tid}/orders", s.handleThreadOrders)
 	authed("GET /api/orders/{id}", s.handleOrderGet)
 	authed("POST /api/orders/{id}/cancel", s.handleOrderCancel)
+	authed("POST /api/orders/{id}/resend", s.handleOrderResend)
 
 	authed("POST /api/workspaces/{id}/spawn", s.handleSpawn)
 	authed("GET /api/workspaces/{id}/mission", s.handleMission)
@@ -139,6 +140,8 @@ func (s *Server) orchErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusBadRequest, "bad_decision", err.Error())
 	case errors.Is(err, orch.ErrOrderNotFound):
 		writeErrCode(w, http.StatusNotFound, "order_not_found", err.Error())
+	case errors.Is(err, orch.ErrNothingToResend):
+		writeErrCode(w, http.StatusConflict, "nothing_to_resend", err.Error())
 	case errors.Is(err, orch.ErrTooMany):
 		writeErrCode(w, http.StatusBadRequest, "too_many", err.Error())
 	case errors.Is(err, orch.ErrGroupNotFound):
@@ -511,6 +514,15 @@ func (s *Server) handleOrderGet(w http.ResponseWriter, r *http.Request, p *princ
 
 func (s *Server) handleOrderCancel(w http.ResponseWriter, r *http.Request, p *principal) {
 	o, err := s.orch.CancelOrder(r.PathValue("id"))
+	if err != nil {
+		s.orchErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, o)
+}
+
+func (s *Server) handleOrderResend(w http.ResponseWriter, r *http.Request, p *principal) {
+	o, err := s.orch.ResendOrder(r.PathValue("id"))
 	if err != nil {
 		s.orchErr(w, err)
 		return

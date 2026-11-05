@@ -376,6 +376,66 @@ func (s *Service) CancelOrder(id string) (Order, error) {
 	return o, nil
 }
 
+// ResendOrder sends an order again to the consoles a hub restart kept it from, in
+// the same order so its task cards and forwards keep following it. Nothing else
+// calls this: sending again is a person's choice. A console that cannot take the
+// text yet (still resuming) stays offered; one that is gone does not.
+func (s *Service) ResendOrder(id string) (Order, error) {
+	if _, ok := s.Orders.Get(id); !ok {
+		return Order{}, ErrOrderNotFound
+	}
+	var claimed []OrderTarget
+	o, ok := s.Orders.Mutate(id, func(x *Order) bool {
+		for i := range x.Targets {
+			if x.Targets[i].Undelivered {
+				x.Targets[i].Undelivered = false
+				claimed = append(claimed, x.Targets[i])
+			}
+		}
+		return len(claimed) > 0
+	})
+	if !ok {
+		return Order{}, ErrNothingToResend
+	}
+	c := &execCtx{threadID: o.ThreadID, projectID: o.ProjectID, commandID: o.CommandID}
+	var sent, delivered []string
+	for _, t := range claimed {
+		d, err := s.hub.Deliver(t.SessionID, delivery.Request{Text: o.Text, Source: o.Source, OrderID: o.ID, ForwardDepth: t.Depth})
+		s.Orders.Mutate(id, func(x *Order) bool {
+			for i := range x.Targets {
+				tt := &x.Targets[i]
+				if tt.SessionID != t.SessionID {
+					continue
+				}
+				if err != nil {
+					tt.Error, tt.Undelivered = deliveryProblem(err), !errors.Is(err, delivery.ErrNotFound)
+				} else {
+					tt.State, tt.DeliveryID, tt.Error, tt.FinishedAt = TQueued, d.ID, "", nil
+				}
+				return true
+			}
+			return false
+		})
+		if err != nil {
+			s.say(c, ThreadMessage{Kind: "error", OrderID: o.ID, SessionID: t.SessionID, Handle: t.Handle, Text: "@" + t.Handle + ": " + deliveryProblem(err)})
+			continue
+		}
+		sent = append(sent, "@"+t.Handle)
+		delivered = append(delivered, d.ID)
+	}
+	if len(sent) > 0 {
+		s.say(c, ThreadMessage{Kind: "note", OrderID: o.ID, Text: "Sent again to " + joinAnd(sent) + "."})
+	}
+	for _, id := range delivered {
+		if d, ok := s.hub.Delivery(id); ok {
+			s.OnDelivery(d)
+		}
+	}
+	o, _ = s.Orders.Get(id)
+	s.orderChanged(o)
+	return o, nil
+}
+
 func (s *Service) cancelLast(c *execCtx, id string) error {
 	if id == "" {
 		for _, o := range s.Orders.List(func(o Order) bool { return o.ThreadID == c.threadID && o.Active() }) {

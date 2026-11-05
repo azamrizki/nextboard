@@ -182,6 +182,8 @@ export interface ThreadMessage {
   confirmationId?: string;
   /** The earlier message this answers. */
   replyTo?: { id: string; handle?: string; excerpt: string } | null;
+  /** Offer to send orderId again while one of its targets is undelivered. */
+  resend?: boolean;
 }
 
 /** The reply a report message stands for (GET /api/threads/{tid}/messages/{id}/output). */
@@ -208,6 +210,8 @@ export interface OrderTarget {
   startedAt?: string | null;
   finishedAt?: string | null;
   error?: string;
+  /** A hub restart kept the text from this console. */
+  undelivered?: boolean;
 }
 export interface Order {
   id: string;

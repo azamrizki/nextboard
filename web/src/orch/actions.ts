@@ -22,6 +22,7 @@ const CODE_TEXT: Record<string, string> = {
   agent_this_pc_only: 'Agents run on This PC. A server only gets a plain shell.',
   target_busy: 'The agent is busy right now.',
   already_sent: 'That text is already in the agent’s input.',
+  nothing_to_resend: 'That order was already sent again.',
   already_decided: 'Someone already answered this.',
   expired: 'That question expired.',
   machine_offline: 'The machine is offline. Reconnect it from Machines, then try again.',

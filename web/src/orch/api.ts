@@ -106,6 +106,7 @@ export const orchApi = {
   orders: (threadId: string) => call<{ items: Order[] | null }>('GET', `/api/threads/${enc(threadId)}/orders?active=1`).then(items),
   order: (id: string) => call<Order>('GET', `/api/orders/${enc(id)}`),
   cancelOrder: (id: string) => call<Order>('POST', `/api/orders/${enc(id)}/cancel`),
+  resendOrder: (id: string) => call<Order>('POST', `/api/orders/${enc(id)}/resend`),
 
   // §5 spawn
   spawn: (workspaceId: string, body: SpawnRequest) => call<SpawnResponse>('POST', `/api/workspaces/${enc(workspaceId)}/spawn`, body),
