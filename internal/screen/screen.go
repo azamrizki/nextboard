@@ -117,6 +117,11 @@ func (m *vtModel) Reset() {
 		_, _ = e.Write(fmt.Appendf(nil, "\x1b[%d;%ds", left, e.Width()))
 		return true
 	})
+	// It saves the cursor on CSI s and has nothing for the CSI u that restores it.
+	e.RegisterCsiHandler('u', func(ansi.Params) bool {
+		_, _ = e.Write([]byte("\x1b8"))
+		return true
+	})
 	// It also does as often as it is told what has no effect past the screen, while
 	// the screen's lock is held: repeat a character, erase characters, tab either way.
 	limitCount := func(final rune, limit func() int) {
