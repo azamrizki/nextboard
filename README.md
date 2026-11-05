@@ -100,7 +100,7 @@ make snapshot   # goreleaser build for linux/darwin, amd64/arm64
 
 By default the tests never touch a real agent CLI or your agent plan. `NEXTBOARD_REAL_CLI_TEST=1` turns on tests that do, and these use your real account.
 
-Releases are built with goreleaser (`.goreleaser.yaml`).
+GitHub Actions runs `go vet` and the tests, including the SSH ones, on every push to `main` and every pull request. Pushing a `v*` tag publishes a release with goreleaser.
 
 ### Layout
 

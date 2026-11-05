@@ -32,7 +32,7 @@ Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini
 |---|---|
 | Versi | `0.1.0-dev` |
 | Teknologi | Go 1.26, React 19 + TypeScript + Vite |
-| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 35 ribu baris tes (121 file, 660 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
+| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 36 ribu baris tes (122 file, 674 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
 | Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
 | Penyimpanan | File JSON di `~/.nextboard/`, tanpa database |
 | Target build | Linux dan macOS, amd64 dan arm64. Tile aplikasi desktop hanya Linux. Semua uji nyata yang tercatat dilakukan di Linux |
@@ -736,7 +736,7 @@ Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go in
 
 **Aturan di host bersama.** Kalau This PC juga menjalankan layanan lain, test ikut memakai memori yang sama, dan `/tmp` bisa punya kuota per user. Helper test rekursif pernah memunculkan ratusan `Xtigervnc` sampai OOM killer menghantam layanan lain. Jadi: test yang memunculkan proses dijalankan satu kasus kecil dulu dengan `-timeout`, proses sisa dihitung sesudahnya, dan test tidak boleh meng-exec dirinya sendiri tanpa guard.
 
-**CI dan rilis.** Belum aktif di GitHub: `.github/workflows` belum ikut di repo, karena token yang dipakai untuk push belum punya scope `workflow`. Isinya nanti: `make web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...`; tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`. `go vet` dan perintah test itu lolos pada 2026-11-05 di container Ubuntu 24.04 (user biasa, bash, tanpa identitas git, tmux, sway, dan `ping`, memakai `-p 2` dan batas memori 4 GB). Di runner GitHub sendiri belum pernah jalan, dan `release.yml` belum pernah diuji.
+**CI dan rilis.** Tiap push ke `main` dan tiap pull request menjalankan `make web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...` di GitHub Actions; run pertama lolos pada 2026-11-05 dalam sekitar 5 menit. Tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`; `release.yml` belum pernah jalan, karena belum ada tag.
 
 **Deploy.** `deploy/nginx.conf.example` + `deploy/nextboard-proxy.inc`:
 
@@ -843,7 +843,7 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 
 ### Risiko utama
 
-1. **Belum ada rilis dan CI.** Belum ada tag, jadi `install.sh` dan `nextboard update` belum punya apa-apa untuk diunduh; pasang dari source. Workflow CI belum ikut di repo (§11), jadi test hanya jalan lokal.
+1. **Belum ada rilis.** Belum ada tag, jadi `install.sh` dan `nextboard update` belum punya apa-apa untuk diunduh; pasang dari source. `release.yml` belum pernah jalan (§11).
 2. **Critical notes bukan kunci teknis** (§6). Blokir teknis untuk perintah tertentu adalah tawaran terbuka, belum dibangun.
 3. **Aksi tulis git tetap memakai config repo.** Stage, commit, pull, dan push menjalankan hook, filter, dan `core.sshCommand` dari repo, sama seperti git di terminal. Perintah baca sudah tidak (§5.11), tetapi di git < 2.31 filter driver milik repo masih jalan saat `status` dan `diff`.
 4. **Handoff yang berjalan hilang saat hub restart.** Order yang belum diketik bisa dikirim ulang (keputusan #34); konfirmasi selamat dari restart.
