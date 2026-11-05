@@ -131,6 +131,7 @@ type Service struct {
 	// turnContext: deliveries of context (memory, a tile), not work, whose turn has not ended.
 	turnContext map[string][]string
 	briefed     map[string]bool // memory autoPush done
+	handoffFile sync.Mutex      // one writer of handoffs.json at a time
 	seen        *memorySeen     // what each console has of the memory
 	stop        chan struct{}
 	once        sync.Once
@@ -155,6 +156,7 @@ func New(hub Hub, st *store.Store) *Service {
 	s.Layouts = newLayouts(st)
 	s.Loops = newLoops(st, s)
 	s.loadForwards()
+	s.loadHandoffs()
 	return s
 }
 
@@ -177,6 +179,7 @@ func (s *Service) Start() {
 	}
 	s.Orders.Save(now)
 	s.Loops.Restart(now)
+	s.recoverHandoffs(now)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -199,6 +202,7 @@ func (s *Service) Close() {
 	s.wg.Wait()
 	s.Orders.Save(s.Now())
 	s.saveForwards()
+	s.saveHandoffs()
 }
 
 // Tick runs every timer of the orchestration (confirmation TTL, planner

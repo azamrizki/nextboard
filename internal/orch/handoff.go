@@ -15,6 +15,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/delivery"
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // Handoff (docs/API-orchestration.md §9): summarise a console's work with
@@ -27,7 +28,9 @@ const (
 	handoffRawBrief   = 12000
 	handoffReady      = 120 * time.Second
 	handoffNeedsExtra = 120 * time.Second
-	handoffStartGrace = 8 * time.Second // the wrapper's shell shows briefly at every launch
+	handoffStartGrace = 8 * time.Second  // the wrapper's shell shows briefly at every launch
+	handoffBackAfter  = 30 * time.Second // after a hub restart, how long a console gets to come back
+	handoffsFile      = "handoffs.json"
 	HandoffContinue   = "Continue this task from exactly this state. Do not redo finished work."
 )
 
@@ -86,6 +89,143 @@ type Handoff struct {
 	needsAt      time.Time
 	deliveryID   string
 	content      string
+	resume       bool // a hub restart interrupted it: handoffsTick picks it up
+}
+
+// savedHandoff is a handoff on disk: what the API shows, and what it takes to carry on.
+type savedHandoff struct {
+	Handoff
+	Req          HandoffRequest `json:"req"`
+	BackTo       string         `json:"backTo,omitempty"`
+	Frozen       bool           `json:"frozen,omitempty"`
+	RemoteCwd    string         `json:"remoteCwd,omitempty"`
+	StartedAfter time.Time      `json:"startedAfter"`
+	SourceHandle string         `json:"sourceHandle"`
+	ProjectID    string         `json:"projectId"`
+	WorkspaceID  string         `json:"workspaceId"`
+	ThreadID     string         `json:"threadId"`
+	PhaseAt      time.Time      `json:"phaseAt"`
+	NeedsAt      time.Time      `json:"needsAt"`
+	DeliveryID   string         `json:"deliveryId,omitempty"`
+}
+
+func (s *Service) loadHandoffs() {
+	var list []savedHandoff
+	if _, err := s.st.Load(handoffsFile, &list); err != nil {
+		return
+	}
+	for _, x := range list {
+		if x.ID == "" {
+			continue
+		}
+		h := x.Handoff
+		h.req, h.backTo, h.frozen, h.remoteCwd, h.startedAfter = x.Req, x.BackTo, x.Frozen, x.RemoteCwd, x.StartedAfter
+		h.sourceHandle, h.projectID, h.workspaceID, h.threadID = x.SourceHandle, x.ProjectID, x.WorkspaceID, x.ThreadID
+		h.phaseAt, h.needsAt, h.deliveryID = x.PhaseAt, x.NeedsAt, x.DeliveryID
+		s.handoffs[h.ID] = &h
+	}
+}
+
+// saveHandoffs writes them all. One writer at a time, or an older list could land last.
+func (s *Service) saveHandoffs() {
+	s.handoffFile.Lock()
+	defer s.handoffFile.Unlock()
+	s.mu.Lock()
+	list := make([]savedHandoff, 0, len(s.handoffs))
+	for _, h := range s.handoffs {
+		list = append(list, savedHandoff{Handoff: *h, Req: h.req, BackTo: h.backTo, Frozen: h.frozen, RemoteCwd: h.remoteCwd, StartedAfter: h.startedAfter,
+			SourceHandle: h.sourceHandle, ProjectID: h.projectID, WorkspaceID: h.workspaceID, ThreadID: h.threadID,
+			PhaseAt: h.phaseAt, NeedsAt: h.needsAt, DeliveryID: h.deliveryID})
+	}
+	s.mu.Unlock()
+	_ = s.st.Save(handoffsFile, list)
+}
+
+// recoverHandoffs takes up what a hub restart interrupted (§9). Nothing was typed yet in
+// every state but delivering, so those carry on. A brief on its way may have been typed:
+// deliveries live in memory, so nobody knows, and the hub does not type a brief twice by
+// itself (like orders, decision #34). It goes to the thread for the owner to judge.
+func (s *Service) recoverHandoffs(now time.Time) {
+	s.mu.Lock()
+	var list []Handoff
+	for _, h := range s.handoffs {
+		if !h.final() {
+			list = append(list, *h)
+		}
+	}
+	s.mu.Unlock()
+	for _, h := range list {
+		if h.State == "delivering" {
+			s.handoffManual(h.ID, "manual", "the hub restarted while the brief was going out, so look at the console first: it may have it already")
+			continue
+		}
+		s.setHandoff(h.ID, func(x *Handoff) { x.resume, x.phaseAt, x.needsAt = true, now, time.Time{} })
+		s.Threads.Add(ThreadMessage{ThreadID: h.threadID, Role: "hub", Kind: "note", SessionID: h.SourceSessionID,
+			Text: "The hub restarted during the handoff from @" + h.sourceHandle + ". It carries on."})
+	}
+}
+
+// resumeHandoff carries on from the state a restart left a handoff in.
+func (s *Service) resumeHandoff(h Handoff, now time.Time) {
+	in, ok := s.hub.SessionInfo(h.SourceSessionID)
+	resumed := func(f func(x *Handoff)) {
+		s.setHandoff(h.ID, func(x *Handoff) {
+			x.resume = false
+			if f != nil {
+				f(x)
+			}
+		})
+	}
+	switch h.State {
+	case "collecting", "summarizing":
+		if !ok {
+			s.handoffManual(h.ID, "failed", "its console is gone")
+			return
+		}
+		// Its transcript may be out of reach until it is back, and an empty one means
+		// nothing was done. The summary job died with the hub; the text is all still there.
+		if in.Status != session.StatusRunning && now.Sub(h.phaseAt) < handoffBackAfter {
+			return
+		}
+		resumed(func(x *Handoff) { x.State, x.JobID = "collecting", "" })
+		if h.req.NoBrief {
+			go s.switchInPlace(h.ID)
+		} else {
+			go s.collect(h.ID)
+		}
+	case "spawning":
+		resumed(nil)
+		if h.InPlace {
+			go s.switchInPlace(h.ID)
+		} else {
+			go s.spawnTarget(h.ID)
+		}
+	case "switching":
+		if !ok {
+			s.handoffManual(h.ID, "failed", "its console is gone")
+			return
+		}
+		if in.Agent != h.Agent {
+			resumed(nil)
+			go s.switchInPlace(h.ID)
+			return
+		}
+		target := h.SourceSessionID
+		resumed(func(x *Handoff) {
+			x.TargetSessionID, x.startedAfter = &target, h.CreatedAt
+			if strings.TrimSpace(x.Brief) == "" {
+				x.State = "done"
+				return
+			}
+			x.State = "waitingReady"
+		})
+	case "waitingReady":
+		if h.TargetSessionID == nil {
+			s.handoffManual(h.ID, "manual", "its console is not known after the hub restarted")
+			return
+		}
+		resumed(nil)
+	}
 }
 
 func (h *Handoff) final() bool {
@@ -164,6 +304,7 @@ func (s *Service) StartHandoff(sourceID string, req HandoffRequest) (*Handoff, e
 	}
 	s.handoffs[h.ID] = h
 	s.mu.Unlock()
+	s.saveHandoffs()
 	s.publishHandoff(h)
 	cp := *h // copied before collect may change h
 	go func() {
@@ -232,6 +373,7 @@ func (s *Service) setHandoff(id string, f func(h *Handoff)) (Handoff, bool) {
 	f(h)
 	c := *h
 	s.mu.Unlock()
+	s.saveHandoffs()
 	s.publishHandoff(&c)
 	return c, true
 }
@@ -335,7 +477,15 @@ func (s *Service) summarised(id string, j jobs.Job, raw string) {
 		s.switchInPlace(id)
 		return
 	}
-	// Spawn next to the source, in its group.
+	s.spawnTarget(id)
+}
+
+// spawnTarget starts the next console next to the source, in its group.
+func (s *Service) spawnTarget(id string) {
+	h, ok := s.HandoffView(id)
+	if !ok {
+		return
+	}
 	req := SpawnRequest{WorkspaceID: h.workspaceID, Slots: []SpawnSlot{{Agent: h.Agent, Model: h.req.Model, Effort: h.req.Effort, MachineID: h.req.MachineID, ProfileID: h.req.ProfileID, Cwd: h.remoteCwd}}}
 	if b, err := s.hub.Board(h.workspaceID); err == nil {
 		for _, n := range b.Nodes {
@@ -386,24 +536,36 @@ func (s *Service) handoffManual(id, state, msg string) {
 		_ = s.hub.Resume(ctx, h.SourceSessionID)
 		cancel()
 	}
-	s.Threads.Add(ThreadMessage{ThreadID: h.threadID, Role: "hub", Kind: "reply", SessionID: h.SourceSessionID,
-		Text: "Handoff from @" + h.sourceHandle + " needs you (" + msg + "). Copy this brief into the new console:\n\n" + h.Brief})
+	text := "Handoff from @" + h.sourceHandle + " needs you (" + msg + "). Copy this brief into the new console:\n\n" + h.Brief
+	if strings.TrimSpace(h.Brief) == "" {
+		text = "Handoff from @" + h.sourceHandle + " stopped: " + msg + "."
+	}
+	s.Threads.Add(ThreadMessage{ThreadID: h.threadID, Role: "hub", Kind: "reply", SessionID: h.SourceSessionID, Text: text})
 }
 
 // handoffsTick advances waitingReady and delivering handoffs.
 func (s *Service) handoffsTick(now time.Time) {
 	s.mu.Lock()
 	var list []Handoff
+	pruned := false
 	for _, h := range s.handoffs {
-		if h.State == "waitingReady" || h.State == "delivering" {
+		if h.resume || h.State == "waitingReady" || h.State == "delivering" {
 			list = append(list, *h)
 		}
 		if h.final() && now.Sub(h.CreatedAt) > 24*time.Hour {
 			delete(s.handoffs, h.ID)
+			pruned = true
 		}
 	}
 	s.mu.Unlock()
+	if pruned {
+		s.saveHandoffs()
+	}
 	for _, h := range list {
+		if h.resume {
+			s.resumeHandoff(h, now)
+			continue
+		}
 		switch h.State {
 		case "waitingReady":
 			in, ok := s.hub.SessionInfo(*h.TargetSessionID)

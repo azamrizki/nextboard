@@ -875,7 +875,6 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 1. **Rilis baru satu.** `v0.1.0` terpasang dan jalan dari `install.sh` di Ubuntu 24.04 tanpa service. Service systemd baru teruji dengan `systemctl` palsu, binary macOS belum pernah dijalankan, dan `nextboard update` belum pernah mengganti versi sungguhan karena belum ada rilis kedua.
 2. **Critical notes bukan kunci teknis** (§6). Blokir teknis untuk perintah tertentu adalah tawaran terbuka, belum dibangun.
 3. **Aksi tulis git tetap memakai config repo.** Stage, commit, pull, dan push menjalankan hook, filter, dan `core.sshCommand` dari repo, sama seperti git di terminal. Perintah baca sudah tidak (§5.11), tetapi di git < 2.31 filter driver milik repo masih jalan saat `status` dan `diff`.
-4. **Handoff yang berjalan hilang saat hub restart.** Order yang belum diketik bisa dikirim ulang (keputusan #34); konfirmasi selamat dari restart.
 
 ### Celah per area
 

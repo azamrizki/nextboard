@@ -431,6 +431,8 @@ Filter (klien): All · Working · Needs you (+ error) · Idle (`ready`, `shell`,
 
 Sumber tetap berjalan. Tanpa konfirmasi.
 
+**Saat hub restart.** Handoff tersimpan di `handoffs.json` dan dilanjutkan, dengan satu catatan di thread. `collecting` dan `summarizing` mengulang ringkasan setelah console sumber kembali (paling lama ditunggu 30 detik), karena job runner mati bersama hub. `spawning` dan `switching` dicoba lagi: yang sudah berganti agent tidak diganti ulang, dan di antara mulai dan tercatatnya spawn bisa muncul satu console lebih, yang terlihat dan tidak mengetik apa pun. `waitingReady` menunggu lagi dari awal. `delivering` **tidak** diketik ulang, karena delivery hanya di memori sehingga tidak ada yang tahu ringkasannya sudah terketik atau belum: state menjadi `manual` dan ringkasan masuk thread (sama dengan order, keputusan #34).
+
 ### 9.1 Ganti agent di tile yang sama
 
 `POST /api/sessions/{id}/handoff` dengan `"inPlace": true` memakai console yang sama, bukan console baru: tile, handle, dan folder tetap. Field tambahan: `"noBrief"?: true` melewati ringkasan, `"fresh"?: true` memulai percakapan baru walau agent itu pernah jalan di sini. Respons `Handoff` membawa `inPlace` dan `returning`. `machineId` dan `workspaceId` diabaikan. `400` bila agent tidak terpasang di machine itu, sebelum agent lama dihentikan.
@@ -644,12 +646,13 @@ Built-in (nama NextBoard): **Duo** (grup 2), **Trio** (grup 3), **Quartet** (gru
 | `loops/<id>.jsonl` | riwayat (200 entri terakhir) |
 | `memory/<projectId>/MEMORY.md`, `memory/global.md` | memory |
 | `memory-seen.json` | per console, hash fakta memory yang sudah dimiliki; tanpa isi (§12) |
+| `handoffs.json` | handoff beserta ringkasannya, yang selesai dibuang setelah 24 jam (§9) |
 | `layouts.json` | layout simpanan (built-in di dalam binary) |
 | `settings.json` | key baru `delivery`, `commands` (`planner`, `confirmTtlSec`, `reportTimeoutMin`, `riskyPatterns`), `memory` (`autoPush`) |
 | `sessions.json` | + `paused` |
 | `confirmations.json` | baru: konfirmasi yang masih tersimpan beserta konteks perintahnya |
 
-Delivery dan handoff hanya di memori (hilang saat hub restart; thread mencatat "interrupted by hub restart"). Teks order tetap ada di `orders.json`, jadi order yang belum diketik bisa dikirim ulang (§4). Konfirmasi selamat dari restart: tombol dan jawaban lewat teks tetap jalan, TTL-nya tidak mulai dari awal, dan keputusan yang sudah diambil tidak bisa dijalankan dua kali. Giliran planner yang terputus restart tidak diulang dan tidak menjalankan apa pun; thread mencatat "The hub restarted before this was answered. Send it again."
+Delivery hanya di memori (hilang saat hub restart; thread mencatat "interrupted by hub restart"). Teks order tetap ada di `orders.json`, jadi order yang belum diketik bisa dikirim ulang (§4). Konfirmasi selamat dari restart: tombol dan jawaban lewat teks tetap jalan, TTL-nya tidak mulai dari awal, dan keputusan yang sudah diambil tidak bisa dijalankan dua kali. Giliran planner yang terputus restart tidak diulang dan tidak menjalankan apa pun; thread mencatat "The hub restarted before this was answered. Send it again."
 
 ## 16. Batas dan timeout
 
