@@ -28,6 +28,8 @@ import type {
   Mission,
   Order,
   PlannerStatus,
+  MemoryBlock,
+  MemoryPlan,
   PushResult,
   SpawnRequest,
   SpawnResponse,
@@ -74,6 +76,15 @@ async function call<T>(method: HttpMethod, path: string, body?: unknown): Promis
 const enc = encodeURIComponent;
 type Ok = { ok: boolean };
 const items = <T>(r: { items?: T[] | null } | T[] | null | undefined): T[] => (Array.isArray(r) ? r : (r?.items ?? []));
+
+/** What to send to whom (docs/API-orchestration.md §12). */
+export interface MemorySendBody {
+  memoryNodeId?: string;
+  workspaceId?: string;
+  targets?: string[];
+  blocks?: MemoryBlock[];
+  force?: boolean;
+}
 
 export const orchApi = {
   // §2 delivery
@@ -147,8 +158,8 @@ export const orchApi = {
   acceptFacts: (projectId: string, body: { scope: 'project' | 'global'; facts: Fact[] }) =>
     call<MemoryDoc>('POST', `/api/projects/${enc(projectId)}/memory/accept`, body),
   refreshFact: (projectId: string, fact: string) => call<Job>('POST', `/api/projects/${enc(projectId)}/memory/refresh`, { fact }),
-  pushMemory: (projectId: string, body: { memoryNodeId?: string; targets?: string[]; scopes: ('project' | 'global')[] }) =>
-    call<PushResult>('POST', `/api/projects/${enc(projectId)}/memory/push`, body),
+  pushMemory: (projectId: string, body: MemorySendBody) => call<PushResult>('POST', `/api/projects/${enc(projectId)}/memory/push`, body),
+  memoryPlan: (projectId: string, body: MemorySendBody) => call<MemoryPlan>('POST', `/api/projects/${enc(projectId)}/memory/plan`, body),
   pushTile: (workspaceId: string, nodeId: string, targets?: string[]) =>
     call<PushResult & { empty: boolean }>('POST', `/api/workspaces/${enc(workspaceId)}/tiles/${enc(nodeId)}/push`, { targets: targets ?? [] }),
   job: (id: string) => call<Job>('GET', `/api/jobs/${enc(id)}`),

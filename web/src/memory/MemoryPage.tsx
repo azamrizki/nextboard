@@ -396,6 +396,7 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
           onClose={() => setDoc(null)}
           onOpen={openDoc}
           onChanged={() => setNonce((n) => n + 1)}
+          projects={(view?.projects ?? []).flatMap((p) => (p.projectId ? [{ id: p.projectId, name: p.name }] : []))}
         />
       )}
 

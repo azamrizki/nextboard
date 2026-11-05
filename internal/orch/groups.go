@@ -157,10 +157,19 @@ func ValidateBoard(nodes []*board.Node, edges []*board.Edge, touched map[string]
 			}
 		case KindMemory:
 			var m struct {
-				Scope string `json:"scope"`
+				Scope  string        `json:"scope"`
+				Blocks []MemoryBlock `json:"blocks"`
 			}
 			if json.Unmarshal(n.Data, &m) != nil || (m.Scope != "" && m.Scope != "project" && m.Scope != "global") {
 				return board.Invalid(0, "bad_memory", `scope memory harus "project" atau "global"`)
+			}
+			if len(m.Blocks) > maxMemoryBlocks {
+				return board.Invalid(0, "bad_memory", "memory tile maksimal %d blok", maxMemoryBlocks)
+			}
+			for _, bl := range m.Blocks {
+				if bl.Name == "" || bl.Name == CriticalSlug {
+					return board.Invalid(0, "bad_memory", "blok memory harus punya nama, dan bukan critical notes")
+				}
 			}
 		}
 	}

@@ -339,13 +339,16 @@ func isWireSource(n *board.Node) bool {
 }
 
 // isWireTarget says what a connection from src may end at. Between consoles and
-// groups a connection is a forward; the editor also talks to orchestrator cards.
+// groups a connection is a forward; the editor also talks to orchestrator cards, and a
+// memory tile reaches what those two direct.
 func isWireTarget(t, src *board.Node) bool {
 	switch t.Kind {
 	case board.KindTerminal, KindGroup:
 		return true
 	case KindOrchestrator:
-		return src.Kind == KindEditor
+		return src.Kind == KindEditor || src.Kind == KindMemory
+	case KindEditor:
+		return src.Kind == KindMemory
 	case "kanban", "checklist":
 		return src.Kind == KindOrchestrator
 	}
@@ -485,7 +488,7 @@ func (s *Service) execConnect(c *execCtx, st Step, wid string) error {
 			e.Data = json.RawMessage(`{"mode":"digest","trigger":"turn"}`)
 		}
 		ops = append(ops, board.Op{Op: "putEdge", Edge: e})
-		if kind == EdgeWire && contentTiles[src.Kind] {
+		if kind == EdgeWire && (contentTiles[src.Kind] || src.Kind == KindMemory) {
 			wired = append(wired, t)
 		}
 	}
@@ -530,8 +533,7 @@ func addNodeDefaults(st Step, projMachine string, data map[string]any) (w, h flo
 	case KindEditor:
 		return 1240, 780
 	case KindMemory:
-		data["scope"] = firstString(data["scope"], "project")
-		return 300, 196
+		return 320, 300
 	case "file":
 		data["machineId"] = projMachine
 		p, _ := data["path"].(string)

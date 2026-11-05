@@ -1,18 +1,24 @@
-// Memory card (node kind "memory", docs/API-orchestration.md §12, D21): shows the facts
-// of the project (or global) memory; wire it to consoles or groups and Push to brief them
-// as background context. The card keeps the result of the last push.
+// Memory tile (node kind "memory", docs/API-orchestration.md §12): a stack of memories, built
+// like lego. The project's own memory is the base and always on; blocks from all projects or
+// from another project go on top. Connect it to consoles, groups, orchestrator cards or the
+// editor and every agent behind them works from the same stack: at launch, through the memory
+// tools, and typed once, only what each one does not have yet.
 
-import { orchError } from '../../orch/actions';
-import { memo, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Button } from '../../components/Button';
+import { Icon } from '../../components/Icon';
 import type { MenuEntry } from '../../components/Menu';
+import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import { timeAgo } from '../../lib/format';
+import { addBlocks, agentsLabel, blockKey, MAIN_DOC, sentMessage, summarizeSend, tokensLabel } from '../../memory/blocks';
+import { MemoryPicker } from '../../memory/MemoryPicker';
+import { sendTile, orchError } from '../../orch/actions';
 import { orchApi } from '../../orch/api';
-import { factsOf, useMemoryDoc } from '../../orch/memoryDoc';
+import { useOrch } from '../../orch/store';
+import type { MemoryBlock, MemoryPlan } from '../../orch/types';
 import type { FlowNode } from '../flow';
-import { directedTerminals } from '../groups';
 import { readMemoryNode } from '../kinds';
 import { useBoardEnv, useUi } from '../ui';
 import { TileFrame, TileHead } from './common';
@@ -21,84 +27,190 @@ function MemoryTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const { ctl, ui, project } = useBoardEnv();
   const d = readMemoryNode(data.node);
   const doc = useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
-  const mem = useMemoryDoc(project.id);
   const connecting = useUi((s) => s.connectFrom === id);
+  const memoryRev = useOrch((s) => Object.values(s.memoryRev).reduce((n, v) => n + v, 0));
+  const [plan, setPlan] = useState<MemoryPlan | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<MemoryBlock[]>([]);
   const [busy, setBusy] = useState(false);
-  const content = mem.data?.[d.scope]?.content ?? '';
-  const facts = factsOf(content);
-  const wired = doc.edges.filter((e) => e.kind === 'wire' && e.source === id).length;
-  const reach = directedTerminals(doc.nodes, doc.edges, id).length;
+  const [sent, setSent] = useState(0);
+  const wires = doc.edges.filter((e) => e.kind === 'wire' && e.source === id);
+  const blocksKey = JSON.stringify(d.blocks);
+  const wiresKey = wires.map((e) => e.target).join(',');
+  const membersKey = doc.nodes.filter((n) => n.kind === 'group' || n.kind === 'terminal').length;
 
-  const push = async () => {
+  useEffect(() => {
+    let alive = true;
+    const t = window.setTimeout(() => {
+      // the hub has to see what was just changed on the board
+      void ctl.sync
+        .flush()
+        .then(() => orchApi.memoryPlan(project.id, { memoryNodeId: id, workspaceId: ctl.workspaceId }))
+        .then((p) => alive && setPlan(p))
+        .catch(() => undefined);
+    }, 300);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [ctl, id, project.id, blocksKey, wiresKey, membersKey, memoryRev, sent]);
+
+  const sizes = useMemo(() => new Map((plan?.docs ?? []).map((x) => [blockKey(x), x])), [plan]);
+  const size = (b: MemoryBlock) => sizes.get(blockKey(b));
+  const base = { projectId: project.id, name: MAIN_DOC };
+  const total = [base, ...d.blocks.filter((b) => !b.lookup)].reduce((n, b) => n + (size(b)?.chars ?? 0), 0);
+  const sum = summarizeSend(plan?.targets ?? []);
+  const agents = plan?.targets.length ?? 0;
+  const picked = useMemo(() => new Set(added.map(blockKey)), [added]);
+  const hidden = useMemo(() => new Set([blockKey(base), ...d.blocks.map(blockKey)]), [blocksKey, project.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setBlocks = (blocks: MemoryBlock[]) => ctl.updateData(id, { blocks });
+
+  const addPicked = async () => {
+    const next = addBlocks(d.blocks, added, project.id);
+    setAdding(false);
+    setAdded([]);
+    if (next.length === d.blocks.length) return;
+    setBlocks(next);
+    if (d.manual || !wires.length) return;
+    await ctl.sync.flush().catch(() => undefined);
+    await sendTile(ctl.workspaceId, id);
+    setSent((n) => n + 1);
+  };
+
+  const send = async (force: boolean) => {
     setBusy(true);
     try {
-      const r = await orchApi.pushMemory(project.id, { memoryNodeId: id, scopes: [d.scope] });
-      const lastPush = { at: new Date().toISOString(), delivered: r.delivered, busy: r.busy, skipped: r.skipped + (r.notAgent ?? 0) };
-      ctl.apply([{ op: 'patch', id, set: { data: { lastPush } } }], { history: false });
-      if (r.delivered) toast.success(`Memory sent to ${r.delivered === 1 ? '1 agent' : `${r.delivered} agents`}${r.busy ? `; ${r.busy} busy will get it when free` : ''}.`);
-      else toast.info(r.busy ? `All ${r.busy} wired agents are busy; they get the memory when they are free.` : 'Nothing was sent: no running agent is wired to this card.');
+      await ctl.sync.flush().catch(() => undefined);
+      const r = await orchApi.pushMemory(project.id, { memoryNodeId: id, workspaceId: ctl.workspaceId, force });
+      if (r.delivered + r.busy) toast.success(sentMessage(r));
+      else toast.info(r.upToDate ? 'They already have all of it: nothing was typed.' : 'Nothing was sent: no agent can take it right now.');
+      setSent((n) => n + 1);
     } catch (err) {
-      toast.error(`Could not push the memory: ${orchError(err)}`);
+      toast.error(`Could not send the memory: ${orchError(err)}`);
     } finally {
       setBusy(false);
     }
   };
 
   const menu: MenuEntry[] = [
-    { label: connecting ? 'Finish connecting' : 'Connect consoles…', icon: 'wire', onSelect: () => ui.set({ connectFrom: connecting ? null : id }) },
+    { label: connecting ? 'Finish connecting' : 'Connect…', icon: 'wire', onSelect: () => ui.set({ connectFrom: connecting ? null : id }) },
+    { label: 'Add memory…', icon: 'plus', onSelect: () => setAdding(true) },
     { label: 'Open memory', icon: 'brain', shortcut: 'M', onSelect: () => ui.set({ panel: 'memory' }) },
-    { type: 'heading', label: 'Scope' },
-    { label: 'This project', checked: d.scope === 'project', onSelect: () => ctl.updateData(id, { scope: 'project' }) },
-    { label: 'All projects', checked: d.scope === 'global', onSelect: () => ctl.updateData(id, { scope: 'global' }) },
+    { type: 'heading', label: 'Sending' },
+    { label: 'Send when connected', checked: !d.manual, onSelect: () => ctl.updateData(id, { manual: !d.manual }) },
+    { label: 'Send all of it again', icon: 'send', disabled: !agents, onSelect: () => void send(true) },
   ];
 
   return (
-    <TileFrame id={id} kind="memory" selected={!!selected} label="Memory card" minW={240} minH={160} className={connecting ? 'is-connecting' : ''}>
+    <TileFrame id={id} kind="memory" selected={!!selected} label="Memory tile" minW={260} minH={220} className={connecting ? 'is-connecting' : ''}>
       <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
-      <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console or group to wire it" />
+      <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console, group, orchestrator or the editor" />
       <TileHead
         id={id}
         icon="brain"
-        title={d.scope === 'global' ? 'Memory · all projects' : 'Project memory'}
-        meta={<span className="tile-meta tabular">{facts.length === 1 ? '1 fact' : `${facts.length} facts`}</span>}
+        title="Memory"
+        meta={
+          <span className="tile-meta tabular" title="Size of what goes in whole, roughly. Blocks left to look up cost nothing until read.">
+            {tokensLabel(total)} tokens
+          </span>
+        }
         menu={menu}
-        menuLabel="Memory card actions"
+        menuLabel="Memory tile actions"
       />
       <div className="memory-body nodrag nowheel">
-        {mem.status === 'unsupported' ? (
-          <p className="tile-hint">This hub has no project memory yet.</p>
-        ) : facts.length === 0 ? (
-          <p className="tile-hint">No facts yet. Open the memory to write some or scan the project.</p>
-        ) : (
-          <ul className="memory-facts">
-            {facts.slice(0, 4).map((f, i) => (
-              <li key={i} className="truncate" title={f.text}>
-                {f.text}
-              </li>
-            ))}
-            {facts.length > 4 && <li className="tile-hint">+ {facts.length - 4} more</li>}
-          </ul>
-        )}
+        <div className="memory-stack" role="group" aria-label="Memory stack">
+          <div className="memory-brick is-base" title="The project's own memory is always on.">
+            <Icon name="lock" />
+            <span className="memory-brick-name truncate">{project.name}</span>
+            <span className="memory-size tabular">{tokensLabel(size(base)?.chars ?? 0)}</span>
+          </div>
+          {d.blocks.map((b) => {
+            const info = size(b);
+            const name = info?.title ?? b.name;
+            return (
+              <div key={blockKey(b)} className={`memory-brick ${info?.missing ? 'is-missing' : ''} ${b.lookup ? 'is-lookup' : ''}`}>
+                <span className="memory-brick-name truncate" title={info?.missing ? 'This memory no longer exists.' : `${name} · ${info?.owner ?? ''}`}>
+                  {name}
+                  {info?.owner && info.owner !== name && <span className="memory-brick-owner"> · {info.owner}</span>}
+                </span>
+                <span className="memory-size tabular">{info?.missing ? 'gone' : b.lookup ? 'look up' : tokensLabel(info?.chars ?? 0)}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  iconOnly
+                  icon="search"
+                  aria-pressed={!!b.lookup}
+                  aria-label={b.lookup ? `Send ${name} whole` : `Leave ${name} to look up`}
+                  title={b.lookup ? 'Left out: agents read it by name when needed. Click to send it whole.' : 'Sent whole. Click to leave it out: agents read it by name when needed.'}
+                  onClick={() => setBlocks(d.blocks.map((x) => (blockKey(x) === blockKey(b) ? { ...x, lookup: !x.lookup } : x)))}
+                />
+                <Button size="sm" variant="ghost" iconOnly icon="close" aria-label={`Remove ${name}`} onClick={() => setBlocks(d.blocks.filter((x) => blockKey(x) !== blockKey(b)))} />
+              </div>
+            );
+          })}
+          <button type="button" className="memory-brick is-add" onClick={() => setAdding(true)}>
+            <Icon name="plus" />
+            <span>Add memory</span>
+          </button>
+        </div>
         <div className="memory-push">
-          <span className="tile-hint">
-            {d.lastPush
-              ? `Pushed ${timeAgo(d.lastPush.at)} · ${d.lastPush.delivered} sent${d.lastPush.busy ? ` · ${d.lastPush.busy} busy` : ''}${d.lastPush.skipped ? ` · ${d.lastPush.skipped} skipped` : ''}`
-              : wired
-                ? `Wired to ${reach === 1 ? '1 console' : `${reach} consoles`}`
-                : 'Wire consoles to brief them'}
+          <span className="tile-hint truncate" role="status">
+            {!wires.length
+              ? 'Connect it to agents'
+              : !agents
+                ? 'No agent behind it yet'
+                : sum.send.length
+                  ? `${sum.send.length} of ${agentsLabel(agents)} behind · ${tokensLabel(sum.chars)} tokens`
+                  : `${agentsLabel(agents)} up to date${d.lastPush?.at ? ` · sent ${timeAgo(d.lastPush.at)}` : ''}`}
           </span>
           <span className="spacer" />
-          {wired === 0 ? (
+          {!wires.length ? (
             <Button size="sm" icon="wire" onClick={() => ui.set({ connectFrom: id })}>
               Connect
             </Button>
           ) : (
-            <Button size="sm" variant="primary" icon="send" loading={busy} disabled={!facts.length} onClick={() => void push()}>
-              Push
-            </Button>
+            sum.send.length > 0 && (
+              <Button size="sm" variant="primary" icon="send" loading={busy} onClick={() => void send(false)}>
+                Send
+              </Button>
+            )
           )}
         </div>
       </div>
+      {adding && (
+        <Modal
+          title="Add memory to this stack"
+          icon="brain"
+          onClose={() => {
+            setAdding(false);
+            setAdded([]);
+          }}
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setAdding(false);
+                  setAdded([]);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button variant="primary" icon="plus" disabled={!added.length} onClick={() => void addPicked()}>
+                {d.manual || !wires.length ? `Add ${added.length || ''}` : `Add ${added.length || ''} and send`}
+              </Button>
+            </>
+          }
+        >
+          <MemoryPicker
+            projectId={project.id}
+            picked={picked}
+            hidden={hidden}
+            onToggle={(b, on) => setAdded((cur) => (on ? [...cur, b] : cur.filter((x) => blockKey(x) !== blockKey(b))))}
+          />
+        </Modal>
+      )}
     </TileFrame>
   );
 }

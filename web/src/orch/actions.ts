@@ -81,6 +81,8 @@ export async function sendTile(workspaceId: string, nodeId: string, targets?: st
     const sent = r.delivered + r.busy;
     if (r.empty) toast.info(targets ? 'Wired. It has nothing to send yet.' : 'Nothing new to send.');
     else if (sent) toast.success(`Sent to ${sent} console${sent === 1 ? '' : 's'}.${r.busy ? ' A busy agent gets it when it finishes.' : ''}`);
+    else if (r.upToDate) toast.info('They already have all of it: nothing was typed.');
+    else if (!r.skipped && !r.notAgent) toast.info('Connected. No agent is behind it yet.');
     else toast.info('Not sent: no agent can take it right now.');
   } catch (err) {
     toast.error(`Could not send it: ${errorMessage(err)}`);

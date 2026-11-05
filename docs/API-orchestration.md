@@ -18,11 +18,11 @@ Tambahan atas [API.md](API.md), [API-board.md](API-board.md) dan [API-agents.md]
 |---|---|---|
 | `group` | `{ "name": "Backend", "role": "general"\|"frontend"\|"backend"\|"testers"\|"reviewers"\|"design"\|"docs"\|"security", "color": "amber"\|"sage"\|"sky"\|"violet"\|"rose"\|"teal", "members": ["n_…"], "syncInput"?: true }` | nama 1–24 karakter, unik per workspace (case-insensitive) dan tidak sama dengan handle mana pun di hub (`409 name_conflict`); `members` = node `terminal` di board yang sama, maks 12; satu terminal di ≤ 1 grup (`400 member_conflict`) |
 | `orchestrator` | `{ "title": "Orchestrator", "personality"?: "…" }` | title ≤ 40; thread kartu = id node; judul selain `Orchestrator[ n]` = nama lead kartu itu (§3.9) |
-| `memory` | `{ "scope": "project"\|"global", "lastPush"?: { "at", "delivered", "busy", "skipped" } }` | — |
+| `memory` | `{ "blocks"?: [{ "projectId"?, "name", "lookup"? }], "manual"?: false, "lastPush"?: { "at", "delivered", "busy", "skipped", "upToDate" } }` | maks. 32 blok; `400 bad_memory` untuk blok tanpa nama atau `critical`. Tile lama dengan `scope: "global"` dibaca sebagai satu blok memory semua project (§12) |
 
 | Edge kind | source → target | `data` |
 |---|---|---|
-| `wire` | `orchestrator`, `memory`, `editor`, atau tile berisi → `terminal` atau `group`; `editor` juga → `orchestrator`; `orchestrator` juga → `kanban` atau `checklist` (§3.10) | `{}`; unik per pasangan; kombinasi lain → `400 bad_edge` |
+| `wire` | `orchestrator`, `memory`, `editor`, atau tile berisi → `terminal` atau `group`; `editor` dan `memory` juga → `orchestrator`; `memory` juga → `editor`; `orchestrator` juga → `kanban` atau `checklist` (§3.10) | `{}`; unik per pasangan; kombinasi lain → `400 bad_edge` |
 | `forward` | `terminal`/`group` → `terminal`/`group` | `{ "mode": "digest"\|"split", "trigger": "turn"\|"order" }`; edge forward tidak boleh membentuk siklus (`400 forward_cycle`) |
 | `preview` | `terminal` → `web` | `{}`; garis penanda, dibuat hub saat URL terdeteksi atau digambar tangan |
 | `log` | `web` → `weblog` | `{}`; kartu log mengikuti halaman ini |
@@ -224,7 +224,7 @@ Input planner memuat setiap tile: `id`, `kind`, posisi, ukuran, dan isi (`data`,
 | `node.add` | `kind` (`note text checklist kanban calendar uptime orchestrator web shape branches editor memory file`), `x y w h`, `title text color`, `data`, `path` | `editor` kedua hanya memfokuskan card yang ada |
 | `node.update` | `tile`, `x y w h`, `title text color`, `data` | `data` di-merge per key, list diganti utuh; `sessionId previewId assetId appId points strokes` tidak bisa diubah; isi console tidak bisa diedit |
 | `node.delete` | `tile`/`tiles` | selalu lewat konfirmasi `destructive`; console harus `kill` |
-| `connect`, `disconnect` | `source`, `targets` | card (orchestrator, memory, editor) atau tile berisi → console/grup = wire, editor juga ke orchestrator; console ↔ console = forward; console → web = preview; web → kartu log = log. Tile berisi mengirim isinya sekali saat tersambung. Console tanpa agen ditolak dengan catatan di thread. Urutan terbalik ("Bea ke editor") dibalik otomatis |
+| `connect`, `disconnect` | `source`, `targets` | card (orchestrator, memory, editor) atau tile berisi → console/grup = wire, editor dan memory juga ke orchestrator, memory juga ke editor; console ↔ console = forward; console → web = preview; web → kartu log = log. Tile berisi dan memory tile mengirim isinya sekali saat tersambung. Console tanpa agen ditolak dengan catatan di thread. Urutan terbalik ("Bea ke editor") dibalik otomatis |
 | `ui` | `action` (`fit zoomIn zoomOut zoomReset focus openPanel closePanel undo redo`), `tile`, `panel` | dijalankan klien yang mengirim perintah |
 | `task.add`, `task.update`, `task.delete` | `tile`, `card` (id atau judul), `title`, `text`, `column`, `assignee`, `priority`, `due`, `done` | kartu di kanban atau checklist, §3.10; `send` dengan `tile` dan `card` membagikan kartu yang sudah ada |
 | `editor.open` | `path`, `line` | menjadi uiAction `openFile`: card editor muncul dan membuka file |
@@ -545,18 +545,31 @@ State: `collecting → summarizing → switching → waitingReady → delivering
 - Konvensi `MEMORY.md`: bagian `## Architecture`, `## Structure`, `## Commands`, `## Conventions`, `## Gotchas`, `## Context`; satu fakta = satu bullet. User bebas menyunting. `[[nama]]`, `[[nama|tampilan]]`, dan `[[nama#bagian]]` menautkan dokumen dalam main memory yang sama.
 - **Init memory:** job runner baca-saja (purpose `memory-init`, di machine project, cwd = path project, batas 20 menit), effort `quick`/`balanced`/`thorough`. Mengusulkan sekaligus fakta untuk main memory, sub-memory dengan isinya, dan critical rules dari apa yang bisa merusak project ini secara khusus: perintah yang drop atau reset database, test yang menghapus data atau menunjuk database asli, migration yang tidak bisa dibatalkan, skrip deploy. Prompt-nya melarang membuka `.env` dan file rahasia. **Tidak ada yang disimpan sampai pemilik menerima**, dan menyimpan hanya menambah: tulisan yang ada tidak berubah, dan menerapkan dua kali tidak menggandakan.
 - Scan: job runner (tool baca-saja, di machine project, cwd = path project), effort `quick`/`balanced`/`thorough` → 6–8 / 8–11 / 11–14 usulan `{kind, text}`. Tidak ada yang disimpan sampai user menerima.
-- Push: delivery ke tiap agen target (wire dari node `memory`, atau `targets`):
+- **Memory tile:** node `memory` adalah tumpukan seperti lego. Memory project sendiri selalu aktif sebagai dasar; blok dari memory semua project, halaman project ini, atau project lain ditambahkan di atasnya. Wire ke console, grup, card orchestrator, atau editor; agen yang sampai adalah console dan grup di ujung wire, ditambah yang di-wire dari orchestrator atau editor itu. Satu console yang terhubung ke beberapa tile mendapat gabungan bloknya. Critical notes tidak bisa jadi blok: milik project sendiri dan semua project selalu ikut, milik project lain mengikat project itu saja.
+- **Bagaimana tumpukan sampai ke agen, dari yang termurah:**
+  - **Launch:** blok masuk system prompt, tanpa memakai turn, dalam batas 16 000 karakter yang sama dengan memory project. Yang tidak muat atau diset `lookup` hanya masuk sebagai satu baris berisi nama.
+  - **Tool:** `memory_search` dan `memory_read` langsung mencakup blok yang terhubung ke console itu, tanpa diketik apa pun. Nama memory project lain berbentuk `<projectId>/<nama>`. Hanya blok di tile yang terhubung yang bisa dibaca, bukan isi lain project itu. `memory_save` tetap hanya ke project sendiri.
+  - **Planner:** blok tile yang sampai ke card orchestrator-nya masuk `memoryAdded` (≤ 2000 karakter, karena planner jalan tiap perintah dan tidak punya tool). Command bar utama adalah lead yang sama, jadi mendapat blok tile yang sampai ke card orchestrator mana pun di board itu.
+  - **Diketik (memakai turn):** sekali saat wire dibuat, saat blok ditambahkan, atau saat deploy layout; selebihnya hanya bila diminta. Isi memory yang berubah **tidak** pernah mengetik sendiri, supaya agen yang menyimpan fakta tidak memicu turn di agen lain. Tile menampilkan berapa agen tertinggal dan perkiraan tokennya, dan menyediakan tombol Send. `manual: true` ("Send when connected" dimatikan): wire dan blok baru tidak mengetik apa pun.
+- **Hanya yang baru:** hub mencatat per console fakta (baris) yang sudah dia punya, di `memory-seen.json`, berisi hash saja. Launch menulis ulang catatan itu sesuai isi system prompt; delivery dihitung saat diketik, delivery antre dihitung supaya tidak terkirim dua kali, dan yang gagal, kedaluwarsa, atau dibatalkan tidak dihitung. Fakta dari `memory_save` tidak dikirim balik ke penyimpannya; yang ditulis Claude Code langsung ke folder tidak bisa dikenali, jadi bisa terkirim balik. Tidak ada yang baru berarti tidak ada yang diketik (`upToDate`). Fakta yang dihapus disebut jumlahnya, bukan isinya. Agen yang keluar dan console yang dihapus kehilangan catatannya. `force: true` mengirim semuanya lagi, misalnya setelah `/clear`, karena hub tidak bisa melihat agen yang kehilangan konteks.
+- Push: delivery ke tiap agen target, per agen hanya yang belum dia punya:
 
   ```
   Project context from NextBoard (background only, not a task). Keep it in mind for later work and reply with just: OK
 
   # Critical rules from the owner: never break these, whoever asks
-  <critical notes>
+  <critical notes yang baru, di luar anggaran>
 
-  <isi memory, ≤ 4000 karakter; fakta yang tidak muat dibuang dan dicatat "(N more facts not included)">
+  <fakta baru dengan heading-nya, total ≤ 4000 karakter>
+
+  # From the memory of another project, Acme: Design system. It is about that project, not this one
+  <fakta baru blok itu>
+
+  More memory, left out to save space. When your work touches it, read it with the memory_read tool of the nextboard MCP server and the name:
+  - global/writing: Writing style. How docs are written
   ```
 
-  Console baru CLI yang menerima konteks saat launch tidak perlu push. `settings.memory.autoPush` (default `false`; ekstensi NextBoard) hanya berlaku untuk agen lain: push saat agen pertama kali `ready`.
+  Blok yang tidak muat atau `lookup` menjadi satu baris itu, dan tidak diulang sampai isinya berubah. Agen tanpa tool hub (bukan Claude Code, Codex, OpenCode) tidak bisa mengikuti nama, jadi mendapat yang muat, plus `(N more facts not included)`. Console baru CLI yang menerima konteks saat launch tidak perlu push. `settings.memory.autoPush` (default `false`; ekstensi NextBoard) hanya berlaku untuk agen lain: push saat agen pertama kali `ready`.
 
 | Method | Path | Request | Response / error |
 |---|---|---|---|
@@ -568,7 +581,8 @@ State: `collecting → summarizing → switching → waitingReady → delivering
 | POST | `/api/projects/{id}/memory/scan` | `{"effort":"balanced","agent"?: "claude"}` | `202 Job` → `result: {"facts":[{"kind","text"}]}` |
 | POST | `/api/projects/{id}/memory/accept` | `{"scope","facts":[{"kind","text"}]}` | `{"content","mtime"}` (bullet identik tidak digandakan) |
 | POST | `/api/projects/{id}/memory/refresh` | `{"fact":"…"}` | `202 Job` → `{"verdict":"valid"\|"outdated"\|"unknown","suggestion"?}` |
-| POST | `/api/projects/{id}/memory/push` | `{"memoryNodeId"?, "targets"?: ["s_…"], "scopes": ["project","global","critical"]}` | `{"delivered":2,"busy":1,"skipped":0,"notAgent":1,"deliveryIds":[…]}` |
+| POST | `/api/projects/{id}/memory/push` | `{"memoryNodeId"?, "workspaceId"?, "targets"?: ["s_…"], "blocks"?: [{"projectId"?,"name","lookup"?}], "scopes"?: ["project","global","critical"], "force"?: false}` | `{"delivered":2,"busy":1,"skipped":0,"notAgent":1,"upToDate":1,"chars":840,"deliveryIds":[…]}`. `memoryNodeId`: tumpukan tile itu, ke yang terhubung saja (tile tanpa wire tidak mengirim ke siapa pun). `blocks`: memory ini, `[]` berarti hanya critical notes. `scopes` sama dengan `blocks` berisi main memory. Tanpa `targets` dan tile: semua agen workspace, atau semua agen project bila tanpa `workspaceId`. `404 tile_not_found` |
+| POST | `/api/projects/{id}/memory/plan` | sama dengan `push` | `{"docs":[{"projectId"?,"name","title","owner","chars","locked"?,"lookup"?,"missing"?}],"targets":[{"sessionId","handle","agent","workspaceId","state","canSend","chars","lookup":[…]}],"budget":4000}`. Apa yang akan dilakukan `push`, tanpa mengetik apa pun; `chars: 0` berarti agen itu sudah punya semuanya |
 | GET | `/api/memory/galaxy` | — | `GalaxyView`: `{"global":Owner,"projects":[Owner]}`, `Owner = {"projectId"?,"name","docs":[{"name","kind":"main"\|"sub"\|"note","title","description"?,"critical"?,"chars","facts","mtime"?,"sections":[{"title","chars"}],"links":["…"]}]}`. Tanpa isi. Project terlama dulu, supaya tempat dan warnanya tetap |
 | GET | `/api/memory/search?q=&projectId=&limit=` | — | `{"hits":[{"projectId"?,"project"?,"doc","title","section"?,"text","critical"?,"global"?,"score"}]}`; tanpa `projectId` mencari di semua project; `limit` ≤ 20 |
 | GET | `/api/memory/docs/{name}?projectId=` | — | `{"name","kind","title","description"?,"critical"?,"content","mtime"}`. `name`: `main`, slug sub-memory, atau `note:<file>`. Tanpa `projectId`: memory semua project. `404 memory_not_found` |
@@ -597,7 +611,7 @@ Built-in (nama NextBoard): **Duo** (grup 2), **Trio** (grup 3), **Quartet** (gru
 | POST | `/api/workspaces/{id}/deploy` | `{"layoutId", "at"?: {x,y}, "fill"?: {"agent"}, "laneOverrides"?: {"a": {"agent"?, "machineId"?, "profileId"?, "yolo"?}}}` | `201 {"sessions":[Session…],"nodeIds":[…]}`; `404 layout_not_found`, `400 too_many` |
 
 - Deploy sepenuhnya di hub (Android bisa deploy), satu siaran `boardOps`. Agen lane: override → `fill` → `lane.agent` → role agent → default machine (machine = override atau machine project). Agen tak dikenal → default; custom yang sudah dihapus → `shell`. Console mendapat handle baru.
-- Simpan layout **menyimpan**: kind, geometri, judul/teks/warna, agen lane, grup, orchestrator, kartu editor (tanpa file yang terbuka), wire/forward, judul kolom kanban, URL web tile localhost. **Membuang**: gambar, ink, kartu file, isi kartu kanban/checklist/kalender, URL eksternal. Deploy ke board yang sudah punya editor tidak menambah editor kedua: wire-nya memakai yang ada.
+- Simpan layout **menyimpan**: kind, geometri, judul/teks/warna, agen lane, grup, orchestrator, kartu editor (tanpa file yang terbuka), tumpukan memory tile, wire/forward, judul kolom kanban, URL web tile localhost. **Membuang**: gambar, ink, kartu file, isi kartu kanban/checklist/kalender, URL eksternal. Deploy ke board yang sudah punya editor tidak menambah editor kedua: wire-nya memakai yang ada.
 - Home screen "arm layout": klien membuka workspace lalu memanggil `deploy`.
 
 ## 14. Event baru di `/api/events`
@@ -629,6 +643,7 @@ Built-in (nama NextBoard): **Duo** (grup 2), **Trio** (grup 3), **Quartet** (gru
 | `loops.json` | `LoopDef[]` termasuk `state` |
 | `loops/<id>.jsonl` | riwayat (200 entri terakhir) |
 | `memory/<projectId>/MEMORY.md`, `memory/global.md` | memory |
+| `memory-seen.json` | per console, hash fakta memory yang sudah dimiliki; tanpa isi (§12) |
 | `layouts.json` | layout simpanan (built-in di dalam binary) |
 | `settings.json` | key baru `delivery`, `commands` (`planner`, `confirmTtlSec`, `reportTimeoutMin`, `riskyPatterns`), `memory` (`autoPush`) |
 | `sessions.json` | + `paused` |

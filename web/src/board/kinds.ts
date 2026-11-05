@@ -4,7 +4,7 @@
 
 import { itemId } from '../lib/ids';
 import type { BoardNode } from '../lib/types';
-import { GROUP_COLORS, ROLE_COLOR, ROLES, type GroupData, type MemoryNodeData, type OrchestratorData } from '../orch/types';
+import { GROUP_COLORS, ROLE_COLOR, ROLES, type GroupData, type MemoryBlock, type MemoryNodeData, type OrchestratorData } from '../orch/types';
 import { INK_COLORS, NOTE_COLORS, TAG_COLORS, type NoteColor, type TagColor } from './palette';
 
 export const KNOWN_KINDS = [
@@ -428,7 +428,7 @@ export const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   file: { w: 320, h: 132 },
   folder: { w: 320, h: 420 },
   orchestrator: { w: 380, h: 460 },
-  memory: { w: 300, h: 196 },
+  memory: { w: 320, h: 300 },
   web: { w: 960, h: 640 },
   weblog: { w: 460, h: 380 },
   link: { w: 320, h: 112 },
@@ -513,7 +513,7 @@ export function nodeLabel(n: BoardNode): string {
     case 'orchestrator':
       return str(n.data.title, 'Orchestrator');
     case 'memory':
-      return n.data.scope === 'global' ? 'Memory (all projects)' : 'Project memory';
+      return 'Memory';
     case 'web':
       return str(n.data.url) ? `Web: ${str(n.data.url).replace(/^https?:\/\//, '')}` : 'Web page';
     case 'weblog':
@@ -552,8 +552,10 @@ export function readOrchestrator(n: BoardNode): OrchestratorData {
 
 export function readMemoryNode(n: BoardNode): MemoryNodeData {
   const lp = obj(n.data.lastPush);
+  const list = Array.isArray(n.data.blocks) ? (n.data.blocks as MemoryBlock[]) : n.data.scope === 'global' ? [{ name: 'main' }] : [];
   return {
-    scope: n.data.scope === 'global' ? 'global' : 'project',
+    blocks: list.filter((b) => b && typeof b.name === 'string' && b.name !== ''),
+    manual: n.data.manual === true,
     lastPush: n.data.lastPush ? { at: str(lp.at), delivered: num(lp.delivered, 0), busy: num(lp.busy, 0), skipped: num(lp.skipped, 0) } : null,
   };
 }

@@ -69,6 +69,7 @@ func (s *Server) orchRoutes(authed func(string, handler)) {
 	authed("POST /api/projects/{id}/memory/accept", s.handleMemoryAccept)
 	authed("POST /api/projects/{id}/memory/refresh", s.handleMemoryRefresh)
 	authed("POST /api/projects/{id}/memory/push", s.handleMemoryPush)
+	authed("POST /api/projects/{id}/memory/plan", s.handleMemoryPlan)
 	authed("POST /api/projects/{id}/memory/init", s.handleMemoryInit)
 	authed("POST /api/projects/{id}/memory/init/apply", s.handleMemoryInitApply)
 	authed("GET /api/memory/galaxy", s.handleMemoryGalaxy)
@@ -846,18 +847,47 @@ func (s *Server) handleMemoryRefresh(w http.ResponseWriter, r *http.Request, p *
 }
 
 func (s *Server) handleMemoryPush(w http.ResponseWriter, r *http.Request, p *principal) {
-	pr, ok := s.memoryProject(w, r)
+	pr, req, ok := s.memorySendRequest(w, r)
 	if !ok {
 		return
 	}
+	res, err := s.orch.SendMemory(pr.ID, req)
+	if err != nil {
+		s.orchErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleMemoryPlan says what the same request to memory/push would do.
+func (s *Server) handleMemoryPlan(w http.ResponseWriter, r *http.Request, p *principal) {
+	pr, req, ok := s.memorySendRequest(w, r)
+	if !ok {
+		return
+	}
+	res, err := s.orch.PlanMemory(pr.ID, req)
+	if err != nil {
+		s.orchErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) memorySendRequest(w http.ResponseWriter, r *http.Request) (project.Project, orch.MemorySend, bool) {
+	pr, ok := s.memoryProject(w, r)
+	if !ok {
+		return pr, orch.MemorySend{}, false
+	}
 	var req struct {
-		MemoryNodeID string   `json:"memoryNodeId"`
-		WorkspaceID  string   `json:"workspaceId"`
-		Targets      []string `json:"targets"`
-		Scopes       []string `json:"scopes"`
+		MemoryNodeID string             `json:"memoryNodeId"`
+		WorkspaceID  string             `json:"workspaceId"`
+		Targets      []string           `json:"targets"`
+		Scopes       []string           `json:"scopes"`
+		Blocks       []orch.MemoryBlock `json:"blocks"`
+		Force        bool               `json:"force"`
 	}
 	if !decode(w, r, &req) {
-		return
+		return pr, orch.MemorySend{}, false
 	}
 	wid := req.WorkspaceID
 	if req.MemoryNodeID != "" && wid == "" {
@@ -872,12 +902,7 @@ func (s *Server) handleMemoryPush(w http.ResponseWriter, r *http.Request, p *pri
 			}
 		}
 	}
-	res, err := s.orch.PushMemory(pr.ID, wid, req.MemoryNodeID, req.Targets, req.Scopes)
-	if err != nil {
-		s.orchErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, res)
+	return pr, orch.MemorySend{WorkspaceID: wid, MemoryNodeID: req.MemoryNodeID, Targets: req.Targets, Scopes: req.Scopes, Blocks: req.Blocks, Force: req.Force}, true
 }
 
 // handleTilePush sends a content tile to consoles (§1): the given target nodes, or

@@ -47,9 +47,48 @@ export interface OrchestratorData {
   personality?: string;
 }
 
+/** A memory added to a tile or picked for a send. No projectId: the memory of all projects. */
+export interface MemoryBlock {
+  projectId?: string;
+  name: string;
+  /** Left out of what is sent: agents are told it exists and read it when needed. */
+  lookup?: boolean;
+}
+
 export interface MemoryNodeData {
-  scope: 'project' | 'global';
+  blocks: MemoryBlock[];
+  /** Nothing is typed when it is wired or a block is added; the owner sends by hand. */
+  manual: boolean;
   lastPush?: { at: string; delivered: number; busy: number; skipped: number } | null;
+}
+
+export interface MemoryPlanDoc {
+  projectId?: string;
+  name: string;
+  title: string;
+  owner: string;
+  chars: number;
+  locked?: boolean;
+  lookup?: boolean;
+  missing?: boolean;
+}
+
+/** What a send would do to one console. chars 0: it has everything already. */
+export interface MemoryPlanTarget {
+  sessionId: string;
+  handle: string;
+  agent: string;
+  workspaceId: string;
+  state: string;
+  canSend: boolean;
+  chars: number;
+  lookup: string[];
+}
+
+export interface MemoryPlan {
+  docs: MemoryPlanDoc[];
+  targets: MemoryPlanTarget[];
+  budget: number;
 }
 
 export type ForwardMode = 'digest' | 'split';
@@ -422,6 +461,10 @@ export interface PushResult {
   busy: number;
   skipped: number;
   notAgent: number;
+  /** Already had everything: no turn was used. */
+  upToDate?: number;
+  /** What was typed, over all consoles. */
+  chars?: number;
   deliveryIds?: string[] | null;
 }
 

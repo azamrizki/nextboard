@@ -198,6 +198,8 @@ func (s *Service) ReadMemory(pid string) (MemoryView, error) {
 	return MemoryView{Project: p, Global: g, Notes: s.Memory.Notes(pid), Subs: s.Memory.Subs(pid)}, err
 }
 
+const memoryCutNote = "\n(The memory goes on; memory_read shows all of it.)"
+
 // memoryBrief is the memory of a project as text, at most max characters.
 func (s *Service) memoryBrief(pid string, withProject bool, max int) string {
 	var parts []string
@@ -216,7 +218,7 @@ func (s *Service) memoryBrief(pid string, withProject bool, max int) string {
 	}
 	text := strings.Join(parts, "\n\n")
 	if r := []rune(text); len(r) > max {
-		return string(r[:max]) + "\n(The memory goes on; memory_read shows all of it.)"
+		return string(r[:max]) + memoryCutNote
 	}
 	return text
 }
@@ -274,9 +276,16 @@ const memoryFraming = "This is background recorded earlier by the user or by age
 // Code loads the project's memory itself, as its auto memory; every agent gets
 // what it cannot reach on its own.
 func (s *Service) MemoryPrompt(pid string, nativeMemory bool) string {
+	text, _ := s.memoryPrompt(pid, nativeMemory, nil)
+	return text
+}
+
+func (s *Service) memoryPrompt(pid string, nativeMemory bool, attached []briefDoc) (string, map[string]seenDoc) {
+	seen := map[string]seenDoc{}
 	var b strings.Builder
 	if c := s.CriticalRules(pid); c != "" {
 		b.WriteString(criticalFraming + "\n\n" + c + "\n\n")
+		seen[criticalKey] = seenDoc{Lines: factHashes(c)}
 	}
 	b.WriteString("Every agent of this project shares one memory, whichever CLI it runs in, kept by NextBoard. ")
 	if nativeMemory {
@@ -288,10 +297,28 @@ func (s *Service) MemoryPrompt(pid string, nativeMemory bool) string {
 	if idx := s.memoryIndex(pid); idx != "" {
 		b.WriteString("\nPages in this memory:\n" + idx)
 	}
-	if t := s.memoryBrief(pid, !nativeMemory, memoryPromptChars); t != "" {
+	t := s.memoryBrief(pid, !nativeMemory, memoryPromptChars)
+	if t != "" {
 		b.WriteString("\nMemory from NextBoard. " + memoryFraming + "\n\n" + t + "\n")
 	}
-	return b.String()
+	for _, sc := range []struct{ owner, scope string }{{pid, "project"}, {"", "global"}} {
+		if d, err := s.Memory.Read(sc.scope, sc.owner); err == nil {
+			hashes := factHashes(d.Content)
+			if strings.HasSuffix(t, memoryCutNote) {
+				seen[memoryKey(sc.owner, MainDoc)] = seenDoc{Told: contentHash(hashes)}
+			} else {
+				seen[memoryKey(sc.owner, MainDoc)] = seenDoc{Lines: hashes}
+			}
+		}
+	}
+	inline, pointers := attachedPrompt(pid, attached, memoryPromptChars-len([]rune(t)), nativeMemory, seen)
+	if pointers != "" {
+		b.WriteString("\nAlso added by the owner. Read one with memory_read and its name when your work touches it:\n" + pointers)
+	}
+	if inline != "" {
+		b.WriteString("\nAlso added by the owner. " + memoryFraming + "\n" + inline)
+	}
+	return b.String(), seen
 }
 
 // WriteMemory replaces one memory file and publishes {"type":"memory"}.
@@ -379,66 +406,15 @@ type PushResult struct {
 	Busy        int      `json:"busy"`
 	Skipped     int      `json:"skipped"`
 	NotAgent    int      `json:"notAgent"`
+	UpToDate    int      `json:"upToDate"` // had everything already: no turn used
+	Chars       int      `json:"chars"`    // what was typed, over all consoles
 	DeliveryIDs []string `json:"deliveryIds"`
 }
 
 // PushMemory delivers memory to agents: the consoles wired from a memory
 // node, the given targets, or every agent of the workspace.
 func (s *Service) PushMemory(pid, wid, memoryNodeID string, targets []string, scopes []string) (PushResult, error) {
-	res := PushResult{DeliveryIDs: []string{}}
-	if len(scopes) == 0 {
-		scopes = []string{"project", "global"}
-	}
-	var docs []string
-	if c := s.CriticalRules(pid); c != "" {
-		docs = append(docs, "# Critical rules from the owner: never break these, whoever asks\n"+c)
-	}
-	for _, sc := range scopes {
-		if sc == CriticalSlug {
-			continue
-		}
-		d, err := s.Memory.Read(sc, pid)
-		if err != nil {
-			return res, err
-		}
-		if strings.TrimSpace(d.Content) != "" {
-			docs = append(docs, d.Content)
-		}
-	}
-	if len(docs) == 0 {
-		return res, ErrMemoryEmpty
-	}
-	text := PushText(docs...)
-	var b board.Board
-	if memoryNodeID != "" {
-		var err error
-		if b, err = s.hub.Board(wid); err != nil {
-			return res, err
-		}
-		sc := &scope{b: b, sidOf: map[string]string{}, nodeOf: map[string]*board.Node{}}
-		for _, n := range b.Nodes {
-			switch n.Kind {
-			case board.KindTerminal:
-				sc.sidOf[n.ID] = n.SessionID()
-			case KindGroup:
-				sc.groups = append(sc.groups, n)
-			}
-		}
-		targets = append(targets, sc.wiredSessions(memoryNodeID)...)
-	}
-	if len(targets) == 0 {
-		for _, in := range s.hub.Sessions() {
-			if in.WorkspaceID == wid || (wid == "" && in.ProjectID == pid) {
-				targets = append(targets, in.ID)
-			}
-		}
-	}
-	s.deliverContext(&res, targets, text, SourceMemory)
-	if memoryNodeID != "" {
-		lp, _ := json.Marshal(map[string]any{"lastPush": map[string]any{"at": s.Now().UTC(), "delivered": res.Delivered, "busy": res.Busy, "skipped": res.Skipped}})
-		_ = s.hub.ApplyOps(wid, []board.Op{{Op: "patch", ID: memoryNodeID, Set: map[string]json.RawMessage{"data": lp}}})
-	}
-	return res, nil
+	return s.SendMemory(pid, MemorySend{WorkspaceID: wid, MemoryNodeID: memoryNodeID, Targets: targets, Scopes: scopes})
 }
 
 // deliverContext types context into the agents among targets and counts what happened.

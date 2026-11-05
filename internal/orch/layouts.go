@@ -209,8 +209,8 @@ func BuiltinLayouts() []Layout {
 			Nodes:  []LayoutNode{orchAt(x2+x1-col, y), {Key: "k1", Kind: "kanban", X: x2 + x1 - col, Y: y + 560, W: 1000, H: 420, Data: kanbanData("Release", "To do", "Building", "Testing", "Ready", "Shipped")}},
 			Wires:  wired("g1", "g2", "g3")},
 		{ID: "builtin:research-desk", Name: "Research desk", Lanes: gridLanes("a", 2, 2, 24, y, "", "", "g1"), Groups: []LayoutGroup{g("g1", "Research", "general")},
-			Nodes: []LayoutNode{{Key: "m1", Kind: KindMemory, X: x2, Y: y, W: 300, H: 196, Data: map[string]any{"scope": "project"}},
-				{Key: "n1", Kind: "note", X: x2, Y: y + 236, W: 420, H: 300, Data: map[string]any{"text": "Findings", "color": "yellow"}}}},
+			Nodes: []LayoutNode{{Key: "m1", Kind: KindMemory, X: x2, Y: y, W: 320, H: 300, Data: map[string]any{"blocks": []any{}}},
+				{Key: "n1", Kind: "note", X: x2, Y: y + 340, W: 420, H: 300, Data: map[string]any{"text": "Findings", "color": "yellow"}}}},
 	}
 	for i := range ls {
 		ls[i].Builtin = true
@@ -448,7 +448,11 @@ func LayoutFromBoard(b board.Board, nodeIDs []string, sessions map[string]sessio
 				}
 				keep["url"] = u
 			case "memory":
-				keep["scope"] = data["scope"]
+				for _, k := range []string{"scope", "blocks", "manual"} {
+					if v, ok := data[k]; ok {
+						keep[k] = v
+					}
+				}
 			case KindEditor: // what it had open is not part of a layout
 			default:
 				for _, k := range []string{"title", "text", "color", "font", "size", "align"} {

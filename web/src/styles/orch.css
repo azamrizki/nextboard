@@ -2016,17 +2016,160 @@ textarea.control.lead-soul {
   gap: var(--s-2);
   padding: var(--s-2) var(--s-3) var(--s-3);
 }
-.memory-facts {
+/* A stack built like lego: every brick has studs on top, the base is the solid one. */
+.memory-stack {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
-  margin: 0;
-  padding: 0 0 0 var(--s-4);
-  font-size: var(--fs-sm);
-  color: var(--text-2);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 5px;
 }
-.memory-facts li::marker {
-  color: var(--wire);
+.memory-brick {
+  --stud: var(--glass-border);
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: 30px;
+  padding: 0 var(--s-1) 0 var(--s-2);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-sm);
+  background: var(--surface-input);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.memory-brick::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: var(--s-3);
+  width: 46px;
+  height: 4px;
+  border-radius: 2px 2px 0 0;
+  background: radial-gradient(ellipse 4px 4px at 5px 100%, var(--stud) 98%, transparent) 0 0 / 16px 4px repeat-x;
+}
+.memory-brick.is-base {
+  --stud: var(--c-primary);
+  min-height: 34px;
+  padding-right: var(--s-2);
+  border-color: var(--c-primary);
+  background: var(--c-primary);
+  color: var(--bg);
+  font-weight: 600;
+}
+.memory-brick.is-base .memory-size {
+  color: inherit;
+  opacity: 0.72;
+}
+.memory-brick.is-lookup {
+  background: transparent;
+}
+.memory-brick.is-lookup .btn[aria-pressed='true'] {
+  color: var(--text-1);
+}
+.memory-brick.is-missing {
+  border-style: dashed;
+  color: var(--text-3);
+}
+.memory-brick.is-add {
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.memory-brick.is-add:hover,
+.memory-brick.is-add:focus-visible {
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+.memory-brick.is-add::before {
+  content: none;
+}
+.memory-brick > svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+}
+.memory-brick-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.memory-brick-owner {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.memory-size {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.memory-picker,
+.memory-send,
+.memory-send section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.memory-send {
+  gap: var(--s-4);
+}
+.memory-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.memory-picker-head {
+  margin: 0 0 var(--s-1);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-3);
+}
+summary.memory-picker-head {
+  cursor: pointer;
+}
+.memory-pick-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 34px;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.memory-pick-row:hover {
+  background: var(--surface-input);
+}
+.memory-pick-row.is-off {
+  color: var(--text-3);
+}
+.memory-pick-row input {
+  flex: 0 0 auto;
+  accent-color: var(--c-primary);
+}
+.memory-pick-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.memory-pick-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.memory-targets {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
 }
 .memory-push {
   display: flex;

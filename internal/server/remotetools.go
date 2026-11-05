@@ -59,6 +59,9 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		return nil, session.ErrUnknownPreset
 	}
 	if !a.TakesContext() {
+		if s.orch != nil {
+			s.orch.MemoryForgotten(sp.ID) // nothing goes in at launch: it starts with nothing
+		}
 		return nil, nil
 	}
 	if s.hookURL == "" {
@@ -113,7 +116,7 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		if prompt.Len() > 0 {
 			prompt.WriteString("\n")
 		}
-		prompt.WriteString(s.orch.MemoryPrompt(sp.ProjectID, claude))
+		prompt.WriteString(s.orch.LaunchMemory(sp.ID, sp.WorkspaceID, sp.ProjectID, claude))
 	}
 	if !s.settings.Get().Agents.CoAuthor {
 		if prompt.Len() > 0 {
@@ -179,6 +182,8 @@ type remoteTarget struct {
 	readOnly       bool
 	projectID      string
 	memory         bool
+	// a console's token also reads what the memory tiles connected to it add
+	sessionID, workspaceID string
 }
 
 func (t remoteTarget) tools() []map[string]any {
@@ -205,7 +210,7 @@ func (s *Server) handleRemoteMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sp := sess.Spec()
-	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true}
+	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true, sessionID: sp.ID, workspaceID: sp.WorkspaceID}
 	if len(t.tools()) == 0 {
 		http.Error(w, "console ini tidak memakai tool hub", http.StatusNotFound)
 		return
@@ -503,13 +508,14 @@ func (s *Server) runMemoryTool(t remoteTarget, name string, raw json.RawMessage)
 	}
 	switch name {
 	case "memory_search":
-		return s.orch.MemorySearchText(t.projectID, a.Query, a.Limit), nil
+		return s.orch.MemorySearchFor(t.sessionID, t.workspaceID, t.projectID, a.Query, a.Limit), nil
 	case "memory_read":
-		return s.orch.MemoryReadText(t.projectID, a.Name, a.Topic)
+		return s.orch.MemoryReadFor(t.sessionID, t.workspaceID, t.projectID, a.Name, a.Topic)
 	case "memory_save":
 		if err := s.orch.SaveMemoryFact(t.projectID, a.Section, a.Fact, a.Page); err != nil {
 			return "", err
 		}
+		s.orch.MemorySaved(t.sessionID, t.projectID, a.Page, a.Fact)
 		return "Saved to the project memory.", nil
 	}
 	return "", fmt.Errorf("unknown tool %q", name)

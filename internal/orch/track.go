@@ -122,6 +122,9 @@ func (s *Service) SessionChanged(in session.Info) {
 			return false
 		})
 	case agentstate.Exited, agentstate.Error:
+		if in.AgentState == agentstate.Exited {
+			s.seen.forget(in.ID) // its conversation is over
+		}
 		now := s.Now().UTC()
 		s.setTargets(in.ID, func(t *OrderTarget) bool {
 			if t.State == TQueued {
@@ -141,6 +144,7 @@ func (s *Service) SessionRemoved(id string) {
 	delete(s.briefed, id)
 	delete(s.turnContext, id)
 	s.mu.Unlock()
+	s.seen.forget(id)
 	now := s.Now().UTC()
 	s.setTargets(id, func(t *OrderTarget) bool {
 		t.State, t.Error, t.FinishedAt = TFailed, "console deleted", &now

@@ -42,15 +42,6 @@ func TestMemoryStoreAcceptPush(t *testing.T) {
 	if d.Content != want {
 		t.Fatalf("accept:\n%q\nwant\n%q", d.Content, want)
 	}
-	// Push: ≤ 4000 characters, facts that do not fit are dropped and counted.
-	var facts []Fact
-	for i := 0; i < 80; i++ {
-		facts = append(facts, Fact{Kind: "context", Text: strings.Repeat("fact ", 20) + itoa(i)})
-	}
-	text := PushText(AcceptFacts("", facts))
-	if !strings.HasPrefix(text, MemoryPushHead) || !strings.Contains(text, "more facts not included)") || len([]rune(text)) > 4000+len(MemoryPushHead)+60 {
-		t.Fatalf("push text %d chars: %s", len([]rune(text)), text[len(text)-60:])
-	}
 	// Push via a memory node wired to a group.
 	ash := h.console(p, wid, "Ash", "claude", agentstate.Ready)
 	bea := h.console(p, wid, "Bea", "claude", agentstate.Working)

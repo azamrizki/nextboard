@@ -500,8 +500,13 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 	}
 	res := DeployResult{Sessions: created, NodeIDs: []string{}}
 	for _, op := range ops {
-		if op.Node != nil {
-			res.NodeIDs = append(res.NodeIDs, op.Node.ID)
+		if op.Node == nil {
+			continue
+		}
+		res.NodeIDs = append(res.NodeIDs, op.Node.ID)
+		// its consoles started before the wires existed, so their launch has no blocks
+		if op.Node.Kind == KindMemory && len(tileBlocks(op.Node)) > 0 && !tileIsManual(op.Node) {
+			_, _ = s.PushTile(wid, op.Node.ID, nil)
 		}
 	}
 	return res, nil

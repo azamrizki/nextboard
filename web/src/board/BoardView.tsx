@@ -1015,7 +1015,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'key', label: 'Credentials', onClick: () => insertAt('credentials') },
     { icon: 'fileCode', label: 'File from project', onClick: () => ui.set({ filePicker: viewCenter() }) },
     { icon: 'orchestrator', label: 'Orchestrator card', onClick: () => insertAt('orchestrator') },
-    { icon: 'memoryCard', label: 'Memory card', onClick: () => insertAt('memory') },
+    { icon: 'memoryCard', label: 'Memory tile', onClick: () => insertAt('memory') },
     { icon: 'globe', label: 'Web page', onClick: () => insertNode('web') },
     { icon: 'monitor', label: 'Desktop app', onClick: () => ui.set({ appPicker: {} }) },
     { icon: 'branch', label: 'Branches card', onClick: () => insertNode('branches') },
@@ -1222,7 +1222,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'key', label: 'Credentials', onSelect: () => insertAt('credentials', at) },
     { icon: 'fileCode', label: 'File from project', onSelect: () => ui.set({ filePicker: at }) },
     { icon: 'branch', label: 'Branches card', onSelect: () => insertNode('branches', at) },
-    { icon: 'memoryCard', label: 'Memory card', onSelect: () => insertAt('memory', at) },
+    { icon: 'memoryCard', label: 'Memory tile', onSelect: () => insertAt('memory', at) },
     { icon: 'orchestrator', label: 'Orchestrator card', onSelect: () => insertAt('orchestrator', at) },
     { icon: 'monitor', label: 'Desktop app', onSelect: () => ui.set({ appPicker: { at } }) },
     { icon: 'layout', label: 'Layouts', onSelect: () => togglePanel('layouts') },
@@ -1690,7 +1690,6 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
         {panel === 'loops' && <LoopsPanel ctl={ctl} project={project} onClose={() => ui.set({ panel: null })} />}
         {panel === 'memory' && (
           <MemoryPanel
-            ctl={ctl}
             project={project}
             onClose={() => ui.set({ panel: null })}
             onAddCard={() => {

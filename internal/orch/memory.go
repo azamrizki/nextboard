@@ -311,64 +311,6 @@ func bulletText(l string) string {
 	return ""
 }
 
-// PushText builds the delivery of a memory push: header + memory content
-// ≤ 4000 characters; facts that do not fit are dropped and counted.
-func PushText(docs ...string) string {
-	type block struct {
-		head  string
-		facts []string
-	}
-	var blocks []block
-	cur := &block{}
-	flush := func() {
-		if cur.head != "" || len(cur.facts) > 0 {
-			blocks = append(blocks, *cur)
-		}
-		cur = &block{}
-	}
-	for _, doc := range docs {
-		for _, l := range strings.Split(strings.ReplaceAll(doc, "\r\n", "\n"), "\n") {
-			t := strings.TrimSpace(l)
-			switch {
-			case t == "":
-			case strings.HasPrefix(t, "#"):
-				flush()
-				cur.head = t
-			default:
-				cur.facts = append(cur.facts, t)
-			}
-		}
-		flush()
-	}
-	var b strings.Builder
-	b.WriteString(MemoryPushHead + "\n")
-	used, dropped := 0, 0
-	for _, bl := range blocks {
-		var part strings.Builder
-		if bl.head != "" {
-			part.WriteString("\n" + bl.head + "\n")
-		}
-		wrote := false
-		for _, f := range bl.facts {
-			line := f + "\n"
-			if used+part.Len()+len([]rune(line)) > memoryPushChars {
-				dropped++
-				continue
-			}
-			part.WriteString(line)
-			wrote = true
-		}
-		if wrote {
-			b.WriteString(part.String())
-			used += len([]rune(part.String()))
-		}
-	}
-	if dropped > 0 {
-		fmt.Fprintf(&b, "\n(%d more facts not included)\n", dropped)
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
 // ScanPrompt is the runner prompt of a memory scan.
 func ScanPrompt(effort string, existing string) (string, int, int) {
 	lo, hi := 8, 11

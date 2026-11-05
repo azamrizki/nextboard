@@ -274,7 +274,7 @@ Setelah keputusan 10, server hanya mendapat console shell biasa, kecuali preview
 | `file` | `code` (snapshot), `markdown` (live), `file`, `folder` (≤ 40 file) |
 | `group` | Bingkai tim: nama, peran, warna, anggota, input tertaut |
 | `orchestrator` | Kartu pengarah dengan thread sendiri |
-| `memory` | Kartu memory project atau global, sumber wire untuk push |
+| `memory` | Tumpukan memory seperti lego: project selalu aktif, blok dari semua project atau project lain ditambahkan; di-wire ke console, grup, orchestrator, atau editor |
 | `web`, `weblog`, `link` | Preview atau browser sungguhan; log konsol dan jaringan; kartu tautan |
 | `branches` | Branch, ahead/behind, switch, buat, hapus |
 | `document` | Dokumen dari studio Documents |
@@ -451,6 +451,7 @@ Halaman `/memory` berupa galaxy (referensi visual graph Obsidian), dengan daftar
 - **Pencarian topik:** `memory_search` (BM25 dalam proses, tanpa indeks, ≤ 6 potongan), `memory_read`, `memory_save`. Prompt launch hanya berisi critical notes, main memory, dan daftar halaman; sisanya dicari saat perlu.
 - **Init:** job baca-saja yang mengusulkan fakta, sub-memory, dan critical rules dari apa yang bisa merusak project itu. Prompt-nya melarang membuka `.env`. Tidak ada yang tersimpan sampai pemilik menerima, dan menerapkan dua kali tidak menggandakan.
 - **Scan, refresh, push:** scan mengusulkan 6–14 fakta menurut effort; refresh mengecek satu fakta masih benar; push mengirim memory lewat delivery (≤ 4000 karakter) dengan label "background only".
+- **Memory tile dan Send to agents:** tile adalah tumpukan memory yang berlaku untuk semua agen yang terhubung, lewat launch, tool, dan delivery. Dialog Send memilih memory mana dan agen mana, semua agen project atau yang dipilih, dan menampilkan perkiraan token sebelum mengirim. Hub mencatat fakta yang sudah dimiliki tiap console, jadi yang diketik hanya yang baru, dan tanpa fakta baru tidak ada turn terpakai. Isi memory yang berubah tidak mengetik sendiri (keputusan #37).
 
 ### 5.11 Git
 

@@ -4,7 +4,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { isCode, isStatus } from '../../api';
-import type { BoardController } from '../../board/controller';
 import { Button } from '../../components/Button';
 import { SegmentedControl, SelectField } from '../../components/form';
 import { Icon } from '../../components/Icon';
@@ -12,19 +11,21 @@ import { toast } from '../../components/Toast';
 import { timeAgo } from '../../lib/format';
 import { Link, memoryPath } from '../../lib/router';
 import type { Project } from '../../lib/types';
-import { isAgentSession, orchError } from '../actions';
+import { orchError } from '../actions';
 import { orchApi } from '../api';
-import { useNow, useWorkspaceSessions } from '../hooks';
+import { MAIN_DOC } from '../../memory/blocks';
+import { SendMemoryDialog } from '../../memory/SendMemoryDialog';
+import { useNow } from '../hooks';
 import { factsOf, setMemoryCache, useMemoryDoc } from '../memoryDoc';
 import { orchStore, useOrch } from '../store';
-import { FACT_KINDS, type Fact, type PushResult } from '../types';
+import { FACT_KINDS, type Fact } from '../types';
 
 type Scope = 'project' | 'global';
 type Effort = 'quick' | 'balanced' | 'thorough';
 
 const SKELETON = FACT_KINDS.map((k) => `## ${k}\n\n`).join('');
 
-export default function MemoryPanel({ ctl, project, onClose, onAddCard }: { ctl: BoardController; project: Project; onClose: () => void; onAddCard: () => void }) {
+export default function MemoryPanel({ project, onClose, onAddCard }: { project: Project; onClose: () => void; onAddCard: () => void }) {
   const mem = useMemoryDoc(project.id);
   const [scope, setScope] = useState<Scope>('project');
   const doc = mem.data?.[scope];
@@ -36,9 +37,7 @@ export default function MemoryPanel({ ctl, project, onClose, onAddCard }: { ctl:
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useOrch((s) => (jobId ? s.jobs[jobId] : undefined));
   const [picked, setPicked] = useState<Set<number>>(new Set());
-  const [pushing, setPushing] = useState(false);
-  const [lastPush, setLastPush] = useState<{ at: string; r: PushResult } | null>(null);
-  const sessions = useWorkspaceSessions(ctl.workspaceId).filter((s) => isAgentSession(s) && s.status === 'running');
+  const [sending, setSending] = useState(false);
   const now = useNow(1000, !!job && (job.state === 'running' || job.state === 'queued'));
 
   useEffect(() => {
@@ -123,19 +122,6 @@ export default function MemoryPanel({ ctl, project, onClose, onAddCard }: { ctl:
       toast.success(`Added ${list.length} fact${list.length === 1 ? '' : 's'} to the memory.`);
     } catch (err) {
       toast.error(`Could not add the facts: ${orchError(err)}`);
-    }
-  };
-
-  const pushAll = async () => {
-    setPushing(true);
-    try {
-      const r = await orchApi.pushMemory(project.id, { targets: sessions.map((s) => s.id), scopes: [scope] });
-      setLastPush({ at: new Date().toISOString(), r });
-      toast.success(`Memory sent to ${r.delivered} agent${r.delivered === 1 ? '' : 's'}${r.busy ? `; ${r.busy} busy get it when free` : ''}.`);
-    } catch (err) {
-      toast.error(`Could not push the memory: ${orchError(err)}`);
-    } finally {
-      setPushing(false);
     }
   };
 
@@ -291,25 +277,21 @@ export default function MemoryPanel({ ctl, project, onClose, onAddCard }: { ctl:
             )}
           </section>
 
-          <section className="memory-section" aria-label="Push">
+          <section className="memory-section" aria-label="Send">
             <h3 className="section-title">Brief your agents</h3>
-            <p className="fs-xs text-3">The memory is typed into each agent as background context (up to 4000 characters), asking it to reply OK.</p>
+            <p className="fs-xs text-3">Pick which memory and which agents. Each agent is typed only what it does not have yet, up to 4000 characters, as background; with nothing new no turn is used.</p>
             <div className="row-gap wrap">
-              <Button size="sm" variant="primary" icon="send" loading={pushing} disabled={!facts.length || !sessions.length} onClick={() => void pushAll()}>
-                Push to {sessions.length === 1 ? '1 agent' : `${sessions.length} agents`}
+              <Button size="sm" variant="primary" icon="send" onClick={() => setSending(true)}>
+                Send to agents…
               </Button>
               <Button size="sm" icon="plus" onClick={onAddCard}>
-                Add memory card
+                Add memory tile
               </Button>
             </div>
-            {lastPush && (
-              <p className="fs-xs text-3">
-                Pushed {timeAgo(lastPush.at)}: {lastPush.r.delivered} sent{lastPush.r.busy ? `, ${lastPush.r.busy} busy` : ''}
-                {lastPush.r.skipped ? `, ${lastPush.r.skipped} skipped` : ''}
-                {lastPush.r.notAgent ? `, ${lastPush.r.notAgent} not agents` : ''}.
-              </p>
-            )}
           </section>
+          {sending && (
+            <SendMemoryDialog projectId={project.id} initial={scope === 'global' ? [{ name: MAIN_DOC }] : [{ projectId: project.id, name: MAIN_DOC }]} onClose={() => setSending(false)} />
+          )}
         </>
       )}
     </aside>

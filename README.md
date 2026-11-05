@@ -11,7 +11,7 @@ NextBoard is a single Go binary. Run it on a machine you control, open the web U
 - **Board.** Terminals, notes, checklists, kanban, calendar, shapes, pen, images and file cards on one canvas, synced live between clients, with undo and snapshots.
 - **Agents.** Live `WORKING` / `NEEDS YOU` / `READY` status, precise conversation resume, and model and effort per console. An agent can be switched in the same tile without losing its memory. Claude Code and Codex are the most tested; Gemini CLI, OpenCode and custom agents are supported with less testing.
 - **Orchestration.** A command bar with `@mentions`, and a lead agent that plans with your own local `claude -p`. Groups, handoffs, result forwarding, loops, task boards and a mission map. The built-in parser understands English only.
-- **Project memory.** One memory per project, shared by every CLI, with required critical notes and a galaxy view.
+- **Project memory.** One memory per project, shared by every CLI, with required critical notes and a galaxy view. A memory tile stacks it with memory from other projects for the agents connected to it, and each agent is only ever sent what it does not have yet.
 - **Code workbench.** A Monaco editor card with language servers, debug adapters (Delve, debugpy, built-in Node.js), git staging, stash and conflicts, pull requests through `gh`, review of agent changes, and local history. Open VSX extensions work as data only, such as themes and grammars: their code never runs.
 - **Git and web.** A git panel and branch cards, localhost previews, including from SSH machines, and a real browser in a tile for sites that refuse iframes.
 - **Desktop apps in a tile** (Linux). GUI apps run on a virtual display and stream to the board.

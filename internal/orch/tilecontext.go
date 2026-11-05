@@ -100,6 +100,9 @@ func (s *Service) PushTile(wid, nodeID string, targetNodes []string) (TilePush, 
 	if n == nil {
 		return res, ErrTileNotFound
 	}
+	if n.Kind == KindMemory {
+		return s.pushMemoryTile(wid, proj.ID, n, targetNodes)
+	}
 	if !contentTiles[n.Kind] {
 		return res, ErrNotContentTile
 	}

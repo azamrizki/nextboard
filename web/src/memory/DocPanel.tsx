@@ -11,6 +11,7 @@ import { toast } from '../components/Toast';
 import { timeAgo } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 import { memoryApi } from './api';
+import { SendMemoryDialog } from './SendMemoryDialog';
 import type { DocRef, GalaxyOwner, MemoryDocument } from './types';
 
 const LINK_PREFIX = '#memory-';
@@ -40,8 +41,11 @@ export function DocPanel({
   onClose,
   onOpen,
   onChanged,
+  projects,
 }: {
   doc: DocRef;
+  /** Where a memory of all projects can be sent to. */
+  projects: { id: string; name: string }[];
   owner: GalaxyOwner | undefined;
   ownerName: string;
   rev: number;
@@ -60,6 +64,7 @@ export function DocPanel({
   const [conflict, setConflict] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     setEditing(startEditing);
@@ -123,7 +128,8 @@ export function DocPanel({
     setPushing(true);
     try {
       const r = await memoryApi.pushCritical(doc.owner);
-      if (r.delivered + r.busy === 0) toast.info('No agent is running on this project right now. They get the rules at launch.');
+      if (r.delivered + r.busy === 0 && r.upToDate) toast.info('Every running agent has these rules already.');
+      else if (r.delivered + r.busy === 0) toast.info('No agent is running on this project right now. They get the rules at launch.');
       else toast.success(`Rules sent to ${r.delivered + r.busy} running agent${r.delivered + r.busy === 1 ? '' : 's'}.`);
     } catch (err) {
       toast.error(`Could not send the rules: ${errorMessage(err)}`);
@@ -148,6 +154,11 @@ export function DocPanel({
           </span>
         )}
         <span className="spacer" />
+        {data && !data.critical && !editing && (
+          <Button size="sm" icon="send" onClick={() => setSending(true)}>
+            Send
+          </Button>
+        )}
         {data && !readOnly && !editing && (
           <Button size="sm" icon="pencil" onClick={() => setEditing(true)}>
             Edit
@@ -164,6 +175,15 @@ export function DocPanel({
           {data?.mtime ? ` · saved ${timeAgo(data.mtime)}` : ''}
         </p>
       </div>
+
+      {sending && (
+        <SendMemoryDialog
+          projectId={doc.owner || projects[0]?.id || ''}
+          projects={doc.owner ? undefined : projects}
+          initial={[doc.owner ? { projectId: doc.owner, name: doc.name } : { name: doc.name }]}
+          onClose={() => setSending(false)}
+        />
+      )}
 
       {error && (
         <div className="alert" role="alert">

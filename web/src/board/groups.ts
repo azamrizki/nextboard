@@ -247,14 +247,14 @@ export function connectIntent(nodes: BoardNode[], edges: BoardEdge[], fromId: st
   if (from.kind === 'orchestrator' && TASK_BOARDS.has(to.kind)) return line('wire', 'Linked');
   if (TASK_BOARDS.has(from.kind) && to.kind === 'orchestrator') return connectIntent(nodes, edges, to.id, from.id);
   if (WIRE_SOURCES.has(from.kind)) {
-    // the editor also asks orchestrator cards; only it may be wired to one
-    const reachable = WIRE_TARGETS.has(to.kind) || (from.kind === 'editor' && to.kind === 'orchestrator');
-    if (!reachable) return { ok: false, reason: from.kind === 'editor' ? 'Wire the editor to a console, a group or an orchestrator card.' : 'Wire a card to a console or a group.' };
+    // the editor also asks orchestrator cards, and a memory tile reaches what those two direct
+    const reachable = WIRE_TARGETS.has(to.kind) || ((from.kind === 'editor' || from.kind === 'memory') && to.kind === 'orchestrator') || (from.kind === 'memory' && to.kind === 'editor');
+    if (!reachable) return { ok: false, reason: from.kind === 'memory' ? 'Wire the memory to a console, a group, an orchestrator card or the editor.' : from.kind === 'editor' ? 'Wire the editor to a console, a group or an orchestrator card.' : 'Wire a card to a console or a group.' };
     const intent = line('wire', 'Wired');
     if (intent.ok && intent.label === 'Disconnected') return intent;
     const noAgent = noAgentReason(nodes, to);
     if (noAgent) return { ok: false, reason: `${noAgent}, and NextBoard only types to agents. Start one there first.` };
-    return intent.ok ? { ...intent, sends: CONTENT_SOURCES.has(from.kind) } : intent;
+    return intent.ok ? { ...intent, sends: CONTENT_SOURCES.has(from.kind) || (from.kind === 'memory' && from.data.manual !== true) } : intent;
   }
   if (WIRE_TARGETS.has(from.kind)) {
     if (!WIRE_TARGETS.has(to.kind)) return { ok: false, reason: 'Forward results to a console or a group.' };

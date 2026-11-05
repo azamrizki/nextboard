@@ -308,12 +308,22 @@ func docLabel(h MemoryHit) string {
 
 // MemorySearchText answers memory_search.
 func (s *Service) MemorySearchText(pid, query string, limit int) string {
+	return s.memorySearchText(pid, query, limit, nil, "")
+}
+
+// memorySearchText searches a project's memory and extra, and says what there is when
+// nothing matches.
+func (s *Service) memorySearchText(pid, query string, limit int, extra []memDoc, extraIndex string) string {
 	if strings.TrimSpace(query) == "" {
 		return "Say what to look for: query is empty."
 	}
-	hits := s.SearchMemory(pid, query, limit, 0)
+	name := ""
+	if p, ok := s.hub.Project(pid); ok {
+		name = p.Name
+	}
+	hits := memHits(memChunks(append(s.memDocs(pid, name), extra...)), query, limit, 0)
 	if len(hits) == 0 {
-		return fmt.Sprintf("Nothing in the project memory about %q.\n\nWhat there is:\n%s", query, s.memoryIndex(pid))
+		return fmt.Sprintf("Nothing in the project memory about %q.\n\nWhat there is:\n%s%s", query, s.memoryIndex(pid), extraIndex)
 	}
 	var b strings.Builder
 	for i, h := range hits {
@@ -335,9 +345,17 @@ func (s *Service) MemoryReadText(pid, name, topic string) (string, error) {
 		return s.MemorySearchText(pid, topic, 0), nil
 	}
 	owner, doc := splitDocName(pid, name)
+	if _, err := s.ReadDoc(owner, doc); err != nil {
+		return "", fmt.Errorf("no memory named %q. What there is:\n%s", name, s.memoryIndex(pid))
+	}
+	return s.memoryDocText(owner, name, doc, topic)
+}
+
+// memoryDocText is one document, or the part of it about a topic.
+func (s *Service) memoryDocText(owner, name, doc, topic string) (string, error) {
 	d, err := s.ReadDoc(owner, doc)
 	if err != nil {
-		return "", fmt.Errorf("no memory named %q. What there is:\n%s", name, s.memoryIndex(pid))
+		return "", fmt.Errorf("no memory named %q", name)
 	}
 	if topic == "" {
 		if strings.TrimSpace(d.Content) == "" {

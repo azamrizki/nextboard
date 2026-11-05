@@ -70,7 +70,7 @@ export function createTile(ctl: BoardController, ui: UiStore, kind: InsertKind, 
     }
     case 'memory': {
       const s = DEFAULT_SIZE.memory;
-      node = ctl.make('memory', rect ?? centred(at, s.w, s.h), { scope: 'project' });
+      node = ctl.make('memory', rect ?? centred(at, s.w, s.h), { blocks: [] });
       break;
     }
     case 'line':
