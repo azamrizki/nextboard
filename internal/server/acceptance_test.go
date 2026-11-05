@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -16,6 +17,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -170,13 +172,49 @@ func pairTestDevice(t *testing.T, h *testHub) (token, id string) {
 	return token, d.ID
 }
 
-// termConn is a terminal socket that gathers everything it reads.
+// termConn is a terminal socket with a goroutine reading it. A read that times
+// out kills a gorilla connection for good, so nothing here waits inside a read.
 type termConn struct {
-	t   *testing.T
-	ws  *websocket.Conn
-	out bytes.Buffer
-	// syncs makes each sync's marker its own.
-	syncs int
+	t  *testing.T
+	ws *websocket.Conn
+
+	mu    sync.Mutex
+	out   bytes.Buffer
+	first []byte // the first frame: a new client's snapshot
+
+	ended   chan struct{}
+	readErr error // set before ended closes
+
+	syncs int // makes each sync's marker its own
+}
+
+func newTermConn(t *testing.T, ws *websocket.Conn) *termConn {
+	c := &termConn{t: t, ws: ws, ended: make(chan struct{})}
+	go func() {
+		defer close(c.ended)
+		for {
+			typ, b, err := ws.ReadMessage()
+			if err != nil {
+				c.readErr = err
+				return
+			}
+			if typ == websocket.BinaryMessage {
+				c.mu.Lock()
+				if c.first == nil {
+					c.first = b
+				}
+				c.out.Write(b)
+				c.mu.Unlock()
+			}
+		}
+	}()
+	return c
+}
+
+func (c *termConn) output() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.out.String()
 }
 
 func (h *testHub) cookieHeader() http.Header {
@@ -198,7 +236,7 @@ func (h *testHub) openTerm(id string, hdr http.Header) *termConn {
 		h.t.Fatal(err)
 	}
 	h.t.Cleanup(func() { _ = ws.Close() })
-	return &termConn{t: h.t, ws: ws}
+	return newTermConn(h.t, ws)
 }
 
 func (c *termConn) send(text string) {
@@ -208,22 +246,19 @@ func (c *termConn) send(text string) {
 	}
 }
 
-// waitFor reads until the output holds want, and says so.
+// waitFor says whether the output comes to hold want within d.
 func (c *termConn) waitFor(want string, d time.Duration) bool {
-	c.t.Helper()
 	deadline := time.Now().Add(d)
-	for !bytes.Contains(c.out.Bytes(), []byte(want)) {
+	for !strings.Contains(c.output(), want) {
+		select {
+		case <-c.ended:
+			return strings.Contains(c.output(), want)
+		default:
+		}
 		if time.Now().After(deadline) {
 			return false
 		}
-		_ = c.ws.SetReadDeadline(deadline)
-		typ, b, err := c.ws.ReadMessage()
-		if err != nil {
-			return false
-		}
-		if typ == websocket.BinaryMessage {
-			c.out.Write(b)
-		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	return true
 }
@@ -232,32 +267,39 @@ func (c *termConn) waitFor(want string, d time.Duration) bool {
 func (c *termConn) mustSee(want string) {
 	c.t.Helper()
 	if !c.waitFor(want, 20*time.Second) {
-		c.t.Fatalf("terminal never showed %q; got %q", want, c.out.String())
+		c.t.Fatalf("terminal never showed %q; got %q", want, c.output())
 	}
 }
 
 // sync waits for the shell to answer and forgets what came before: what a program
-// printed last can arrive after the program is done.
+// prints last can arrive after it is done. It asks again, because a program may
+// throw away unread input as it exits, as vim does.
 func (c *termConn) sync() {
 	c.t.Helper()
-	c.syncs++
-	c.send(fmt.Sprintf("echo nb-sync-$((%d+1))\r", c.syncs*10))
-	c.mustSee(fmt.Sprintf("nb-sync-%d", c.syncs*10+1))
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		c.syncs++
+		// The sum keeps the typed line itself from matching.
+		c.send(fmt.Sprintf("\recho nb-sync-$((%d+1))\r", c.syncs*10))
+		if c.waitFor(fmt.Sprintf("nb-sync-%d", c.syncs*10+1), 2*time.Second) {
+			break
+		}
+		if time.Now().After(deadline) {
+			c.t.Fatalf("the shell does not answer; got %q", c.output())
+		}
+	}
+	c.mu.Lock()
 	c.out.Reset()
+	c.mu.Unlock()
 }
 
 // closed reports whether the server ended the socket within d, and how.
 func (c *termConn) closed(d time.Duration) (bool, error) {
-	deadline := time.Now().Add(d)
-	_ = c.ws.SetReadDeadline(deadline)
-	for {
-		_, _, err := c.ws.ReadMessage()
-		if err != nil {
-			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
-				return false, err
-			}
-			return true, err
-		}
+	select {
+	case <-c.ended:
+		return true, c.readErr
+	case <-time.After(d):
+		return false, errors.New("still open")
 	}
 }
 
@@ -300,10 +342,10 @@ func TestTerminalGoesOnWhileTheBrowserIsGone(t *testing.T) {
 	}
 	again := h.openTerm(id, h.cookieHeader())
 	// Both come in the first frame: nothing new is printed after the reconnect.
-	typ, snap, err := again.ws.ReadMessage()
-	if err != nil || typ != websocket.BinaryMessage {
-		t.Fatalf("snapshot: %v %v", typ, err)
-	}
+	again.mustSee("nb-away-42")
+	again.mu.Lock()
+	snap := again.first
+	again.mu.Unlock()
 	for _, want := range []string{"nb-start-2", "nb-away-42"} {
 		if !bytes.Contains(snap, []byte(want)) {
 			t.Errorf("snapshot lacks %q: %q", want, snap)
@@ -382,7 +424,7 @@ while :; do sleep 0.1; done
 				break
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("vi wrote nothing; screen %q", term.out.String())
+				t.Fatalf("vi wrote nothing; screen %q", term.output())
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -413,11 +455,9 @@ while :; do sleep 0.1; done
 		close(stop)
 		<-stopped
 		if !left {
-			t.Fatalf("htop did not quit; screen %q", term.out.String())
+			t.Fatalf("htop did not quit; screen %q", term.output())
 		}
-		// Enter first: the last q may have landed on the prompt.
-		term.send("\recho nb-after-htop-$((3+4))\r")
-		term.mustSee("nb-after-htop-7")
+		term.sync()
 	})
 }
 
@@ -491,7 +531,7 @@ func TestLoginsEndingCloseOpenSockets(t *testing.T) {
 		if ce, ok := err.(*websocket.CloseError); !ok || ce.Code != wsCloseRevok {
 			t.Errorf("closed with %v: the web client only goes to login on %d", err, wsCloseRevok)
 		}
-		if gone, err := (&termConn{t: t, ws: events}).closed(5 * time.Second); !gone {
+		if gone, err := newTermConn(t, events).closed(5 * time.Second); !gone {
 			t.Errorf("the event socket stayed open after logout: %v", err)
 		}
 		keeps.send("echo nb-other-$((2+2))\r")
