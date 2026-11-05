@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+	"time"
 )
 
 func model(t *testing.T, cols, rows int) *vtModel {
@@ -147,6 +148,40 @@ func TestReplayWithAMarginPastTheScreen(t *testing.T) {
 	sn := s.Snapshot()
 	if sn.Stale || !strings.Contains(strings.Join(sn.Lines, "\n"), "line ") {
 		t.Errorf("stale %v: %q", sn.Stale, sn.Lines[:3])
+	}
+}
+
+// The screen's lock is held while the emulator works: one sequence must not hold it
+// for long. A repeat count of 99999999 took over 3 seconds, and it is printable text
+// away from any program that prints binary data.
+func TestHugeCountsEndSoon(t *testing.T) {
+	for _, final := range "ABCDEFGHIJKLMPSTXZ@`bdfgrstnc" {
+		seq := "x\x1b[99999999" + string(final)
+		m := model(t, 80, 24)
+		done := make(chan struct{})
+		go func() {
+			m.Write([]byte(seq))
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Errorf("%q still runs after 5 s", seq)
+		}
+	}
+}
+
+func TestRepeatFillsTheScreenAndNoMore(t *testing.T) {
+	m := model(t, 10, 3)
+	m.Write([]byte("x\x1b[99999999b"))
+	joined := strings.Join(m.Lines(), "")
+	if got := strings.Count(joined, "x"); got < 10 || got > 30 {
+		t.Errorf("%d characters on a 10×3 screen: %q", got, m.Lines())
+	}
+	m2 := model(t, 10, 3)
+	m2.Write([]byte("ab\x1b[3b"))
+	if got := strings.TrimSpace(m2.Lines()[0]); got != "abbbb" {
+		t.Errorf("a small repeat: %q", got)
 	}
 }
 
