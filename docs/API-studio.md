@@ -121,7 +121,7 @@ Keputusan: built-in memakai **mode headless** (lebih andal daripada membaca TUI)
 | DELETE | `/branches/{name}` | — | `{"ok":true}` (`branch -d`); `409 not_merged` |
 | GET | `/suggest?ai=0` | — | `{"subject","source":"heuristic"}`; `ai=1` (`&staged=1`) → `202 Job` `commit-subject` |
 
-- Commit: `add -A -- <paths>` lalu `commit -m <msg> -- <paths>`; hook commit milik user tetap berjalan (tanpa `--no-verify`). Pada detached HEAD tombol berbunyi "Commit". Push tanpa upstream = "Publish branch".
+- Commit: `add -A -- <paths>` lalu `commit -m <msg> -- <paths>`; hook commit milik user tetap berjalan (tanpa `--no-verify`), tanpa terminal: stdin kosong dan `/dev/tty` tidak ada, jadi hook yang bertanya gagal cepat dan pesannya sampai ke panel. Hook yang macet dihentikan sesudah 2 menit tanpa meninggalkan lock. Proses yang ditinggalkan hook tidak menahan commit di This PC; di server lewat SSH, commit menunggu proses itu selesai atau mengosongkan output-nya, paling lama 2 menit. Pada detached HEAD tombol berbunyi "Commit". Push tanpa upstream = "Publish branch".
 - **Env git:** `GIT_TERMINAL_PROMPT=0`, `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` (kecuali user sudah mengatur `core.sshCommand`/`GIT_SSH_COMMAND`), `SSH_ASKPASS_REQUIRE=never`, `GCM_INTERACTIVE=never`, `GIT_EDITOR=true`, `GIT_PAGER=cat`, `LC_ALL=C`, stdin `/dev/null`.
 - **Timeout:** baca 10 dtk; commit 120 dtk; push/pull/fetch/publish 15 menit total dan **5 menit tanpa output** (watchdog §1.1; `--progress` memastikan ada output).
 - Saran subjek heuristik (≤ 72 karakter): satu file → `Add|Update|Remove <nama>`; satu folder → `Update <folder>: N files`; hanya `.md` → `Docs: …`; hanya tes → `Tests: …`; selain itu `Update N files in <folder teratas>`.
@@ -915,7 +915,7 @@ Preview dan listener-nya hanya di memori (node `web` di board yang persisten). *
 8. **Path agent memory Claude** per project dan daftar key frontmatter skill yang valid; layout folder plugin.
 9. **PDF di browser:** dukungan margin box `@page` (Chrome ≥ 131), bookmark PDF tidak dijamin; Android `PrintManager`.
 10. **Web Speech** di webview Tauri (WebKitGTK/WKWebView) dan `getUserMedia` di origin self-signed.
-11. **Git:** prioritas `core.sshCommand` user vs `BatchMode`; credential helper HTTPS di remote; hook commit yang butuh TTY; penulisan ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup.
+11. **Git:** prioritas `core.sshCommand` user vs `BatchMode`; credential helper HTTPS di remote; penulisan ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup.
 12. **`gh repo create --source . --push`**: verifikasi flag dan perilaku saat remote `origin` sudah ada.
 13. **Pustaka layout diagram:** selesai, tidak dipakai. Tata letak ditulis sendiri (`internal/studio`, `web/src/studio/diagrams/layout.ts`).
 14. **Indeks token lewat SFTP** pada folder transcript sangat besar (ribuan file) — perlu uji performa.

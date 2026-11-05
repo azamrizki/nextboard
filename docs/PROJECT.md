@@ -32,7 +32,7 @@ Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini
 |---|---|
 | Versi | `0.1.0-dev` |
 | Teknologi | Go 1.26, React 19 + TypeScript + Vite |
-| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 39 ribu baris tes (132 file, 732 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
+| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 39 ribu baris tes (134 file, 751 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
 | Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
 | Penyimpanan | File JSON di `~/.nextboard/`, tanpa database |
 | Target build | Linux dan macOS, amd64 dan arm64. Tile aplikasi desktop hanya Linux. Semua uji nyata yang tercatat dilakukan di Linux |
@@ -882,7 +882,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Status dan delivery | Agent tanpa aturan layar dibaca secara generik: berpikir tanpa output di layar prompt masih bisa terbaca `ready` sesudah 3 detik, di layar lain sesudah 15 detik. Daftar CLI aman untuk `whileWorking:"type"` belum ada |
 | Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan. Parser hanya bahasa Inggris |
 | Multi-repo | Explorer tidak meredupkan file yang di-ignore di repo di bawah folder induk. Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
-| Git | Menulis ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup. Hook commit yang butuh TTY belum diuji |
+| Git | Menulis ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup. Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
 | Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |
 | Aplikasi desktop | VA-API saja, baru teruji di Arc A380. Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N) tidak sampai. Tanpa mikrofon. `wayvnc` 0.9.1 sesekali segfault (hub menyalakannya ulang dalam sekitar 2 detik). Di mesin tanpa output suara asli, sink sesi bisa menjadi default |
 | Browser di tile | Firefox dan snap/flatpak belum. Satu tile per board |

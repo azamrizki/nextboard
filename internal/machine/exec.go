@@ -52,6 +52,9 @@ type ExecResult struct {
 	Truncated  bool
 }
 
+// execPipeWait is how long output may still come after a local program ended.
+const execPipeWait = 2 * time.Second
+
 // errExecSpec: neither or both of Argv and Script.
 var errExecSpec = errors.New("exec: isi tepat satu dari Argv atau Script")
 
@@ -184,7 +187,13 @@ func (l *Local) command(spec ExecSpec) *exec.Cmd {
 	}
 	cmd.Env = append(env, "PATH="+l.pathEnv(), "HOME="+l.home, "TERM=dumb")
 	cmd.Dir = l.home
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// A session of its own, so no terminal: a hub started by hand has the user's, and
+	// a git hook asking on /dev/tty would stop there, or take what the user types.
+	// It leads its own process group as well, which stopping it relies on.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// What a program leaves running can hold its output open for hours, like a git
+	// hook starting something in the background. The run is over when the program is.
+	cmd.WaitDelay = execPipeWait
 	return cmd
 }
 
@@ -216,7 +225,7 @@ func (l *Local) exec(ctx context.Context, spec ExecSpec) (*ExecResult, error) {
 	res := &ExecResult{}
 	var ee *exec.ExitError
 	switch {
-	case werr == nil:
+	case werr == nil, errors.Is(werr, exec.ErrWaitDelay):
 	case errors.As(werr, &ee):
 		res.ExitCode = ee.ExitCode()
 	default:
