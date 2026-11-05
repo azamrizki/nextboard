@@ -4,7 +4,7 @@ A self-hosted visual board for running and directing AI coding agents.
 
 NextBoard is a single Go binary. Run it on a machine you control, open the web UI, and start Claude Code, Codex, Gemini CLI or any other CLI agent as terminal tiles on an infinite canvas. You can see which agents are working, which need you and which are ready without opening each terminal, and they keep running after you close the browser.
 
-> **Status: early development (`0.1.0`).** All real-world testing so far was on Linux; macOS builds exist but are untested. APIs and data formats can still change.
+> **Status: early development.** All real-world testing so far was on Linux; macOS builds exist but are untested. APIs and data formats can still change.
 
 ## Features
 

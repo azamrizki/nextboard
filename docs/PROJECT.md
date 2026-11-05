@@ -30,7 +30,7 @@ Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini
 
 | | |
 |---|---|
-| Versi | `0.1.0-dev` |
+| Versi | `0.2.0` (rilis terakhir; build dev menulis `0.1.0-dev`) |
 | Teknologi | Go 1.26, React 19 + TypeScript + Vite |
 | Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 39 ribu baris tes (134 file, 751 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
 | Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
@@ -820,7 +820,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 | Kriteria | Status | Bukti dan batasnya |
 |---|---|---|
-| Pasang lewat `curl … \| sh`, cetak link setup | Teruji | `TestInstallScriptFromReleaseToSetup`, `TestInstallScriptRefusesABadChecksum` dengan rilis palsu dan `systemctl` palsu. `v0.1.0` asli dicoba sekali di container kosong dengan `--no-service`: checksum, UI, setup, dan login berjalan |
+| Pasang lewat `curl … \| sh`, cetak link setup | Teruji | `TestInstallScriptFromReleaseToSetup`, `TestInstallScriptRefusesABadChecksum` dengan rilis palsu dan `systemctl` palsu. Rilis asli dicoba di container Ubuntu 24.04 dengan systemd sungguhan: `install.sh` publik memasang `v0.1.0`, service aktif dan menyala lagi setelah container restart |
 | HTTPS di nginx, wizard, login | Teruji | `TestBehindTheNginxExample` memakai file `deploy/` di nginx 1.24 dan 1.28. Halaman wizard hanya dicek bila build punya bundle web. Port preview hanya dimuat, tidak dicoba |
 | Reboot, service hidup lagi | Sebagian | Test memastikan `enable-linger` dipanggil. Reboot sungguhan belum pernah dicoba |
 | Terminal: output, `vim`, `htop`, Ctrl-C | Teruji | `TestTerminalIsARealOne`: raw mode, alternate screen, Ctrl-C, resize, `vi`, `htop` |
@@ -849,6 +849,8 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Usage Claude dan Codex | Window ter-parse, folder terhapus |
 | Documents | 1 run Haiku, 24,7 detik |
 | Critical notes | Haiku menolak `npm run db:reset` |
+| Memory tile | Haiku menerima tumpukan dari launch, membaca blok lewat `memory_read`, dan membalas `OK` untuk kiriman 163 karakter; kiriman tanpa fakta baru tidak mengetik apa pun (`TestRealMemoryTile`) |
+| Perintah terblokir | Claude Code berhenti di dialog izin, juga lewat `bash -c`, dan skripnya tidak jalan (`TestRealBlockedCommand`). Mode skip permissions tidak dicoba |
 | Chrome 156 di Wayland | github.com, Wikipedia, tab, restart hub (lewat Playwright) |
 | Video | Intel Arc A380 |
 | Workbench | gopls, pyright, typescript-language-server, Vue, Tailwind, ESLint, rust-analyzer, taplo, Delve, debugpy di browser; dua extension Open VSX |
@@ -872,7 +874,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 ### Risiko utama
 
-1. **Rilis baru satu.** `v0.1.0` terpasang dan jalan dari `install.sh` di Ubuntu 24.04 tanpa service. Service systemd baru teruji dengan `systemctl` palsu, binary macOS belum pernah dijalankan, dan `nextboard update` belum pernah mengganti versi sungguhan karena belum ada rilis kedua.
+1. **Rilis baru dicoba di container.** `v0.2.0` keluar lewat semantic-release. Di Ubuntu 24.04 dengan systemd sungguhan di dalam container: `install.sh` memasang `v0.1.0`, `nextboard update` menggantinya ke `v0.2.0` dengan data dan login tetap, service kembali setelah container restart, dan uninstall bersih. Mesin sungguhan belum dicoba, dan binary macOS belum pernah dijalankan.
 2. **Blokir perintah bukan sandbox** (§6). Critical notes tetap instruksi. Perintah terblokir ditegakkan CLI atau hub, tetapi agent dengan shell masih bisa menulis skrip yang melakukan hal sama. Penegakan di Codex dan OpenCode, serta di Claude Code dengan skip permissions, belum diuji dengan model sungguhan.
 3. **Aksi tulis git tetap memakai config repo.** Stage, commit, pull, dan push menjalankan hook, filter, dan `core.sshCommand` dari repo, sama seperti git di terminal. Perintah baca sudah tidak (§5.11), tetapi di git < 2.31 filter driver milik repo masih jalan saat `status` dan `diff`.
 
