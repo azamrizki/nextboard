@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -251,11 +252,14 @@ func TestUptimeFromServer(t *testing.T) {
 		}
 	}
 	addr := ln.Addr().(*net.TCPAddr)
-	for _, body := range []map[string]any{
+	bodies := []map[string]any{
 		{"name": "web", "type": "http", "machineId": mid, "url": "http://" + addr.String() + "/", "keyword": "from server"},
 		{"name": "port", "type": "tcp", "machineId": mid, "host": "127.0.0.1", "port": addr.Port},
-		{"name": "ping", "type": "ping", "machineId": mid, "host": "127.0.0.1"},
-	} {
+	}
+	if _, err := exec.LookPath("ping"); err == nil { // minimal systems have none
+		bodies = append(bodies, map[string]any{"name": "ping", "type": "ping", "machineId": mid, "host": "127.0.0.1"})
+	}
+	for _, body := range bodies {
 		st, m := h.do("POST", "/api/projects/"+pid+"/uptime", body, nil)
 		if st != 201 {
 			t.Fatalf("%v: %d %v", body, st, m)
