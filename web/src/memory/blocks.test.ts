@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MemoryPlanTarget } from '../orch/types';
-import { addBlocks, agentsLabel, blockKey, sentMessage, summarizeSend, tokensLabel } from './blocks';
+import { addBlocks, agentsLabel, blockKey, commandLines, moveBlock, sentMessage, summarizeSend, tokensLabel } from './blocks';
 
 const target = (over: Partial<MemoryPlanTarget>): MemoryPlanTarget => ({
   sessionId: 's',
@@ -46,6 +46,26 @@ describe('memory blocks', () => {
     expect(s.chars).toBe(500);
     expect(s.upToDate).toBe(1);
     expect(s.unavailable).toBe(2);
+  });
+
+  it('moves a brick to where it was dropped', () => {
+    const a = { name: 'a' };
+    const b = { projectId: 'p', name: 'b', lookup: true };
+    const c = { name: 'c' };
+    const names = (l: { name: string }[]) => l.map((x) => x.name).join('');
+    expect(names(moveBlock([a, b, c], 'global/c', 'global/a'))).toBe('cab');
+    expect(names(moveBlock([a, b, c], 'global/a', 'global/c'))).toBe('bca');
+    expect(names(moveBlock([a, b, c], 'global/a', 'p/b'))).toBe('bac');
+    const list = [a, b, c];
+    expect(moveBlock(list, 'global/a', 'global/a')).toBe(list);
+    expect(moveBlock(list, 'global/x', 'global/a')).toBe(list);
+    expect(moveBlock(list, 'global/a', 'global/x')).toBe(list);
+    expect(moveBlock([b, a], 'global/a', 'p/b')[1]).toEqual(b);
+  });
+
+  it('reads a list of commands', () => {
+    expect(commandLines('  git push --force \n\n\n*db:reset*\n   ')).toEqual(['git push --force', '*db:reset*']);
+    expect(commandLines('')).toEqual([]);
   });
 
   it('says what a send did', () => {

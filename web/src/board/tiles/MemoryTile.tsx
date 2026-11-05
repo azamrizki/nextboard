@@ -12,7 +12,7 @@ import type { MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import { timeAgo } from '../../lib/format';
-import { addBlocks, agentsLabel, blockKey, MAIN_DOC, sentMessage, summarizeSend, tokensLabel } from '../../memory/blocks';
+import { addBlocks, agentsLabel, blockKey, MAIN_DOC, moveBlock, sentMessage, summarizeSend, tokensLabel } from '../../memory/blocks';
 import { MemoryPicker } from '../../memory/MemoryPicker';
 import { sendTile, orchError } from '../../orch/actions';
 import { orchApi } from '../../orch/api';
@@ -34,6 +34,8 @@ function MemoryTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [added, setAdded] = useState<MemoryBlock[]>([]);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(0);
+  const [dragged, setDragged] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
   const wires = doc.edges.filter((e) => e.kind === 'wire' && e.source === id);
   const blocksKey = JSON.stringify(d.blocks);
   const wiresKey = wires.map((e) => e.target).join(',');
@@ -125,11 +127,49 @@ function MemoryTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
             <span className="memory-brick-name truncate">{project.name}</span>
             <span className="memory-size tabular">{tokensLabel(size(base)?.chars ?? 0)}</span>
           </div>
-          {d.blocks.map((b) => {
+          {d.blocks.map((b, index) => {
             const info = size(b);
             const name = info?.title ?? b.name;
+            const key = blockKey(b);
             return (
-              <div key={blockKey(b)} className={`memory-brick ${info?.missing ? 'is-missing' : ''} ${b.lookup ? 'is-lookup' : ''}`}>
+              <div
+                key={key}
+                className={`memory-brick ${info?.missing ? 'is-missing' : ''} ${b.lookup ? 'is-lookup' : ''} ${dragged === key ? 'is-dragged' : ''} ${over === key && dragged !== key ? 'is-drop' : ''}`}
+                draggable
+                tabIndex={0}
+                title="Drag to reorder: what is higher goes first when the budget runs out. Alt+arrow keys do the same."
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', key);
+                  setDragged(key);
+                }}
+                onDragOver={(e) => {
+                  if (!dragged) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOver(key);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (dragged) setBlocks(moveBlock(d.blocks, dragged, key));
+                  setDragged(null);
+                  setOver(null);
+                }}
+                onDragEnd={() => {
+                  setDragged(null);
+                  setOver(null);
+                }}
+                onKeyDown={(e) => {
+                  if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+                  const neighbour = d.blocks[index + (e.key === 'ArrowUp' ? -1 : 1)];
+                  if (!neighbour) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setBlocks(moveBlock(d.blocks, key, blockKey(neighbour)));
+                }}
+              >
                 <span className="memory-brick-name truncate" title={info?.missing ? 'This memory no longer exists.' : `${name} · ${info?.owner ?? ''}`}>
                   {name}
                   {info?.owner && info.owner !== name && <span className="memory-brick-owner"> · {info.owner}</span>}

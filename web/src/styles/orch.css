@@ -2075,6 +2075,16 @@ textarea.control.lead-soul {
   border-style: dashed;
   color: var(--text-3);
 }
+.memory-brick[draggable='true'] {
+  cursor: grab;
+}
+.memory-brick.is-dragged {
+  opacity: 0.45;
+}
+.memory-brick.is-drop {
+  border-color: var(--text-1);
+  box-shadow: 0 -2px 0 var(--text-1);
+}
 .memory-brick.is-add {
   justify-content: center;
   border-style: dashed;
@@ -2102,6 +2112,16 @@ textarea.control.lead-soul {
 .memory-brick-owner {
   color: var(--text-3);
   font-weight: 400;
+}
+.mem-blocked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.mem-blocked textarea {
+  min-height: 132px;
+  resize: vertical;
 }
 .memory-size {
   flex: 0 0 auto;

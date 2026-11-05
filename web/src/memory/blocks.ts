@@ -55,3 +55,21 @@ export function sentMessage(r: { delivered: number; busy: number; upToDate?: num
   if (r.upToDate) parts.push(`${r.upToDate} had it already`);
   return parts.length ? `${parts.join('; ')}.` : 'Nothing was sent.';
 }
+
+/** A brick dragged onto another takes its place. */
+export function moveBlock(blocks: MemoryBlock[], fromKey: string, toKey: string): MemoryBlock[] {
+  const from = blocks.findIndex((b) => blockKey(b) === fromKey);
+  const to = blocks.findIndex((b) => blockKey(b) === toKey);
+  if (from < 0 || to < 0 || from === to) return blocks;
+  const out = [...blocks];
+  const [moved] = out.splice(from, 1);
+  out.splice(to, 0, moved);
+  return out;
+}
+
+/** One line per command; blanks do not count. */
+export const commandLines = (text: string) =>
+  text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
