@@ -737,7 +737,7 @@ Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go in
 
 **Aturan di host bersama.** Kalau This PC juga menjalankan layanan lain, test ikut memakai memori yang sama, dan `/tmp` bisa punya kuota per user. Helper test rekursif pernah memunculkan ratusan `Xtigervnc` sampai OOM killer menghantam layanan lain. Jadi: test yang memunculkan proses dijalankan satu kasus kecil dulu dengan `-timeout`, proses sisa dihitung sesudahnya, dan test tidak boleh meng-exec dirinya sendiri tanpa guard.
 
-**CI dan rilis.** Tiap push ke `main` dan tiap pull request menjalankan `make web`, `make test-web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...` di GitHub Actions; run pertama lolos pada 2026-11-05 dalam sekitar 5 menit. Tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`; `release.yml` belum pernah jalan, karena belum ada tag.
+**CI dan rilis.** Tiap push ke `main` dan tiap pull request menjalankan `make web`, `make test-web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...` di GitHub Actions; run pertama lolos pada 2026-11-05 dalam sekitar 5 menit. Tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`; Rilis pertama, `v0.1.0`, terbit 2026-11-05.
 
 **Deploy.** `deploy/nginx.conf.example` + `deploy/nextboard-proxy.inc`:
 
@@ -816,7 +816,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 | Kriteria | Status | Bukti dan batasnya |
 |---|---|---|
-| Pasang lewat `curl … \| sh`, cetak link setup | Teruji, rilis palsu | `TestInstallScriptFromReleaseToSetup`, `TestInstallScriptRefusesABadChecksum`. Rilis GitHub sungguhan belum ada |
+| Pasang lewat `curl … \| sh`, cetak link setup | Teruji | `TestInstallScriptFromReleaseToSetup`, `TestInstallScriptRefusesABadChecksum` dengan rilis palsu dan `systemctl` palsu. `v0.1.0` asli dicoba sekali di container kosong dengan `--no-service`: checksum, UI, setup, dan login berjalan |
 | HTTPS di nginx, wizard, login | Teruji | `TestBehindTheNginxExample` memakai file `deploy/` di nginx 1.24 dan 1.28. Halaman wizard hanya dicek bila build punya bundle web. Port preview hanya dimuat, tidak dicoba |
 | Reboot, service hidup lagi | Sebagian | Test memastikan `enable-linger` dipanggil. Reboot sungguhan belum pernah dicoba |
 | Terminal: output, `vim`, `htop`, Ctrl-C | Teruji | `TestTerminalIsARealOne`: raw mode, alternate screen, Ctrl-C, resize, `vi`, `htop` |
@@ -868,7 +868,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 ### Risiko utama
 
-1. **Belum ada rilis.** Belum ada tag, jadi `install.sh` dan `nextboard update` belum punya apa-apa untuk diunduh; pasang dari source. `release.yml` belum pernah jalan (§11).
+1. **Rilis baru satu.** `v0.1.0` terpasang dan jalan dari `install.sh` di Ubuntu 24.04 tanpa service. Service systemd baru teruji dengan `systemctl` palsu, binary macOS belum pernah dijalankan, dan `nextboard update` belum pernah mengganti versi sungguhan karena belum ada rilis kedua.
 2. **Critical notes bukan kunci teknis** (§6). Blokir teknis untuk perintah tertentu adalah tawaran terbuka, belum dibangun.
 3. **Aksi tulis git tetap memakai config repo.** Stage, commit, pull, dan push menjalankan hook, filter, dan `core.sshCommand` dari repo, sama seperti git di terminal. Perintah baca sudah tidak (§5.11), tetapi di git < 2.31 filter driver milik repo masih jalan saat `status` dan `diff`.
 4. **Handoff yang berjalan hilang saat hub restart.** Order yang belum diketik bisa dikirim ulang (keputusan #34); konfirmasi selamat dari restart.

@@ -107,6 +107,16 @@ func (m *vtModel) Reset() {
 		_, _ = e.Write(fmt.Appendf(nil, "\x1b[%d;%dr", top, e.Height()))
 		return true
 	})
+	// The same goes for a right margin, once a program has turned those on.
+	e.RegisterCsiHandler('s', func(params ansi.Params) bool {
+		right, _, _ := params.Param(1, 0)
+		if right <= e.Width() {
+			return false
+		}
+		left, _, _ := params.Param(0, 1)
+		_, _ = e.Write(fmt.Appendf(nil, "\x1b[%d;%ds", left, e.Width()))
+		return true
+	})
 	// It also does as often as it is told what has no effect past the screen, while
 	// the screen's lock is held: repeat a character, erase characters, tab either way.
 	limitCount := func(final rune, limit func() int) {

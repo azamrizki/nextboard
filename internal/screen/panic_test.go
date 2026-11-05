@@ -70,6 +70,35 @@ func TestMarginsInsideTheScreenStayTheEmulators(t *testing.T) {
 	}
 }
 
+func TestRightMarginPastTheScreen(t *testing.T) {
+	for name, seq := range map[string]string{
+		"scroll up":  "\x1b[?69h\x1b[200;999s\x1b[;80S",
+		"text":       "\x1b[?69h\x1b[1;80s\x1b[1;1Htext\ttext",
+		"insert":     "\x1b[?69h\x1b[1;999s\x1b[5T\x1b[2L\x1b[2M",
+		"after size": "\x1b[?69h\x1b[1;40s",
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := model(t, 20, 5)
+			if !m.Write([]byte(seq)) || m.panics != 0 {
+				t.Fatalf("%d panics", m.panics)
+			}
+			m.Resize(10, 3)
+			if !m.Write([]byte("\x1b[?69h\x1b[1;40s\x1b[S\n\n\n")) || m.panics != 0 {
+				t.Fatalf("after a resize: %d panics", m.panics)
+			}
+		})
+	}
+}
+
+// Without left and right margins on, the same sequence saves the cursor.
+func TestSaveCursorStillWorks(t *testing.T) {
+	m := model(t, 20, 5)
+	m.Write([]byte("\x1b[2;3H\x1b[s\x1b[5;9H\x1b[u"))
+	if x, y := m.Cursor(); x != 2 || y != 1 {
+		t.Errorf("cursor at %d,%d", x, y)
+	}
+}
+
 func TestMarginClampLeavesTheParserWorking(t *testing.T) {
 	m := model(t, 40, 5)
 	m.Write([]byte("\x1b[1;30r\x1b[1;1Hhello \x1b[31mred\x1b[m after"))
@@ -211,12 +240,12 @@ func TestRepeatFillsTheScreenAndNoMore(t *testing.T) {
 func TestModelSurvivesAnything(t *testing.T) {
 	r := rand.New(rand.NewSource(7))
 	pieces := []string{
-		"text ", "\r\n", "\n", "\t", "\b", "\x1b[2J", "\x1b[H", "\x1bc", "\x1b[?1049h", "\x1b[?1049l", "\x1b[?6h", "\x1b[?6l", "\x1b[?69h", "\x1b[?69l",
+		"text ", "\r\n", "\n", "\t", "\b", "\x1b[2J", "\x1b[H", "\x1bc", "\x1b[?1049h", "\x1b[?1049l", "\x1b[?6h", "\x1b[?6l", "\x1b[?69h", "\x1b[?69l", "\x1b[?7l", "\x1b[?7h",
 		"\x1b[r", "\x1b[s", "\x1b[u", "\x1b7", "\x1b8", "\x1bM", "\x1bD", "\x1bE", "\x1b(0", "\x1b(B", "\x1b[m", "é", "漢", "\xff\xfe", "\x1b", "\x1b[", "\x1b]0;",
 		"\x07", "\x1b\\", "\x1bP", "\x1b_", "\x90", "\x9b",
 	}
 	finals := []string{"A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "P", "S", "T", "X", "Z", "@", "`", "b", "d", "f", "g", "r", "s", "t", "n", "c"}
-	nums := []string{"", "0", "1", "2", "5", "24", "80", "200", "999"}
+	nums := []string{"", "0", "1", "2", "5", "24", "80", "200", "999", "99999"}
 	for size := 0; size < 6; size++ {
 		m := model(t, []int{1, 2, 10, 80, 200, 40}[size], []int{1, 3, 5, 24, 60, 2}[size])
 		for i := 0; i < 4000; i++ {
@@ -234,6 +263,9 @@ func TestModelSurvivesAnything(t *testing.T) {
 				_ = m.AltScreen()
 			}
 		}
-		t.Logf("size %d: %d panics started the emulator over", size, m.panics)
+		// guard would hide a new way to panic: each one costs a console its screen.
+		if m.panics != 0 {
+			t.Errorf("size %d: %d panics started the emulator over", size, m.panics)
+		}
 	}
 }
