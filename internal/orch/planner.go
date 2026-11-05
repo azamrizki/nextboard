@@ -367,53 +367,11 @@ func (s *Service) plannerDone(tid string, j jobs.Job) {
 	sc, err := s.newScope(c.workspaceID, c.cardID)
 	var plan *planOutput
 	reason := ""
-	if j.State == jobs.StateDone {
-		var r struct {
-			Text       string          `json:"text"`
-			Structured json.RawMessage `json:"structured"`
-		}
-		_ = json.Unmarshal(j.Result, &r)
-		raw := r.Structured
-		if len(raw) == 0 {
-			raw = extractJSONText(r.Text)
-		}
-		var p planOutput
-		if len(raw) > 0 && json.Unmarshal(raw, &p) == nil {
-			plan = &p
-		} else {
-			reason = "invalid JSON"
-		}
-	} else {
-		reason = j.Code
-		if reason == "" {
-			reason = j.State
-		}
-		switch j.Code {
-		case "cli_not_logged_in":
-			reason = "Claude Code is not signed in. Open a Claude Code console on a board and sign in there once."
-		case "cli_missing":
-			reason = "claude not found"
-		case "timeout":
-			reason = "no answer in time. Send it again."
-		}
+	var p planOutput
+	if plannerAnswer(j, &p, &reason) {
+		plan = &p
 	}
-	s.mu.Lock()
-	if j.StartedAt != nil && j.FinishedAt != nil {
-		s.plan.lastLatencyMs = j.FinishedAt.Sub(*j.StartedAt).Milliseconds()
-	}
-	if plan == nil {
-		s.plan.failures++
-		if j.Code == "cli_not_logged_in" {
-			s.plan.loginFailedAt = s.Now()
-		}
-		if s.plan.failures >= 2 {
-			s.plan.cooldownUntil = s.Now().Add(plannerCooldown)
-			s.plan.failures = 0
-		}
-	} else {
-		s.plan.failures = 0
-	}
-	s.mu.Unlock()
+	s.recordPlanner(j, plan != nil)
 	if thinkID != "" {
 		txt := "Planned."
 		if plan == nil {
@@ -447,6 +405,60 @@ func (s *Service) plannerDone(tid string, j jobs.Job) {
 	}
 	s.hub.Publish(map[string]any{"type": "command", "commandId": c.commandID, "clientId": c.clientID, "state": state, "uiActions": nonNilUI(c.ui)})
 	s.drain(tid)
+}
+
+// plannerAnswer decodes a planner job's JSON into out, or says in reason why it has none.
+func plannerAnswer(j jobs.Job, out any, reason *string) bool {
+	if j.State != jobs.StateDone {
+		*reason = j.Code
+		if *reason == "" {
+			*reason = j.State
+		}
+		switch j.Code {
+		case "cli_not_logged_in":
+			*reason = "Claude Code is not signed in. Open a Claude Code console on a board and sign in there once."
+		case "cli_missing":
+			*reason = "claude not found"
+		case "timeout":
+			*reason = "no answer in time. Send it again."
+		}
+		return false
+	}
+	var r struct {
+		Text       string          `json:"text"`
+		Structured json.RawMessage `json:"structured"`
+	}
+	_ = json.Unmarshal(j.Result, &r)
+	raw := r.Structured
+	if len(raw) == 0 {
+		raw = extractJSONText(r.Text)
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, out) != nil {
+		*reason = "invalid JSON"
+		return false
+	}
+	return true
+}
+
+// recordPlanner counts a planner turn towards the cooldown of §3.5.
+func (s *Service) recordPlanner(j jobs.Job, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if j.StartedAt != nil && j.FinishedAt != nil {
+		s.plan.lastLatencyMs = j.FinishedAt.Sub(*j.StartedAt).Milliseconds()
+	}
+	if ok {
+		s.plan.failures = 0
+		return
+	}
+	s.plan.failures++
+	if j.Code == "cli_not_logged_in" {
+		s.plan.loginFailedAt = s.Now()
+	}
+	if s.plan.failures >= 2 {
+		s.plan.cooldownUntil = s.Now().Add(plannerCooldown)
+		s.plan.failures = 0
+	}
 }
 
 func nonNilUI(u []UIAction) []UIAction {

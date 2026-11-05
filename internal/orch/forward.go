@@ -260,7 +260,7 @@ func (s *Service) checkForward(id string, now time.Time) {
 		depth = max(depth, s.depthOf(src))
 	}
 	c := &execCtx{threadID: cp.ThreadID, projectID: cp.ProjectID, commandID: "fwd_" + cp.ID}
-	s.sendDigest(c, cp.Sources, cp.Targets, cp.Mode, depth+1, "")
+	s.sendDigest(c, cp.Sources, cp.Targets, cp.Mode, depth+1, forwardLine{})
 }
 
 func (s *Service) depthOf(sid string) int {
@@ -341,7 +341,7 @@ func (s *Service) sendQueued(q *edgeQueued) {
 				targets = append(targets, sid)
 			}
 		}
-		s.sendParts(c, q.Sources, q.Parts, targets, ForwardOf(e).Mode, q.Depth)
+		s.sendParts(c, q.Sources, q.Parts, targets, ForwardOf(e).Mode, q.Depth, forwardLine{q.WorkspaceID, q.EdgeID})
 		return
 	}
 	s.note(c, "Forward from "+s.handlesOf(q.Sources)+" not sent: its line was removed.")
@@ -470,7 +470,7 @@ func (s *Service) edgeForwards(in session.Info, now time.Time, depth int, orderI
 			s.queueEdge(c, e, in, sources, depth+1, last.Add(forwardEdgeEvery))
 			continue
 		}
-		s.sendDigest(c, sources, targets, fd.Mode, depth+1, e.ID)
+		s.sendDigest(c, sources, targets, fd.Mode, depth+1, forwardLine{in.WorkspaceID, e.ID})
 	}
 }
 
@@ -508,16 +508,8 @@ type ReplyPart struct {
 // characters per reply and no more than a delivery can carry in total,
 // truncated with a marker.
 func Digest(parts []ReplyPart) string {
-	var names []string
-	for _, p := range parts {
-		n := "@" + p.Handle
-		if p.Agent != "" {
-			n += " (" + p.Agent + ")"
-		}
-		names = append(names, n)
-	}
 	var b strings.Builder
-	b.WriteString("Results forwarded by NextBoard from " + joinAnd(names) + ":\n")
+	b.WriteString("Results forwarded by NextBoard from " + replySources(parts) + ":\n")
 	foot := "\n\nUse these results for your next step."
 	budget := maxDigest - len([]rune(foot))
 	used := len([]rune(b.String()))
@@ -541,6 +533,19 @@ func Digest(parts []ReplyPart) string {
 	return strings.TrimRight(b.String(), "\n") + foot
 }
 
+// replySources names who wrote parts.
+func replySources(parts []ReplyPart) string {
+	var names []string
+	for _, p := range parts {
+		n := "@" + p.Handle
+		if p.Agent != "" {
+			n += " (" + p.Agent + ")"
+		}
+		names = append(names, n)
+	}
+	return joinAnd(names)
+}
+
 func truncRunes(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -551,7 +556,7 @@ func truncRunes(s string, n int) string {
 
 // sendDigest forwards the current replies of sources to targets. Replies
 // older than 30 minutes are not forwarded; depth > 3 is never sent.
-func (s *Service) sendDigest(c *execCtx, sources, targets []string, mode string, depth int, edgeID string) {
+func (s *Service) sendDigest(c *execCtx, sources, targets []string, mode string, depth int, line forwardLine) {
 	if depth > MaxForwardDepth {
 		s.note(c, fmt.Sprintf("Forward from %s not sent: forward depth limit (%d) reached.", s.handlesOf(sources), MaxForwardDepth))
 		return
@@ -561,7 +566,7 @@ func (s *Service) sendDigest(c *execCtx, sources, targets []string, mode string,
 		s.note(c, "Nothing to forward from "+s.handlesOf(sources)+" (no recent reply).")
 		return
 	}
-	s.sendParts(c, sources, parts, targets, mode, depth)
+	s.sendParts(c, sources, parts, targets, mode, depth, line)
 }
 
 // replyParts are the current replies of sources, without those too old to forward.
@@ -585,8 +590,7 @@ func (s *Service) replyParts(sources []string, now time.Time) []ReplyPart {
 }
 
 // sendParts delivers a digest of parts to the agents among targets.
-func (s *Service) sendParts(c *execCtx, sources []string, parts []ReplyPart, targets []string, mode string, depth int) {
-	text := Digest(parts)
+func (s *Service) sendParts(c *execCtx, sources []string, parts []ReplyPart, targets []string, mode string, depth int, line forwardLine) {
 	var send []string
 	for _, sid := range targets {
 		if in, ok := s.hub.SessionInfo(sid); ok && isAgent(in) {
@@ -598,12 +602,19 @@ func (s *Service) sendParts(c *execCtx, sources []string, parts []ReplyPart, tar
 		return
 	}
 	if mode == "split" && len(send) > 1 {
+		if s.splitForward(c, sources, parts, send, depth, line) {
+			return
+		}
 		// Without the planner the whole digest goes to the first target.
 		send = send[:1]
 	}
-	o := s.sendOrder(c, send, text, "forward", depth)
-	_ = o
-	s.note(c, "Forwarded "+s.handlesOf(sources)+"'s result to "+s.handlesOf(send)+".")
+	s.sendWhole(c, sources, parts, send, depth)
+}
+
+// sendWhole gives every target the whole digest.
+func (s *Service) sendWhole(c *execCtx, sources []string, parts []ReplyPart, targets []string, depth int) {
+	s.sendOrder(c, targets, Digest(parts), "forward", depth)
+	s.note(c, "Forwarded "+s.handlesOf(sources)+"'s result to "+s.handlesOf(targets)+".")
 }
 
 func agentName(l []agent.Agent, id string) string {

@@ -462,7 +462,11 @@ State: `collecting → summarizing → switching → waitingReady → delivering
   Use these results for your next step.
   ```
 
-- `mode:"split"` → planner membagi; tanpa planner → seluruh digest ke target pertama, sisanya bebas.
+- `mode:"split"` → planner membaca hasil dan memberi tiap target bagiannya sendiri: satu order per target, `forwardDepth` tetap dihitung, dan target tanpa pekerjaan tidak menerima apa pun. Tiap pembagian memakai satu giliran planner di plan pemilik, dan kegagalannya ikut hitungan cooldown §3.5.
+  - Jawaban planner tidak dipercaya: hanya target forward itu yang menerima teks, dan nama lain dicatat di thread lalu dibuang.
+  - Bagian yang cocok dengan pola berisiko menahan seluruh pembagian sampai pengguna mengonfirmasi (§3.7). Sesudah dikonfirmasi, tiap bagian menjadi order biasa dengan `forwardDepth` 0.
+  - Planner tidak tersedia, gagal, atau tidak membagikan apa pun → seluruh digest ke target pertama, sisanya bebas, dan thread menyebut alasannya.
+  - Garis yang dihapus selagi planner berpikir tidak mengirim apa pun. Hub restart selagi planner berpikir: hasil itu tidak dikirim, dan thread mencatatnya.
 - Batas: ≤ 20 000 karakter per balasan, ≤ 32 000 per digest, batas satu delivery (dipotong dengan penanda); balasan bisa di-forward ≤ 30 menit setelah selesai; `forwardDepth` ≤ 3; tiap edge forward menyala ≤ 1× per 60 dtk.
 - Hasil yang selesai di dalam menit itu **ditahan, bukan dibuang**: ≤ 12 hasil per edge, dikirim bersama sebagai satu digest saat menitnya habis, dan bertahan melewati restart hub. Thread mencatat berapa lama menunggu. Edge dicek ulang saat kirim: garis yang sudah dihapus tidak mengirim apa pun.
 - Giliran yang dimulai oleh konteks (push memory, isi tile) bukan hasil kerja: tidak diteruskan dan tidak memakai jatah menit edge.
@@ -735,5 +739,5 @@ Claude Code **2.1.312** (`--model haiku` untuk console, model default untuk plan
 
 **Efek samping di This PC:** tidak ada perubahan config. Run console interaktif menambah 2 baris (`Reply with the single word OK…`, `/exit`) ke `~/.claude/history.jsonl` milik Claude Code (riwayat input normal; tidak disunting karena proses Claude lain menulis file itu bersamaan); transcript sesi uji dihapus lagi; planner memakai `--no-session-persistence`. Dialog trust dibatalkan sehingga tidak ada entri trust baru.
 
-**Belum dikerjakan / tetap terbuka:** daftar CLI aman untuk `whileWorking:"type"` (#4); pembagian `split` oleh planner; Codex interaktif tidak diuji ulang (flag update check di atas belum dipasang otomatis); BusyBox `ps` (#5) belum diuji nyata.
+**Belum dikerjakan / tetap terbuka:** daftar CLI aman untuk `whileWorking:"type"` (#4); Codex interaktif tidak diuji ulang (flag update check di atas belum dipasang otomatis); BusyBox `ps` (#5) belum diuji nyata.
 

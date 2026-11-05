@@ -830,7 +830,7 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 
 - Gemini CLI (tidak terpasang) dan flag katalog bertanda † di API-agents.
 - Jalur AI di workbench dengan model sungguhan (tes memakai CLI palsu).
-- Field `danger` milik lead dan langkah tugas planner dari model sungguhan.
+- Field `danger` milik lead, langkah tugas planner, dan pembagian forward `split` dari model sungguhan.
 - `idelink` dengan Claude yang login dan model sungguhan.
 - Review agent dengan Codex, dan Codex melewati layar login di panel card.
 - Pull request ke GitHub sungguhan (tes memakai `gh` palsu).
@@ -855,7 +855,7 @@ Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil 
 | Workbench | Debug Node belum punya source map dan proses anak. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History hanya untuk project di This PC |
 | Agent di server | Preview. Skill dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git memakai kredensial server. OpenCode belum punya aturan layar (tile selalu `WORKING`); login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
 | Status dan delivery | Agent tanpa hooks bisa salah terbaca `ready`. Daftar CLI aman untuk `whileWorking:"type"` belum ada. Ctrl-Z, serta Ctrl-U di vi-mode dan fish, belum diuji |
-| Orkestrasi | Pembagian `split` oleh planner belum dikerjakan; tanpa planner seluruh digest ke target pertama. Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan. Pencocokan fonetik hanya untuk nama Inggris. Parser hanya bahasa Inggris |
+| Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan. Pencocokan fonetik hanya untuk nama Inggris. Parser hanya bahasa Inggris |
 | Multi-repo | Daftar file studio di folder induk memakai daftar prune, bukan `.gitignore` tiap repo. Baris home screen masih membaca repo project itu sendiri |
 | Git | Menulis ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup. Hook commit yang butuh TTY belum diuji |
 | Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |
