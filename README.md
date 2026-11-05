@@ -93,6 +93,7 @@ make dev        # hub and Vite together; needs air (go install github.com/air-ve
 make dev-hub    # hub only
 make dev-web    # Vite only
 make test       # go vet + go test -race
+make test-web   # web unit tests; needs web/node_modules
 make test-ssh   # SSH tests against a throwaway local sshd
 make build      # web + bin/nextboard
 make snapshot   # goreleaser build for linux/darwin, amd64/arm64
@@ -100,7 +101,7 @@ make snapshot   # goreleaser build for linux/darwin, amd64/arm64
 
 By default the tests never touch a real agent CLI or your agent plan. `NEXTBOARD_REAL_CLI_TEST=1` turns on tests that do, and these use your real account.
 
-GitHub Actions runs `go vet` and the tests, including the SSH ones, on every push to `main` and every pull request. Pushing a `v*` tag publishes a release with goreleaser.
+GitHub Actions runs `go vet` and the Go and web tests, including the SSH ones, on every push to `main` and every pull request. Pushing a `v*` tag publishes a release with goreleaser.
 
 ### Layout
 
@@ -138,7 +139,7 @@ The detailed docs are written in Indonesian. Start with [docs/PROJECT.md](docs/P
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `make test` before opening a pull request, and keep the matching `docs/API*.md` accurate when a contract changes.
+Issues and pull requests are welcome. Please run `make test` and `make test-web` before opening a pull request, and keep the matching `docs/API*.md` accurate when a contract changes.
 
 ## License
 

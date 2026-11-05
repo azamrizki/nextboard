@@ -5,7 +5,7 @@ LISTEN  ?= 0.0.0.0:12312
 WEB_PORT ?= 15173
 RELOAD  ?= 1
 
-.PHONY: all web build test test-ssh dev dev-hub dev-web clean snapshot
+.PHONY: all web build test test test-web-ssh dev dev-hub dev-web clean snapshot
 
 all: build
 
@@ -19,6 +19,10 @@ build: web
 test:
 	go vet ./...
 	go test -race ./...
+
+# Needs web/node_modules: `make web` or `cd web && npm ci` first.
+test-web:
+	cd web && npm test
 
 # Includes the agentless SSH test against a throwaway local sshd.
 test-ssh:

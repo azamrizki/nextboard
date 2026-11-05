@@ -32,7 +32,7 @@ Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini
 |---|---|
 | Versi | `0.1.0-dev` |
 | Teknologi | Go 1.26, React 19 + TypeScript + Vite |
-| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 38 ribu baris tes (130 file, 713 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
+| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 38 ribu baris tes (131 file, 725 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
 | Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
 | Penyimpanan | File JSON di `~/.nextboard/`, tanpa database |
 | Target build | Linux dan macOS, amd64 dan arm64. Tile aplikasi desktop hanya Linux. Semua uji nyata yang tercatat dilakukan di Linux |
@@ -717,6 +717,7 @@ Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go in
 | `make dev` | Hub + Vite; web `:15173`, hub `:12312`, data `./.devdata`; file Go berubah → hub restart lewat air (`RELOAD=0` mematikannya) |
 | `make dev-hub`, `make dev-web` | Satu sisi saja |
 | `make test` | `go vet` + `go test -race ./...` |
+| `make test-web` | Test unit web (Vitest); butuh `web/node_modules` |
 | `make test-ssh` | Uji SSH terhadap sshd sementara |
 | `make build` | Web + `bin/nextboard` |
 | `make snapshot` | goreleaser lokal |
@@ -736,7 +737,7 @@ Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go in
 
 **Aturan di host bersama.** Kalau This PC juga menjalankan layanan lain, test ikut memakai memori yang sama, dan `/tmp` bisa punya kuota per user. Helper test rekursif pernah memunculkan ratusan `Xtigervnc` sampai OOM killer menghantam layanan lain. Jadi: test yang memunculkan proses dijalankan satu kasus kecil dulu dengan `-timeout`, proses sisa dihitung sesudahnya, dan test tidak boleh meng-exec dirinya sendiri tanpa guard.
 
-**CI dan rilis.** Tiap push ke `main` dan tiap pull request menjalankan `make web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...` di GitHub Actions; run pertama lolos pada 2026-11-05 dalam sekitar 5 menit. Tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`; `release.yml` belum pernah jalan, karena belum ada tag.
+**CI dan rilis.** Tiap push ke `main` dan tiap pull request menjalankan `make web`, `make test-web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...` di GitHub Actions; run pertama lolos pada 2026-11-05 dalam sekitar 5 menit. Tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`; `release.yml` belum pernah jalan, karena belum ada tag.
 
 **Deploy.** `deploy/nginx.conf.example` + `deploy/nextboard-proxy.inc`:
 
@@ -889,7 +890,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, kartu Android dan desktop, dan cara agent memakai credential belum ada ([API-vault.md](API-vault.md)) |
 | Uptime | Halaman status publik, jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada ([API-uptime.md](API-uptime.md)) |
-| Test | Web tidak punya test di repo; uji browser selama ini dijalankan di luar repo. Sisa kriteria SPEC §12 ada di §13 |
+| Test | Test web baru mencakup vault, markdown, dan socket (124 test); komponen dan alur UI belum, dan uji browser selama ini dijalankan di luar repo. Sisa kriteria SPEC §12 ada di §13 |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik
