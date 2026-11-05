@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -174,6 +175,8 @@ type termConn struct {
 	t   *testing.T
 	ws  *websocket.Conn
 	out bytes.Buffer
+	// syncs makes each sync's marker its own.
+	syncs int
 }
 
 func (h *testHub) cookieHeader() http.Header {
@@ -231,6 +234,16 @@ func (c *termConn) mustSee(want string) {
 	if !c.waitFor(want, 20*time.Second) {
 		c.t.Fatalf("terminal never showed %q; got %q", want, c.out.String())
 	}
+}
+
+// sync waits for the shell to answer and forgets what came before: what a program
+// printed last can arrive after the program is done.
+func (c *termConn) sync() {
+	c.t.Helper()
+	c.syncs++
+	c.send(fmt.Sprintf("echo nb-sync-$((%d+1))\r", c.syncs*10))
+	c.mustSee(fmt.Sprintf("nb-sync-%d", c.syncs*10+1))
+	c.out.Reset()
 }
 
 // closed reports whether the server ended the socket within d, and how.
@@ -312,6 +325,7 @@ func TestTerminalIsARealOne(t *testing.T) {
 	term := h.openTerm(h.newShell(), h.cookieHeader())
 
 	t.Run("raw mode passes a byte", func(t *testing.T) {
+		term.t = t
 		script := writeScript(t, "raw.sh", `stty raw -echo
 printf '\033[?1049hnb-raw-ready\r\n'
 c=$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d ' ')
@@ -325,6 +339,7 @@ printf '\033[?1049lnb-got-%s\r\n' "$c"
 	})
 
 	t.Run("Ctrl-C interrupts", func(t *testing.T) {
+		term.t = t
 		script := writeScript(t, "int.sh", `trap 'echo nb-sigint-seen; exit 0' INT
 echo nb-int-ready
 while :; do sleep 0.1; done
@@ -336,6 +351,7 @@ while :; do sleep 0.1; done
 	})
 
 	t.Run("resizing signals the program", func(t *testing.T) {
+		term.t = t
 		script := writeScript(t, "winch.sh", `trap 'echo "nb-winch-$(stty size)"; exit 0' WINCH
 echo nb-winch-ready
 while :; do sleep 0.1; done
@@ -352,6 +368,7 @@ while :; do sleep 0.1; done
 	home := t.TempDir()
 
 	t.Run("vi", func(t *testing.T) {
+		term.t = t
 		if _, err := exec.LookPath("vi"); err != nil {
 			t.Skip("no vi")
 		}
@@ -372,13 +389,34 @@ while :; do sleep 0.1; done
 	})
 
 	t.Run("htop", func(t *testing.T) {
+		term.t = t
 		if _, err := exec.LookPath("htop"); err != nil {
 			t.Skip("no htop")
 		}
+		term.sync() // vi's last output must not be taken for htop's
 		term.send("HOME=" + home + " TERM=xterm htop\r")
 		term.mustSee("\x1b[?1049h")
-		term.send("q")
-		term.send("echo nb-after-htop-$((3+4))\r")
+		// A key pressed while it still starts can be lost, so press until it leaves.
+		stop, stopped := make(chan struct{}), make(chan struct{})
+		go func() {
+			defer close(stopped)
+			for {
+				select {
+				case <-stop:
+					return
+				case <-time.After(500 * time.Millisecond):
+					_ = term.ws.WriteJSON(map[string]any{"t": "i", "d": "q"})
+				}
+			}
+		}()
+		left := term.waitFor("\x1b[?1049l", 20*time.Second)
+		close(stop)
+		<-stopped
+		if !left {
+			t.Fatalf("htop did not quit; screen %q", term.out.String())
+		}
+		// Enter first: the last q may have landed on the prompt.
+		term.send("\recho nb-after-htop-$((3+4))\r")
 		term.mustSee("nb-after-htop-7")
 	})
 }
