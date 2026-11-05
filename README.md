@@ -4,7 +4,7 @@ A self-hosted visual board for running and directing AI coding agents.
 
 NextBoard is a single Go binary. Run it on a machine you control, open the web UI, and start Claude Code, Codex, Gemini CLI or any other CLI agent as terminal tiles on an infinite canvas. You can see which agents are working, which need you and which are ready without opening each terminal, and they keep running after you close the browser.
 
-> **Status: early development (`0.1.0-dev`).** There is no tagged release yet, so install from source. All real-world testing so far was on Linux; macOS builds exist but are untested. APIs and data formats can still change.
+> **Status: early development (`0.1.0`).** All real-world testing so far was on Linux; macOS builds exist but are untested. APIs and data formats can still change.
 
 ## Features
 
@@ -21,30 +21,29 @@ NextBoard is a single Go binary. Run it on a machine you control, open the web U
 
 ## Quick start
 
-You need Go 1.26+, Node 22+ and git. Install at least one agent CLI.
-
-```bash
-git clone https://github.com/azamrizki/nextboard.git
-cd nextboard
-make build
-./bin/nextboard serve
-```
-
-The first start prints a one-time setup link, valid for 30 minutes. Open it, create the admin password and name your hub. If you lose the link, run `./bin/nextboard setup-link`.
-
-NextBoard listens on `http://127.0.0.1:12312` and keeps its data in `~/.nextboard`. To run it as a service (systemd user service on Linux, LaunchAgent on macOS):
-
-```bash
-./bin/nextboard install
-```
-
-Once a release is tagged, `install.sh` will install prebuilt binaries:
+Install at least one agent CLI, then:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/azamrizki/nextboard/main/install.sh | sh
 ```
 
-Do not use `go install` for now. It builds a hub without the web UI, because the built bundle is not in the repository.
+This installs the binary to `~/.local/bin`, checks its checksum, sets up a service (systemd user service on Linux, LaunchAgent on macOS) and prints a one-time setup link, valid for 30 minutes. Open it, create the admin password and name your hub. If you lose the link, run `nextboard setup-link`.
+
+NextBoard listens on `http://127.0.0.1:12312` and keeps its data in `~/.nextboard`. `nextboard update` installs newer releases. Add `-s -- --no-service` after `sh` to install the binary only.
+
+### From source
+
+You need Go 1.26+, Node 22+ and git.
+
+```bash
+git clone https://github.com/azamrizki/nextboard.git
+cd nextboard
+make build
+./bin/nextboard serve     # prints the setup link in a terminal
+./bin/nextboard install   # or run it as a service
+```
+
+Do not use `go install`. It builds a hub without the web UI, because the built bundle is not in the repository.
 
 ### Optional tools
 
