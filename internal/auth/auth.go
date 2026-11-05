@@ -266,8 +266,19 @@ func (s *Store) Login(password string) (string, error) {
 	if !VerifyPassword(password, hash) {
 		return "", ErrBadPassword
 	}
+	return s.finishLogin(hash)
+}
+
+// finishLogin opens a session for a password that matched hash. That check ran without the lock, so
+// `nextboard reset-password` may have replaced the password since: saving without a reload would
+// write the old hash back, and a reset promises that the old password stops working.
+func (s *Store) finishLogin(hash string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.refresh()
+	if s.file.PasswordHash != hash {
+		return "", ErrBadPassword
+	}
 	tok := s.newCookieLocked()
 	return tok, s.saveLocked()
 }
@@ -495,6 +506,7 @@ func (s *Store) Flush() {
 	defer s.mu.Unlock()
 	_ = s.saveDevicesLocked()
 	if !s.dirty.IsZero() {
+		s.refresh() // a CLI change on disk outranks an unsaved cookie renewal
 		_ = s.saveLocked()
 	}
 }

@@ -55,6 +55,10 @@ func VerifyPassword(pw, encoded string) bool {
 	if err != nil {
 		return false
 	}
+	// argon2 panics on these, and the values come from a file that can be damaged.
+	if t == 0 || p == 0 || len(want) == 0 {
+		return false
+	}
 	got := argon2.IDKey([]byte(pw), salt, t, mem, p, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
