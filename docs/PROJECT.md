@@ -595,7 +595,7 @@ Password manager di board, mengikuti Bitwarden; kontrak dan model keamanannya di
 **Yang tidak dilindungi** (sudah dinyatakan ke pemilik):
 
 - Agent di This PC punya Bash sebagai user yang sama, jadi bisa membaca environment-nya, termasuk rahasia MCP, dan folder data hub. Jangan beri token yang tidak boleh dilihat agent.
-- Critical notes adalah instruksi, kepatuhan bergantung pada model. Blokir teknis untuk perintah tertentu belum diputuskan.
+- Critical notes adalah instruksi, kepatuhan bergantung pada model. Perintah terblokir ditegakkan CLI atau hub, tetapi bukan sandbox (keputusan #38).
 - Profil aplikasi desktop memakai `--password-store=basic`, jadi password tersimpan hanya dilindungi izin file `<data>`.
 - Browser di tile bisa menjangkau semua yang bisa dijangkau This PC, termasuk layanan localhost dan jaringan lokal.
 - Dengan yolo, agent bisa melakukan apa saja tanpa bertanya.
@@ -873,7 +873,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 ### Risiko utama
 
 1. **Rilis baru satu.** `v0.1.0` terpasang dan jalan dari `install.sh` di Ubuntu 24.04 tanpa service. Service systemd baru teruji dengan `systemctl` palsu, binary macOS belum pernah dijalankan, dan `nextboard update` belum pernah mengganti versi sungguhan karena belum ada rilis kedua.
-2. **Critical notes bukan kunci teknis** (§6). Blokir teknis untuk perintah tertentu adalah tawaran terbuka, belum dibangun.
+2. **Blokir perintah bukan sandbox** (§6). Critical notes tetap instruksi. Perintah terblokir ditegakkan CLI atau hub, tetapi agent dengan shell masih bisa menulis skrip yang melakukan hal sama. Penegakan di Codex dan OpenCode, serta di Claude Code dengan skip permissions, belum diuji dengan model sungguhan.
 3. **Aksi tulis git tetap memakai config repo.** Stage, commit, pull, dan push menjalankan hook, filter, dan `core.sshCommand` dari repo, sama seperti git di terminal. Perintah baca sudah tidak (§5.11), tetapi di git < 2.31 filter driver milik repo masih jalan saat `status` dan `diff`.
 
 ### Celah per area
@@ -898,7 +898,6 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 ### Pertanyaan untuk pemilik
 
-- Blokir teknis perintah berbahaya: dibangun atau tetap instruksi.
 - Kapan `remoteTools` keluar dari preview.
 - Kapan Android dan desktop dilanjutkan, dan apa arti "core stabil".
 - Agent boleh memakai credential atau tetap tertutup.

@@ -67,6 +67,8 @@ type LaunchContext struct {
 	// secret values, for the process environment only.
 	MCP    []MCPServer
 	MCPEnv []string
+	// Blocked are the commands that need the owner's approval (guard.go).
+	Blocked []string
 }
 
 // MCPVar is a header or environment variable of an MCP server, whose value is in
@@ -171,7 +173,10 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			p.yolo = []string{"-c", `mcp_servers.nextboard.default_tools_approval_mode="approve"`}
 		}
 	case "opencode":
-		perm := map[string]string{"nextboard_*": "ask"}
+		perm := map[string]any{"nextboard_*": "ask"}
+		if len(c.Blocked) > 0 && !c.Remote {
+			perm["bash"] = OpenCodeBash(c.Blocked)
+		}
 		for _, tool := range MemoryReadTools {
 			perm["nextboard_"+tool] = "allow"
 		}
@@ -202,8 +207,11 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 
 // claudeSettings is the inline value of --settings: hooks, where this launch keeps
 // its auto memory, and whether it signs commits. Nothing is written to any settings file.
-func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool) string {
+func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked []string) string {
 	v := map[string]any{}
+	if len(blocked) > 0 {
+		v["permissions"] = map[string]any{"ask": ClaudeAskRules(blocked)}
+	}
 	if hooks {
 		_ = json.Unmarshal([]byte(HooksJSON()), &v)
 	}
@@ -542,7 +550,11 @@ func Build(a Agent, o Options) (Plan, error) {
 	}
 	claudeHooks := a.LiveStatus == LiveClaudeHooks && len(live) > 0
 	noCoAuthor := a.CapBase() == "claude" && !o.CoAuthor
-	if (memoryDir != "" || noCoAuthor) && !claudeHooks {
+	var blocked []string
+	if o.Context != nil && !o.Context.Remote && a.CapBase() == "claude" { // on a server its Bash is off, and the hub's tool looks
+		blocked = o.Context.Blocked
+	}
+	if (memoryDir != "" || noCoAuthor || len(blocked) > 0) && !claudeHooks {
 		wrapperArgs = append(wrapperArgs, "--settings", "$NB_HOOKS")
 	}
 	model, effort := o.Model, o.Effort
@@ -570,8 +582,8 @@ func Build(a Agent, o Options) (Plan, error) {
 		"NB_HOOK_SH=" + HookScript,
 		"TERM_PROGRAM=nextboard",
 	}
-	if claudeHooks || memoryDir != "" || noCoAuthor {
-		p.Env = append(p.Env, "NB_HOOKS="+claudeSettings(claudeHooks, memoryDir, noCoAuthor))
+	if claudeHooks || memoryDir != "" || noCoAuthor || len(blocked) > 0 {
+		p.Env = append(p.Env, "NB_HOOKS="+claudeSettings(claudeHooks, memoryDir, noCoAuthor, blocked))
 	}
 	if o.HookURL != "" {
 		p.Env = append(p.Env, "NB_HOOK_URL="+o.HookURL)

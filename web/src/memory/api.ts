@@ -18,5 +18,7 @@ export const memoryApi = {
   init: (projectId: string, body: { effort: 'quick' | 'balanced' | 'thorough'; agent?: string }) =>
     apiRequest<Job>('POST', `/api/projects/${enc(projectId)}/memory/init`, body),
   applyInit: (projectId: string, body: InitResult) => apiRequest<GalaxyView>('POST', `/api/projects/${enc(projectId)}/memory/init/apply`, body),
+  blocked: (owner: string) => apiRequest<{ commands: string[]; inherited?: string[] }>('GET', `/api/memory/blocked${owned(owner)}`),
+  saveBlocked: (owner: string, commands: string[]) => apiRequest<{ commands: string[] }>('PUT', `/api/memory/blocked${owned(owner)}`, { commands }),
   pushCritical: (projectId: string) => apiRequest<PushResult>('POST', `/api/projects/${enc(projectId)}/memory/push`, { scopes: ['critical'] }),
 };

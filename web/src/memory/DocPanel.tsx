@@ -11,6 +11,7 @@ import { toast } from '../components/Toast';
 import { timeAgo } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 import { memoryApi } from './api';
+import { commandLines } from './blocks';
 import { SendMemoryDialog } from './SendMemoryDialog';
 import type { DocRef, GalaxyOwner, MemoryDocument } from './types';
 
@@ -30,6 +31,74 @@ function badgeOf(d: MemoryDocument): { icon: IconName; label: string } {
   if (d.kind === 'main') return { icon: 'brain', label: 'Main memory' };
   if (d.kind === 'note') return { icon: 'note', label: 'Agent note' };
   return { icon: 'layers', label: 'Sub-memory' };
+}
+
+/**
+ * Commands the CLI itself stops at, whatever the model decides. Critical notes are what an agent
+ * is told; this is what it cannot simply talk itself past.
+ */
+function BlockedCommands({ owner, ownerName }: { owner: string; ownerName: string }) {
+  const [saved, setSaved] = useState<string | null>(null);
+  const [text, setText] = useState('');
+  const [inherited, setInherited] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setSaved(null);
+    memoryApi
+      .blocked(owner)
+      .then((r) => {
+        if (!alive) return;
+        const value = r.commands.join('\n');
+        setSaved(value);
+        setText(value);
+        setInherited(r.inherited ?? []);
+      })
+      .catch((err) => alive && setError(errorMessage(err)));
+    return () => {
+      alive = false;
+    };
+  }, [owner]);
+
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const r = await memoryApi.saveBlocked(owner, commandLines(text));
+      const value = r.commands.join('\n');
+      setSaved(value);
+      setText(value);
+      toast.success('Saved. It counts from the next time a console starts.');
+    } catch (err) {
+      setError(isStatus(err, 400) ? 'A line is too short or too long, or the list is over 64 commands.' : errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (saved === null && !error) return null;
+  return (
+    <section className="mem-blocked" aria-label="Blocked commands">
+      <h3 className="section-title">Blocked commands</h3>
+      <p className="text-3">
+        The CLI stops and asks you in the console before running these, whatever the model decides. One per line: the start of a command, or * for anything, as in *db:reset*. Not a sandbox: an agent can still write a script that does the same.
+      </p>
+      <textarea className="control mono" aria-label={`Blocked commands of ${ownerName}`} value={text} spellCheck={false} onChange={(e) => setText(e.target.value)} />
+      {inherited.length > 0 && <p className="text-3">Also from all projects: {inherited.join(', ')}</p>}
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="row-end">
+        <Button size="sm" icon="check" loading={busy} disabled={text === saved} onClick={() => void save()}>
+          Save commands
+        </Button>
+      </div>
+    </section>
+  );
 }
 
 export function DocPanel({
@@ -203,6 +272,7 @@ export function DocPanel({
                 Send to running agents
               </Button>
             )}
+            <BlockedCommands owner={doc.owner} ownerName={ownerName} />
           </div>
         </div>
       )}

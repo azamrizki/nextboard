@@ -329,3 +329,66 @@ func TestMemoryRestartWithoutLaunchContext(t *testing.T) {
 	}
 	waitTrue(t, "the restart forgets", 10*time.Second, func() bool { return chars() != 0 })
 }
+
+// The owner's blocked list: over HTTP, into a launch, and refused by the hub's own tool.
+func TestBlockedCommandsReachALaunch(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	dir := t.TempDir()
+	spy := func(name, base string) string {
+		bin := filepath.Join(dir, name)
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+bin+".argv\nenv > "+bin+".env\nexec sleep 120\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if st, a := h.do("POST", "/api/agents", map[string]any{"id": name, "name": name, "command": bin, "base": base}, nil); st != 201 {
+			t.Fatalf("agent %d %v", st, a)
+		}
+		return bin
+	}
+	claude, codex := spy("spyclaude", "claude"), spy("spycodex", "codex")
+	pid, wid := h.homeWorkspace()
+
+	st, got := h.do("GET", "/api/memory/blocked", nil, nil)
+	if st != 200 || !strings.Contains(fmt.Sprint(got["commands"]), "git reset --hard") {
+		t.Fatalf("seed %d %v", st, got)
+	}
+	st, got = h.do("PUT", "/api/memory/blocked?projectId="+pid, map[string]any{"commands": []any{" npm  run deploy ", "*wipe-all*"}}, nil)
+	if st != 200 || fmt.Sprint(got["commands"]) != "[npm run deploy *wipe-all*]" {
+		t.Fatalf("put %d %v", st, got)
+	}
+	st, got = h.do("GET", "/api/memory/blocked?projectId="+pid, nil, nil)
+	if st != 200 || fmt.Sprint(got["commands"]) != "[npm run deploy *wipe-all*]" || !strings.Contains(fmt.Sprint(got["inherited"]), "git reset --hard") {
+		t.Fatalf("get %d %v", st, got)
+	}
+	if st, got := h.do("PUT", "/api/memory/blocked", map[string]any{"commands": []any{"*"}}, nil); st != 400 || got["code"] != "bad_blocked" {
+		t.Fatalf("a pattern that stops everything: %d %v", st, got)
+	}
+
+	start := func(agentID, bin string) string {
+		t.Helper()
+		if st, in := h.do("POST", "/api/sessions", map[string]any{"agent": agentID, "workspaceId": wid, "cwd": dir}, nil); st != 201 {
+			t.Fatalf("console %d %v", st, in)
+		}
+		var env string
+		waitTrue(t, agentID+" started", 20*time.Second, func() bool {
+			b, _ := os.ReadFile(bin + ".env")
+			env = string(b)
+			return strings.Contains(env, "NB_TOKEN=")
+		})
+		return env
+	}
+	env := start("spyclaude", claude)
+	for _, want := range []string{`Bash(*npm run deploy*)`, `Bash(*wipe-all*)`, `Bash(*git reset --hard*)`} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("claude settings lack %s", want)
+		}
+	}
+	if argv, _ := os.ReadFile(claude + ".argv"); !strings.Contains(string(argv), "--settings") {
+		t.Fatalf("argv %s", argv)
+	}
+	start("spycodex", codex)
+	rules, err := os.ReadFile(filepath.Join(h.srv.st.Path("agents", "codex"), "rules", "nextboard.rules"))
+	if err != nil || !strings.Contains(string(rules), `["npm", "run", "deploy"]`) || !strings.Contains(string(rules), `["git", "reset", "--hard"]`) || strings.Contains(string(rules), "wipe-all") {
+		t.Fatalf("codex rules %v:\n%s", err, rules)
+	}
+}

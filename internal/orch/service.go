@@ -133,6 +133,7 @@ type Service struct {
 	briefed     map[string]bool // memory autoPush done
 	handoffFile sync.Mutex      // one writer of handoffs.json at a time
 	seen        *memorySeen     // what each console has of the memory
+	blocked     *blockedLists   // commands that need the owner's approval
 	stop        chan struct{}
 	once        sync.Once
 	wg          sync.WaitGroup
@@ -153,6 +154,7 @@ func New(hub Hub, st *store.Store) *Service {
 	s.Confirms = newConfirms(st)
 	s.Memory = newMemory(st)
 	s.seen = newMemorySeen(st)
+	s.blocked = newBlockedLists(st)
 	s.Layouts = newLayouts(st)
 	s.Loops = newLoops(st, s)
 	s.loadForwards()

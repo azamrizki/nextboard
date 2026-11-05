@@ -73,6 +73,8 @@ func (s *Server) orchRoutes(authed func(string, handler)) {
 	authed("POST /api/projects/{id}/memory/init", s.handleMemoryInit)
 	authed("POST /api/projects/{id}/memory/init/apply", s.handleMemoryInitApply)
 	authed("GET /api/memory/galaxy", s.handleMemoryGalaxy)
+	authed("GET /api/memory/blocked", s.handleMemoryBlocked)
+	authed("PUT /api/memory/blocked", s.handleMemoryBlockedPut)
 	authed("GET /api/memory/search", s.handleMemorySearch)
 	authed("GET /api/memory/docs/{name}", s.handleMemoryDocGet)
 	authed("PUT /api/memory/docs/{name}", s.handleMemoryDocPut)
@@ -165,6 +167,8 @@ func (s *Server) orchErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusConflict, "mtime_mismatch", err.Error())
 	case errors.Is(err, orch.ErrMemoryTooBig):
 		writeErrCode(w, http.StatusRequestEntityTooLarge, "memory_too_big", err.Error())
+	case errors.Is(err, orch.ErrBadBlocked):
+		writeErrCode(w, http.StatusBadRequest, "bad_blocked", err.Error())
 	case errors.Is(err, orch.ErrBadScope):
 		writeErrCode(w, http.StatusBadRequest, "bad_scope", err.Error())
 	case errors.Is(err, orch.ErrBadSubName):
@@ -1080,6 +1084,38 @@ func (s *Server) memoryOwner(w http.ResponseWriter, r *http.Request) (string, bo
 		return "", false
 	}
 	return pid, true
+}
+
+// handleMemoryBlocked is one list, and for a project what all projects add to it.
+func (s *Server) handleMemoryBlocked(w http.ResponseWriter, r *http.Request, p *principal) {
+	pid, ok := s.memoryOwner(w, r)
+	if !ok {
+		return
+	}
+	out := map[string]any{"commands": s.orch.BlockedList(pid)}
+	if pid != "" {
+		out["inherited"] = s.orch.BlockedList("")
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleMemoryBlockedPut(w http.ResponseWriter, r *http.Request, p *principal) {
+	pid, ok := s.memoryOwner(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Commands []string `json:"commands"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	list, err := s.orch.SetBlocked(pid, req.Commands)
+	if err != nil {
+		s.orchErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"commands": list})
 }
 
 func (s *Server) handleMemoryDocGet(w http.ResponseWriter, r *http.Request, p *principal) {

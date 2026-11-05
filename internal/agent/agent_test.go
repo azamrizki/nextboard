@@ -319,7 +319,7 @@ func TestWrapperRunsAgentThenShell(t *testing.T) {
 	if ms[1].Type != marker.TypeAgentExit || ms[1].Payload.Rc == nil || *ms[1].Payload.Rc != 3 {
 		t.Fatalf("exit marker %+v", ms[1])
 	}
-	want := "ARGS:[--session-id][" + p.AgentSessionID + "][--settings][" + claudeSettings(true, "", true) + "][--dangerously-skip-permissions]"
+	want := "ARGS:[--session-id][" + p.AgentSessionID + "][--settings][" + claudeSettings(true, "", true, nil) + "][--dangerously-skip-permissions]"
 	if !bytes.Contains(clean, []byte(want)) {
 		t.Fatalf("args: want %s in %q", want, clean)
 	}

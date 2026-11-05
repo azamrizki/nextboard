@@ -118,6 +118,15 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		}
 		prompt.WriteString(s.orch.LaunchMemory(sp.ID, sp.WorkspaceID, sp.ProjectID, claude))
 	}
+	if s.orch != nil {
+		c.Blocked = s.orch.BlockedCommands(sp.ProjectID)
+		// Codex keeps its rules in its config folder: only in one the hub made, never the user's own.
+		if a.CapBase() == "codex" && hasProfile && pf.CreatedByHub && !c.Remote {
+			if err := agent.WriteCodexRules(pf.Dir, s.orch.AllBlocked()); err != nil {
+				log.Printf("rules codex: %v", err)
+			}
+		}
+	}
 	if !s.settings.Get().Agents.CoAuthor {
 		if prompt.Len() > 0 {
 			prompt.WriteString("\n")
@@ -296,6 +305,16 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 		host, ok := s.machines.Host(t.machineID)
 		if !ok {
 			return remoteAnswer("That server is no longer registered in NextBoard.", true), nil
+		}
+		if p.Name == "bash" && s.orch != nil {
+			var a struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal(p.Arguments, &a) == nil {
+				if answer := s.orch.BlockedAnswer(t.projectID, a.Command); answer != "" {
+					return remoteAnswer(answer, true), nil
+				}
+			}
 		}
 		start := time.Now()
 		text, err := runRemoteTool(ctx, host, t.cwd, p.Name, p.Arguments)

@@ -514,3 +514,103 @@ func TestRealMemoryTile(t *testing.T) {
 		t.Errorf("typed with nothing new: %d deliveries, was %d", len(after), n)
 	}
 }
+
+// TestRealBlockedCommand asks a real Claude Code, on the cheapest model, to run a command the
+// owner blocked. It spends the owner's plan: one short turn. The command only writes a mark in
+// the folder of this test.
+//
+//	NEXTBOARD_REAL_CLI_TEST=1 NEXTBOARD_REAL_MEMORY=1 NEXTBOARD_REAL_CLI_CWD=/already/trusted \
+//	go test -run TestRealBlockedCommand -v ./internal/server/
+func TestRealBlockedCommand(t *testing.T) {
+	if os.Getenv("NEXTBOARD_REAL_CLI_TEST") != "1" || os.Getenv("NEXTBOARD_REAL_MEMORY") != "1" {
+		t.Skip("set NEXTBOARD_REAL_CLI_TEST=1 NEXTBOARD_REAL_MEMORY=1 (memakai plan CLI pemilik)")
+	}
+	cwd := os.Getenv("NEXTBOARD_REAL_CLI_CWD")
+	if cwd == "" {
+		t.Fatal("NEXTBOARD_REAL_CLI_CWD: a folder Claude Code already trusts")
+	}
+	for _, k := range []string{"CLAUDE_EFFORT", "CLAUDE_PID", "CLAUDE_AGENT_SDK_VERSION"} {
+		if v, ok := os.LookupEnv(k); ok {
+			os.Unsetenv(k)
+			t.Cleanup(func() { os.Setenv(k, v) })
+		}
+	}
+	mark := filepath.Join(cwd, "nb-guard-mark")
+	script := filepath.Join(cwd, "nb-guard-check.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho ran > "+mark+"\necho guard-script-ran\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(script); os.Remove(mark) })
+
+	for _, mode := range [][]any{{"--permission-mode", "manual"}} {
+		name := fmt.Sprint(mode[0])
+		t.Run(name, func(t *testing.T) {
+			os.Remove(mark)
+			h := newTestHub(t)
+			h.setup()
+			must := func(want int, method, path string, body any) map[string]any {
+				t.Helper()
+				st, out := h.do(method, path, body, nil)
+				if st != want {
+					t.Fatalf("%s %s: %d %v", method, path, st, out)
+				}
+				return out
+			}
+			must(200, "PATCH", "/api/settings", map[string]any{"agents": map[string]any{"profiles": map[string]any{"local": map[string]any{"claude": nil}}}})
+			must(201, "POST", "/api/agents", map[string]any{"id": "real-claude", "name": "Real Claude", "command": "claude", "base": "claude",
+				"args": append([]any{"--model", "haiku"}, mode...)})
+			p := must(201, "POST", "/api/projects", map[string]any{"machineId": "local", "path": cwd, "name": "Portal"})
+			pid, wid := p["id"].(string), p["workspaces"].([]any)[0].(map[string]any)["id"].(string)
+			must(200, "PUT", "/api/memory/blocked?projectId="+pid, map[string]any{"commands": []any{"nb-guard-check.sh"}})
+			in := must(201, "POST", "/api/sessions", map[string]any{"agent": "real-claude", "workspaceId": wid, "cwd": cwd, "cols": 110, "rows": 34})
+			id := in["id"].(string)
+			t.Cleanup(func() { h.do("DELETE", "/api/sessions/"+id, nil, nil) })
+			sess, _ := h.srv.sessions.Get(id)
+			info := func() session.Info { i, _ := h.srv.sessions.Info(id); return i }
+			deadline := time.Now().Add(60 * time.Second)
+			for info().AgentState != "ready" {
+				if time.Now().After(deadline) {
+					t.Fatalf("not ready: %s\n%s", info().AgentState, sess.Screen().Text())
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+			time.Sleep(1500 * time.Millisecond)
+			screen := strings.ToLower(sess.Screen().Text())
+			for _, dialog := range []string{"trust", "install", "plugin", "do you want", "bypass permissions mode"} {
+				if info().AgentState != "ready" || (strings.Contains(screen, dialog) && !strings.Contains(screen, "bypass permissions on")) {
+					t.Fatalf("a dialog on screen (%q), nothing typed:\n%s", dialog, screen)
+				}
+			}
+			// Through a wrapper the CLI does not strip: the rule has to see inside it.
+			must(202, "POST", "/api/sessions/"+id+"/deliveries", map[string]any{"text": "Run this exact shell command with your Bash tool and tell me what it printed: bash -c './nb-guard-check.sh'", "source": "api"})
+			// What must happen: it stops and asks, and the script does not run.
+			asked := false
+			deadline = time.Now().Add(90 * time.Second)
+			for time.Now().Before(deadline) && !asked {
+				if info().AgentState == "needsYou" {
+					asked = true
+					break
+				}
+				if _, err := os.Stat(mark); err == nil {
+					t.Fatalf("the blocked command ran:\n%s", sess.Screen().Text())
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+			t.Logf("state %s activity %q\n%s", info().AgentState, info().Activity, sess.Screen().Text())
+			if !asked {
+				t.Fatal("it never asked")
+			}
+			time.Sleep(1500 * time.Millisecond)
+			if _, err := os.Stat(mark); err == nil {
+				t.Fatal("the blocked command ran while asking")
+			}
+			if err := sess.Input([]byte("\x1b")); err != nil { // refuse
+				t.Fatal(err)
+			}
+			time.Sleep(2 * time.Second)
+			if _, err := os.Stat(mark); err == nil {
+				t.Fatal("refused and it ran")
+			}
+		})
+	}
+}
