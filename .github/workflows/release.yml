@@ -1,11 +1,25 @@
 name: release
+
+# Started by hand when there is something to release, and the only time CI runs:
+# Actions > release > Run workflow, or `gh workflow run release.yml`. Tick dry_run to
+# run the tests and see which version would come out, without publishing anything.
+#
+# The commit messages since the last tag decide the version: see .releaserc.json.
+
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run the tests and show the next version, publish nothing
+        type: boolean
+        default: false
+
 permissions:
   contents: write
+
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,10 +33,22 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: go test ./...
+
+      - run: make web
+      - run: make test-web
+      - run: go vet ./...
+      - run: NEXTBOARD_SSHD_TEST=1 go test -race ./...
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          install-only: true
+      # Before any tag exists: a broken build must not leave a version without a release.
+      - run: goreleaser check
+      - run: goreleaser release --snapshot --clean --skip=publish
+
+      - run: npm install --no-save --no-package-lock --no-audit --no-fund --prefix "$RUNNER_TEMP/sr" semantic-release@25.0.9 @semantic-release/exec@7.1.0 conventional-changelog-conventionalcommits@10.4.1
+      - run: |
+          "$RUNNER_TEMP/sr/node_modules/.bin/semantic-release" ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

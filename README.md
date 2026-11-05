@@ -100,7 +100,7 @@ make snapshot   # goreleaser build for linux/darwin, amd64/arm64
 
 By default the tests never touch a real agent CLI or your agent plan. `NEXTBOARD_REAL_CLI_TEST=1` turns on tests that do, and these use your real account.
 
-GitHub Actions runs `go vet` and the Go and web tests, including the SSH ones, on every push to `main` and every pull request. Pushing a `v*` tag publishes a release with goreleaser.
+While NextBoard is in development, CI runs only as part of a release, so run the tests yourself before you push. A release is started by hand from GitHub Actions: it runs all the tests, works out the version from the commit messages with [semantic-release](https://semantic-release.gitbook.io/), tags it and publishes the binaries with goreleaser. Commits use [Conventional Commits](https://www.conventionalcommits.org/): `fix:` gives a patch release, `feat:` a minor one, and `docs:`, `test:`, `ci:` and `chore:` no release. Until 1.0, a breaking change (`feat!:`) also gives a minor release.
 
 ### Layout
 
@@ -138,7 +138,7 @@ The detailed docs are written in Indonesian. Start with [docs/PROJECT.md](docs/P
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `make test` and `make test-web` before opening a pull request, and keep the matching `docs/API*.md` accurate when a contract changes.
+Issues and pull requests are welcome. Please run `make test` and `make test-web` before opening a pull request, since CI does not run on it, use [Conventional Commits](https://www.conventionalcommits.org/), and keep the matching `docs/API*.md` accurate when a contract changes.
 
 ## License
 

@@ -34,3 +34,15 @@ checksum:
 changelog:
   use: github
   sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))?!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?(fix|perf|revert)(\(.+\))?!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^.*?(docs|test|ci|chore)(\(.+\))?:.+$'

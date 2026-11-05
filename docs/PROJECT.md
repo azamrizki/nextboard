@@ -730,14 +730,16 @@ Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go in
 
 | Variabel | Membuka |
 |---|---|
-| `NEXTBOARD_SSHD_TEST=1` | Uji SSH dengan sshd sekali pakai (juga jalan di CI) |
+| `NEXTBOARD_SSHD_TEST=1` | Uji SSH dengan sshd sekali pakai (juga jalan saat rilis) |
 | `NEXTBOARD_TMUX_SSH`, `_USER`, `_KEY` | Uji mode tmux terhadap sshd dengan tmux |
 | `NEXTBOARD_REAL_CLI_TEST=1` | CLI nyata; **memakai plan pemilik** |
 | `NEXTBOARD_REAL_ORCH=1`, `NEXTBOARD_REAL_USAGE=1` | Orkestrasi dan usage nyata, bersama gerbang di atas |
 
 **Aturan di host bersama.** Kalau This PC juga menjalankan layanan lain, test ikut memakai memori yang sama, dan `/tmp` bisa punya kuota per user. Helper test rekursif pernah memunculkan ratusan `Xtigervnc` sampai OOM killer menghantam layanan lain. Jadi: test yang memunculkan proses dijalankan satu kasus kecil dulu dengan `-timeout`, proses sisa dihitung sesudahnya, dan test tidak boleh meng-exec dirinya sendiri tanpa guard.
 
-**CI dan rilis.** Tiap push ke `main` dan tiap pull request menjalankan `make web`, `make test-web`, `go vet`, dan `NEXTBOARD_SSHD_TEST=1 go test -race ./...` di GitHub Actions; run pertama lolos pada 2026-11-05 dalam sekitar 5 menit. Tag `v*` menjalankan goreleaser untuk linux/darwin × amd64/arm64 + `checksums.txt`; Rilis pertama, `v0.1.0`, terbit 2026-11-05.
+**CI dan rilis (keputusan #36).** Selama pengembangan, CI tidak jalan tiap push atau pull request, jadi test dijalankan sendiri sebelum push. Rilis dipicu manual dari Actions atau `gh workflow run release.yml`, dengan `-f dry_run=true` untuk melihat versi berikutnya tanpa menerbitkan apa pun. Workflow menjalankan `make web`, `make test-web`, `go vet`, `NEXTBOARD_SSHD_TEST=1 go test -race ./...`, dan build goreleaser percobaan. Sesudah semuanya lolos, semantic-release menentukan versi dari pesan commit sejak tag terakhir, membuat tag, lalu goreleaser menerbitkan linux/darwin × amd64/arm64 + `checksums.txt`. Tag yang di-push manual tidak lagi memicu apa pun. Rilis pertama, `v0.1.0`, terbit 2026-11-05 lewat tag manual.
+
+Commit memakai Conventional Commits: `fix:`, `perf:`, `revert:` → patch; `feat:` → minor; `docs:`, `test:`, `ci:`, `chore:`, dan commit lain → tidak merilis. Sebelum 1.0, perubahan breaking (`feat!:`, footer `BREAKING CHANGE:`) juga minor. Aturannya di `.releaserc.json`.
 
 **Deploy.** `deploy/nginx.conf.example` + `deploy/nextboard-proxy.inc`:
 
@@ -794,6 +796,7 @@ Sumber: [ROADMAP.md](ROADMAP.md).
 | 33 | 11-04 | Agent tidak menandatangani commit, berlaku global |
 | 34 | 11-05 | Order yang belum diketik saat hub restart ditawarkan untuk dikirim ulang, hub tidak mengirim sendiri |
 | 35 | 11-05 | Open source: repo publik, lisensi MIT, data pribadi tidak masuk repo |
+| 36 | 11-05 | CI hanya jalan saat rilis; rilis manual, versi ditentukan semantic-release dari pesan commit |
 
 ## 13. Status dan riwayat
 
