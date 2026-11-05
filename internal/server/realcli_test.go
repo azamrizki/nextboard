@@ -336,3 +336,181 @@ func deref(p *int) any {
 	}
 	return *p
 }
+
+// TestRealMemoryTile sends a memory tile's stack through a real Claude Code, on the
+// cheapest model. It spends the owner's plan: three short turns.
+//
+//	NEXTBOARD_REAL_CLI_TEST=1 NEXTBOARD_REAL_MEMORY=1 NEXTBOARD_REAL_CLI_CWD=/already/trusted \
+//	[NEXTBOARD_SCREEN_DUMP=/scratch/dir] go test -run TestRealMemoryTile -v ./internal/server/
+//
+// The folder must be one Claude Code already trusts: this test never answers a dialog.
+func TestRealMemoryTile(t *testing.T) {
+	if os.Getenv("NEXTBOARD_REAL_CLI_TEST") != "1" || os.Getenv("NEXTBOARD_REAL_MEMORY") != "1" {
+		t.Skip("set NEXTBOARD_REAL_CLI_TEST=1 NEXTBOARD_REAL_MEMORY=1 (memakai plan CLI pemilik)")
+	}
+	cwd := os.Getenv("NEXTBOARD_REAL_CLI_CWD")
+	if cwd == "" {
+		t.Fatal("NEXTBOARD_REAL_CLI_CWD: a folder Claude Code already trusts")
+	}
+	for _, k := range []string{"CLAUDE_EFFORT", "CLAUDE_PID", "CLAUDE_AGENT_SDK_VERSION"} {
+		if v, ok := os.LookupEnv(k); ok {
+			os.Unsetenv(k)
+			t.Cleanup(func() { os.Setenv(k, v) })
+		}
+	}
+	home, _ := os.UserHomeDir()
+	settings := filepath.Join(home, ".claude", "settings.json")
+	sum := func() string {
+		b, _ := os.ReadFile(settings)
+		h := sha256.Sum256(b)
+		return hex.EncodeToString(h[:8])
+	}
+	before := sum()
+	t.Cleanup(func() {
+		if sum() != before {
+			t.Errorf("%s changed during the run", settings)
+		}
+	})
+
+	h := newTestHub(t)
+	h.setup()
+	must := func(want int, method, path string, body any) map[string]any {
+		t.Helper()
+		st, out := h.do(method, path, body, nil)
+		if st != want {
+			t.Fatalf("%s %s: %d %v", method, path, st, out)
+		}
+		return out
+	}
+	// the CLI's own login, not a folder the hub made
+	must(200, "PATCH", "/api/settings", map[string]any{"agents": map[string]any{"profiles": map[string]any{"local": map[string]any{"claude": nil}}}})
+	must(201, "POST", "/api/agents", map[string]any{"id": "real-claude", "name": "Real Claude", "command": "claude", "base": "claude",
+		"args": []any{"--model", "haiku", "--permission-mode", "manual"}})
+	p := must(201, "POST", "/api/projects", map[string]any{"machineId": "local", "path": cwd, "name": "Portal"})
+	pid, wid := p["id"].(string), p["workspaces"].([]any)[0].(map[string]any)["id"].(string)
+	other := h.otherProject("Acme")
+	must(200, "PUT", "/api/projects/"+pid+"/memory", map[string]any{"scope": "project", "content": "## Context\n- The project codeword is zebra-1842.\n"})
+	for name, content := range map[string]string{
+		"design": "## Tokens\n- The design codeword is walrus-5521.\n",
+		"deploy": "## Steps\n- The deploy codeword is heron-7733.\n",
+		"secret": "- The secret codeword is otter-9911.\n",
+	} {
+		title := map[string]string{"design": "Design system", "deploy": "Deployment", "secret": "Secret"}[name]
+		must(200, "PUT", "/api/memory/docs/"+name+"?projectId="+other, map[string]any{"title": title, "content": content})
+	}
+	in := must(201, "POST", "/api/sessions", map[string]any{"agent": "real-claude", "workspaceId": wid, "cwd": cwd, "cols": 110, "rows": 34})
+	id := in["id"].(string)
+	t.Cleanup(func() { h.do("DELETE", "/api/sessions/"+id, nil, nil) })
+	sess, _ := h.srv.sessions.Get(id)
+	info := func() session.Info { i, _ := h.srv.sessions.Info(id); return i }
+	dump := func(name string) {
+		if d := os.Getenv("NEXTBOARD_SCREEN_DUMP"); d != "" {
+			os.MkdirAll(d, 0o755)
+			os.WriteFile(filepath.Join(d, "memtile-"+name+".txt"), []byte(sess.Screen().Text()), 0o600)
+		}
+	}
+	// Anything but a plain prompt is a dialog, and typing into a dialog can answer it.
+	ready := func(what string) {
+		t.Helper()
+		deadline := time.Now().Add(60 * time.Second)
+		for time.Now().Before(deadline) {
+			if info().AgentState == "ready" {
+				time.Sleep(1500 * time.Millisecond)
+				if info().AgentState == "ready" {
+					screen := strings.ToLower(sess.Screen().Text())
+					for _, dialog := range []string{"trust", "install", "plugin", "do you want"} {
+						if strings.Contains(screen, dialog) {
+							dump("dialog")
+							t.Fatalf("%s: a dialog on screen (%q), nothing typed:\n%s", what, dialog, screen)
+						}
+					}
+					return
+				}
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		dump("timeout")
+		t.Fatalf("%s: not ready: %s %q\n%s", what, info().AgentState, info().Activity, sess.Screen().Text())
+	}
+	ready("first launch")
+	must(200, "POST", "/api/workspaces/"+wid+"/board/ops", map[string]any{"clientId": "c_tab1", "baseRev": 0, "ops": []any{
+		memTileOp(map[string]any{"blocks": []any{map[string]any{"projectId": other, "name": "design"}, map[string]any{"projectId": other, "name": "deploy", "lookup": true}}}),
+		wireEdge("e_wire000001", testMemTile, h.terminalNode(wid, id)),
+	}})
+	must(200, "POST", "/api/sessions/"+id+"/restart", nil)
+	ready("launch with the tile")
+	if c := must(200, "POST", "/api/projects/"+pid+"/memory/plan", map[string]any{"memoryNodeId": testMemTile})["targets"].([]any)[0].(map[string]any)["chars"].(float64); c != 0 {
+		t.Fatalf("the launch should leave nothing to type: %v", c)
+	}
+
+	lastReply := ""
+	// turn waits for what a turn answered: an order typed by the hub, or a memory push.
+	turn := func(name string, start func()) string {
+		t.Helper()
+		ready(name)
+		start()
+		deadline := time.Now().Add(150 * time.Second)
+		for time.Now().Before(deadline) {
+			if rep, ok := sess.Reply(); ok && rep.Text != lastReply && info().AgentState == "ready" {
+				lastReply = rep.Text
+				t.Logf("%s: reply %q", name, rep.Text)
+				dump(name)
+				return rep.Text
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+		dump("timeout-" + name)
+		if d := os.Getenv("NEXTBOARD_SCREEN_DUMP"); d != "" {
+			raw, sub := sess.Subscribe()
+			sess.Unsubscribe(sub)
+			os.WriteFile(filepath.Join(d, "memtile-raw.bin"), raw, 0o600)
+		}
+		_, ds := h.do("GET", "/api/sessions/"+id+"/deliveries", nil, nil)
+		t.Fatalf("%s: no reply: %s %q\n%v\n%s", name, info().AgentState, info().Activity, ds, sess.Screen().Text())
+		return ""
+	}
+	ask := func(name, text string) string {
+		t.Helper()
+		return turn(name, func() {
+			must(202, "POST", "/api/sessions/"+id+"/deliveries", map[string]any{"text": text, "source": "api"})
+		})
+	}
+
+	// In the system prompt and the memory folder: no tool, no extra turn.
+	got := ask("launch", "Without using any tool, answer on one line with only two words: the project codeword from your memory, then the design codeword from the memory of project Acme.")
+	if !strings.Contains(got, "zebra-1842") || !strings.Contains(got, "walrus-5521") || strings.Contains(got, "heron") {
+		t.Errorf("launch: %q", got)
+	}
+	// Left out, with a name it can follow by itself.
+	got = ask("lookup", "Your instructions list a page called Deployment from project Acme, left out to be read by name. Read it with the memory_read tool of the nextboard MCP server, then answer with only the codeword in it.")
+	if !strings.Contains(got, "heron-7733") {
+		t.Errorf("lookup: %q", got)
+	}
+
+	// A new fact: typed once, only that, as background.
+	must(200, "POST", "/api/projects/"+pid+"/memory/accept", map[string]any{"scope": "project", "facts": []any{map[string]any{"kind": "context", "text": "The typed codeword is lynx-3317."}}})
+	got = turn("typed", func() {
+		if r := must(200, "POST", "/api/projects/"+pid+"/memory/push", map[string]any{"memoryNodeId": testMemTile}); r["delivered"].(float64) != 1 {
+			t.Fatalf("push %v", r)
+		}
+	})
+	if !strings.Contains(strings.ToUpper(got), "OK") || len(got) > 40 {
+		t.Errorf("background became work: %q", got)
+	}
+	list := must(200, "GET", "/api/sessions/"+id+"/deliveries", nil)["items"].([]any)
+	typed := list[len(list)-1].(map[string]any)["text"].(string)
+	if !strings.Contains(typed, "lynx-3317") || strings.Contains(typed, "zebra") || strings.Contains(typed, "walrus") {
+		t.Errorf("typed more than the new fact:\n%s", typed)
+	}
+	t.Logf("typed %d characters", len([]rune(typed)))
+
+	// Nothing new: no turn.
+	ready("after the push")
+	n := len(list)
+	if r := must(200, "POST", "/api/projects/"+pid+"/memory/push", map[string]any{"memoryNodeId": testMemTile}); r["upToDate"].(float64) != 1 || r["delivered"].(float64) != 0 {
+		t.Errorf("nothing new: %v", r)
+	}
+	if after := must(200, "GET", "/api/sessions/"+id+"/deliveries", nil)["items"].([]any); len(after) != n {
+		t.Errorf("typed with nothing new: %d deliveries, was %d", len(after), n)
+	}
+}

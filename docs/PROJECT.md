@@ -894,7 +894,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, kartu Android dan desktop, dan cara agent memakai credential belum ada ([API-vault.md](API-vault.md)) |
 | Uptime | Halaman status publik, jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada ([API-uptime.md](API-uptime.md)) |
-| Test | Test web baru mencakup vault, markdown, dan socket (124 test); komponen dan alur UI belum, dan uji browser selama ini dijalankan di luar repo. Sisa kriteria SPEC §12 ada di §13 |
+| Test | Test web baru mencakup vault, markdown, socket, blok memory, dan aturan wire (135 test); komponen dan alur UI belum, dan uji browser selama ini dijalankan di luar repo. Sisa kriteria SPEC §12 ada di §13 |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -115,5 +116,36 @@ func TestInputPromptPasted(t *testing.T) {
 		if ok, _ := InputPromptPasted(rules, lines, cy); ok {
 			t.Fatalf("%s accepted", f)
 		}
+	}
+}
+
+// Claude Code 2.1.318, seen for real: a prompt suggestion came in during the paste and left
+// its letters over the text and on the rule below. The text in the input is still right, so
+// Return must go; the order failed here and stayed in the input before.
+func TestInputPromptPastedOverSuggestion(t *testing.T) {
+	rule := strings.Repeat("─", 110)
+	box := []string{
+		"",
+		rule,
+		"❯ Your instructions list a page called Deployment from project Acme, left out to be read by name. Read it",
+		"  withutheCmemory_read tool of the nextboard MCP server, then answer with only the codeword in it. Acme projec",
+		"t codewords" + strings.Repeat("─", 99),
+		"",
+		"  ⏸ manual mode on",
+	}
+	if ok, why := InputPromptPasted("claude", box, 3); !ok {
+		t.Fatalf("refused: %s", why)
+	}
+	// Text alone is still no box.
+	open := slices.Clone(box)
+	open[4] = "t codewords"
+	if ok, _ := InputPromptPasted("claude", open, 3); ok {
+		t.Fatal("no rule under the input")
+	}
+	// Nor does a rule above it stop being needed.
+	top := slices.Clone(box)
+	top[1] = "some text" + strings.Repeat("─", 20)
+	if ok, _ := InputPromptPasted("claude", top, 3); ok {
+		t.Fatal("no rule above the input")
 	}
 }

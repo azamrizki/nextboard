@@ -23,6 +23,10 @@ type inputShape struct {
 
 var (
 	ruleLine = regexp.MustCompile(`^\s*─{6,}\s*$`)
+	// ruleEnd is the rule under Claude Code's input box after a pasted line. A prompt
+	// suggestion arriving during the paste can leave its last letters on that row, so only
+	// its end is a rule. Dialogs are looked for on their own.
+	ruleEnd = regexp.MustCompile(`─{6,}\s*$`)
 	// numbered option with a selection marker: "› 1. Update now", "❯ 2. No"
 	selectedOption = regexp.MustCompile(`^\s*[❯›>▶➤→»]\s*\d+[.)]\s`)
 )
@@ -254,7 +258,7 @@ func InputPromptPasted(rulesID string, lines []string, cursorY int) (bool, strin
 		return false, "prompt input tidak ditemukan di atas kursor"
 	}
 	if rulesID == "claude" {
-		if !ruleLine.MatchString(neighbour(norm, start, -1)) || !ruleLine.MatchString(neighbour(norm, cursorY, 1)) {
+		if !ruleLine.MatchString(neighbour(norm, start, -1)) || !ruleEnd.MatchString(neighbour(norm, cursorY, 1)) {
 			return false, "kotak input tidak lengkap"
 		}
 	}
