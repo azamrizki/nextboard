@@ -62,16 +62,20 @@ func (x *splitCase) thread() string {
 	return strings.Join(all, "\n")
 }
 
-func (x *splitCase) waitDelivered(t *testing.T, sid string, n int) []delivery.Delivery {
+func (x *splitCase) delivered(t *testing.T, sid string, n int) []delivery.Delivery {
 	t.Helper()
-	waitFor(t, "deliveries", func() bool { return len(x.h.deliveriesTo(sid)) >= n })
-	return x.h.deliveriesTo(sid)
+	ds := x.h.deliveriesTo(sid)
+	if len(ds) != n {
+		t.Fatalf("%d deliveries, want %d: %+v", len(ds), n, ds)
+	}
+	return ds
 }
 
-// waitThread waits for a note: the answer is handled on a goroutine of its own.
-func (x *splitCase) waitThread(t *testing.T, want string) {
+func (x *splitCase) threadSays(t *testing.T, want string) {
 	t.Helper()
-	waitFor(t, "thread to say "+want, func() bool { return strings.Contains(x.thread(), want) })
+	if got := x.thread(); !strings.Contains(got, want) {
+		t.Fatalf("thread does not say %q:\n%s", want, got)
+	}
 }
 
 func TestSplitSchemaIsJSON(t *testing.T) {
@@ -102,7 +106,7 @@ func TestSplitGivesEachTargetItsOwnPart(t *testing.T) {
 	}
 
 	x.answerParts(t, "Bea", "Write the tests.", "@cid", "Write the docs.")
-	bea, cid := x.waitDelivered(t, x.bea, 1), x.waitDelivered(t, x.cid, 1)
+	bea, cid := x.delivered(t, x.bea, 1), x.delivered(t, x.cid, 1)
 	if len(bea) != 1 || !strings.Contains(bea[0].Text, "Write the tests.") || strings.Contains(bea[0].Text, "Write the docs.") {
 		t.Errorf("Bea got %+v", bea)
 	}
@@ -117,15 +121,15 @@ func TestSplitGivesEachTargetItsOwnPart(t *testing.T) {
 			t.Errorf("the target cannot tell where this came from: %q", d.Text)
 		}
 	}
-	x.waitThread(t, "Split @Ash's result between @Bea and @Cid.")
+	x.threadSays(t, "Split @Ash's result between @Bea and @Cid.")
 }
 
 func TestSplitMayLeaveATargetFree(t *testing.T) {
 	x := newSplit(t)
 	x.start()
 	x.answerParts(t, "Cid", "Write the docs.")
-	x.waitDelivered(t, x.cid, 1)
-	x.waitThread(t, "between @Cid.")
+	x.delivered(t, x.cid, 1)
+	x.threadSays(t, "between @Cid.")
 	if n := len(x.h.deliveriesTo(x.bea)); n != 0 {
 		t.Errorf("Bea got %d deliveries", n)
 	}
@@ -136,8 +140,8 @@ func TestSplitOnlyReachesTheTargets(t *testing.T) {
 	x := newSplit(t)
 	x.start()
 	x.answerParts(t, "Zed", "Ghost work.", "Ash", "Back to the source.", "Bea", "First part.", "Bea", "Second part.", "Cid", "   ")
-	bea := x.waitDelivered(t, x.bea, 1)
-	x.waitThread(t, "between @Bea.")
+	bea := x.delivered(t, x.bea, 1)
+	x.threadSays(t, "between @Bea.")
 	if len(bea) != 1 || !strings.Contains(bea[0].Text, "First part.\n\nSecond part.") {
 		t.Errorf("repeats of one target must merge: %+v", bea)
 	}
@@ -156,7 +160,7 @@ func TestSplitFitsADelivery(t *testing.T) {
 	x := newSplit(t)
 	x.start()
 	x.answerParts(t, "Bea", strings.Repeat("a", maxDigest), "Bea", strings.Repeat("b", maxDigest))
-	bea := x.waitDelivered(t, x.bea, 1)
+	bea := x.delivered(t, x.bea, 1)
 	if n := len([]rune(bea[0].Text)); n > maxDigest || !strings.Contains(bea[0].Text, truncMark) {
 		t.Errorf("%d characters, marker present: %v", n, strings.Contains(bea[0].Text, truncMark))
 	}
@@ -180,8 +184,8 @@ func TestSplitFallsBackToTheWholeDigest(t *testing.T) {
 			x := newSplit(t)
 			x.start()
 			x.answer(t, a.job)
-			bea := x.waitDelivered(t, x.bea, 1)
-			x.waitThread(t, "Forwarded @Ash's result to @Bea.")
+			bea := x.delivered(t, x.bea, 1)
+			x.threadSays(t, "Forwarded @Ash's result to @Bea.")
 			if bea[0].Text != Digest(x.parts) || bea[0].ForwardDepth != 2 {
 				t.Errorf("%+v", bea[0])
 			}
@@ -242,7 +246,7 @@ func TestSplitFailuresCoolThePlannerDown(t *testing.T) {
 	for i := 1; i <= 2; i++ {
 		x.start()
 		x.answer(t, failedJob("runner_failed"))
-		x.waitDelivered(t, x.bea, i)
+		x.delivered(t, x.bea, i)
 	}
 	if ok, reason := x.s.PlannerAvailable(""); ok || reason != "cooldown" {
 		t.Fatalf("available=%v reason=%q", ok, reason)
@@ -261,7 +265,6 @@ func TestSplitCutShortByAHubRestart(t *testing.T) {
 	x := newSplit(t)
 	x.start()
 	x.answer(t, jobs.Job{State: jobs.StateFailed, Code: "hub_restart"})
-	// On the job's own goroutine: the hub is about to exit.
 	if !strings.Contains(x.thread(), "Forward from @Ash not sent: the hub restarted") {
 		t.Errorf("thread:\n%s", x.thread())
 	}
@@ -275,7 +278,7 @@ func TestRiskySplitWaitsForTheUser(t *testing.T) {
 		x := newSplit(t)
 		x.start()
 		x.answerParts(t, "Bea", "Write the tests.", "Cid", "Run rm -rf dist first.")
-		x.waitThread(t, "can be dangerous")
+		x.threadSays(t, "can be dangerous")
 		cf, ok := x.s.Confirms.Pending(x.pid, t0)
 		if !ok || cf.Kind != ConfRisky || !strings.Contains(cf.Prompt, "@Cid") || !strings.Contains(cf.Prompt, "rm -rf") {
 			t.Fatalf("confirmation %+v", cf)
@@ -329,18 +332,18 @@ func TestSplitOverAForwardLine(t *testing.T) {
 	x, _ := newSplitEdge(t)
 	finish(t, x.h, x.s, x.ash, t0)
 	x.answerParts(t, "Bea", "Write the tests.", "Cid", "Write the docs.")
-	if bea := x.waitDelivered(t, x.bea, 1); bea[0].ForwardDepth != 1 {
+	if bea := x.delivered(t, x.bea, 1); bea[0].ForwardDepth != 1 {
 		t.Errorf("depth %d", bea[0].ForwardDepth)
 	}
-	x.waitDelivered(t, x.cid, 1)
+	x.delivered(t, x.cid, 1)
 }
 
 func TestSplitOfHeldResultsOverAForwardLine(t *testing.T) {
 	x, _ := newSplitEdge(t)
 	finish(t, x.h, x.s, x.ash, t0)
 	x.answerParts(t, "Bea", "First.", "Cid", "First too.")
-	x.waitDelivered(t, x.bea, 1)
-	x.waitDelivered(t, x.cid, 1)
+	x.delivered(t, x.bea, 1)
+	x.delivered(t, x.cid, 1)
 
 	// Inside the line's minute the result waits, then goes through the planner like any other.
 	x.h.mu.Lock()
@@ -354,7 +357,7 @@ func TestSplitOfHeldResultsOverAForwardLine(t *testing.T) {
 		t.Fatalf("runs %d, want %d", len(x.h.runs), before+1)
 	}
 	x.answerParts(t, "Bea", "Second.", "Cid", "Second too.")
-	if bea := x.waitDelivered(t, x.bea, 2); !strings.Contains(bea[1].Text, "Second.") {
+	if bea := x.delivered(t, x.bea, 2); !strings.Contains(bea[1].Text, "Second.") {
 		t.Errorf("%+v", bea[1])
 	}
 }
@@ -366,7 +369,7 @@ func TestLineRemovedWhileSplittingSendsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	x.answerParts(t, "Bea", "Write the tests.", "Cid", "Write the docs.")
-	x.waitThread(t, "not sent: its line was removed")
+	x.threadSays(t, "not sent: its line was removed")
 	if n := len(x.h.deliveriesTo(x.bea)) + len(x.h.deliveriesTo(x.cid)); n != 0 {
 		t.Errorf("%d deliveries over a removed line", n)
 	}
@@ -386,6 +389,6 @@ func TestOneShotSplit(t *testing.T) {
 	x.s.mu.Unlock()
 	x.s.checkForward(f.ID, t0)
 	x.answerParts(t, "Bea", "Write the tests.", "Cid", "Write the docs.")
-	x.waitDelivered(t, x.bea, 1)
-	x.waitDelivered(t, x.cid, 1)
+	x.delivered(t, x.bea, 1)
+	x.delivered(t, x.cid, 1)
 }

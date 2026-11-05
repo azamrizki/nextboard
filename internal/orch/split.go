@@ -88,7 +88,7 @@ func (s *Service) splitForward(c *execCtx, sources []string, parts []ReplyPart, 
 				s.note(&done, "Forward from "+s.handlesOf(sources)+" not sent: the hub restarted while splitting it.")
 				return
 			}
-			go s.splitDone(&done, j, sources, parts, targets, depth, line)
+			s.splitDone(&done, j, sources, parts, targets, depth, line)
 		}})
 	if err != nil {
 		return false
