@@ -6,6 +6,7 @@ import '@fontsource-variable/geist-mono';
 import '@fontsource-variable/jetbrains-mono';
 import './lib/theme';
 import './lib/layout';
+import { watchInstall } from './lib/install';
 import { installLongPress } from './lib/longpress';
 import './styles/tokens.css';
 import './styles/base.css';
@@ -20,6 +21,8 @@ import { App } from './App';
 
 // a long press is a right-click on the board and where marked (lib/longpress.ts)
 installLongPress();
+// the browser offers the install once, early: kept for the Install button (lib/install.ts)
+watchInstall();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

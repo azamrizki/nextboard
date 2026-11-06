@@ -1,6 +1,6 @@
 // Settings (docs/API-agents.md §11, §17): hub-wide settings (agents, profiles,
 // notifications, shortcuts — shared by every device) and per-browser preferences
-// (appearance, whether this browser shows notifications). A phone shows the list of panes at
+// (appearance, whether this browser shows notifications, installing the app). A phone shows the list of panes at
 // /settings and one pane at a time, with a way back; the other layouts show both side by side.
 
 import { useEffect, useState } from 'react';
@@ -11,6 +11,7 @@ import { Icon, type IconName } from '../components/Icon';
 import { Link } from '../lib/router';
 import { AgentsPane } from '../settings/AgentsPane';
 import { AppearancePane } from '../settings/AppearancePane';
+import { AppPane } from '../settings/AppPane';
 import { McpPane } from '../settings/McpPane';
 import { NotificationsPane } from '../settings/NotificationsPane';
 import { ProfilesPane } from '../settings/ProfilesPane';
@@ -34,7 +35,11 @@ const PANES: { id: string; label: string; icon: IconName; hint: string }[] = [
   { id: 'voice', label: 'Voice', icon: 'mic', hint: 'Push-to-talk, dictation, this browser' },
   { id: 'connections', label: 'Connections', icon: 'plug', hint: 'GitHub CLI per machine' },
   { id: 'appearance', label: 'Appearance', icon: 'textSize', hint: 'This browser only' },
+  { id: 'app', label: 'Install app', icon: 'download', hint: 'Home screen, this device' },
 ];
+
+// panes kept by this browser, which an older hub does not change
+const LOCAL = new Set(['appearance', 'voice', 'app']);
 
 export function SettingsPage({ pane }: { pane: string }) {
   const settings = useSettings();
@@ -92,7 +97,7 @@ export function SettingsPage({ pane }: { pane: string }) {
               <Icon name={current.icon} />
               {current.label}
             </h2>
-            {unsupported && current.id !== 'appearance' && current.id !== 'voice' && (
+            {unsupported && !LOCAL.has(current.id) && (
               <div className="alert warning" role="status">
                 <Icon name="alert" />
                 <span>This hub doesn’t support agent settings yet. Update NextBoard on the hub, then reload this page.</span>
@@ -109,6 +114,7 @@ export function SettingsPage({ pane }: { pane: string }) {
             {current.id === 'voice' && <VoicePane />}
             {current.id === 'connections' && <ConnectionsPane />}
             {current.id === 'appearance' && <AppearancePane />}
+            {current.id === 'app' && <AppPane />}
           </section>
           )}
         </div>

@@ -340,7 +340,10 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   useEffect(() => {
     if (!focused || !focusArea) return;
     if (!viewBeforeFocus.current) viewBeforeFocus.current = rf.getViewport();
-    void rf.setViewport({ x: focusArea.left - focused.x, y: focusArea.top - focused.y, zoom: 1 });
+    // a card near the board's edge, made the size of the screen, is moved back inside it
+    const x = Math.min(focused.x, EXTENT[1][0] - focusArea.width);
+    const y = Math.min(focused.y, EXTENT[1][1] - focusArea.height);
+    void rf.setViewport({ x: focusArea.left - x, y: focusArea.top - y, zoom: 1 });
   }, [focused?.id, focused?.x, focused?.y, focusArea, rf]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (focused) {

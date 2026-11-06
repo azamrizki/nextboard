@@ -63,7 +63,8 @@ test('the header opens the vault on any page, with no card on the board', async 
   await openVault(page);
   await expect(button).toHaveAccessibleName('Credentials, unlocked');
   const name = `Mail ${p.name}`;
-  await addLogin(page, hub, name, `mail-CANARY-${p.id}`);
+  const secret = `mail-CANARY-${p.id}`;
+  await addLogin(page, hub, name, secret);
   await expect(win.getByText(name, { exact: true }).first()).toBeVisible();
 
   // Escape in its menu closes the menu, and the window stays.
@@ -94,7 +95,8 @@ test('the header opens the vault on any page, with no card on the board', async 
   await win.getByRole('button', { name: 'Lock the vault' }).click();
   await expect(win.getByRole('button', { name: 'Unlock', exact: true })).toBeVisible();
   await expect(button).toHaveAccessibleName('Credentials');
-  expect(await page.content()).not.toContain('CANARY');
+  // this login's value; other tests' names on the shared hub (a monitor's toast) may say CANARY
+  expect(await page.content()).not.toContain(secret);
   // The same key on the board itself does open the map.
   await page.keyboard.press('Escape');
   await expect(win).toBeHidden();

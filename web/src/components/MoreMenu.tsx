@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { useAuth } from '../auth';
+import { useInstall } from '../lib/install';
 import { useLayout } from '../lib/layout';
 import { memoryPath, navigate } from '../lib/router';
 import { setThemePref, useTheme } from '../lib/theme';
@@ -14,6 +15,7 @@ export function MoreMenu({ project }: { project?: Project }) {
   const { me, logout } = useAuth();
   const { theme } = useTheme();
   const { layout } = useLayout();
+  const { state: installState, install } = useInstall();
   const [about, setAbout] = useState(false);
   const next = theme === 'dark' ? 'light' : 'dark';
 
@@ -29,6 +31,8 @@ export function MoreMenu({ project }: { project?: Project }) {
       : []),
     // a phone outside a project has Settings in its tab bar
     ...(project || layout !== 'phone' ? [{ label: 'Settings', icon: 'sliders', onSelect: () => navigate('/settings') } as MenuEntry] : []),
+    // only while the browser offers it (lib/install.ts): Settings › Install app says the rest
+    ...(installState === 'ready' ? [{ label: 'Install app', icon: 'download', onSelect: () => void install() } as MenuEntry] : []),
     { label: `Switch to ${next} mode`, icon: theme === 'dark' ? 'sun' : 'moon', onSelect: () => setThemePref(next) },
     { label: 'About this hub', icon: 'info', onSelect: () => setAbout(true) },
     'sep',

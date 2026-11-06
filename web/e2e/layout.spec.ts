@@ -16,7 +16,9 @@ interface Box {
 }
 
 async function shell(page: Page) {
-  return page.evaluate(() => {
+  // a phone's Chrome widens a page that is too wide and shows it smaller: the screen is the measure
+  const W = page.viewportSize()!.width;
+  return page.evaluate((W) => {
     const box = (e: Element, name: string) => {
       const r = e.getBoundingClientRect();
       return { name, top: r.top, bottom: r.bottom, left: r.left, right: r.right };
@@ -35,7 +37,7 @@ async function shell(page: Page) {
     return {
       layout: document.documentElement.dataset.layout,
       input: document.documentElement.dataset.input,
-      overflow: document.documentElement.scrollWidth - window.innerWidth,
+      overflow: Math.max(document.documentElement.scrollWidth, window.innerWidth) - W,
       header: header ? box(header, 'header') : null,
       tabBar: document.querySelector('.tab-bar') ? box(document.querySelector('.tab-bar')!, 'tab bar') : null,
       controls,
@@ -43,7 +45,7 @@ async function shell(page: Page) {
         .filter((e) => !e.closest('.ws-tabs') && e.getBoundingClientRect().width > 0)
         .map((e) => ({ name: e.getAttribute('aria-label') || e.textContent?.trim() || '', w: e.getBoundingClientRect().width, h: e.getBoundingClientRect().height })),
     };
-  });
+  }, W);
 }
 
 const overlaps = (a: Box, b: Box) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;

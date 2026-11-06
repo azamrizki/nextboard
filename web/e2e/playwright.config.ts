@@ -8,6 +8,9 @@ import { defineConfig } from '@playwright/test';
 export const PORT = Number(process.env.NEXTBOARD_E2E_PORT || 12398);
 export const STATE_FILE = join(tmpdir(), `nextboard-e2e-state-${PORT}.json`);
 
+// what the touch devices run: the layouts, and what is done by finger
+const DEVICE_SPECS = /(layout|board-touch|phone-board|console-touch|cards-touch|studio-touch|app|sweep)\.spec\.ts/;
+
 export default defineConfig({
   testDir: '.',
   outputDir: join(tmpdir(), `nextboard-e2e-results-${PORT}`),
@@ -26,8 +29,8 @@ export default defineConfig({
   projects: [
     { name: 'light', use: { colorScheme: 'light' } },
     { name: 'dark', use: { colorScheme: 'dark' } },
-    { name: 'phone', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch|studio-touch)\.spec\.ts/, use: { colorScheme: 'light', viewport: { width: 393, height: 873 }, deviceScaleFactor: 2.75, isMobile: true, hasTouch: true } },
-    { name: 'tablet-portrait', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch|studio-touch)\.spec\.ts/, use: { colorScheme: 'dark', viewport: { width: 800, height: 1280 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
-    { name: 'tablet-landscape', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch|studio-touch)\.spec\.ts/, use: { colorScheme: 'light', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { name: 'phone', testMatch: DEVICE_SPECS, use: { colorScheme: 'light', viewport: { width: 393, height: 873 }, deviceScaleFactor: 2.75, isMobile: true, hasTouch: true } },
+    { name: 'tablet-portrait', testMatch: DEVICE_SPECS, use: { colorScheme: 'dark', viewport: { width: 800, height: 1280 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { name: 'tablet-landscape', testMatch: DEVICE_SPECS, use: { colorScheme: 'light', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
   ],
 });

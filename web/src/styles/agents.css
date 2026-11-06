@@ -698,6 +698,28 @@
 .text-size-seg {
   flex-wrap: wrap;
 }
+/* Settings › Install app */
+.app-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin: 0;
+  padding-left: var(--s-5);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.app-steps b {
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+.app-installed {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+  color: var(--tint-success-text);
+}
+.settings-card .mono {
+  overflow-wrap: anywhere;
+}
 textarea.control.textarea-sm {
   min-height: calc(var(--h-control) * 1.6);
 }

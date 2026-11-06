@@ -17,6 +17,7 @@ NextBoard is a single Go binary. Run it on a machine you control, open the web U
 - **Desktop apps in a tile** (Linux). GUI apps run on a virtual display and stream to the board.
 - **SSH machines.** Agentless: nothing is installed on the server. Uses tmux when available, so sessions survive disconnects.
 - **Studios.** Documents to PDF, diagrams, a Markdown vault with a link graph, and a skills manager.
+- **Phones and tablets.** Every page, the board and every card have their own phone and tablet layouts. Phones get a Cards list beside the canvas, and touch screens get key bars for consoles and the code editor. The web UI installs as an app when the hub is reached over HTTPS; over plain HTTP, *Add to Home screen* gives a browser shortcut instead.
 - **And more.** A zero-knowledge credentials vault that agents can use one approved command at a time without seeing a value, uptime monitors with an optional public status page, usage and token charts, voice input through the Web Speech API, and notifications.
 
 ## Quick start
