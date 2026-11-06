@@ -26,8 +26,8 @@ export default defineConfig({
   projects: [
     { name: 'light', use: { colorScheme: 'light' } },
     { name: 'dark', use: { colorScheme: 'dark' } },
-    { name: 'phone', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch)\.spec\.ts/, use: { colorScheme: 'light', viewport: { width: 393, height: 873 }, deviceScaleFactor: 2.75, isMobile: true, hasTouch: true } },
-    { name: 'tablet-portrait', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch)\.spec\.ts/, use: { colorScheme: 'dark', viewport: { width: 800, height: 1280 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
-    { name: 'tablet-landscape', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch)\.spec\.ts/, use: { colorScheme: 'light', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { name: 'phone', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch|studio-touch)\.spec\.ts/, use: { colorScheme: 'light', viewport: { width: 393, height: 873 }, deviceScaleFactor: 2.75, isMobile: true, hasTouch: true } },
+    { name: 'tablet-portrait', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch|studio-touch)\.spec\.ts/, use: { colorScheme: 'dark', viewport: { width: 800, height: 1280 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { name: 'tablet-landscape', testMatch: /(layout|board-touch|phone-board|console-touch|cards-touch|studio-touch)\.spec\.ts/, use: { colorScheme: 'light', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
   ],
 });

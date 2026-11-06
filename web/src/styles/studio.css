@@ -648,6 +648,39 @@
   color: var(--text-3);
 }
 
+/* a phone: the list or what was picked from it, one at a time (studio/StudioPane.tsx) */
+.studio-back {
+  display: none;
+}
+:root[data-layout='phone'] .studio-split {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+:root[data-layout='phone'] .studio-split.shows-side > .studio-main,
+:root[data-layout='phone'] .studio-split.shows-main > .studio-side {
+  display: none;
+}
+:root[data-layout='phone'] .studio-split.shows-main .studio-back {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: var(--h-control-sm);
+  padding: 0 var(--s-2) 0 var(--s-1);
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.studio-back svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+
 @media (max-width: 899px) {
   .studio-split {
     grid-template-columns: minmax(0, 1fr);

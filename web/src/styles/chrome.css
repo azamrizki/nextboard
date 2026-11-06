@@ -992,6 +992,10 @@
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
+/* a phone has no keys for shortcuts (a tablet may have a keyboard cover) */
+:root[data-layout='phone'] .menu-kbd {
+  display: none;
+}
 .menu-meta {
   margin-left: var(--s-6);
   font-family: var(--font-mono);

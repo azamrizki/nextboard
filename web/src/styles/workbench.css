@@ -1460,6 +1460,7 @@
   gap: var(--s-1);
 }
 .wb-panel-tab {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
@@ -2944,4 +2945,130 @@
 }
 .wb-pr-patch .is-hunk {
   color: var(--text-3);
+}
+
+/* =========================================================================
+   A narrow workbench (studio/code/CodeStudio.tsx, DESIGN.md §3.5): its width decides, so a phone,
+   a tablet held upright and a small card on a desktop all get it. Under 1000 px the agents side
+   bar lies over the editor; under 640 px the side bar does too, and only the current editor group
+   shows. A scrim behind either closes it.
+   ========================================================================= */
+
+.wb-body {
+  position: relative;
+}
+.wb-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  padding: 0;
+  border: 0;
+  background: var(--backdrop);
+  cursor: default;
+}
+.wb-scrim-side {
+  left: 44px;
+}
+.wb.is-narrow .wb-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 44px;
+  z-index: 6;
+  width: min(360px, calc(100% - 44px)) !important;
+  border-right: var(--hairline) solid var(--wb-line);
+  box-shadow: var(--e-3);
+}
+.wb.is-medium .wb-side {
+  max-width: 40%;
+}
+.wb:is(.is-narrow, .is-medium) .wb-right {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  width: min(460px, 100%) !important;
+  background: var(--wb-bar);
+  border-left: var(--hairline) solid var(--wb-line);
+  box-shadow: var(--e-3);
+}
+.wb.is-narrow .wb-group-slot:not(.is-current) {
+  display: none;
+}
+.wb.is-narrow .wb-group-slot > .wb-sash {
+  display: none;
+}
+/* the panel never takes the editor's whole height */
+.wb-panel-wrap {
+  max-height: 60%;
+  min-height: 0;
+}
+/* what is left in a narrow title bar and status bar: Go to file as an icon, the branch, the
+   problems, the cursor and the language */
+.tile-head.is-narrow .wb-command-center {
+  flex: 0 0 auto;
+  margin-left: 0;
+}
+.tile-head.is-narrow .wb-command-center > :not(svg) {
+  display: none;
+}
+.wb.is-narrow .wb-status-extra,
+.wb.is-narrow .wb-status-lsp .truncate {
+  display: none;
+}
+.wb.is-narrow .wb-status {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* in focus mode the card fills the screen already */
+.react-flow__node.is-focused .wb-fill {
+  display: none;
+}
+
+/* a touch screen: no hover to bring a tab's close button, no keys to read, wider sashes */
+:root[data-input='touch'] .wb-tab-close svg {
+  opacity: 1;
+}
+:root[data-input='touch'] .wb-tab.is-dirty .wb-tab-close svg {
+  opacity: 0;
+}
+:root[data-input='touch'] .wb-command-center kbd {
+  display: none;
+}
+:root[data-input='touch'] .wb-sash-v::after {
+  inset: 0 -10px;
+}
+:root[data-input='touch'] .wb-sash-h::after {
+  inset: -10px 0;
+}
+/* a narrow panel: its tabs scroll sideways, and the terminal list becomes a row above the
+   terminal, which keeps the width */
+.wb.is-narrow .wb-panel-tabs {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wb.is-narrow .wb-panel-tab {
+  flex: 0 0 auto;
+}
+.wb.is-narrow .wb-terms {
+  flex-direction: column-reverse;
+}
+.wb.is-narrow .wb-term-body {
+  min-height: 0;
+}
+.wb.is-narrow .wb-term-list {
+  width: auto;
+  flex-direction: row;
+  align-items: center;
+  padding: 0 var(--s-1) var(--nudge);
+  border-left: 0;
+  border-bottom: var(--hairline) solid var(--wb-line);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.wb.is-narrow .wb-term-list > * {
+  flex: 0 0 auto;
 }

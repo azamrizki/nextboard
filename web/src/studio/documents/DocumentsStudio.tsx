@@ -10,6 +10,7 @@ import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { SegmentedControl } from '../../components/form';
 import { Icon } from '../../components/Icon';
+import { useStudioPane } from '../StudioPane';
 import { Menu } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
@@ -61,9 +62,10 @@ export default function DocumentsStudio({ project, initialDocument, onClose, onA
   }, [loaded, docs]);
 
   const doc = sel === 'new' ? undefined : docs?.find((d) => d.id === sel);
+  const pane = useStudioPane('Library');
   return (
     <Modal title="Documents" icon="book" size="lg" className="studio-modal" onClose={onClose}>
-      <div className="studio-split">
+      <div className={`studio-split ${pane.splitClass}`}>
         <nav className="studio-side" aria-label="Document library">
           <Button
             size="sm"
@@ -73,6 +75,7 @@ export default function DocumentsStudio({ project, initialDocument, onClose, onA
             onClick={() => {
               picked.current = true;
               setSel('new');
+              pane.showMain();
             }}
           >
             New document
@@ -92,6 +95,7 @@ export default function DocumentsStudio({ project, initialDocument, onClose, onA
                     onClick={() => {
                       picked.current = true;
                       setSel(d.id);
+                      pane.showMain();
                     }}
                   >
                     <Icon name="fileText" />
@@ -109,6 +113,7 @@ export default function DocumentsStudio({ project, initialDocument, onClose, onA
           </ul>
         </nav>
         <div className="studio-main">
+          {pane.back}
           {sel === 'new' || !doc ? (
             <Generator project={project} onStarted={(d) => setSel(d.id)} />
           ) : (

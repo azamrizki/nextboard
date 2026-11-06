@@ -3,9 +3,14 @@
 // Run and Debug, Extensions, Ask, Settings), editor groups, bottom panel, status bar, Go to
 // file and the command palette. Monaco is the editor; language servers and debug adapters
 // on the project's machine add the rest; files stay on the machine, written with ifMtime.
+//
+// Its width decides its layout (DESIGN.md §3.5): under 1000 px the agents side bar lies over the
+// editor, under 640 px (a phone) the side bar does too and closes when it opens a file, and only
+// the current editor group shows. On a touch screen a key bar comes with the keyboard.
 
 import { useReactFlow } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { api, errorMessage } from '../../api';
 import type { BoardController } from '../../board/controller';
 import { rectOf } from '../../board/controller';
@@ -13,7 +18,10 @@ import { snapshotOf } from '../../board/files';
 import { DEFAULT_SIZE, SNAPSHOT_MAX } from '../../board/kinds';
 import { placeNear } from '../../board/layout';
 import { pushAside, type Moved } from '../../board/pushAside';
-import { TileHead } from '../../board/tiles/common';
+import { TileHead, useSize } from '../../board/tiles/common';
+import { KeyBar } from '../../board/KeyBar';
+import { useLayout } from '../../lib/layout';
+import { EditorKeyBar } from './EditorKeyBar';
 import { Button } from '../../components/Button';
 import { Icon, type IconName } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
@@ -199,17 +207,17 @@ function StatusBar({ ws, onPick, onView, onPanel }: { ws: Workspace; onPick: (ki
             Ln {c.line}, Col {c.col}
             {c.selected ? ` (${c.selected} selected)` : ''}
           </span>
-          <button type="button" onClick={() => onPick('indent')} title="Indentation">
+          <button type="button" className="wb-status-extra" onClick={() => onPick('indent')} title="Indentation">
             {opts?.insertSpaces ? 'Spaces' : 'Tab Size'}: {opts?.indentSize ?? opts?.tabSize}
           </button>
           {doc?.encoding ? (
-            <button type="button" onClick={() => onPick('encoding')} title="Reopen with another encoding">
+            <button type="button" className="wb-status-extra" onClick={() => onPick('encoding')} title="Reopen with another encoding">
               {doc.encoding}
             </button>
           ) : (
-            <span className="wb-status-item">{doc?.bom ? 'UTF-8 with BOM' : 'UTF-8'}</span>
+            <span className="wb-status-item wb-status-extra">{doc?.bom ? 'UTF-8 with BOM' : 'UTF-8'}</span>
           )}
-          <button type="button" onClick={() => onPick('eol')} title={doc?.mixedEol ? 'This file mixes line endings: saving makes them all the same' : 'End of line sequence'}>
+          <button type="button" className="wb-status-extra" onClick={() => onPick('eol')} title={doc?.mixedEol ? 'This file mixes line endings: saving makes them all the same' : 'End of line sequence'}>
             {model.getEOL() === '\r\n' ? 'CRLF' : 'LF'}
             {doc?.mixedEol ? ' (mixed)' : ''}
           </button>
@@ -238,6 +246,59 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
   const [confirmDialog, run] = useRemoteConfirm();
   const fullscreen = useFullscreen();
   ws.run = run;
+
+  // the layout follows the card's width, not the screen's: a small card on a desktop is narrow too
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const { w: bodyW } = useSize(bodyRef);
+  const mode = !bodyW || bodyW >= 1000 ? 'wide' : bodyW < 640 ? 'narrow' : 'medium';
+  const sideOver = mode === 'narrow';
+  const rightOver = mode !== 'wide';
+  // a file opened from a side bar that lies over the editor closes it: the file is what was wanted
+  const activeTab = ws.activeTab?.id ?? null;
+  const lastTab = useRef(activeTab);
+  useEffect(() => {
+    if (activeTab === lastTab.current) return;
+    lastTab.current = activeTab;
+    if (sideOver && ws.sideOpen && activeTab) {
+      ws.sideOpen = false;
+      ws.changed();
+    }
+  }, [activeTab, sideOver, ws]);
+
+  // a touch screen: the keys its keyboard lacks, for the editor or a terminal that has the keyboard
+  const coarse = useLayout().input === 'touch';
+  const [typing, setTyping] = useState<string | null>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !coarse) {
+      setTyping(null);
+      return;
+    }
+    let timer = 0;
+    const read = () => {
+      const a = document.activeElement as HTMLElement | null;
+      let next: string | null = null;
+      if (a && root.contains(a)) {
+        // the editor's input: a textarea, or an EditContext element where the browser has it
+        if (a.closest('.monaco-editor')) next = 'editor';
+        else next = a.closest<HTMLElement>('.wb-terminal')?.dataset.session ?? null;
+      }
+      setTyping(next);
+    };
+    // focus leaves one element before it reaches the next
+    const later = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(read, 0);
+    };
+    document.addEventListener('focusin', read);
+    document.addEventListener('focusout', later);
+    read();
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('focusin', read);
+      document.removeEventListener('focusout', later);
+    };
+  }, [coarse]);
 
   const showView = useCallback(
     (v: SideView) => {
@@ -825,7 +886,7 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
   return (
     <PaneEnv.Provider value={paneEnv}>
     <div
-      className="wb nokey"
+      className={`wb nokey ${mode === 'wide' ? '' : `is-${mode}`}`}
       ref={rootRef}
       tabIndex={-1}
       role="application"
@@ -860,13 +921,13 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
             <Button size="sm" variant={ws.sideOpen ? 'secondary' : 'ghost'} iconOnly icon="layout" aria-label="Toggle side bar (Ctrl+B)" aria-pressed={ws.sideOpen} title="Side bar · Ctrl+B" onClick={() => ((ws.sideOpen = !ws.sideOpen), ws.changed())} />
             <Button size="sm" variant={ws.rightOpen ? 'secondary' : 'ghost'} iconOnly icon="bot" aria-label="Toggle agents side bar (Ctrl+Alt+B)" aria-pressed={ws.rightOpen} title="Agents side bar · Ctrl+Alt+B" onClick={() => ((ws.rightOpen = !ws.rightOpen), ws.changed())} />
             <Button size="sm" variant={ws.panelOpen ? 'secondary' : 'ghost'} iconOnly icon="terminal" aria-label="Toggle panel (Ctrl+`)" aria-pressed={ws.panelOpen} title="Terminal panel · Ctrl+`" onClick={togglePanel} />
-            <Button size="sm" variant={filled ? 'secondary' : 'ghost'} iconOnly icon={filled ? 'fullscreenExit' : 'fullscreen'} aria-label={filled ? 'Back to the card’s own size' : 'Fill the board view'} aria-pressed={filled} title={filled ? 'Back to the card’s own size' : 'Fill the board view'} onClick={toggleFill} />
+            <Button size="sm" variant={filled ? 'secondary' : 'ghost'} iconOnly className="wb-fill" icon={filled ? 'fullscreenExit' : 'fullscreen'} aria-label={filled ? 'Back to the card’s own size' : 'Fill the board view'} aria-pressed={filled} title={filled ? 'Back to the card’s own size' : 'Fill the board view'} onClick={toggleFill} />
           </span>
         }
         menuLabel="Editor card actions"
         deleteItem={{ label: 'Close the card', icon: 'close', title: 'Tabs and unsaved edits are kept', onSelect: closeCard }}
       />
-      <div className="wb-body nodrag nowheel nopan">
+      <div className="wb-body nodrag nowheel nopan" ref={bodyRef}>
         <nav className="wb-activity" aria-label="Views">
           {ACTIVITY.map((a) => (
             <button
@@ -890,6 +951,7 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
         </nav>
         {ws.sideOpen && (
           <>
+            {sideOver && <button type="button" className="wb-scrim wb-scrim-side" aria-label="Close the side bar" onClick={() => ((ws.sideOpen = false), ws.changed())} />}
             <aside className="wb-side" style={{ width: ws.sideW }}>
               {ws.side === 'files' && <Explorer ws={ws} onAddFile={addFile} onAddFolder={addFolder} onTerminal={(dir) => void newTerminal(ws, ctl.workspaceId, dir)} onAsk={askAgent} />}
               {ws.side === 'search' && <SearchPanel ws={ws} focusTick={searchTick} />}
@@ -900,7 +962,7 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
               {ws.side === 'agents' && <AgentsPanel ws={ws} ctl={ctl} nodeId={nodeId} context={context} setContext={setContext} request={agentRequest} focusTick={agentsTick} />}
               {ws.side === 'settings' && <SettingsPanel ws={ws} onInstall={installInTerminal} />}
             </aside>
-            <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" aria-label="Resize side bar" onPointerDown={startSide} />
+            {!sideOver && <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" aria-label="Resize side bar" onPointerDown={startSide} />}
           </>
         )}
         <main className="wb-center">
@@ -909,7 +971,7 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
           {ws.panelOpen && (
             <>
               <div className="wb-sash wb-sash-h" role="separator" aria-orientation="horizontal" aria-label="Resize panel" onPointerDown={startPanel} />
-              <div style={{ height: ws.panelH, flex: '0 0 auto' }}>
+              <div className="wb-panel-wrap" style={{ height: ws.panelH, flex: '0 0 auto' }}>
                 <BottomPanel ws={ws} workspaceId={ctl.workspaceId} />
               </div>
             </>
@@ -917,7 +979,11 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
         </main>
         {ws.rightOpen && (
           <>
-            <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" aria-label="Resize agents side bar" onPointerDown={startRight} />
+            {rightOver ? (
+              <button type="button" className="wb-scrim" aria-label="Close the agents side bar" onClick={() => ((ws.rightOpen = false), ws.changed())} />
+            ) : (
+              <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" aria-label="Resize agents side bar" onPointerDown={startRight} />
+            )}
             <AgentSideBar ws={ws} workspaceId={ctl.workspaceId} />
           </>
         )}
@@ -950,6 +1016,9 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
       <DebugDialogs ws={ws} />
       <ClosePaneDialog ws={ws} />
       {confirmDialog}
+      {/* fixed to the screen: out of the card, which the board moves and scales */}
+      {typing === 'editor' && createPortal(<EditorKeyBar ws={ws} onGoToFile={() => setPalette({ initial: '' })} />, document.body)}
+      {typing && typing !== 'editor' && createPortal(<KeyBar key={typing} sessionId={typing} name="the terminal" />, document.body)}
     </div>
     </PaneEnv.Provider>
   );

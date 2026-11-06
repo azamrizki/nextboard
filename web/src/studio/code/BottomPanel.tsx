@@ -21,7 +21,7 @@ export const TerminalView = memo(function TerminalView({ sessionId }: { sessionI
   const ref = useRef<HTMLDivElement>(null);
   const consoleTheme = useConsoleThemeAttr();
   useTerminal(sessionId, ref);
-  return <div className="wb-terminal" ref={ref} data-keep-escape="" data-theme={consoleTheme} />;
+  return <div className="wb-terminal" ref={ref} data-keep-escape="" data-theme={consoleTheme} data-session={sessionId} />;
 });
 
 /** Start a terminal in the project (or a folder of it). */

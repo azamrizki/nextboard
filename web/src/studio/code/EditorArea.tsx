@@ -1231,7 +1231,7 @@ export function EditorArea({ ws, onAddFile, aiOpen, setAiOpen }: { ws: Workspace
   return (
     <div className="wb-editors" ref={area}>
       {ws.groups.map((g, i) => (
-        <div key={g.id} className="wb-group-slot" style={{ flexGrow: weights[i] } as CSSProperties}>
+        <div key={g.id} className={`wb-group-slot ${ws.activeGroup === i ? 'is-current' : ''}`} style={{ flexGrow: weights[i] } as CSSProperties}>
           {i > 0 && <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" onPointerDown={(e) => startSash(i - 1, e)} />}
           <GroupView ws={ws} group={g} gi={i} onAddFile={onAddFile} aiOpen={aiOpen} setAiOpen={setAiOpen} />
         </div>

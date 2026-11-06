@@ -13,6 +13,7 @@ import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { SegmentedControl } from '../../components/form';
 import { Icon } from '../../components/Icon';
+import { useStudioPane } from '../StudioPane';
 import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
@@ -180,7 +181,9 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
     return () => window.clearTimeout(t);
   }, [view, doc.text, f.dirty, doc.conflict, diskChanged, doc.readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const pane = useStudioPane('Notes', !!initialPath);
   const open = (p: string) => {
+    pane.showMain();
     if (p === path) return;
     if (f.dirty) void f.save();
     setPath(p);
@@ -294,7 +297,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
   const status = doc.saving || saveState === 'saving' ? 'Saving…' : saveState === 'failed' || doc.error ? 'Save failed' : f.dirty ? 'Unsaved' : saveState === 'saved' ? 'Saved' : '';
   return (
     <Modal title="Markdown" icon="markdown" size="lg" className="studio-modal" onClose={() => (f.dirty ? void f.save().then(onClose) : onClose())}>
-      <div className="studio-split">
+      <div className={`studio-split ${pane.splitClass}`}>
         <nav className="studio-side" aria-label="Notes">
           <div className="code-side-bar">
             <div className="input-group has-lead grow">
@@ -324,6 +327,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
           </div>
         </nav>
         <div className="studio-main">
+          {pane.back}
           <div className="code-bar">
             <span className="code-path truncate" title={path ?? ''}>
               {current ? current.title || current.rel : view === 'graph' ? 'Link graph' : 'Pick a note'}

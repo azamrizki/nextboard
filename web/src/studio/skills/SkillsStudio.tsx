@@ -11,6 +11,7 @@ import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { SegmentedControl } from '../../components/form';
 import { Icon } from '../../components/Icon';
+import { useStudioPane } from '../StudioPane';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import { timeAgo } from '../../lib/format';
@@ -63,6 +64,7 @@ export default function SkillsStudio({ project, onClose }: Props) {
   const [cfg, setCfg] = useState('');
   const [error, setError] = useState('');
   const [sel, setSel] = useState<string | null>(null);
+  const pane = useStudioPane('Skills');
   const [creating, setCreating] = useState<Partial<SkillStarter> | null>(null);
   const rev = useStudio((s) => s.skillsRev[machineId] ?? 0);
   const [confirmDialog, run] = useRemoteConfirm();
@@ -131,7 +133,7 @@ export default function SkillsStudio({ project, onClose }: Props) {
       {tab === 'starters' ? (
         <Starters onUse={(s) => setCreating(s)} />
       ) : (
-        <div className="studio-split skills-split">
+        <div className={`studio-split skills-split ${pane.splitClass}`}>
           <nav className="studio-side" aria-label="Skills">
             <div className="input-group has-lead">
               <span className="ig-lead">
@@ -152,7 +154,7 @@ export default function SkillsStudio({ project, onClose }: Props) {
               <ul className="plain studio-list">
                 {shown.map((s) => (
                   <li key={s.id}>
-                    <button type="button" className={`studio-item ${sel === s.id ? 'is-active' : ''}`} aria-current={sel === s.id || undefined} onClick={() => setSel(s.id)}>
+                    <button type="button" className={`studio-item ${sel === s.id ? 'is-active' : ''}`} aria-current={sel === s.id || undefined} onClick={() => (setSel(s.id), pane.showMain())}>
                       <Icon name={s.kind === 'command' ? 'terminal' : 'puzzle'} />
                       <span className="studio-item-text">
                         <span className="truncate">
@@ -174,6 +176,7 @@ export default function SkillsStudio({ project, onClose }: Props) {
             {cfg && <p className="fs-xs text-3 truncate" title={cfg}>Config folder: {cfg}</p>}
           </nav>
           <div className="studio-main">
+            {pane.back}
             {selected ? (
               <SkillPage key={selected.id} skill={selected} machineId={machineId} scopeQ={scopeQ} run={run} onChanged={load} onDeleted={() => {
                 setSel(null);

@@ -14,7 +14,7 @@ import { applyMods, keySequence, liveConsole, toggleMod, useMods, type KeyName }
 
 const keep = (e: SyntheticEvent) => e.preventDefault();
 
-function Key({ label, icon, name, pressed, onPress }: { label?: ReactNode; icon?: IconName; name: string; pressed?: boolean; onPress: () => void }) {
+export function Key({ label, icon, name, pressed, onPress }: { label?: ReactNode; icon?: IconName; name: string; pressed?: boolean; onPress: () => void }) {
   return (
     <button type="button" className="key" aria-label={name} title={name} aria-pressed={pressed} onPointerDown={keep} onMouseDown={keep} onClick={onPress}>
       {icon ? <Icon name={icon} /> : label}
