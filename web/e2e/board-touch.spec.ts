@@ -56,6 +56,9 @@ async function board(page: Page, hub: Parameters<Parameters<typeof test>[1]>[0][
   const c = await hub.console(p.wid);
   await hub.ops(p.wid, [{ op: 'put', node: { id: 'n_kanb000001', kind: 'kanban', x: 800, y: 40, w: 520, h: 420, data: {} } }]);
   await page.goto(`/p/${p.id}`);
+  // a phone opens on its card list: these tests are about the canvas
+  await expect(page.locator('.app-header')).toBeVisible();
+  if ((await page.locator('html').getAttribute('data-layout')) === 'phone') await page.locator('.phone-tabs').getByRole('button', { name: 'Board' }).click();
   await expect(page.locator('.react-flow__node')).toHaveCount(2);
   await page.waitForTimeout(600);
   return { p, console: c };

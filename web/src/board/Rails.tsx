@@ -124,6 +124,8 @@ interface ToolRailProps {
   spawnFlyout: ReactNode;
   onSpawnClick: () => void;
   onSpawnClose: () => void;
+  /** A phone: the drawing tools, Redo and Full screen move to the Insert grid, so the rail fits. */
+  short?: boolean;
 }
 
 export function ToolRail({
@@ -141,6 +143,7 @@ export function ToolRail({
   spawnFlyout,
   onSpawnClick,
   onSpawnClose,
+  short = false,
 }: ToolRailProps) {
   const [shapesOpen, setShapesOpen] = useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
@@ -208,6 +211,7 @@ export function ToolRail({
             onSpawnClick();
           }}
         />
+        {!short && (
         <RailButton
           icon={shapeIcon}
           label="Shapes and notes"
@@ -219,10 +223,15 @@ export function ToolRail({
             setShapesOpen((o) => !o);
           }}
         />
-        <RailButton icon="type" label="Text" active={tool === 'text'} onClick={() => pick('text')} />
-        <RailButton icon="pen" label="Pen" shortcut={key(shortcuts.pen)} active={tool === 'pen'} onClick={() => pick('pen')} />
-        <RailButton icon="eraser" label="Eraser" shortcut={key(shortcuts.eraser)} active={tool === 'eraser'} onClick={() => pick('eraser')} />
-        <RailButton icon="image" label="Image" active={tool === 'image'} onClick={() => pick('image')} />
+        )}
+        {!short && (
+          <>
+            <RailButton icon="type" label="Text" active={tool === 'text'} onClick={() => pick('text')} />
+            <RailButton icon="pen" label="Pen" shortcut={key(shortcuts.pen)} active={tool === 'pen'} onClick={() => pick('pen')} />
+            <RailButton icon="eraser" label="Eraser" shortcut={key(shortcuts.eraser)} active={tool === 'eraser'} onClick={() => pick('eraser')} />
+            <RailButton icon="image" label="Image" active={tool === 'image'} onClick={() => pick('image')} />
+          </>
+        )}
         {insert && (
           <RailButton
             icon="plus"
@@ -237,9 +246,9 @@ export function ToolRail({
         )}
         <span className="rail-sep" aria-hidden="true" />
         <RailButton icon="undo" label="Undo" shortcut="Ctrl+Z" disabled={!canUndo} onClick={onUndo} />
-        <RailButton icon="redo" label="Redo" shortcut="Ctrl+Shift+Z" disabled={!canRedo} onClick={onRedo} />
+        {!short && <RailButton icon="redo" label="Redo" shortcut="Ctrl+Shift+Z" disabled={!canRedo} onClick={onRedo} />}
         <RailButton icon="fit" label="Fit to content" shortcut="Shift+1" onClick={onFit} />
-        {fullscreen.supported && (
+        {fullscreen.supported && !short && (
           <RailButton icon={fullscreen.active ? 'fullscreenExit' : 'fullscreen'} label={fullscreen.active ? 'Exit full screen' : 'Full screen'} onClick={fullscreen.toggle} />
         )}
       </div>

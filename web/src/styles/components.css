@@ -1495,6 +1495,11 @@ textarea.control {
   border-top: var(--hairline) solid var(--glass-border);
 }
 .tab-bar-item {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -49,7 +49,7 @@ import { prefs } from '../lib/format';
 import type { BoardNode, Op, Project, Workspace } from '../lib/types';
 import { useLayout } from '../lib/layout';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { store, useMachine } from '../store';
+import { store, useMachine, useNeedsYou } from '../store';
 import { duplicate, makePayload, parsePayload, pastePayload, recall, remember, serialize, type ClipPayload } from './clipboard';
 import { BoardController, isRunning, rectOf, sessionOf } from './controller';
 import { createTile, type InsertKind } from './create';
@@ -76,6 +76,10 @@ import { DEFAULT_H, DEFAULT_W, MINIMAP_H, MINIMAP_W, placeNear } from './layout'
 import { useNewTerminal, type TerminalChoice } from './NewTerminal';
 import { NOTE_COLORS } from './palette';
 import { InsertButtons, InsertRail, ToolRail, ZoomControls, type InsertItem } from './Rails';
+import { CardList, PhoneTabs, usePhoneTab } from './PhoneBoard';
+import { Modal } from '../components/Modal';
+import { useLeadName } from '../orch/lead';
+import { layoutState } from '../lib/layout';
 import { RingGrid, RingMenu, type RingItem } from './RingMenu';
 import { SnapshotsPanel } from './SnapshotsPanel';
 import { TerminalNode } from './TerminalNode';
@@ -278,7 +282,19 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   const cache = useRef(new FlowCache());
   const compact = useMediaQuery('(max-width: 899px)');
   // a finger: one-finger drags pan, and every insert is a tap away (no right-click needed)
-  const coarse = useLayout().input === 'touch';
+  const shownLayout = useLayout();
+  const coarse = shownLayout.input === 'touch';
+  // a phone: Board, Cards and Lead tabs along the bottom (PhoneBoard.tsx)
+  const phone = shownLayout.layout === 'phone';
+  const [phoneTab, setPhoneTab] = usePhoneTab();
+  const [addingCard, setAddingCard] = useState(false);
+  const leadName = useLeadName();
+  const needsHere = useNeedsYou().filter((x) => x.workspaceId === ctl.workspaceId).length;
+  useEffect(() => {
+    if (!phone) return;
+    document.documentElement.setAttribute('data-phone-tab', phoneTab);
+    return () => document.documentElement.removeAttribute('data-phone-tab');
+  }, [phone, phoneTab]);
   const machine = useMachine(project.machineId);
   const shortcuts = useShortcuts();
   const [spawnOpen, setSpawnOpen] = useState(false);
@@ -450,6 +466,11 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     }
     pendingFocus.current = null;
     ctl.select([n.id]);
+    // a phone shows it filling the screen; the keyboard waits for a tap there
+    if (layoutState().layout === 'phone') {
+      if (p.frame) focusCard(n.id);
+      return;
+    }
     if (p.frame) window.setTimeout(() => frame(n.id), 60);
     if (p.keyboard) focusTerminal(n.id, 340);
   }, [ctl, frame]);
@@ -467,6 +488,10 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
           return true;
         }
         ctl.select([n.id]);
+        if (layoutState().layout === 'phone') {
+          focusCard(n.id);
+          return true;
+        }
         frame(n.id);
         focusTerminal(n.id, 300);
         return true;
@@ -1131,7 +1156,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'grid', label: 'Auto arrange', disabled: ctl.nodes.length < 2, onClick: arrange, sepBefore: true },
   ];
   /** A touch screen or a narrow window: everything stays one tap away in the left rail's flyout. */
-  const insertItems: InsertItem[] = [
+  const cardInserts: InsertItem[] = [
     { icon: 'checklist', label: 'Checklist', onClick: () => insertAt('checklist') },
     { icon: 'kanban', label: 'Kanban', onClick: () => insertAt('kanban') },
     { icon: 'calendar', label: 'Calendar', onClick: () => insertAt('calendar') },
@@ -1143,6 +1168,23 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'globe', label: 'Web page', onClick: () => insertNode('web') },
     { icon: 'monitor', label: 'Desktop app', onClick: () => ui.set({ appPicker: {} }) },
     { icon: 'branch', label: 'Branches card', onClick: () => insertNode('branches') },
+  ];
+  /** A phone's rail is short: what it leaves out is here, with the board's own tools. */
+  const phoneTools: InsertItem[] = phone
+    ? [
+        { icon: 'terminal', label: 'New console', onClick: () => void nt.create() },
+        { icon: 'note', label: 'Sticky note', active: tool === 'note', onClick: () => ui.setTool('note') },
+        { icon: 'square', label: 'Shapes', active: tool === 'rect', onClick: () => ui.setTool('rect') },
+        { icon: 'type', label: 'Text', active: tool === 'text', onClick: () => ui.setTool('text') },
+        { icon: 'pen', label: 'Pen', active: tool === 'pen', onClick: () => ui.setTool('pen') },
+        { icon: 'eraser', label: 'Eraser', active: tool === 'eraser', onClick: () => ui.setTool('eraser') },
+        { icon: 'image', label: 'Image', active: tool === 'image', onClick: () => ui.setTool('image') },
+        { icon: 'redo', label: 'Redo', disabled: !ctl.canRedo, onClick: () => ctl.redo() },
+      ]
+    : [];
+  const insertItems: InsertItem[] = [
+    ...phoneTools,
+    ...cardInserts,
     { icon: 'layout', label: 'Layouts', active: panel === 'layouts', onClick: () => togglePanel('layouts') },
     { icon: 'history', label: 'Snapshots', active: panel === 'snapshots', onClick: () => togglePanel('snapshots') },
     ...(coarse ? [{ icon: 'selectAll' as IconName, label: 'Select several', active: picking, onClick: () => setPicking((p) => !p) }] : []),
@@ -1762,11 +1804,15 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
               </span>
               <h2>This board is empty</h2>
               <p>
-                Start a terminal in <strong>{project.name}</strong>. Right-click the board to add agents, notes, shapes, web pages and
-                everything else.
+                Start a terminal in <strong>{project.name}</strong>. {coarse ? 'Long-press the board, or tap + in the rail,' : 'Right-click the board'} to add agents,
+                notes, shapes, web pages and everything else.
               </p>
               <span className="hint-down">
-                {compact ? 'Type an order below, or tap the agent chip to start a console' : 'Type an order below, use New console, or press T and click the board'}
+                {phone
+                  ? `Or tell ${leadName} what to start in the Lead tab`
+                  : compact
+                    ? 'Type an order below, or tap the agent chip to start a console'
+                    : 'Type an order below, use New console, or press T and click the board'}
                 <Icon name="arrowDown" />
               </span>
             </div>
@@ -1786,6 +1832,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             canRedo={ctl.canRedo}
             terminalHint={terminalHint}
             insert={compact || coarse ? <InsertButtons items={insertItems} labelled={coarse} /> : undefined}
+            short={phone}
             shortcuts={shortcuts}
             spawnOpen={spawnOpen}
             onSpawnClick={openSpawn}
@@ -1815,12 +1862,33 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
           {focused && (
             <>
               <div className="focus-area" ref={focusAreaRef} aria-hidden="true" />
-              <FocusBar ctl={ctl} node={focused} nodes={state.nodes} />
+              <FocusBar ctl={ctl} node={focused} nodes={state.nodes} back={phone && phoneTab === 'cards' ? 'Cards' : 'Board'} />
             </>
           )}
           <InsertRail items={railItems} />
           <Inspector ctl={ctl} ui={ui} selection={selectedNodes} tool={tool} penColor={penColor} penWidth={penWidth} />
-          <CommandBar ctl={ctl} ui={ui} project={project} nt={nt} loopsRunning={loopsRunning} onArrange={arrange} />
+          <CommandBar ctl={ctl} ui={ui} project={project} nt={nt} loopsRunning={loopsRunning} onArrange={arrange} lead={phone && phoneTab === 'lead'} />
+          {phone && (
+            <>
+              {phoneTab === 'cards' && !focused && <CardList nodes={state.nodes} onOpen={focusCard} onNewConsole={() => void nt.create()} onAdd={() => setAddingCard(true)} />}
+              <PhoneTabs
+                tab={phoneTab}
+                onTab={(t) => {
+                  if (focusedRef.current) leaveFocus();
+                  setPhoneTab(t);
+                }}
+                leadName={leadName}
+                waiting={needsHere}
+              />
+              {addingCard && (
+                <Modal title="Add a card" icon="plus" size="md" onClose={() => setAddingCard(false)}>
+                  <div className="add-card-sheet" onClick={() => setAddingCard(false)}>
+                    <InsertButtons items={cardInserts} labelled />
+                  </div>
+                </Modal>
+              )}
+            </>
+          )}
           {connectFrom && <ConnectBanner ctl={ctl} from={connectFrom} onDone={() => ui.set({ connectFrom: null })} />}
           {picking && (
             <div className="connect-banner pick-banner" role="status">
@@ -2059,8 +2127,12 @@ function ConnectBanner({ ctl, from, onDone }: { ctl: BoardController; from: stri
   );
 }
 
-/** Over a focused card: back to the board, its name, and the cards before and after it. */
-function FocusBar({ ctl, node, nodes }: { ctl: BoardController; node: BoardNode; nodes: BoardNode[] }) {
+/**
+ * Over a focused card: back to the board (or the phone's card list), its name, and the cards
+ * before and after it. On a touch screen a sideways swipe over the bar or the card's header goes
+ * to the next or previous card too.
+ */
+function FocusBar({ ctl, node, nodes, back = 'Board' }: { ctl: BoardController; node: BoardNode; nodes: BoardNode[]; back?: string }) {
   const order = cardOrder(nodes);
   const i = order.findIndex((n) => n.id === node.id);
   const prev = i > 0 ? order[i - 1] : undefined;
@@ -2070,10 +2142,35 @@ function FocusBar({ ctl, node, nodes }: { ctl: BoardController; node: BoardNode;
     const s = sessionOf(n);
     return s?.handle ? `@${s.handle}` : s?.name || 'Console';
   };
+  const near = useRef({ prev: prev?.id, next: next?.id });
+  near.current = { prev: prev?.id, next: next?.id };
+  useEffect(() => {
+    let start: { id: number; x: number; y: number } | null = null;
+    const where = '.focus-bar, .react-flow__node.is-focused .tile-head, .react-flow__node.is-focused .nb-node-header';
+    const down = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      start = e.pointerType === 'touch' && t?.closest(where) ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null;
+    };
+    const up = (e: PointerEvent) => {
+      const s = start;
+      start = null;
+      if (!s || s.id !== e.pointerId) return;
+      const dx = e.clientX - s.x;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(e.clientY - s.y) * 2) return;
+      const to = dx < 0 ? near.current.next : near.current.prev;
+      if (to) focusCard(to);
+    };
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('pointerup', up, true);
+    return () => {
+      document.removeEventListener('pointerdown', down, true);
+      document.removeEventListener('pointerup', up, true);
+    };
+  }, []);
   return (
     <div className="focus-bar" role="toolbar" aria-label="Focused card">
       <Button size="sm" variant="ghost" icon="chevronLeft" onClick={leaveFocus}>
-        Board
+        {back}
       </Button>
       <span className="focus-title truncate" title={name(node)}>
         {name(node)}

@@ -39,6 +39,8 @@ interface CommandBarProps {
   nt: NT;
   loopsRunning: number;
   onArrange: () => void;
+  /** A phone's Lead tab: the thread fills the screen and stays open. */
+  lead?: boolean;
 }
 
 interface Chip {
@@ -51,7 +53,7 @@ interface Chip {
   badge?: number;
 }
 
-export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange }: CommandBarProps) {
+export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead = false }: CommandBarProps) {
   const compact = useMediaQuery('(max-width: 899px)');
   const sessions = useStoreSessions();
   const shortcuts = useShortcuts();
@@ -266,8 +268,8 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange }: Co
         }[planner.reason ?? ''] ?? 'The planner is not available.');
 
   return (
-    <div className={`cmdbar-wrap ${open ? 'has-thread' : ''}`}>
-      {open && (
+    <div className={`cmdbar-wrap ${open || lead ? 'has-thread' : ''} ${lead ? 'is-lead' : ''}`}>
+      {(open || lead) && (
         <section className="thread-drawer" aria-label="Thread">
           <header className="thread-head">
             <LeadAvatar name={leadName} />
@@ -301,7 +303,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange }: Co
               Clear
             </Button>
             <Button size="sm" variant="ghost" iconOnly icon="sliders" aria-label="Lead agent settings" title="Name and personality" onClick={() => navigate('/settings/lead')} />
-            <Button size="sm" variant="ghost" iconOnly icon="chevronDown" aria-label="Close the thread" onClick={() => setOpen(false)} />
+            {!lead && <Button size="sm" variant="ghost" iconOnly icon="chevronDown" aria-label="Close the thread" onClick={() => setOpen(false)} />}
           </header>
           <ThreadList
             threadId={threadId}
@@ -319,7 +321,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange }: Co
             empty="Orders, plans and reports from your agents appear here. Try “@Arkan run the tests” or “spawn two reviewers”." />
         </section>
       )}
-      {!open && pending && (
+      {!open && !lead && pending && (
         <div className="confirm-strip" role="alert">
           <ConfirmationCard c={pending} compact />
         </div>

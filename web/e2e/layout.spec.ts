@@ -87,8 +87,8 @@ test('every page fits the layout of this screen', async ({ page, hub }, info) =>
     await page.waitForTimeout(300);
     expect(await page.evaluate(() => document.documentElement.dataset.layout), path).toBe(expected);
     await checkPage(page, path);
-    // a phone has the tab bar outside a project, and nothing else does
-    await expect(page.locator('.tab-bar')).toHaveCount(expected === 'phone' && !path.startsWith('/p/') ? 1 : 0);
+    // a phone has a tab bar: the pages outside a project, Board · Cards · Lead inside one
+    await expect(page.locator('.tab-bar')).toHaveCount(expected === 'phone' ? 1 : 0);
   }
 });
 
