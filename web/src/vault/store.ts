@@ -4,6 +4,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { ApiError, errorMessage } from '../api';
 import { store as hubStore } from '../store';
+import { reconcileAgents, syncAgentEntry } from './agents';
 import { vaultApi, type VaultBlob, type VaultHeader } from './api';
 import { copyText } from '../lib/clipboard';
 import { vaultSupported, createKey, keyFromPinSecret, open, openKey, proofForPin, randomId, rewrapKey, seal, wrapKeyForPin, type AeadKey, type PinRecord } from './crypto';
@@ -357,7 +358,16 @@ async function adoptKey(opened: AeadKey) {
   key = opened;
   startIdleTimer();
   await refresh();
-  if (state.status === 'unlocked') void purgeTrash();
+  if (state.status === 'unlocked') {
+    void purgeTrash();
+    void reconcileAgents(state.items, knownProjects());
+  }
+}
+
+/** Projects an item may be shared with: unknown until the live state has them. */
+function knownProjects(): Set<string> | undefined {
+  const s = hubStore.getState();
+  return s.projectsReady ? new Set(Object.keys(s.projects)) : undefined;
 }
 
 export async function unlockVault(password: string) {
@@ -520,8 +530,12 @@ export const isConflict = (err: unknown) => err instanceof ApiError && err.code 
 export async function saveItem(item: VaultItem, opts: { force?: boolean } = {}): Promise<VaultItem> {
   const id = item.id || randomId();
   const stamped: VaultItem = { ...item, id, updatedAt: new Date().toISOString() };
+  const before = records.get(id);
   try {
-    return await writeRecord(stamped, opts.force ? (records.get(id)?.rev ?? 0) : item.rev);
+    const saved = await writeRecord(stamped, opts.force ? (records.get(id)?.rev ?? 0) : item.rev);
+    // What agents may ask for follows the blob; only items that are or were shared cost a request.
+    if (saved.agents || (before?.k === 'item' && before.agents)) await syncAgentEntry(saved, knownProjects());
+    return saved;
   } catch (err) {
     if (isConflict(err)) await refresh();
     throw err;

@@ -10,6 +10,7 @@ import { prefs } from '../lib/format';
 import type { Attention, Session } from '../lib/types';
 import { store } from '../store';
 import { revealMonitor } from '../uptime/store';
+import { openCredentialRequest } from '../vault/agents';
 import { jumpToSession } from './jump';
 
 // ---- per-client preferences ----
@@ -64,10 +65,11 @@ export async function requestBrowserPermission(): Promise<Permission> {
 
 // ---- delivery ----
 
-const KIND_TOAST = { needsYou: 'warning', finished: 'success', error: 'error', uptimeDown: 'error', uptimeUp: 'success', certExpiring: 'warning' } as const;
+const KIND_TOAST = { needsYou: 'warning', credential: 'warning', finished: 'success', error: 'error', uptimeDown: 'error', uptimeUp: 'success', certExpiring: 'warning' } as const;
 
 /** Show what the attention is about. */
-const showTarget = (a: Attention) => (a.monitorId ? revealMonitor(a.projectId, a.monitorId) : void jumpToSession(a.sessionId));
+const showTarget = (a: Attention) =>
+  a.kind === 'credential' ? openCredentialRequest() : a.monitorId ? revealMonitor(a.projectId, a.monitorId) : void jumpToSession(a.sessionId);
 const open = new Map<string, Notification>();
 
 function showBrowser(a: Attention) {

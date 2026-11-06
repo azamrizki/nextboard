@@ -17,7 +17,7 @@ NextBoard is a single Go binary. Run it on a machine you control, open the web U
 - **Desktop apps in a tile** (Linux). GUI apps run on a virtual display and stream to the board.
 - **SSH machines.** Agentless: nothing is installed on the server. Uses tmux when available, so sessions survive disconnects.
 - **Studios.** Documents to PDF, diagrams, a Markdown vault with a link graph, and a skills manager.
-- **And more.** A zero-knowledge credentials vault, uptime monitors with an optional public status page, usage and token charts, voice input through the Web Speech API, and notifications.
+- **And more.** A zero-knowledge credentials vault that agents can use one approved command at a time without seeing a value, uptime monitors with an optional public status page, usage and token charts, voice input through the Web Speech API, and notifications.
 
 ## Quick start
 
@@ -63,7 +63,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 - The hub speaks plain HTTP and binds to `127.0.0.1` by default. For remote access, put it behind HTTPS with nginx (`deploy/nginx.conf.example`) or use a private network such as Tailscale. `tailscale serve` only forwards the main port, so web tiles do not work through it.
 - `make dev` binds to `0.0.0.0` by default. On an untrusted network, use `make dev LISTEN=127.0.0.1:12312`.
 - Agents run as your user and can read everything your user can, including NextBoard's data folder. Critical notes are instructions to agents, not a technical lock. Blocked commands make the CLI itself ask you first, but they are not a sandbox: an agent with a shell can still write a script that does the same.
-- The credentials vault encrypts in the browser and the hub stores only ciphertext. If you forget the master password, the contents are gone. See [docs/API-vault.md](docs/API-vault.md) for what it does not protect against.
+- The credentials vault encrypts in the browser and the hub stores only ciphertext. If you forget the master password, the contents are gone. Letting agents use a credential guards against accidents, not against an agent set on stealing it. See [docs/API-vault.md](docs/API-vault.md) for what it does not protect against.
 
 Please report security problems through a [private security advisory](https://github.com/azamrizki/nextboard/security/advisories/new), not a public issue.
 

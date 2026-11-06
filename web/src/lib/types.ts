@@ -750,6 +750,7 @@ export type HubEvent =
   | { type: 'uptimeMonitor'; monitor: Monitor }
   | { type: 'uptimeRemoved'; projectId: string; id: string }
   | { type: 'vaultChanged'; rev: number; vaultId: string }
+  | { type: 'credentialRequest'; id: string; state: string }
   | { type: 'settings'; settings: Settings }
   | { type: 'agents' }
   | { type: 'profile'; profile: Profile }

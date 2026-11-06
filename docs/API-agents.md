@@ -517,7 +517,7 @@ Sesi dengan `profileId` mendapat env `<profileEnv>=<dir>`. "Connect new account"
 
 ```jsonc
 { "type": "attention", "attention": {
-  "id": "at_…", "seq": 1042, "kind": "needsYou",            // "needsYou" | "finished" | "error" (Fase 6 menambah "loopHeld" | "loopEnded"; uptime menambah "uptimeDown" | "uptimeUp" | "certExpiring", dengan "monitorId" dan tanpa sessionId, API-uptime.md)
+  "id": "at_…", "seq": 1042, "kind": "needsYou",            // "needsYou" | "finished" | "error" (Fase 6 menambah "loopHeld" | "loopEnded"; uptime menambah "uptimeDown" | "uptimeUp" | "certExpiring", dengan "monitorId" dan tanpa sessionId, API-uptime.md; "credential" saat agent meminta perintah dengan credential, API-vault.md)
   "sessionId": "s_…", "handle": "Ash", "agent": "claude", "machineName": "devbox",
   "projectId": "p_…", "workspaceId": "w_…",
   "title": "Ash needs you", "body": "Permission: Bash(npm install)", "at": "…" } }

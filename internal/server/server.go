@@ -69,6 +69,8 @@ type Server struct {
 	sessions   *session.Manager
 	uptime     *uptime.Service
 	credVault  *vault.Service
+	// credReqs: commands agents asked to run with a credential (credrun.go)
+	credReqs   *credRequests
 	projects   *project.Store
 	boards     *board.Manager
 	agents     *agent.Store

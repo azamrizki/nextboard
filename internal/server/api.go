@@ -126,6 +126,13 @@ func (s *Server) routes() {
 	authed("POST /api/vault/pins/{id}/open", s.handleVaultPinOpen)
 	authed("DELETE /api/vault/pins/{id}", s.handleVaultPinDelete)
 	admin("DELETE /api/vault/pins", s.handleVaultPinsClear)
+	// agents asking for a credential: names in the catalog, values only from the browser that approves
+	authed("GET /api/vault/agents", s.handleVaultAgents)
+	authed("PUT /api/vault/agents/{id}", s.handleVaultAgentPut)
+	authed("GET /api/vault/requests", s.handleCredentialRequests)
+	authed("POST /api/vault/requests/{id}/approve", s.handleCredentialApprove)
+	authed("POST /api/vault/requests/{id}/deny", s.handleCredentialDeny)
+	authed("GET /api/vault/agent-log", s.handleCredentialLog)
 	authed("POST /api/projects/{id}/attach", s.handleProjectAttach)
 	authed("GET /api/projects/{id}/attach/{name}", s.handleProjectAttachRaw)
 	authed("POST /api/sessions/{id}/agent", s.handleSessionAgent)

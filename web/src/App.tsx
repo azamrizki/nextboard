@@ -40,6 +40,7 @@ const BoardPage = lazy(() => import('./pages/Board').then((m) => ({ default: m.B
 const MemoryPage = lazy(() => import('./memory/MemoryPage').then((m) => ({ default: m.MemoryPage })));
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })));
 const PrintPage = lazy(() => import('./studio/print/PrintPage'));
+const CredentialRequests = lazy(() => import('./vault/Requests').then((m) => ({ default: m.CredentialRequests })));
 
 const isAppPath = (p: string) => parseRoute(p).page !== 'unknown';
 
@@ -210,6 +211,11 @@ export function App() {
               </Suspense>
             ) : (
               <HomePage />
+            )}
+            {route.page !== 'print' && (
+              <Suspense fallback={null}>
+                <CredentialRequests />
+              </Suspense>
             )}
           </AuthProvider>
         );

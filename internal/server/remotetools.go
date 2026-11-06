@@ -193,6 +193,8 @@ type remoteTarget struct {
 	memory         bool
 	// a console's token also reads what the memory tiles connected to it add
 	sessionID, workspaceID string
+	// credentials: the owner shares vault items with agents of this project (credrun.go)
+	credentials bool
 }
 
 func (t remoteTarget) tools() []map[string]any {
@@ -207,6 +209,9 @@ func (t remoteTarget) tools() []map[string]any {
 	if t.memory && t.projectID != "" {
 		list = append(list, memoryToolList...)
 	}
+	if t.credentials && t.sessionID != "" && t.projectID != "" {
+		list = append(list, credentialToolList...)
+	}
 	return list
 }
 
@@ -219,7 +224,8 @@ func (s *Server) handleRemoteMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sp := sess.Spec()
-	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true, sessionID: sp.ID, workspaceID: sp.WorkspaceID}
+	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true, sessionID: sp.ID, workspaceID: sp.WorkspaceID,
+		credentials: sp.ProjectID != "" && s.credVault != nil && s.credVault.HasAgentEntries(sp.ProjectID)}
 	if len(t.tools()) == 0 {
 		http.Error(w, "console ini tidak memakai tool hub", http.StatusNotFound)
 		return
@@ -295,6 +301,9 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 				return remoteAnswer(err.Error(), true), nil
 			}
 			return remoteAnswer(text, false), nil
+		}
+		if strings.HasPrefix(p.Name, "credential_") {
+			return remoteAnswer(s.credentialTool(ctx, t, p.Name, p.Arguments)), nil
 		}
 		if t.readOnly && !remoteReadTools[p.Name] {
 			return remoteAnswer("This job may only read.", true), nil

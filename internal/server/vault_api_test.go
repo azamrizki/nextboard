@@ -39,6 +39,12 @@ func TestVaultNeedsLogin(t *testing.T) {
 		{"POST", "/api/vault/batch"},
 		{"PUT", "/api/vault/items/item-0001"},
 		{"DELETE", "/api/vault/items/item-0001?baseRev=1"},
+		{"GET", "/api/vault/agents"},
+		{"PUT", "/api/vault/agents/item-0001"},
+		{"GET", "/api/vault/requests"},
+		{"POST", "/api/vault/requests/cr_x/approve"},
+		{"POST", "/api/vault/requests/cr_x/deny"},
+		{"GET", "/api/vault/agent-log"},
 	} {
 		if st, _ := anon.do(c.method, c.path, map[string]any{}, nil); st != 401 {
 			t.Errorf("%s %s without a login: %d", c.method, c.path, st)

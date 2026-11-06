@@ -620,3 +620,108 @@ ul.vault-fill-list {
   font-size: var(--fs-xs);
   color: var(--c-danger);
 }
+
+/* ---- agents asking for a credential (vault/Requests.tsx, vault/AgentShare.tsx) ---- */
+.vault-agents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.vault-agents-projects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-4);
+  max-height: 160px;
+  overflow-y: auto;
+  padding: var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-md);
+}
+.vault-request-pill {
+  position: fixed;
+  top: calc(var(--h-header) + var(--s-3));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-popover);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: calc(100vw - var(--s-8));
+  padding: var(--s-2) var(--s-4);
+  border-radius: 999px;
+  background: var(--glass-3);
+  -webkit-backdrop-filter: var(--glass-blur-3);
+  backdrop-filter: var(--glass-blur-3);
+  border: var(--hairline) solid var(--glass-border-strong);
+  box-shadow: var(--e-3), var(--glass-highlight);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.vault-request-pill > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vault-request-pill svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.vault-request-pill:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.vault-approve {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.vault-approve-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--s-1) var(--s-4);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.vault-approve-facts dt {
+  color: var(--text-2);
+}
+.vault-approve-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.vault-approve-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.vault-approve-command {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  max-height: 200px;
+  overflow: auto;
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-md);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+ul.vault-approve-uses {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-size: var(--fs-sm);
+}
+ul.vault-approve-uses li {
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+.vault-approve-problem {
+  color: var(--tint-danger-text);
+  font-size: var(--fs-xs);
+}

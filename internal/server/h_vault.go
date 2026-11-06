@@ -16,6 +16,7 @@ import (
 func (s *Server) setupVault() {
 	s.credVault = vault.New(s.st)
 	s.credVault.Publish = s.events.Publish
+	s.credReqs = newCredRequests()
 }
 
 func vaultErr(w http.ResponseWriter, err error) {

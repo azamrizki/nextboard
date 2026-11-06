@@ -17,6 +17,11 @@ export interface PasswordUse {
   at: string;
 }
 
+/** Which projects' agents may ask to use an item (agents.ts). Inside the blob, so the hub cannot change it. */
+export interface AgentShare {
+  projects: string[];
+}
+
 export interface VaultItem {
   k: 'item';
   id: string;
@@ -37,6 +42,7 @@ export interface VaultItem {
   updatedAt: string;
   /** In the trash since. */
   deletedAt?: string;
+  agents?: AgentShare;
 }
 
 export interface VaultFolder {
@@ -170,7 +176,14 @@ export function readRecord(raw: unknown, id: string, rev: number): VaultRecord |
     createdAt: str(o.createdAt),
     updatedAt: str(o.updatedAt),
     deletedAt: typeof o.deletedAt === 'string' ? o.deletedAt : undefined,
+    agents: readShare(o.agents),
   };
+}
+
+function readShare(v: unknown): AgentShare | undefined {
+  const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+  if (!o || !Array.isArray(o.projects)) return undefined;
+  return { projects: [...new Set(o.projects.filter((p): p is string => typeof p === 'string' && p !== ''))] };
 }
 
 /** Second line of a list row: never anything secret. */

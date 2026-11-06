@@ -5,6 +5,7 @@ import { errorMessage } from '../api';
 import { Button } from '../components/Button';
 import { Checkbox, Field, SegmentedControl, SelectField, TextField } from '../components/form';
 import { Modal } from '../components/Modal';
+import { AgentShareField } from './AgentShare';
 import { GeneratorDialog } from './Dialogs';
 import { NO_AUTOFILL, SecretInput } from './fields';
 import { byName, emptyItem, HISTORY_MAX, isSecretField, ITEM_TYPES, TYPE_SCHEMA, type FieldDef, type ItemType, type VaultFolder, type VaultItem } from './model';
@@ -45,6 +46,7 @@ export function ItemForm({ item, folders, startFolder, startType, onSaved, onClo
   const [conflict, setConflict] = useState(false);
   const [nameError, setNameError] = useState('');
   const [totpError, setTotpError] = useState('');
+  const [shareError, setShareError] = useState('');
 
   const patch = (p: Partial<VaultItem>) => setDraft((d) => ({ ...d, ...p }));
   const setValue = (key: string, value: string) => setDraft((d) => ({ ...d, values: { ...d.values, [key]: value } }));
@@ -55,6 +57,7 @@ export function ItemForm({ item, folders, startFolder, startType, onSaved, onClo
     setConflict(false);
     setNameError('');
     setTotpError('');
+    setShareError('');
     if (!draft.name.trim()) {
       setNameError('Give it a name.');
       return;
@@ -63,6 +66,10 @@ export function ItemForm({ item, folders, startFolder, startType, onSaved, onClo
     // A kind of key this cannot make codes from may come in with an import: it may stay as it was.
     if (totp && !parseTotp(totp) && totp !== item?.values.totp) {
       setTotpError('Not an authenticator key. Paste the otpauth:// link or its Base32 key.');
+      return;
+    }
+    if (draft.agents && !draft.agents.projects.length) {
+      setShareError('Pick the projects whose agents may ask, or untick it.');
       return;
     }
     setBusy(true);
@@ -205,6 +212,8 @@ export function ItemForm({ item, folders, startFolder, startType, onSaved, onClo
             Add field
           </Button>
         </div>
+
+        <AgentShareField item={draft} error={shareError} onChange={(agents) => patch({ agents })} />
 
         <div className="vault-span">
           <Checkbox checked={draft.favorite} onChange={(favorite) => patch({ favorite })} label="Favorite" />

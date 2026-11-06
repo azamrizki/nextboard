@@ -19,7 +19,7 @@ const attentionRingSize = 200
 type Attention struct {
 	ID          string    `json:"id"`
 	Seq         int64     `json:"seq"`
-	Kind        string    `json:"kind"` // needsYou | finished | error | loopHeld | loopEnded | uptimeDown | uptimeUp | certExpiring
+	Kind        string    `json:"kind"` // needsYou | finished | error | loopHeld | loopEnded | uptimeDown | uptimeUp | certExpiring | credential
 	SessionID   string    `json:"sessionId"`
 	MonitorID   string    `json:"monitorId,omitempty"` // uptime alerts have no console
 	Handle      string    `json:"handle"`

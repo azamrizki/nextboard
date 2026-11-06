@@ -135,6 +135,95 @@ Node `credentials` hanya menyimpan `{"title": "…"}`. Board disinkronkan, di-sn
 
 Menghapus kartu tidak menyentuh vault, dan semua kartu di semua board menampilkan vault yang sama.
 
+Agent hanya bisa memakai item lewat satu jalan, yang dijelaskan di bagian berikut.
+
+## Agent memakai credential
+
+Keputusan #40. Agent tidak pernah menerima nilai. Ia meminta hub menjalankan **satu perintah** yang mendapat nilai dari vault, pemilik menyetujuinya di browser, dan output yang kembali ke agent sudah disensor.
+
+```
+agent    credential_run{command, why, secrets}  →  hub: permintaan "waiting", notifikasi
+browser  buka item, cek blob, kirim nilai        →  hub: jalankan perintah itu
+hub      output dengan nilai diganti ••••        →  agent
+```
+
+### Menandai item
+
+- Di form item: **Agents may ask to use it**, lalu pilih project. Pilihan ini tersimpan di blob item (`"agents": {"projects": […]}`), jadi hub tidak bisa mengubahnya.
+- Browser juga menulis **katalog** ke `vault.json`: nama item, tipe, project, dan nama nilainya, tanpa nilai. Item yang tidak ditandai tetap tidak terlihat, termasuk namanya.
+- Nilai yang bisa diberikan: login → `username`, `password`; catatan → `note`; kunci SSH → `privateKey`, `publicKey`; semua tipe → field custom menurut namanya. Field bawaan kartu dan identitas tidak, begitu juga kunci TOTP.
+- Katalog hanya petunjuk untuk agent. Setiap unlock, browser menyamakannya dengan blob, dan entri yang tidak didukung blob dihapus.
+
+### Tool agent
+
+Console di project yang punya item tertanda mendapat tiga tool hub. Project tanpa item tertanda tidak mendapat tool apa pun, jadi definisinya tidak memakan token. CLI membaca daftar tool saat mulai, sehingga console yang sudah jalan sebelum item pertama ditandai perlu dibuka ulang.
+
+| Tool | Isi |
+|---|---|
+| `credential_list` | Nama, tipe, id, dan nama nilai item untuk project ini |
+| `credential_run{command, why, secrets[{item, value, env}], stdin?{item, value}, timeout_ms?}` | Membuat permintaan dan menunggu ≤ 45 detik. Selesai: output. Belum: id untuk `credential_result` |
+| `credential_result{id}` | Menunggu lagi ≤ 45 detik. Hanya untuk console yang meminta |
+
+- Menunggu dibatasi 45 detik karena Codex memutus panggilan MCP setelah 60 detik.
+- Claude Code dan OpenCode tidak meminta izin untuk tiga tool ini (`--allowedTools`, `permission`), karena persetujuan ada di dialog hub. Codex mengikuti aturan izinnya sendiri.
+- Ditolak sebelum sampai ke pemilik: item atau nilai yang tidak ada di katalog project; nama env yang bukan nama variabel atau yang mengubah perilaku shell (`PATH`, `HOME`, `SHELL`, `IFS`, `ENV`, `BASH_ENV`, `LD_*`, `DYLD_*`, `NB_*`, dan sejenisnya); env ganda; tanpa `why`; perintah > 4000 byte; > 8 nilai; dan perintah di daftar blokir (keputusan #38).
+- Paling banyak 3 permintaan menunggu per console, 20 untuk seluruh hub.
+
+### Persetujuan
+
+- Notifikasi `attention` dengan `kind: "credential"`, dan pill di atas halaman. Dialog menampilkan agent, project, machine dan folder, alasan, batas waktu, perintah persis, dan nilai apa masuk ke env mana.
+- Dialog membuka item **dari blob**, bukan dari katalog. Kalau item tidak ditandai untuk project itu, ada di trash, atau nilainya sudah tidak ada, tombol **Allow once** mati. Entri katalog palsu tidak membuka apa pun.
+- Vault terkunci: dialog meminta PIN atau master password di tempat.
+- Satu persetujuan berlaku untuk perintah itu, sekali. Yang tidak dijawab dalam 10 menit kedaluwarsa.
+
+### Menjalankan
+
+- Hub menjalankan perintah sebagai prosesnya sendiri, di machine dan folder console (server untuk console `remoteTools`), dalam login shell baru. Batas waktu bawaan 2 menit, maksimal 10.
+- Nilai untuk env dikirim lewat **stdin** ke skrip pembuka yang mengekspornya: tiap byte ditulis `\0ooo`, lalu dikembalikan dengan `printf %b`. Nilai tidak pernah ada di baris perintah, karena `ps` di server menampilkannya ke semua user. Terbukti utuh di sh, dash, bash, zsh, dan busybox, termasuk kutip, `$`, baris baru, dan unicode.
+- Nilai untuk `stdin` diteruskan apa adanya ke input perintah.
+- Nilai < 4 karakter ditolak, karena tidak bisa disembunyikan tanpa merusak output.
+
+### Sensor
+
+Sebelum sampai ke agent, stdout dan stderr diganti `••••` di setiap tempat ada:
+
+- nilainya, juga tanpa baris baru di akhir;
+- tiap baris ≥ 8 karakter dari nilai multi-baris;
+- bentuk base64 (empat varian), hex (huruf kecil dan besar), URL-encoded (query dan path), dan isi string JSON.
+
+Output disimpan paling banyak 1 MB per aliran. Kalau terpotong, awal nilai yang tertinggal di ujung ikut dibuang. Setelah itu output dipotong ke 30 000 karakter seperti tool `bash` hub.
+
+### Yang disimpan
+
+- Permintaan hanya ada di memori: hilang saat hub restart, dan agent diminta mengulang. Nilai hanya ada di memori hub selama satu run.
+- `<data>/credential-log.jsonl` (0600, diputar ke `.1` di 1 MB): siapa, kapan, perintah, item, nama nilai, env, hasil, exit code, durasi, dan siapa yang menyetujui. Tanpa nilai dan tanpa output.
+- Event `credentialRequest` `{id, state}`, tanpa isi.
+
+### API
+
+Semua lewat login biasa. Menghapus item menghapus entrinya, dan reset vault menghapus katalog.
+
+| Route | Isi |
+|---|---|
+| `GET /api/vault/agents` | Katalog |
+| `PUT /api/vault/agents/{id}` | `{name, type, projects, values}`; `projects` kosong menghapus. Item harus ada (404), project harus ada (400) |
+| `GET /api/vault/requests` | Permintaan yang menunggu, sedang jalan, atau selesai < 15 menit lalu |
+| `POST /api/vault/requests/{id}/approve` | `{values}`, urut seperti `uses`. 409 `request_decided`, 404 `request_not_found` |
+| `POST /api/vault/requests/{id}/deny` | `{note?}` ≤ 300 karakter, dibacakan ke agent |
+| `GET /api/vault/agent-log?limit=` | Log, terbaru dulu, ≤ 500 |
+
+### Batas
+
+**Ini melindungi dari kecelakaan, bukan dari agent yang sengaja mencuri:**
+
+- Perintah yang menjalankan script di project (`npm run`, `make`, `./deploy.sh`) menjalankan isi script saat itu, dan agent bisa mengubahnya. Yang disetujui adalah nama perintahnya.
+- Selama perintah jalan, agent dengan Bash sebagai user yang sama bisa membaca env proses itu dari `/proc`.
+- Sensor tidak mengenali nilai yang diubah bentuknya: dibalik, dipotong, atau dienkripsi.
+- Nilai lewat jaringan dari browser ke hub. Di HTTP biasa, siapa pun yang bisa membaca lalu lintas bisa melihatnya.
+- Nama item yang ditandai terlihat oleh agent project itu, dan oleh siapa pun yang membaca `<data>`.
+
+Mengisi form browser untuk agent tidak dibuat. Agent tidak bisa mengendalikan browser tile, jadi mengisi untuknya sama saja dengan tombol kunci yang sudah ada.
+
 ## Import dan export
 
 Import: JSON tidak terenkripsi dan CSV dari Bitwarden, CSV dari Chrome dan Firefox. Dibaca dan dienkripsi di browser sebelum dikirim. Export terenkripsi Bitwarden ditolak dengan penjelasan. Passkey tidak ikut.
@@ -151,8 +240,9 @@ Export: format JSON Bitwarden tanpa enkripsi, setelah master password dimasukkan
 - **Kode aplikasinya sendiri.** Agent dengan Bash sebagai user yang sama bisa mengganti binary hub atau file web, lalu menangkap master password pada unlock berikutnya. Enkripsi di browser melindungi dari membaca file, bukan dari orang yang bisa mengganti programnya. Web vault Bitwarden yang di-host sendiri punya batas yang sama. Untuk rahasia yang tidak boleh terjangkau agent yolo, pakai perangkat lain.
 - **Saat vault terbuka,** isinya ada di memori tab, dan di HTTP biasa kuncinya juga bisa dibaca dari sana. XSS di app hub, dengan CSP yang ketat sekalipun, atau ekstensi browser bisa membacanya.
 - **Hub bisa mengembalikan versi lama.** Blob lama tetap sah secara kriptografi, jadi hub yang jahat bisa menyembunyikan perubahan terbaru. Sama seperti Bitwarden.
-- **Metadata yang terlihat hub:** jumlah record, ukuran blob per 512 byte, dan waktu perubahan.
+- **Metadata yang terlihat hub:** jumlah record, ukuran blob per 512 byte, dan waktu perubahan. Untuk item yang ditandai untuk agent, juga nama, tipe, project, dan nama nilainya.
+- **Agent memakai credential** melindungi dari kecelakaan, bukan dari agent yang sengaja mencuri (lihat batasnya di atas).
 
 ## Belum ada
 
-Passkey, mengisi kartu dan identitas, kartu Android dan desktop, kode Steam (kuncinya tersimpan, tapi tidak menjadi kode), pemeriksaan kebocoran password, dan cara agent memakai credential.
+Passkey, mengisi kartu dan identitas, kartu Android dan desktop, kode Steam (kuncinya tersimpan, tapi tidak menjadi kode), dan pemeriksaan kebocoran password.

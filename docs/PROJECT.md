@@ -339,7 +339,7 @@ CLI tetap berjalan di This PC, sedangkan tool file dan shell-nya bertindak di se
 | Codex | `--disable shell_tool --disable unified_exec --sandbox read-only` | Console nyata tanpa yolo |
 | OpenCode | `permission` semua tool lokal `deny` | MCP terhubung; belum sampai menjawab karena provider di mesin uji gagal |
 
-- **Tool hub:** `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`, ditambah `memory_search`, `memory_read`, `memory_save`.
+- **Tool hub:** `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`, ditambah `memory_search`, `memory_read`, `memory_save`, dan untuk project yang punya credential tertanda `credential_list`, `credential_run`, `credential_result` (API-vault.md).
 - **Kalau tool tidak bisa disiapkan, peluncuran gagal**, bukan jatuh ke tool lokal, karena agent akan mengerjakan file This PC.
 - **Yolo di server** tidak memakai flag lewati-semua milik CLI, sehingga tidak membuka akses ke This PC.
 
@@ -572,6 +572,7 @@ Password manager di board, mengikuti Bitwarden; kontrak dan model keamanannya di
 - **PIN 6 digit per browser,** butuh blob di browser dan persetujuan hub, 5 kali salah hangus. Master password minimal 8 karakter.
 - **Mengisi form** dari tombol kunci di browser tile, selalu atas pilihan orangnya: web tile lewat bridge dengan cek situs, Chrome di This PC lewat tempel ke field yang fokus.
 - **Jalan di HTTP biasa juga,** dengan AES dari `@noble/ciphers` karena `crypto.subtle` tidak ada di sana, dan layar password menyebut risikonya. Satu vault bisa dibuka dari HTTP maupun HTTPS.
+- **Agent memakai credential** (keputusan #40): item yang ditandai untuk sebuah project bisa diminta agent project itu lewat `credential_run`. Pemilik menyetujui tiap perintah di browser, hub menjalankannya dan menyensor output, dan agent tidak pernah menerima nilai.
 
 ## 6. Keamanan
 
@@ -583,7 +584,7 @@ Password manager di board, mengikuti Bitwarden; kontrak dan model keamanannya di
 | Browser | argon2id, cookie `HttpOnly` + `SameSite=Strict`, header CSRF, cek Origin WebSocket, rate limit, CSP dengan `font-src 'self'`. WebSocket berakhir bersama loginnya: logout dan reset password memutus terminal yang terbuka |
 | Device | Ed25519, challenge sekali pakai 60 detik, token opaque 1 jam, revoke seketika, token tidak di URL |
 | Kredensial SSH | AES-256-GCM dengan `secret.key` 0600, tidak pernah ke klien; host key berubah ditolak |
-| Credentials | Dienkripsi di browser dengan master password yang tidak pernah ke hub; board, log, dan agent tidak pernah melihat isinya |
+| Credentials | Dienkripsi di browser dengan master password yang tidak pernah ke hub; board, log, dan agent tidak pernah melihat isinya. Agent hanya bisa meminta satu perintah yang disetujui per pemakaian, dan output-nya disensor |
 | File API | `<data>` diblokir untuk read/raw/write; `fs/raw` tidak menyajikan HTML sebagai HTML, dengan CSP `sandbox`; aset menolak SVG |
 | Exec | Tidak ada exec bebas, argumen di-quote, path setelah `--`, ref divalidasi |
 | Marker | Token per sesi 128 bit, tidak pernah ke klien; marker tanpa token valid dibuang |
@@ -599,7 +600,7 @@ Password manager di board, mengikuti Bitwarden; kontrak dan model keamanannya di
 - Profil aplikasi desktop memakai `--password-store=basic`, jadi password tersimpan hanya dilindungi izin file `<data>`.
 - Browser di tile bisa menjangkau semua yang bisa dijangkau This PC, termasuk layanan localhost dan jaringan lokal.
 - Dengan yolo, agent bisa melakukan apa saja tanpa bertanya.
-- Credentials: agent bisa membaca `vault.json` dan menebak master password secara offline, dan agent yang bisa menulis ke binary hub atau file web bisa menangkapnya saat unlock. Lupa master password berarti isi vault hilang. Di HTTP biasa, siapa pun yang bisa mengubah lalu lintas bisa menangkap master password. PIN bisa ditebak kalau storage browser dan folder hub ada di tangan yang sama. Mengisi form melepas rahasianya ke halaman itu, dan di Chrome This PC situsnya tidak bisa dipastikan ([API-vault.md](API-vault.md)).
+- Credentials: agent bisa membaca `vault.json` dan menebak master password secara offline, dan agent yang bisa menulis ke binary hub atau file web bisa menangkapnya saat unlock. Lupa master password berarti isi vault hilang. Di HTTP biasa, siapa pun yang bisa mengubah lalu lintas bisa menangkap master password. PIN bisa ditebak kalau storage browser dan folder hub ada di tangan yang sama. Mengisi form melepas rahasianya ke halaman itu, dan di Chrome This PC situsnya tidak bisa dipastikan. Perintah yang disetujui untuk agent menjalankan script project apa adanya, dan agent bisa mengubah script itu atau membaca env prosesnya ([API-vault.md](API-vault.md)).
 
 ## 7. Batas sistem
 
@@ -651,6 +652,7 @@ memory/<projectId>/MEMORY.md  memory/global.md  memory/subs/…   memory
 mcp-servers.json  extensions/                    MCP dan extension
 jobs.json  runner/planner/                       job
 vault.json(.prev)  vault.reset-*.json             credentials, hanya ciphertext
+credential-log.jsonl(.1)                         perintah agent dengan credential, tanpa nilai
 documents/<projectId>/…  diagrams/<projectId>/…  hasil studio
 usage/reports.json  usage/tokens/  usage/pending-cleanup.json
 gui/profiles/<appId>/  gui/sessions/<id>/        aplikasi desktop
@@ -688,7 +690,7 @@ Di luar `/api`: `/nb/hook`, `/nb/mcp/{sid}`, `/nb/mcp-job` di listener loopback 
 | Orkestrasi | `delivery`, `thread`, `threadCleared`, `order`, `confirmation`, `command`, `handoff`, `forward`, `loop`, `loopRemoved`, `loopRun`, `memory`, `layouts` |
 | Studio | `job`, `jobOutput`, `git`, `gitRepo`, `github`, `preview`, `previewRemoved`, `previewSuggested`, `previewLog`, `document`, `documentRemoved`, `diagram`, `usage`, `usageReset`, `skills`, `fsChanged` |
 | Aplikasi | `guiSession`, `guiSessionRemoved` |
-| Credentials | `vaultChanged` |
+| Credentials | `vaultChanged`, `credentialRequest` |
 
 ## 10. Klien
 
@@ -799,6 +801,7 @@ Sumber: [ROADMAP.md](ROADMAP.md).
 | 34 | 11-05 | Order yang belum diketik saat hub restart ditawarkan untuk dikirim ulang, hub tidak mengirim sendiri |
 | 35 | 11-05 | Open source: repo publik, lisensi MIT, data pribadi tidak masuk repo |
 | 36 | 11-05 | CI hanya jalan saat rilis; rilis manual, versi ditentukan semantic-release dari pesan commit |
+| 40 | 11-06 | Agent memakai credential lewat satu perintah yang disetujui per pemakaian; nilai tidak pernah sampai ke agent |
 
 ## 13. Status dan riwayat
 
@@ -894,16 +897,15 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Browser di tile | Firefox dan snap/flatpak belum. Satu tile per board |
 | Usage | Tiap pemeriksaan Claude menambah 2 baris ke `history.jsonl` pada config yang dipakai. Codex 0.165 menulis `[tui]` ke `config.toml` sekali, dan hub tidak bisa mencegahnya tanpa menulis config. Format layar bisa berubah kapan saja |
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
-| Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, kartu Android dan desktop, dan cara agent memakai credential belum ada ([API-vault.md](API-vault.md)) |
+| Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, dan kartu Android dan desktop belum ada. Agent memakai credential hanya teruji dengan agent palsu dan Claude Code; Codex dan OpenCode belum ([API-vault.md](API-vault.md)) |
 | Uptime | Jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada. Halaman status publik mati bersama hub, jadi tidak bisa memberi tahu hub-nya sendiri mati ([API-uptime.md](API-uptime.md)) |
-| Test | Test unit web mencakup vault, markdown, socket, blok memory, dan aturan wire (137 test). Uji browser di repo (`make test-e2e`) baru mencakup memory tile, dialog Send, dan daftar perintah terblokir; alur UI lain masih dicoba di luar repo. Sisa kriteria SPEC §12 ada di §13 |
+| Test | Test unit web mencakup vault, markdown, socket, blok memory, dan aturan wire (144 test). Uji browser di repo (`make test-e2e`) baru mencakup memory tile, dialog Send, daftar perintah terblokir, halaman status publik, dan persetujuan credential untuk agent; alur UI lain masih dicoba di luar repo. Sisa kriteria SPEC §12 ada di §13 |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik
 
 - Kapan `remoteTools` keluar dari preview.
 - Android dan desktop: dilanjutkan hanya bila pemilik memintanya (keputusan 2026-11-05).
-- Agent boleh memakai credential atau tetap tertutup.
 - Runner headless yang menyimpang dari Symvibe (API-studio §19 butir 6): disahkan atau tidak.
 - Default lead yang belum dibahas: nama Nara, dan order `@Agent` yang langsung jalan.
 - Urutan kerja berikutnya.

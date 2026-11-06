@@ -150,6 +150,8 @@ type doc struct {
 	Rev     int64           `json:"rev"`
 	// Pins are the hub's half of each browser's PIN (pin.go). View has no field for them.
 	Pins map[string]Pin `json:"pins,omitempty"`
+	// Agents is the catalog of items agents may ask for (agents.go). View has no field for it.
+	Agents map[string]AgentEntry `json:"agents,omitempty"`
 }
 
 func (d *doc) check() error {
@@ -176,6 +178,17 @@ func (d *doc) check() error {
 	for id, p := range d.Pins {
 		if err := validatePin(id, p); err != nil {
 			return err
+		}
+	}
+	for id, e := range d.Agents {
+		if e.ID != id {
+			return fmt.Errorf("agent %q: id tidak cocok", id)
+		}
+		if _, ok := d.Items[id]; !ok {
+			return fmt.Errorf("agent %q: item tidak ada", id)
+		}
+		if err := e.validate(); err != nil {
+			return fmt.Errorf("agent %q: %w", id, err)
 		}
 	}
 	return nil
@@ -443,6 +456,10 @@ func (s *Service) Delete(id string, baseRev int64) error {
 	next.Rev++
 	next.Items = maps.Clone(s.d.Items)
 	delete(next.Items, id)
+	if _, ok := s.d.Agents[id]; ok {
+		next.Agents = maps.Clone(s.d.Agents)
+		delete(next.Agents, id)
+	}
 	if err := s.save(next); err != nil {
 		return err
 	}

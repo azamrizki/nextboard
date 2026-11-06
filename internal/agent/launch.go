@@ -91,6 +91,11 @@ var RemoteToolNames = []string{"read_file", "write_file", "edit_file", "grep", "
 // MemoryReadTools are the hub's tools that only read, approved without asking.
 var MemoryReadTools = []string{"memory_search", "memory_read"}
 
+// CredentialTools are approved without the CLI asking as well: the hub asks the owner in the
+// browser for every command that gets a value (docs/API-vault.md), so a second prompt in the
+// console would only be a click more.
+var CredentialTools = []string{"credential_list", "credential_run", "credential_result"}
+
 // TakesContext reports whether the hub can hand this CLI instructions, memory
 // and tools per launch, without writing to its config.
 func (a Agent) TakesContext() bool {
@@ -150,7 +155,7 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			p.env = append(p.env, "NB_MCP="+ClaudeMCPConfig(hub, c.MCP))
 		}
 		if c.MemoryDir != "" {
-			p.args = append(p.args, "--allowedTools", mcpTool(MemoryReadTools))
+			p.args = append(p.args, "--allowedTools", mcpTool(slices.Concat(MemoryReadTools, CredentialTools)))
 		}
 	case "codex":
 		p.args = append(p.args, "-c", "mcp_servers.nextboard.url="+tomlString(c.MCPURL),
@@ -177,7 +182,7 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		if len(c.Blocked) > 0 && !c.Remote {
 			perm["bash"] = OpenCodeBash(c.Blocked)
 		}
-		for _, tool := range MemoryReadTools {
+		for _, tool := range slices.Concat(MemoryReadTools, CredentialTools) {
 			perm["nextboard_"+tool] = "allow"
 		}
 		if c.Remote {

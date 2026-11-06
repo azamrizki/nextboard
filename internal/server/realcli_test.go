@@ -653,3 +653,140 @@ func TestRealBlockedCommand(t *testing.T) {
 		})
 	}
 }
+
+// TestRealCredentialRun has a real Claude Code, on the cheapest model, use a credential through
+// the hub: it must ask with credential_run, never with Bash, and read the output with the value
+// hidden. It spends the owner's plan: one short turn. The test approves with a value made up here,
+// and then looks for it on the screen and in Claude Code's own transcript.
+//
+//	NEXTBOARD_REAL_CLI_TEST=1 NEXTBOARD_REAL_MEMORY=1 NEXTBOARD_REAL_CLI_CWD=/already/trusted \
+//	go test -run TestRealCredentialRun -v ./internal/server/
+func TestRealCredentialRun(t *testing.T) {
+	if os.Getenv("NEXTBOARD_REAL_CLI_TEST") != "1" || os.Getenv("NEXTBOARD_REAL_MEMORY") != "1" {
+		t.Skip("set NEXTBOARD_REAL_CLI_TEST=1 NEXTBOARD_REAL_MEMORY=1 (memakai plan CLI pemilik)")
+	}
+	cwd := os.Getenv("NEXTBOARD_REAL_CLI_CWD")
+	if cwd == "" {
+		t.Fatal("NEXTBOARD_REAL_CLI_CWD: a folder Claude Code already trusts")
+	}
+	for _, k := range []string{"CLAUDE_EFFORT", "CLAUDE_PID", "CLAUDE_AGENT_SDK_VERSION"} {
+		if v, ok := os.LookupEnv(k); ok {
+			os.Unsetenv(k)
+			t.Cleanup(func() { os.Setenv(k, v) })
+		}
+	}
+	sum := sha256.Sum256([]byte(time.Now().String()))
+	canary := "nb-real-CANARY-" + hex.EncodeToString(sum[:6])
+	started := time.Now()
+	// A deploy tool that prints its token in its log: the accident the censor is for. Asked to
+	// print a secret on purpose, Claude Code refuses, as the tool's description tells it to.
+	script := filepath.Join(cwd, "nb-deploy.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"deploy: connecting with token $DEMO_TOKEN\"\necho \"deploy: ok\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(script) })
+
+	h := newTestHub(t)
+	h.setup()
+	h.srv.credReqs.wait = 5 * time.Second
+	must := func(want int, method, path string, body any) map[string]any {
+		t.Helper()
+		st, out := h.do(method, path, body, nil)
+		if st != want {
+			t.Fatalf("%s %s: %d %v", method, path, st, out)
+		}
+		return out
+	}
+	must(200, "PATCH", "/api/settings", map[string]any{"agents": map[string]any{"profiles": map[string]any{"local": map[string]any{"claude": nil}}}})
+	// Manual: anything but the hub's own tools would stop and ask, and the test sees that.
+	must(201, "POST", "/api/agents", map[string]any{"id": "real-claude", "name": "Real Claude", "command": "claude", "base": "claude",
+		"args": []any{"--model", "haiku", "--permission-mode", "manual"}})
+	p := must(201, "POST", "/api/projects", map[string]any{"machineId": "local", "path": cwd, "name": "Portal"})
+	pid, wid := p["id"].(string), p["workspaces"].([]any)[0].(map[string]any)["id"].(string)
+	must(201, "POST", "/api/vault", vaultKey())
+	must(200, "PUT", "/api/vault/items/item-demo0001", map[string]any{"blob": vaultBlob(7), "baseRev": 0})
+	must(200, "PUT", "/api/vault/agents/item-demo0001", map[string]any{"name": "Demo token", "type": "login", "projects": []string{pid}, "values": []string{"password"}})
+
+	in := must(201, "POST", "/api/sessions", map[string]any{"agent": "real-claude", "workspaceId": wid, "cwd": cwd, "cols": 110, "rows": 34})
+	id := in["id"].(string)
+	t.Cleanup(func() { h.do("DELETE", "/api/sessions/"+id, nil, nil) })
+	sess, _ := h.srv.sessions.Get(id)
+	info := func() session.Info { i, _ := h.srv.sessions.Info(id); return i }
+	deadline := time.Now().Add(60 * time.Second)
+	for info().AgentState != "ready" {
+		if time.Now().After(deadline) {
+			t.Fatalf("not ready: %s\n%s", info().AgentState, sess.Screen().Text())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	screen := strings.ToLower(sess.Screen().Text())
+	for _, dialog := range []string{"trust", "install", "plugin", "do you want", "bypass permissions mode"} {
+		if info().AgentState != "ready" || strings.Contains(screen, dialog) {
+			t.Fatalf("a dialog on screen (%q), nothing typed:\n%s", dialog, screen)
+		}
+	}
+	must(202, "POST", "/api/sessions/"+id+"/deliveries", map[string]any{"source": "api",
+		"text": `Deploy with ./nb-deploy.sh. It needs the password of the credential "Demo token" in the environment variable DEMO_TOKEN, so run it with the nextboard credential tools, not Bash, and wait with credential_result if needed. Then tell me what it printed.`})
+
+	// The request comes in, and is approved here as the owner's browser would.
+	var req map[string]any
+	deadline = time.Now().Add(120 * time.Second)
+	for req == nil {
+		if time.Now().After(deadline) {
+			t.Fatalf("no request (state %s):\n%s", info().AgentState, sess.Screen().Text())
+		}
+		if info().AgentState == "needsYou" {
+			t.Fatalf("it asked for a permission instead:\n%s", sess.Screen().Text())
+		}
+		_, out := h.do("GET", "/api/vault/requests", nil, nil)
+		for _, x := range out["items"].([]any) {
+			if m := x.(map[string]any); m["state"] == "waiting" {
+				req = m
+			}
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Logf("request: %v", req)
+	if !strings.Contains(fmt.Sprint(req["command"]), "nb-deploy.sh") || fmt.Sprint(req["uses"]) != "[map[env:DEMO_TOKEN item:item-demo0001 name:Demo token value:password]]" {
+		t.Fatalf("request %v", req)
+	}
+	must(200, "POST", "/api/vault/requests/"+req["id"].(string)+"/approve", map[string]any{"values": []string{canary}})
+
+	// Its answer: the output with the value hidden.
+	deadline = time.Now().Add(150 * time.Second)
+	for !strings.Contains(sess.Screen().Text(), "token ••••") || info().AgentState != "ready" {
+		if time.Now().After(deadline) {
+			t.Fatalf("no answer (state %s):\n%s", info().AgentState, sess.Screen().Text())
+		}
+		if info().AgentState == "needsYou" {
+			t.Fatalf("it asked for a permission:\n%s", sess.Screen().Text())
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Logf("screen:\n%s", sess.Screen().Text())
+	if strings.Contains(sess.Screen().Text()+sess.ScrollbackText(2000), canary) {
+		t.Fatal("the value reached the console")
+	}
+	// Claude Code keeps what the model saw: the value must not be in it.
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, ".claude", "projects", transcript.ClaudeSlug(cwd))
+	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	looked := 0
+	for _, f := range files {
+		if st, err := os.Stat(f); err != nil || st.ModTime().Before(started) {
+			continue
+		}
+		looked++
+		raw, _ := os.ReadFile(f)
+		if strings.Contains(string(raw), canary) {
+			t.Fatalf("the value is in the transcript %s", f)
+		}
+		if !strings.Contains(string(raw), "token ••••") {
+			t.Errorf("the transcript %s does not show the hidden output", f)
+		}
+	}
+	if looked == 0 {
+		t.Fatalf("no transcript of this run in %s", dir)
+	}
+}

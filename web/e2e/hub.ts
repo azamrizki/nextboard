@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test as base, type APIRequestContext } from '@playwright/test';
 
@@ -16,11 +16,11 @@ export class Hub {
   }
 
   /** All tests share one hub, and the picker lists every project: names are made unique. */
-  async project(base: string): Promise<{ id: string; wid: string; name: string }> {
+  async project(base: string): Promise<{ id: string; wid: string; name: string; path: string }> {
     const path = mkdtempSync(join(process.env.NEXTBOARD_E2E_ROOT!, 'project-'));
     const name = `${base} ${(unique++).toString(36)}${process.pid.toString(36)}`;
     const p = await this.call('POST', '/api/projects', { machineId: 'local', path, name });
-    return { id: p.id, wid: p.workspaces[0].id, name };
+    return { id: p.id, wid: p.workspaces[0].id, name, path };
   }
 
   memory(pid: string, content: string) {
@@ -36,6 +36,26 @@ export class Hub {
     const s = await this.call('POST', '/api/sessions', { agent: 'fakecli', workspaceId: wid });
     const board = await this.call('GET', `/api/workspaces/${wid}/board`);
     return { id: s.id, node: board.nodes.find((n: any) => n.data.sessionId === s.id).id };
+  }
+
+  /**
+   * How to call the hub's tools as a console of the fake agent, which runs in the project's folder
+   * and leaves its token there.
+   */
+  async tools(sid: string, path: string): Promise<(name: string, args: unknown) => Promise<{ text: string; isError: boolean }>> {
+    const file = join(path, '.nb-e2e-console');
+    await expect.poll(() => existsSync(file), { timeout: 15_000 }).toBe(true);
+    const [token, hook] = readFileSync(file, 'utf8').split('\n');
+    const url = hook.replace(/\/nb\/hook$/, '') + '/nb/mcp/' + sid;
+    return async (name, args) => {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      });
+      const out = await r.json();
+      return { text: out.result.content[0].text, isError: out.result.isError === true };
+    };
   }
 
   ops(wid: string, ops: unknown[]) {
