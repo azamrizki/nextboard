@@ -1626,7 +1626,7 @@ textarea.text-body {
 }
 .focus-area {
   top: calc(var(--shell-top) + var(--h-focusbar) + var(--s-2));
-  bottom: calc(var(--shell-bottom) + var(--s-2));
+  bottom: calc(var(--shell-bottom) + var(--keybar-h, 0px) + var(--s-2));
   visibility: hidden;
   pointer-events: none;
 }
@@ -1855,4 +1855,94 @@ textarea.text-body {
 .add-card-sheet .insert-tiles {
   width: 100%;
   max-height: none;
+}
+
+/* =========================================================================
+   The touch key bar (board/KeyBar.tsx): keys a phone's keyboard does not have
+   ========================================================================= */
+
+:root[data-keybar] {
+  --keybar-h: calc(var(--h-control-sm) + var(--s-2) * 2);
+}
+.key-bar {
+  position: fixed;
+  left: calc(var(--safe-l) + var(--s-2));
+  right: calc(var(--safe-r) + var(--s-2));
+  bottom: calc(var(--shell-bottom) + var(--s-1));
+  z-index: calc(var(--z-header) + 3);
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: calc(var(--keybar-h) - var(--s-1));
+  padding: var(--s-1);
+  border-radius: var(--r-lg);
+  background: var(--glass-3);
+  -webkit-backdrop-filter: var(--glass-blur-3);
+  backdrop-filter: var(--glass-blur-3);
+  border: var(--hairline) solid var(--glass-border-strong);
+  box-shadow: var(--e-3), var(--glass-highlight);
+}
+.key-bar-keys,
+.key-bar-tools {
+  display: flex;
+  gap: var(--nudge);
+}
+.key-bar-keys {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.key-bar-keys::-webkit-scrollbar {
+  display: none;
+}
+.key-bar-tools {
+  flex: 0 0 auto;
+  padding-left: var(--s-1);
+  border-left: var(--hairline) solid var(--glass-border);
+}
+.key {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-content: center;
+  min-width: 44px;
+  height: var(--h-control-sm);
+  padding: 0 var(--s-2);
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--surface-input);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.key svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+.key:active {
+  background: var(--surface-active);
+}
+.key[aria-pressed='true'] {
+  background: var(--text);
+  color: var(--bg);
+}
+/* the console's text, to select and copy with a finger */
+.copy-text {
+  max-height: min(60dvh, 560px);
+  overflow: auto;
+  margin: 0;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--surface-input);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
 }

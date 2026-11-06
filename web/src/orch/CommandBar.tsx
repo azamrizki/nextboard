@@ -82,6 +82,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
   const leadName = useLeadName();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   // How tall the bar really is (chips that wrap, a taller field, touch sizes): what sits above
   // it on the board reads --cmdbar-h instead of a fixed guess.
   useEffect(() => {
@@ -443,6 +444,19 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
               </button>
             )}
             {voice.supported && !voice.active && <Button size="sm" variant="ghost" iconOnly icon="mic" className="cmd-mic is-off" aria-label="Turn on voice in Settings" title="Voice is off. Turn it on in Settings" onClick={() => navigate('/settings/voice')} />}
+            {/* paste works too; a phone has nothing to paste a photo from */}
+            <Button size="sm" variant="ghost" iconOnly icon="upload" className="cmd-attach" aria-label="Attach a file or photo" title="Attach a file or photo (or paste one)" onClick={() => fileRef.current?.click()} />
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = '';
+                if (files.length) att.add(files);
+              }}
+            />
             <Button variant="primary" size="sm" iconOnly icon="send" aria-label="Send order" className="cmd-send" loading={sending} disabled={!att.canSend(text) || sending} onClick={() => void send(text.trim())} />
           </div>
           {live && (

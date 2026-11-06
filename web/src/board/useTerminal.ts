@@ -14,6 +14,7 @@ import { api, openSessionSocket, type SocketState } from '../api';
 import { useTheme } from '../lib/theme';
 import type { SessionStatusFrame } from '../lib/types';
 import { store } from '../store';
+import { applyMods, registerConsole } from './consoleKeys';
 import { clipboardFiles, sendPasted } from './files';
 
 /** The console's colours (tokens.css, DESIGN.md §3.9), for the theme around this element. */
@@ -283,7 +284,8 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
       const sendInput = (d: string) => {
         if (replaying === 0) sock.sendJSON({ t: 'i', d });
       };
-      const dataSub = term.onData(sendInput);
+      // the key bar's armed Ctrl or Alt changes the next key typed (consoleKeys.ts)
+      const dataSub = term.onData((d) => sendInput(applyMods(d)));
       // Binary strings (legacy mouse reports) are passed through as-is.
       const binSub = term.onBinary(sendInput);
 
@@ -344,6 +346,20 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
       };
       el.addEventListener('paste', onPaste, true);
 
+      const unregister = registerConsole(sessionId, {
+        send: sendInput,
+        appCursor: () => term.modes.applicationCursorKeysMode,
+        text: (maxLines) => {
+          const buf = term.buffer.active;
+          const lines: string[] = [];
+          for (let i = Math.max(0, buf.length - maxLines); i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? '');
+          while (lines.length && !lines[lines.length - 1]) lines.pop();
+          return lines.join('\n');
+        },
+        attach: attachFiles,
+        focus: () => term.focus(),
+      });
+
       let resizeTimer: number | undefined;
       const ro = new ResizeObserver(() => {
         window.clearTimeout(resizeTimer);
@@ -355,6 +371,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
 
       return () => {
         live.current = null;
+        unregister();
         window.clearTimeout(resizeTimer);
         el.removeEventListener('paste', onPaste, true);
         ro.disconnect();

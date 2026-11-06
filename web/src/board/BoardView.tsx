@@ -77,6 +77,7 @@ import { useNewTerminal, type TerminalChoice } from './NewTerminal';
 import { NOTE_COLORS } from './palette';
 import { InsertButtons, InsertRail, ToolRail, ZoomControls, type InsertItem } from './Rails';
 import { CardList, PhoneTabs, usePhoneTab } from './PhoneBoard';
+import { KeyBar } from './KeyBar';
 import { Modal } from '../components/Modal';
 import { useLeadName } from '../orch/lead';
 import { layoutState } from '../lib/layout';
@@ -365,6 +366,30 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
         : { ...f, width: focusArea.width, height: focusArea.height, measured: { width: focusArea.width, height: focusArea.height }, zIndex: 100000, draggable: false, className: 'is-focused' },
     );
   }, [nodes, focused, focusArea]);
+
+  // ---- touch: the key bar, for the console that fills the screen or has the keyboard ----
+  const [typingIn, setTypingIn] = useState<string | null>(null);
+  useEffect(() => {
+    if (!coarse) return;
+    const onIn = (e: FocusEvent) => {
+      const t = e.target as Element | null;
+      if (t?.closest?.('.xterm')) setTypingIn(t.closest('.react-flow__node')?.getAttribute('data-id') ?? null);
+    };
+    // the keyboard left the console for good: not for the key bar's own dialog, nor a menu
+    const onOut = () =>
+      window.setTimeout(() => {
+        const a = document.activeElement;
+        if (!a || a === document.body || (!a.closest('.xterm') && !a.closest('.modal-layer, .key-bar, .menu-list'))) setTypingIn(null);
+      }, 0);
+    document.addEventListener('focusin', onIn);
+    document.addEventListener('focusout', onOut);
+    return () => {
+      document.removeEventListener('focusin', onIn);
+      document.removeEventListener('focusout', onOut);
+    };
+  }, [coarse]);
+  const keyNode = focused?.kind === 'terminal' ? focused : typingIn ? state.nodes.find((n) => n.id === typingIn && n.kind === 'terminal') : undefined;
+  const keySession = keyNode ? sessionOf(keyNode) : undefined;
 
   // ---- touch: select several by tapping, as Shift does with a mouse ----
   const flowStore = useStoreApi<FlowNode>();
@@ -1859,6 +1884,9 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             }
           />
           <ResumeAllBanner workspaceId={ctl.workspaceId} />
+          {coarse && keyNode && typeof keyNode.data.sessionId === 'string' && (
+            <KeyBar key={keyNode.data.sessionId} sessionId={keyNode.data.sessionId} name={keySession?.handle ? `@${keySession.handle}` : keySession?.name || 'the console'} />
+          )}
           {focused && (
             <>
               <div className="focus-area" ref={focusAreaRef} aria-hidden="true" />
