@@ -1,8 +1,10 @@
 // Calendar: month grid (Monday first) with Today / previous / next, events with an
 // optional time, notes and colour. Click a day to add, drag an event to move it,
-// right-click an event to edit, duplicate, recolour or delete.
+// right-click (or long-press) an event to edit, duplicate, recolour or delete. A day shows the
+// events its cell has room for; "+N more" lists them all. A narrow calendar puts its month
+// controls on a row of their own.
 
-import { memo, useMemo, useState, type CSSProperties } from 'react';
+import { memo, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { NodeProps } from '@xyflow/react';
 import { Button } from '../../components/Button';
@@ -14,7 +16,7 @@ import type { FlowNode } from '../flow';
 import { monthOf, readCalendar, type CalEvent } from '../kinds';
 import { TAG_COLORS, TAG_LABELS, type TagColor } from '../palette';
 import { useBoardEnv } from '../ui';
-import { InlineTitle, TileFrame, TileHead, usePointerDrag } from './common';
+import { InlineTitle, TileFrame, TileHead, usePointerDrag, useSize } from './common';
 import { isoDate, tagSwatches } from './KanbanTile';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -41,6 +43,10 @@ function CalendarTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [menu, setMenu] = useState<{ x: number; y: number; ev: CalEvent } | null>(null);
   const [overDate, setOverDate] = useState<string | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number; title: string } | null>(null);
+  const [dayList, setDayList] = useState<string | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const grid = useSize(gridRef);
+  const narrow = grid.w > 0 && grid.w < 520;
 
   const days = useMemo(() => monthGrid(d.month), [d.month]);
   const today = isoDate(new Date());
@@ -65,9 +71,11 @@ function CalendarTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
 
   const [y, m] = d.month.split('-').map(Number);
   const monthLabel = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const monthShort = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 
-  // rows that fit the tile: 6 weeks + weekday header
-  const rowsH = Math.max(40, (data.node.h - 104) / 6);
+  // rows of the grid as shown (focus mode makes it bigger than on the board): 6 weeks under the
+  // weekday header
+  const rowsH = Math.max(40, grid.h ? (grid.h - 24) / 6 : (data.node.h - 104) / 6);
   const perCell = Math.max(0, Math.floor((rowsH - 24) / 20));
 
   const dateAt = (x: number, y2: number): string | null => {
@@ -99,30 +107,34 @@ function CalendarTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
     { label: 'Delete event', icon: 'trash', danger: true, onSelect: () => removeEvent(ev.id) },
   ];
 
+  const nav = (
+    <div className="cal-nav nodrag">
+      <Button size="sm" variant="ghost" iconOnly icon="chevronLeft" aria-label="Previous month" onClick={() => setMonth(shiftMonth(d.month, -1))} />
+      <span className="cal-month tabular" aria-live="polite">
+        {narrow ? monthShort : monthLabel}
+      </span>
+      <Button size="sm" variant="ghost" iconOnly icon="chevronRight" aria-label="Next month" onClick={() => setMonth(shiftMonth(d.month, 1))} />
+      <span className="spacer" />
+      <Button size="sm" variant="ghost" onClick={() => setMonth(monthOf(new Date()))} disabled={d.month === monthOf(new Date())}>
+        Today
+      </Button>
+      <Button size="sm" variant="ghost" icon="plus" onClick={() => setEdit({ ev: null, date: d.month === monthOf(new Date()) ? today : `${d.month}-01` })}>
+        New
+      </Button>
+    </div>
+  );
+
   return (
     <TileFrame id={id} kind="calendar" selected={!!selected} label={`Calendar ${d.title}`} minW={420} minH={340}>
       <TileHead
         id={id}
         icon="calendar"
         title={<InlineTitle value={d.title} label="Calendar title" onCommit={(title) => ctl.updateData(id, { title })} />}
-        actions={
-          <div className="cal-nav nodrag">
-            <Button size="sm" variant="ghost" iconOnly icon="chevronLeft" aria-label="Previous month" onClick={() => setMonth(shiftMonth(d.month, -1))} />
-            <span className="cal-month tabular" aria-live="polite">
-              {monthLabel}
-            </span>
-            <Button size="sm" variant="ghost" iconOnly icon="chevronRight" aria-label="Next month" onClick={() => setMonth(shiftMonth(d.month, 1))} />
-            <Button size="sm" variant="ghost" onClick={() => setMonth(monthOf(new Date()))} disabled={d.month === monthOf(new Date())}>
-              Today
-            </Button>
-            <Button size="sm" variant="ghost" icon="plus" onClick={() => setEdit({ ev: null, date: d.month === monthOf(new Date()) ? today : `${d.month}-01` })}>
-              New
-            </Button>
-          </div>
-        }
+        actions={narrow ? undefined : nav}
         menuLabel={`Actions for ${d.title}`}
       />
-      <div className="cal-grid nodrag nowheel" role="grid" aria-label={monthLabel}>
+      {narrow && <div className="cal-bar">{nav}</div>}
+      <div className="cal-grid nodrag nowheel" role="grid" aria-label={monthLabel} ref={gridRef}>
         {WEEKDAYS.map((w) => (
           <div key={w} className="cal-wd" role="columnheader">
             {w}
@@ -168,8 +180,8 @@ function CalendarTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                 </button>
               ))}
               {more > 0 && (
-                <button type="button" className="cal-more" onClick={() => setEdit({ ev: null, date: iso })} title={evs.slice(shown.length).map((e) => e.title).join('\n')}>
-                  +{more} more
+                <button type="button" className="cal-more" onClick={() => setDayList(iso)} aria-label={`${more} more`} title={evs.slice(shown.length).map((e) => e.title).join('\n')}>
+                  {narrow ? `+${more}` : `+${more} more`}
                 </button>
               )}
             </div>
@@ -184,6 +196,21 @@ function CalendarTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
           </div>,
           document.body,
         )}
+      {dayList && (
+        <DayList
+          date={dayList}
+          events={byDate.get(dayList) ?? []}
+          onClose={() => setDayList(null)}
+          onOpen={(ev) => {
+            setDayList(null);
+            setEdit({ ev, date: dayList });
+          }}
+          onNew={() => {
+            setDayList(null);
+            setEdit({ ev: null, date: dayList });
+          }}
+        />
+      )}
       {menu && <ContextMenu x={menu.x} y={menu.y} label={`Actions for ${menu.ev.title}`} items={eventMenu(menu.ev)} onClose={() => setMenu(null)} />}
       {edit && (
         <EventDialog
@@ -209,6 +236,39 @@ function CalendarTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
 }
 
 export const CalendarTile = memo(CalendarTileImpl);
+
+/** Every event of one day, for a cell too small to show them. */
+function DayList({ date, events, onOpen, onNew, onClose }: { date: string; events: CalEvent[]; onOpen: (ev: CalEvent) => void; onNew: () => void; onClose: () => void }) {
+  const [y, m, dd] = date.split('-').map(Number);
+  const title = new Date(y, m - 1, dd).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  return (
+    <Modal
+      title={title}
+      icon="calendar"
+      size="sm"
+      onClose={onClose}
+      footer={
+        <Button variant="primary" icon="plus" onClick={onNew}>
+          New event
+        </Button>
+      }
+    >
+      <ul className="plain cal-day-list">
+        {events.map((ev) => (
+          <li key={ev.id}>
+            <button type="button" className="cal-day-row" style={{ '--ev-color': `var(--tag-${ev.color ?? 'sky'})` } as CSSProperties} onClick={() => onOpen(ev)}>
+              <span className="cal-day-time tabular">{ev.time ?? 'All day'}</span>
+              <span className="cal-day-text">
+                <span className="truncate">{ev.title || 'Untitled'}</span>
+                {ev.notes && <span className="cal-day-notes truncate">{ev.notes}</span>}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Modal>
+  );
+}
 
 function EventDialog({
   ev,

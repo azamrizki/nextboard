@@ -195,7 +195,7 @@ function Plot({ series }: { series: Series }) {
   };
 
   return (
-    <div className="viz-wrap up-plot" ref={box} onPointerLeave={() => setHover(null)}>
+    <div className="viz-wrap up-plot" ref={box} onPointerLeave={(e) => e.pointerType !== 'touch' && setHover(null)}>
       <svg
         width={w}
         height={H}
@@ -204,6 +204,8 @@ function Plot({ series }: { series: Series }) {
         aria-label={`Response time, ${RANGE_NAME[range]}: average ${millis(series.stats.avgMs)}, slowest ${millis(series.stats.maxMs)}`}
         tabIndex={0}
         onPointerMove={(e) => pick(e.clientX, e.currentTarget)}
+        // a finger taps a point; its value stays until the next tap
+        onPointerDown={(e) => pick(e.clientX, e.currentTarget)}
         onFocus={() => setHover((h) => h ?? points.length - 1)}
         onBlur={() => setHover(null)}
         onKeyDown={(e) => {

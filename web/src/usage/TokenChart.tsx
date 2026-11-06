@@ -229,7 +229,7 @@ function Columns({ days, agents, byDay, mode }: { days: string[]; agents: string
   const ticks = [0, max / 2, max];
   const GAP = 2;
   return (
-    <div className="viz-wrap" ref={box} onPointerLeave={() => setHover(null)}>
+    <div className="viz-wrap" ref={box} onPointerLeave={(e) => e.pointerType !== 'touch' && setHover(null)}>
       <svg width={w} height={H} className="viz" role="img" aria-label={`Tokens per day, ${MODE_LABEL[mode].toLowerCase()}, last ${days.length} days`}>
         {ticks.map((t) => (
           <g key={t}>

@@ -111,6 +111,11 @@
 .up-beats-hit {
   padding: var(--s-1) 0;
 }
+/* a finger slides along a chart to read it; up and down still scroll */
+.up-beats-hit,
+.up-plot svg {
+  touch-action: pan-y;
+}
 .up-beats-caption {
   margin: 0;
   min-height: 1.4em;

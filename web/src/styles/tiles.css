@@ -594,9 +594,21 @@
   min-width: 0;
 }
 .tile-meta {
+  flex: 0 2 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--fs-xs);
   color: var(--text-3);
   white-space: nowrap;
+}
+/* a narrow card (on a phone, or made small): the buttons of its header show only their icon, and
+   the meta gives way before the title */
+.tile-head.is-narrow .btn-sm:not(.btn-icon):has(> svg) {
+  width: var(--h-icon-btn-sm);
+  padding: 0;
+  gap: 0;
+  font-size: 0;
 }
 .tile-body {
   position: relative;
@@ -887,7 +899,8 @@ textarea.text-body {
   opacity: 0;
 }
 .check-item:hover .check-del,
-.check-del:focus-visible {
+.check-del:focus-visible,
+:root[data-input='touch'] .check-del {
   opacity: 1;
 }
 
@@ -965,10 +978,34 @@ textarea.text-body {
   border: var(--hairline) solid var(--glass-border);
   background: var(--tile-card-bg);
   box-shadow: var(--e-1);
-  touch-action: none;
   transition:
     background var(--t-fast) var(--ease),
     opacity var(--t-fast) var(--ease);
+}
+/* a touch screen: a finger scrolls the cards, the grip drags one */
+.kb-grip {
+  flex: 0 0 auto;
+  display: grid;
+  place-content: center;
+  width: var(--s-6);
+  margin-right: calc(-1 * var(--s-2));
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  touch-action: none;
+  cursor: grab;
+}
+.kb-grip svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+:root[data-input='touch'] .kb-cols {
+  scroll-snap-type: x proximity;
+}
+:root[data-input='touch'] .kb-col {
+  scroll-snap-align: start;
+  scroll-margin-left: var(--s-3);
 }
 .kb-card:hover {
   background: var(--tile-card-hover);
@@ -1075,7 +1112,8 @@ textarea.text-body {
   opacity: 0;
 }
 .kb-card:hover .kb-card-menu,
-.kb-card-menu:focus-within {
+.kb-card-menu:focus-within,
+:root[data-input='touch'] .kb-card-menu {
   opacity: 1;
 }
 .kb-add {
@@ -1209,8 +1247,58 @@ textarea.text-body {
   flex: 0 0 auto;
   color: var(--text-3);
 }
+.cal-bar {
+  flex: 0 0 auto;
+  padding: var(--nudge) var(--s-1);
+  border-bottom: var(--hairline) solid var(--glass-border);
+}
+.cal-bar .cal-month {
+  min-width: 0;
+  padding: 0 var(--s-1);
+}
+.cal-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.cal-day-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  min-height: var(--h-control);
+  padding: var(--s-2) var(--s-3);
+  border: 0;
+  border-left: 3px solid var(--ev-color);
+  border-radius: var(--r-sm);
+  background: var(--surface-input);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cal-day-row:hover {
+  background: var(--surface-active);
+}
+.cal-day-time {
+  flex: 0 0 auto;
+  min-width: 4.5em;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.cal-day-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.cal-day-notes {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
 .cal-more {
   align-self: flex-start;
+  white-space: nowrap;
   padding: 0 var(--s-1);
   border: 0;
   background: none;
@@ -1690,6 +1778,12 @@ textarea.text-body {
 .react-flow__node.is-focused .react-flow__resize-control,
 .react-flow__node.is-focused .react-flow__handle {
   display: none;
+}
+/* the bar above says how to leave, and the card's display sizes do not apply while it fills the
+   screen: its title gets the room */
+.react-flow__node.is-focused .tile-focus,
+.react-flow__node.is-focused .tile-display {
+  display: none !important;
 }
 
 /* =========================================================================

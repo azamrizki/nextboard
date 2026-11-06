@@ -2,7 +2,9 @@
 // text drafts, inline title editing and auto-fitting text.
 
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -127,6 +129,31 @@ interface TileHeadProps {
   className?: string;
 }
 
+/** An element's layout size (not scaled by the board's zoom), kept up to date. */
+export function useSize(ref: RefObject<HTMLElement | null>): { w: number; h: number } {
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const read = () => setSize((s) => (s.w === el.offsetWidth && s.h === el.offsetHeight ? s : { w: el.offsetWidth, h: el.offsetHeight }));
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return size;
+}
+
+/** Under this width a card's header shows its buttons as icons only. */
+const NARROW_HEAD = 440;
+
+/**
+ * The cards whose title can be renamed, each with the way to start it: its menu and a long press
+ * offer "Rename" (a double click does it with a mouse).
+ */
+export const titleRenamers = new Map<string, () => void>();
+const HeadCtx = createContext<string | null>(null);
+
 /**
  * The header of every card (DESIGN.md §3.5): mark, title, meta, actions, display, "…", in that
  * order and at the same height everywhere, and the card is dragged by it. A console has its own
@@ -134,30 +161,34 @@ interface TileHeadProps {
  */
 export function TileHead({ id, icon, title, meta, actions, menu, menuLabel, deleteItem, showDisplay, hint, className }: TileHeadProps) {
   const { cardMenu } = useBoardEnv();
+  const ref = useRef<HTMLDivElement>(null);
+  const { w } = useSize(ref);
   const items = (): MenuEntry[] => [
     ...(menu?.length ? [...menu, 'sep' as const] : []),
     ...cardMenu(id, !deleteItem),
     ...(deleteItem ? ['sep' as const, deleteItem] : []),
   ];
   return (
-    <div className={`tile-head ${className ?? ''}`} title={hint}>
-      <span className="tile-mark" aria-hidden="true">
-        {typeof icon === 'string' ? <Icon name={icon} /> : icon}
-      </span>
-      {typeof title === 'string' ? (
-        <span className="tile-title" title={title}>
-          {title}
+    <HeadCtx.Provider value={id}>
+      <div ref={ref} className={`tile-head ${w && w < NARROW_HEAD ? 'is-narrow' : ''} ${className ?? ''}`} title={hint}>
+        <span className="tile-mark" aria-hidden="true">
+          {typeof icon === 'string' ? <Icon name={icon} /> : icon}
         </span>
-      ) : (
-        title
-      )}
-      {meta}
-      <span className="spacer" />
-      {actions}
-      <FocusButton id={id} />
-      <DisplayButton id={id} always={showDisplay} />
-      <Menu className="nodrag" label={menuLabel ?? (typeof title === 'string' ? `Actions for ${title}` : 'Card actions')} items={items} />
-    </div>
+        {typeof title === 'string' ? (
+          <span className="tile-title" title={title}>
+            {title}
+          </span>
+        ) : (
+          title
+        )}
+        {meta}
+        <span className="spacer" />
+        {actions}
+        <FocusButton id={id} />
+        <DisplayButton id={id} always={showDisplay} />
+        <Menu className="nodrag" label={menuLabel ?? (typeof title === 'string' ? `Actions for ${title}` : 'Card actions')} items={items} />
+      </div>
+    </HeadCtx.Provider>
   );
 }
 
@@ -218,16 +249,26 @@ interface InlineTitleProps {
   placeholder?: string;
 }
 
-/** Title that turns into an input on double-click (Enter saves, Esc cancels). */
+/** Title that turns into an input on double-click or the card's Rename (Enter saves, Esc cancels). */
 export function InlineTitle({ value, onCommit, label, className, maxLength = 80, placeholder }: InlineTitleProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const live = useRef(false);
-  const start = () => {
-    setDraft(value);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const start = useCallback(() => {
+    setDraft(valueRef.current);
     live.current = true;
     setEditing(true);
-  };
+  }, []);
+  const nodeId = useContext(HeadCtx);
+  useEffect(() => {
+    if (!nodeId) return;
+    titleRenamers.set(nodeId, start);
+    return () => {
+      if (titleRenamers.get(nodeId) === start) titleRenamers.delete(nodeId);
+    };
+  }, [nodeId, start]);
   const commit = () => {
     if (!live.current) return;
     live.current = false;
@@ -262,7 +303,7 @@ export function InlineTitle({ value, onCommit, label, className, maxLength = 80,
   return (
     <span
       className={`tile-title ${className ?? ''}`}
-      title={`${value} — double-click to rename`}
+      title={nodeId ? `${value}: double-click to rename, or Rename in the menu` : `${value}: double-click to rename`}
       onDoubleClick={(e) => {
         e.stopPropagation();
         start();

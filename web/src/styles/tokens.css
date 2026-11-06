@@ -800,6 +800,7 @@
   --h-tab: 26px;
   /* the grips are in board units: bigger, so a fingertip still finds them zoomed out */
   --size-resize-handle: 22px;
+  --size-knob: 22px;
 }
 /* a focused card is shown at 1:1 (board/focus.ts), so it gets the full touch sizes back */
 :root[data-input='touch'] .page-board .react-flow__node.is-focused {

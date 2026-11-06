@@ -21,7 +21,8 @@ import type { MemoryBlock, MemoryPlan } from '../../orch/types';
 import type { FlowNode } from '../flow';
 import { readMemoryNode } from '../kinds';
 import { useBoardEnv, useUi } from '../ui';
-import { TileFrame, TileHead } from './common';
+import { TileFrame, TileHead, usePointerDrag } from './common';
+import { useLayout } from '../../lib/layout';
 
 function MemoryTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const { ctl, ui, project } = useBoardEnv();
@@ -34,8 +35,22 @@ function MemoryTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [added, setAdded] = useState<MemoryBlock[]>([]);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(0);
-  const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  const coarse = useLayout().input === 'touch';
+  // a brick is dragged with the pointer (a mouse anywhere on it, a finger by its grip), not the
+  // browser's drag and drop, which a touch screen does not have
+  const brickAt = (x: number, y: number) =>
+    (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('.memory-brick[data-key]')?.dataset.key ?? null;
+  const drag = usePointerDrag<string>({
+    onMove: (_key, x, y) => setOver(brickAt(x, y)),
+    onDrop: (key, x, y) => {
+      setOver(null);
+      const to = brickAt(x, y);
+      if (to && to !== key) setBlocks(moveBlock(d.blocks, key, to));
+    },
+    onCancel: () => setOver(null),
+  });
+  const dragged = drag.dragging;
   const wires = doc.edges.filter((e) => e.kind === 'wire' && e.source === id);
   const blocksKey = JSON.stringify(d.blocks);
   const wiresKey = wires.map((e) => e.target).join(',');
@@ -135,31 +150,14 @@ function MemoryTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
               <div
                 key={key}
                 className={`memory-brick ${info?.missing ? 'is-missing' : ''} ${b.lookup ? 'is-lookup' : ''} ${dragged === key ? 'is-dragged' : ''} ${over === key && dragged !== key ? 'is-drop' : ''}`}
-                draggable
+                data-key={key}
                 tabIndex={0}
                 title="Drag to reorder: what is higher goes first when the budget runs out. Alt+arrow keys do the same."
-                onDragStart={(e) => {
-                  e.stopPropagation();
-                  e.dataTransfer.effectAllowed = 'move';
-                  e.dataTransfer.setData('text/plain', key);
-                  setDragged(key);
-                }}
-                onDragOver={(e) => {
-                  if (!dragged) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setOver(key);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (dragged) setBlocks(moveBlock(d.blocks, dragged, key));
-                  setDragged(null);
-                  setOver(null);
-                }}
-                onDragEnd={() => {
-                  setDragged(null);
-                  setOver(null);
+                onPointerDown={(e) => {
+                  const t = e.target as HTMLElement;
+                  if (t.closest('button:not(.memory-grip)')) return;
+                  if (e.pointerType === 'touch' && !t.closest('.memory-grip')) return;
+                  drag.begin(e, key);
                 }}
                 onKeyDown={(e) => {
                   if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
@@ -170,6 +168,12 @@ function MemoryTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                   setBlocks(moveBlock(d.blocks, key, blockKey(neighbour)));
                 }}
               >
+                {coarse && (
+                  // a button, so that the browser's touch targeting finds it next to the others
+                  <button type="button" className="memory-grip" tabIndex={-1} aria-label={`Move ${name}`}>
+                    <Icon name="grip" />
+                  </button>
+                )}
                 <span className="memory-brick-name truncate" title={info?.missing ? 'This memory no longer exists.' : `${name} · ${info?.owner ?? ''}`}>
                   {name}
                   {info?.owner && info.owner !== name && <span className="memory-brick-owner"> · {info.owner}</span>}

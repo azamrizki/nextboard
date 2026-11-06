@@ -1,7 +1,7 @@
 // Mission Map (docs/API-orchestration.md §7, D16): who directs whom. Three columns —
 // directors (command bar + orchestrator cards) → groups → consoles — joined by lines;
 // a dashed line marks "command bar only". Filters, search, an inspector with actions;
-// double-click jumps to the node on the board. X opens it, Esc closes.
+// double-click (or Show on board) jumps to the node on the board. X opens it, Esc closes.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
 import { agentById } from '../../agents/catalog';
@@ -17,6 +17,7 @@ import { SegmentedControl } from '../../components/form';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { timeAgo } from '../../lib/format';
+import { useLayout } from '../../lib/layout';
 import type { Session } from '../../lib/types';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { killSessions, pauseSessions, resumeSessions } from '../actions';
@@ -51,6 +52,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
   const sessions = useStoreSessions();
   const orders = useOrch((s) => s.orders);
   const narrow = useMediaQuery('(max-width: 899px)');
+  const touch = useLayout().input === 'touch';
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<Sel>(null);
@@ -234,7 +236,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
           </section>
           <section className="mm-col" aria-label="Groups">
             <h3 className="mm-col-title">Groups</h3>
-            {groupsShown.length === 0 && <p className="mm-empty">{model.groups.length ? 'No group matches.' : 'No groups. Select consoles and press Ctrl+G.'}</p>}
+            {groupsShown.length === 0 && <p className="mm-empty">{model.groups.length ? 'No group matches.' : touch ? 'No groups. Long-press a console on the board and pick Group console.' : 'No groups. Select consoles and press Ctrl+G.'}</p>}
             {groupsShown.map((g) => (
               <button key={g.id} type="button" className={`mm-item mm-group ${sel?.id === g.id ? 'is-selected' : ''}`} data-mm={`g:${g.id}`} onClick={() => setSel({ kind: 'group', id: g.id })}>
                 <span className="group-dot" style={{ background: `var(--tag-${g.color})` }} aria-hidden="true" />
@@ -259,7 +261,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
                   data-mm={`c:${c.nodeId}`}
                   onClick={() => setSel({ kind: 'console', id: c.nodeId })}
                   onDoubleClick={() => focusNode(s.id)}
-                  title="Double-click to show it on the board"
+                  title={touch ? undefined : 'Double-click to show it on the board'}
                 >
                   <span className={`dot dot-${pill.dot}`} aria-hidden="true" />
                   <span className="mm-name">@{s.handle ?? s.name}</span>
@@ -274,7 +276,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
           </section>
         </div>
         <aside className="mm-inspector" aria-label="Details">
-          {!sel && <p className="mm-empty">Select a console, group or director to see what it is doing. Double-click a console to jump to it.</p>}
+          {!sel && <p className="mm-empty">{touch ? 'Tap a console, group or director to see what it is doing, and Show it on the board from there.' : 'Select a console, group or director to see what it is doing. Double-click a console to jump to it.'}</p>}
           {selConsole && (
             <ConsoleInspector c={selConsole} now={now} onFocus={() => focusNode(selConsole.session.id)} onKill={() => setKill(selConsole.session)} />
           )}

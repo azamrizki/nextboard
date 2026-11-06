@@ -1,17 +1,20 @@
 // Kanban: columns (rename, colour, sort by priority, move, clear done, delete) with
 // cards (title, notes, due date, priority, done). Cards drag between columns with the
-// pointer (works under any zoom and on touch); every change is one undo step.
+// pointer (works under any zoom); near an edge the columns scroll along. Every change is one
+// undo step. On a touch screen a finger scrolls the columns and the cards, and a card is dragged
+// by its grip; a long press (or right-click) opens a card's menu.
 
-import { memo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { NodeProps } from '@xyflow/react';
 import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Checkbox, Field, SegmentedControl, TextField } from '../../components/form';
 import { Icon } from '../../components/Icon';
-import { Menu, type MenuEntry } from '../../components/Menu';
+import { ContextMenu, Menu, type MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
 import { itemId } from '../../lib/ids';
+import { useLayout } from '../../lib/layout';
 import type { FlowNode } from '../flow';
 import { PRIORITIES, PRIORITY_LABEL, readKanban, type KanbanCard, type KanbanColumn, type Priority } from '../kinds';
 import { TAG_COLORS, TAG_LABELS, type TagColor } from '../palette';
@@ -61,7 +64,9 @@ function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [drop, setDrop] = useState<DropTarget | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number; title: string } | null>(null);
+  const [cardCtx, setCardCtx] = useState<{ x: number; y: number; ci: number; card: KanbanCard } | null>(null);
   const colsRef = useRef<HTMLDivElement>(null);
+  const coarse = useLayout().input === 'touch';
 
   const save = (columns: KanbanColumn[]) => ctl.updateData(id, { columns });
   const mapCol = (colId: string, fn: (c: KanbanColumn) => KanbanColumn) => save(d.columns.map((c) => (c.id === colId ? fn(c) : c)));
@@ -86,14 +91,55 @@ function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
     }
     return null;
   };
+  const dropRef = useRef<DropTarget | null>(null);
+  const aim = (t: DropTarget | null) => {
+    if (t?.col === dropRef.current?.col && t?.index === dropRef.current?.index) return;
+    dropRef.current = t;
+    setDrop(t);
+  };
+  // while a card is held near an edge, the columns (and the column under it) scroll that way
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const loop = useRef(0);
+  const edgeScroll = () => {
+    const p = pointer.current;
+    const cols = colsRef.current;
+    if (!p || !cols) return;
+    const EDGE = 40;
+    const STEP = 10;
+    const r = cols.getBoundingClientRect();
+    if (p.x < r.left + EDGE) cols.scrollLeft -= STEP;
+    else if (p.x > r.right - EDGE) cols.scrollLeft += STEP;
+    const col = Array.from(cols.querySelectorAll<HTMLElement>('.kb-col')).find((c) => {
+      const cr = c.getBoundingClientRect();
+      return p.x >= cr.left && p.x <= cr.right;
+    });
+    const list = col?.querySelector<HTMLElement>('.kb-cards');
+    if (list) {
+      const lr = list.getBoundingClientRect();
+      if (p.y < lr.top + EDGE) list.scrollTop -= STEP;
+      else if (p.y > lr.bottom - EDGE) list.scrollTop += STEP;
+    }
+    aim(hitTest(p.x, p.y));
+    loop.current = requestAnimationFrame(edgeScroll);
+  };
+  const stopScroll = () => {
+    cancelAnimationFrame(loop.current);
+    pointer.current = null;
+  };
+  useEffect(() => stopScroll, []);
   const drag = usePointerDrag<{ col: number; card: KanbanCard }>({
+    onStart: () => {
+      loop.current = requestAnimationFrame(edgeScroll);
+    },
     onMove: (it, x, y) => {
-      setDrop(hitTest(x, y));
+      pointer.current = { x, y };
+      aim(hitTest(x, y));
       setGhost({ x, y, title: it.card.title || 'Card' });
     },
     onDrop: (it, x, y) => {
+      stopScroll();
       setGhost(null);
-      setDrop(null);
+      aim(null);
       const t = hitTest(x, y);
       if (!t) return;
       const cols = d.columns.map((c) => ({ ...c, cards: c.cards.slice() }));
@@ -108,8 +154,9 @@ function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
       save(cols);
     },
     onCancel: () => {
+      stopScroll();
       setGhost(null);
-      setDrop(null);
+      aim(null);
     },
   });
 
@@ -279,7 +326,13 @@ function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                   }}
                 />
               ) : (
-                <span className="kb-col-title" onDoubleClick={() => setRenaming(col.id)} title={col.title}>
+                <span
+                  className="kb-col-title"
+                  onDoubleClick={() => setRenaming(col.id)}
+                  // a finger has no double tap here: a tap renames
+                  onClick={() => coarse && setRenaming(col.id)}
+                  title={col.title}
+                >
                   {col.title}
                 </span>
               )}
@@ -306,10 +359,24 @@ function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                       drop?.col === ci && drop.index === k ? 'drop-before' : ''
                     }`}
                     onPointerDown={(e) => {
-                      if ((e.target as HTMLElement).closest('.menu')) return;
+                      const t = e.target as HTMLElement;
+                      if (t.closest('.menu')) return;
+                      // a finger on the card scrolls; its grip is what drags it
+                      if (e.pointerType === 'touch' && !t.closest('.kb-grip')) return;
                       drag.begin(e, { col: ci, card });
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setCardCtx({ x: e.clientX, y: e.clientY, ci, card });
+                    }}
                   >
+                    {coarse && (
+                      // a button, so that the browser's touch targeting finds it next to the card
+                      <button type="button" className="kb-grip" tabIndex={-1} aria-label={`Move ${card.title || 'card'}`}>
+                        <Icon name="grip" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="kb-card-main"
@@ -385,6 +452,15 @@ function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
           document.body,
         )}
 
+      {cardCtx && d.columns[cardCtx.ci] && (
+        <ContextMenu
+          x={cardCtx.x}
+          y={cardCtx.y}
+          label={`Actions for ${cardCtx.card.title || 'card'}`}
+          items={cardMenu(d.columns[cardCtx.ci], cardCtx.card)}
+          onClose={() => setCardCtx(null)}
+        />
+      )}
       {editCard && (
         <CardDialog
           card={editCard.card}

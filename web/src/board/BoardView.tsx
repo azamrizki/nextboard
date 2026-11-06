@@ -92,7 +92,8 @@ import { FileTile } from './tiles/FileTile';
 import { ImageTile } from './tiles/ImageTile';
 import { InkTile } from './tiles/InkTile';
 import { KanbanTile } from './tiles/KanbanTile';
-import { LineTile } from './tiles/LineTile';
+import { isBent, LineTile, straightened } from './tiles/LineTile';
+import { titleRenamers } from './tiles/common';
 import { NoteTile } from './tiles/NoteTile';
 import { ShapeTile } from './tiles/ShapeTile';
 import { TextTile } from './tiles/TextTile';
@@ -1434,6 +1435,8 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       { label: 'Bring to front', icon: 'front', onSelect: () => ctl.zOrder(ids, 'front') },
       { label: 'Send to back', icon: 'back', onSelect: () => ctl.zOrder(ids, 'back') },
     ];
+    const rename = single ? titleRenamers.get(single.id) : undefined;
+    if (rename) items.unshift({ label: 'Rename', icon: 'pencil', onSelect: rename });
     if (single && isFocusable(single)) items.unshift({ label: 'Focus', icon: 'fullscreen', onSelect: () => focusCard(single.id) });
     if (coarse && !picking) items.push({ label: 'Select several…', icon: 'selectAll', onSelect: () => setPicking(true) });
     if (single) items.push({ label: 'Zoom to tile', icon: 'fit', onSelect: () => frame(single.id) });
@@ -1462,6 +1465,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       });
     }
     if (single?.kind === 'image') items.push({ label: 'Markup…', icon: 'pen', onSelect: () => ui.set({ markup: single.id }) });
+    if (single && isBent(single)) items.push({ label: 'Straighten', icon: 'line', onSelect: () => ctl.patch(single.id, straightened(single)) });
     if (single?.kind === 'web' && typeof single.data.previewId === 'string' && single.data.previewId) {
       const pid = single.data.previewId;
       items.push({ label: 'Console log card', icon: 'braces', onSelect: () => ctl.select([logCardFor(ctl, single, pid)]) });

@@ -60,7 +60,8 @@ export function BoardPage({ projectId, workspaceId }: { projectId: string; works
     if (!project || ws || workspaces.length === 0) return;
     const last = lastWorkspace(project.id);
     const target = workspaces.find((w) => w.id === last) ?? workspaces[0];
-    navigate(boardPath(project.id, target.id), true);
+    // a link's query (?card=…) is for the board it lands on
+    navigate(boardPath(project.id, target.id) + window.location.search, true);
   }, [project, ws, workspaces]);
 
   useEffect(() => {

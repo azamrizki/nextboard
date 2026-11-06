@@ -2075,8 +2075,29 @@ textarea.control.lead-soul {
   border-style: dashed;
   color: var(--text-3);
 }
-.memory-brick[draggable='true'] {
+.memory-brick[data-key] {
   cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* a touch screen: the grip moves a brick, a finger elsewhere scrolls */
+.memory-grip {
+  flex: 0 0 auto;
+  display: grid;
+  place-content: center;
+  align-self: stretch;
+  width: var(--s-6);
+  margin-left: calc(-1 * var(--s-1));
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: grab;
+  touch-action: none;
+}
+.memory-grip svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
 }
 .memory-brick.is-dragged {
   opacity: 0.45;

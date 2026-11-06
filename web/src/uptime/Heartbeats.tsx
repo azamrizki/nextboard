@@ -41,13 +41,19 @@ export function HeartbeatsDetail({ beats, count, idle }: { beats: Beat[]; count:
     <div className="up-beats-detail">
       <div
         className="up-beats-hit"
+        onPointerDown={(e) => {
+          // a finger taps (or slides) instead of hovering
+          const box = e.currentTarget.getBoundingClientRect();
+          const slot = Math.floor(((e.clientX - box.left) / box.width) * count) - (count - shown.length);
+          setHover(shown[slot] ?? null);
+        }}
         onPointerMove={(e) => {
           // a share of the width, which the board's zoom does not change
           const box = e.currentTarget.getBoundingClientRect();
           const slot = Math.floor(((e.clientX - box.left) / box.width) * count) - (count - shown.length);
           setHover(shown[slot] ?? null);
         }}
-        onPointerLeave={() => setHover(null)}
+        onPointerLeave={(e) => e.pointerType !== 'touch' && setHover(null)}
       >
         <Heartbeats beats={beats} count={count} />
       </div>

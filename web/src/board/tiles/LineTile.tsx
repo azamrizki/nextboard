@@ -1,6 +1,6 @@
 // Line / arrow: rough.js path through three points (tips + middle bend knob).
 // Drag a tip to move it (Shift snaps to 15°), drag the middle knob to bend,
-// double-click the middle knob to straighten. Only the stroke takes clicks. A wire (a diagram
+// double-click the middle knob (or Straighten in its menu) to straighten. Only the stroke takes clicks. A wire (a diagram
 // arrow in the wiring style) stays straight stretches: its tips move, and a knob on each
 // stretch between two corners pushes that stretch sideways.
 
@@ -15,8 +15,25 @@ import { arrowHeads, dashArray, drawLine, lineDrawnD } from '../rough';
 import { useBoardEnv } from '../ui';
 import { rectOf } from '../controller';
 import { inkColor } from '../palette';
+import type { BoardNode, NodePatch } from '../../lib/types';
 
 type Knob = 0 | 1 | 2;
+
+/** A bent line or arrow (not a wire), which "Straighten" in its menu makes straight again. */
+export function isBent(n: BoardNode): boolean {
+  if (n.kind !== 'line') return false;
+  const d = readLine(n);
+  return !d.route && !isStraight(d.points[0], d.points[1], d.points[2]);
+}
+
+/** The middle knob back halfway between the tips, as a patch of the node. */
+export function straightened(n: BoardNode): NodePatch {
+  const d = readLine(n);
+  const p = d.points.map((q) => [q[0] + n.x, q[1] + n.y]) as [Pt, Pt, Pt];
+  p[1] = [(p[0][0] + p[2][0]) / 2, (p[0][1] + p[2][1]) / 2];
+  const { rect, points } = normalizeLine(p);
+  return { ...rect, data: { points } };
+}
 
 function LineTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const n = data.node;
@@ -30,8 +47,6 @@ function LineTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const paths = useMemo(() => (gen ? drawLine(gen, d) : null), [gen, key]);
   const dash = dashArray(d.strokeStyle, d.strokeWidth);
   const pathD = lineDrawnD(d);
-
-  const abs = (p: Pt): Pt => [p[0] + n.x, p[1] + n.y];
 
   const dragKnob = (e: ReactPointerEvent, k: Knob) => {
     if (e.button !== 0) return;
@@ -111,12 +126,7 @@ function LineTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
     window.addEventListener('pointerup', up);
   };
 
-  const straighten = () => {
-    const p = d.points.map(abs) as [Pt, Pt, Pt];
-    p[1] = [(p[0][0] + p[2][0]) / 2, (p[0][1] + p[2][1]) / 2];
-    const { rect, points } = normalizeLine(p);
-    ctl.patch(id, { ...rect, data: { points } });
-  };
+  const straighten = () => ctl.patch(id, straightened(n));
 
   const isArrow = d.arrowStart || d.arrowEnd;
   return (

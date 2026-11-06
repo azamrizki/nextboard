@@ -1,10 +1,12 @@
-// Checklist: title (double-click renames), items with checkboxes, a progress ring,
-// "Clear done" (undo brings the items back).
+// Checklist: title (double-click or Rename in its menu), items with checkboxes, a progress ring,
+// "Clear done" (undo brings the items back). An item's text is edited with a double click, or a
+// tap on a touch screen, where the list scrolls under a finger and the card moves by its header.
 
 import { memo, useRef, useState, type KeyboardEvent } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { Icon } from '../../components/Icon';
 import { itemId } from '../../lib/ids';
+import { useLayout } from '../../lib/layout';
 import type { FlowNode } from '../flow';
 import { readChecklist, type CheckItem } from '../kinds';
 import { useBoardEnv } from '../ui';
@@ -38,6 +40,7 @@ function ChecklistTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [adding, setAdding] = useState('');
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const addRef = useRef<HTMLInputElement>(null);
+  const coarse = useLayout().input === 'touch';
   const done = d.items.filter((i) => i.done).length;
 
   const setItems = (items: CheckItem[], merge?: string) => ctl.updateData(id, { items }, merge ? { merge } : undefined);
@@ -70,7 +73,7 @@ function ChecklistTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         menu={link.menu}
         menuLabel={`Actions for ${d.title}`}
       />
-      <ul className="check-list nowheel" aria-label="Items">
+      <ul className={`check-list nowheel ${coarse ? 'nodrag' : ''}`} aria-label="Items">
         {d.items.length === 0 && <li className="tile-empty">No items yet. Add the first one below.</li>}
         {d.items.map((it) => (
           <li key={it.id} className={`check-item ${it.done ? 'done' : ''}`}>
@@ -105,7 +108,11 @@ function ChecklistTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                 }}
               />
             ) : (
-              <span className="check-text" onDoubleClick={(e) => (e.stopPropagation(), setEditingItem(it.id))}>
+              <span
+                className="check-text"
+                onDoubleClick={(e) => (e.stopPropagation(), setEditingItem(it.id))}
+                onClick={() => coarse && setEditingItem(it.id)}
+              >
                 {it.text}
               </span>
             )}

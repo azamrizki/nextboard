@@ -94,6 +94,7 @@ const PATHS = {
   play2: 'M5 3v18l15-9z',
   bolt: 'M13 2 4 14h7l-1 8 9-12h-7z',
   dot: 'M12 12h.01',
+  grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
   clipboard: 'M9 4h6v3H9zM9 5H6v16h12V5h-3',
   scissors: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12',
   selectAll: 'M5 3h2M11 3h2M17 3h2M3 5v2M3 11v2M3 17v2M21 5v2M21 11v2M21 17v2M5 21h2M11 21h2M17 21h2M8 8h8v8H8z',
