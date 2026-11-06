@@ -73,7 +73,7 @@
   --group-border-mix: 42%;
   --group-head-mix: 18%;
   --w-cmdbar: 760px;
-  --h-cmdbar: 124px; /* chips row + input panel */
+  --h-cmdbar: var(--cmdbar-h, 124px); /* chips row + input panel, as measured by CommandBar */
   --h-cmd-tool: 28px; /* the input panel's toolbar */
   --h-cmd-chip: 32px;
   --cmd-chip-ring-w: 1.5px;
@@ -775,8 +775,9 @@
   --shell-bottom: calc(var(--safe-b) + var(--h-tabbar));
 }
 
-/* A finger needs bigger targets (DESIGN.md §6: at least 40, 44 where there is room). The board
-   keeps the old sizes until its own pass; menus and dialogs opened from it are full size. */
+/* A finger needs bigger targets (DESIGN.md §4: at least 40, 44 where there is room). Cards on the
+   board keep their own sizes: they are scaled with the zoom, and focus mode shows one at 1:1.
+   The board's controls, menus and dialogs are full size. */
 :root[data-input='touch'] {
   --h-control: 44px;
   --h-control-sm: 40px;
@@ -785,8 +786,11 @@
   --h-icon-btn-sm: 40px;
   --h-menu-item: 44px;
   --h-tab: 40px;
+  --h-cmd-chip: 40px;
+  --h-cmd-tool: 40px;
+  --w-rail: 56px;
 }
-:root[data-input='touch'] .page-board > :not(.app-header) {
+:root[data-input='touch'] .page-board .react-flow__viewport {
   --h-control: 40px;
   --h-control-sm: 32px;
   --h-control-lg: 44px;
@@ -794,4 +798,17 @@
   --h-icon-btn-sm: 32px;
   --h-menu-item: 34px;
   --h-tab: 26px;
+  /* the grips are in board units: bigger, so a fingertip still finds them zoomed out */
+  --size-resize-handle: 22px;
+}
+/* a focused card is shown at 1:1 (board/focus.ts), so it gets the full touch sizes back */
+:root[data-input='touch'] .page-board .react-flow__node.is-focused {
+  --h-control: 44px;
+  --h-control-sm: 40px;
+  --h-control-lg: 48px;
+  --h-icon-btn: 44px;
+  --h-icon-btn-sm: 40px;
+  --h-menu-item: 44px;
+  --h-tab: 34px;
+  --h-node-header: 48px;
 }

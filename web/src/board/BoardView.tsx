@@ -6,6 +6,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -22,6 +23,7 @@ import {
   SelectionMode,
   useKeyPress,
   useReactFlow,
+  useStoreApi,
   ViewportPortal,
   type EdgeChange,
   type NodeChange,
@@ -45,6 +47,7 @@ import { toast } from '../components/Toast';
 import { arrangeOps } from './arrange';
 import { prefs } from '../lib/format';
 import type { BoardNode, Op, Project, Workspace } from '../lib/types';
+import { useLayout } from '../lib/layout';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { store, useMachine } from '../store';
 import { duplicate, makePayload, parsePayload, pastePayload, recall, remember, serialize, type ClipPayload } from './clipboard';
@@ -54,6 +57,7 @@ import { DrawLayer } from './DrawLayer';
 import { DropDialog } from './DropDialog';
 import { addPath, imageNodeFromBlob } from './files';
 import { FlowCache, type FlowNode } from './flow';
+import { cardOrder, focusCard, isFocusable, leaveFocus, useFocusedCard } from './focus';
 import { ConnectionWire, EDGE_TYPES, EdgeCache, type FlowEdge } from './edges';
 import { connectIntent, CONTENT_SOURCES, createGroupOps, dropMembershipOps, frameOps, groupNodes, groupsTouching, WIRE_SOURCES } from './groups';
 import { GroupFrame } from './tiles/GroupFrame';
@@ -273,7 +277,8 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   );
   const cache = useRef(new FlowCache());
   const compact = useMediaQuery('(max-width: 899px)');
-  const coarse = useMediaQuery('(pointer: coarse)');
+  // a finger: one-finger drags pan, and every insert is a tap away (no right-click needed)
+  const coarse = useLayout().input === 'touch';
   const machine = useMachine(project.machineId);
   const shortcuts = useShortcuts();
   const [spawnOpen, setSpawnOpen] = useState(false);
@@ -283,6 +288,74 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const nodes = useMemo(() => cache.current.build(state.nodes, selection, dragging, editing, ctl.stack), [state.nodes, selection, dragging, editing, stackRev, ctl.stack]);
   const selectedNodes = useMemo(() => state.nodes.filter((n) => selection.has(n.id)), [state.nodes, selection]);
+
+  // ---- focus mode (focus.ts): one card fills the view on this screen, the board is untouched ----
+  const focusId = useFocusedCard();
+  const focused = focusId ? state.nodes.find((n) => n.id === focusId && isFocusable(n)) : undefined;
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  const focusAreaRef = useRef<HTMLDivElement>(null);
+  const [focusArea, setFocusArea] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const viewBeforeFocus = useRef<Viewport | null>(null);
+  const isFocusing = !!focused;
+  useLayoutEffect(() => {
+    if (!isFocusing) {
+      setFocusArea(null);
+      return;
+    }
+    const el = focusAreaRef.current;
+    if (!el) return;
+    // the area is CSS (.focus-area): the bars and safe areas of this layout, measured here
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setFocusArea((a) => (a && a.left === r.left && a.top === r.top && a.width === r.width && a.height === r.height ? a : { left: r.left, top: r.top, width: r.width, height: r.height }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [isFocusing]);
+  useEffect(() => {
+    if (!focused || !focusArea) return;
+    if (!viewBeforeFocus.current) viewBeforeFocus.current = rf.getViewport();
+    void rf.setViewport({ x: focusArea.left - focused.x, y: focusArea.top - focused.y, zoom: 1 });
+  }, [focused?.id, focused?.x, focused?.y, focusArea, rf]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (focused) {
+      if (!ctl.selection.has(focused.id) || ctl.selection.size > 1) ctl.select([focused.id]);
+      return;
+    }
+    const before = viewBeforeFocus.current;
+    viewBeforeFocus.current = null;
+    if (before) void rf.setViewport(before, { duration: 200 });
+  }, [focused?.id, ctl, rf]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a card that went away (deleted here or elsewhere) takes focus mode with it
+  useEffect(() => {
+    if (focusId && status === 'ready' && !focused) leaveFocus();
+  }, [focusId, status, focused]);
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-card-focus', isFocusing);
+    return () => document.documentElement.removeAttribute('data-card-focus');
+  }, [isFocusing]);
+  const shownNodes = useMemo(() => {
+    if (!focused || !focusArea) return nodes;
+    return nodes.map((f) =>
+      f.id !== focused.id
+        ? f
+        : { ...f, width: focusArea.width, height: focusArea.height, measured: { width: focusArea.width, height: focusArea.height }, zIndex: 100000, draggable: false, className: 'is-focused' },
+    );
+  }, [nodes, focused, focusArea]);
+
+  // ---- touch: select several by tapping, as Shift does with a mouse ----
+  const flowStore = useStoreApi<FlowNode>();
+  const [picking, setPicking] = useState(false);
+  useEffect(() => {
+    flowStore.setState({ multiSelectionActive: picking });
+  }, [picking, flowStore]);
 
   // ---- geometry helpers ----
   const viewCenter = useCallback(() => {
@@ -615,6 +688,11 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isTyping(e.target) || modalOpen()) return;
+      if (e.key === 'Escape' && focusedRef.current) {
+        e.preventDefault();
+        leaveFocus();
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       const ids = [...ctl.selection];
       const key = e.key;
@@ -765,6 +843,52 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     else setSpawnOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool]);
+
+  // Two fingers move and zoom the board wherever they land, over a console or an editor too: one
+  // finger there belongs to the card (scrolling, selecting), so React Flow leaves those touches
+  // alone and this takes the pair. On the empty board React Flow does it itself.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || !coarse) return;
+    let g: { d0: number; mx: number; my: number; vp: Viewport } | null = null;
+    const onCard = (t: EventTarget | null) => t instanceof Element && !!t.closest('.react-flow__node') && !!t.closest('.nopan, .nowheel, .nodrag');
+    const pair = (e: TouchEvent) => {
+      const [a, b] = [e.touches[0], e.touches[1]];
+      return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2, d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) };
+    };
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || focusedRef.current) return;
+      if (!Array.from(e.touches).some((t) => onCard(t.target))) return;
+      const m = pair(e);
+      g = { d0: Math.max(1, m.d), mx: m.x, my: m.y, vp: rf.getViewport() };
+      e.preventDefault();
+    };
+    const move = (e: TouchEvent) => {
+      if (!g || e.touches.length !== 2) return;
+      e.preventDefault();
+      const m = pair(e);
+      const zoom = Math.min(3, Math.max(0.2, (g.vp.zoom * m.d) / g.d0));
+      // the board point that was under the fingers stays under them
+      const fx = (g.mx - g.vp.x) / g.vp.zoom;
+      const fy = (g.my - g.vp.y) / g.vp.zoom;
+      void rf.setViewport({ x: m.x - fx * zoom, y: m.y - fy * zoom, zoom });
+    };
+    const end = (e: TouchEvent) => {
+      if (!g || e.touches.length >= 2) return;
+      g = null;
+      saveViewport(ctl.workspaceId, rf.getViewport());
+    };
+    el.addEventListener('touchstart', start, { capture: true, passive: false });
+    el.addEventListener('touchmove', move, { capture: true, passive: false });
+    el.addEventListener('touchend', end, true);
+    el.addEventListener('touchcancel', end, true);
+    return () => {
+      el.removeEventListener('touchstart', start, true);
+      el.removeEventListener('touchmove', move, true);
+      el.removeEventListener('touchend', end, true);
+      el.removeEventListener('touchcancel', end, true);
+    };
+  }, [coarse, rf, ctl]);
 
   // ---- React Flow events ----
   const onNodesChange = useCallback(
@@ -1006,7 +1130,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'map', label: 'Mission Map', shortcut: 'X', active: mission, onClick: () => ui.set({ mission: !mission }) },
     { icon: 'grid', label: 'Auto arrange', disabled: ctl.nodes.length < 2, onClick: arrange, sepBefore: true },
   ];
-  /** A touch screen has no right-click: everything stays one tap away in the left rail's flyout. */
+  /** A touch screen or a narrow window: everything stays one tap away in the left rail's flyout. */
   const insertItems: InsertItem[] = [
     { icon: 'checklist', label: 'Checklist', onClick: () => insertAt('checklist') },
     { icon: 'kanban', label: 'Kanban', onClick: () => insertAt('kanban') },
@@ -1021,7 +1145,9 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'branch', label: 'Branches card', onClick: () => insertNode('branches') },
     { icon: 'layout', label: 'Layouts', active: panel === 'layouts', onClick: () => togglePanel('layouts') },
     { icon: 'history', label: 'Snapshots', active: panel === 'snapshots', onClick: () => togglePanel('snapshots') },
-    ...railItems,
+    ...(coarse ? [{ icon: 'selectAll' as IconName, label: 'Select several', active: picking, onClick: () => setPicking((p) => !p) }] : []),
+    // the right rail's own items, where there is no right rail
+    ...(compact ? railItems : []),
   ];
   const studioItems: MenuEntry[] = [
     { type: 'heading', label: 'Studios' },
@@ -1241,6 +1367,8 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       { label: 'Bring to front', icon: 'front', onSelect: () => ctl.zOrder(ids, 'front') },
       { label: 'Send to back', icon: 'back', onSelect: () => ctl.zOrder(ids, 'back') },
     ];
+    if (single && isFocusable(single)) items.unshift({ label: 'Focus', icon: 'fullscreen', onSelect: () => focusCard(single.id) });
+    if (coarse && !picking) items.push({ label: 'Select several…', icon: 'selectAll', onSelect: () => setPicking(true) });
     if (single) items.push({ label: 'Zoom to tile', icon: 'fit', onSelect: () => frame(single.id) });
     items.push({
       label: locked ? 'Unlock position' : 'Lock position',
@@ -1475,7 +1603,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
         {status === 'loading' && <BoardLoading />}
         {status === 'ready' && (
           <ReactFlow<FlowNode, FlowEdge>
-            nodes={nodes}
+            nodes={shownNodes}
             nodeTypes={NODE_TYPES}
             edges={edges}
             edgeTypes={EDGE_TYPES}
@@ -1489,9 +1617,11 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
               }
               if (next) setEdgeSel(next);
             }}
-            onEdgeClick={(_e, edge) => {
+            onEdgeClick={(e, edge) => {
               setEdgeSel(new Set([edge.id]));
               ctl.select([]);
+              // a finger has no right-click: a tap on a line opens what right-click does
+              if (coarse) setMenu({ x: e.clientX, y: e.clientY, at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), ids: null, edge: edge.id });
             }}
             onEdgeContextMenu={(e, edge) => {
               e.preventDefault();
@@ -1557,7 +1687,8 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
               window.clearTimeout(layerTimer.current);
               layerTimer.current = window.setTimeout(() => canvasRef.current?.classList.remove('is-moving'), 400);
               window.clearTimeout(moveTimer.current);
-              moveTimer.current = window.setTimeout(() => saveViewport(ctl.workspaceId, vp), 300);
+              // the focused view is this card's, not the board's
+              if (!focusedRef.current) moveTimer.current = window.setTimeout(() => saveViewport(ctl.workspaceId, vp), 300);
             }}
             defaultViewport={initialViewport}
             fitView={fitOnInit}
@@ -1565,9 +1696,12 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             minZoom={0.2}
             maxZoom={3}
             nodeExtent={EXTENT}
-            panOnScroll={!coarse}
-            panOnDrag={coarse || hand ? true : [1]}
-            selectionOnDrag={!coarse}
+            panOnScroll={!coarse && !isFocusing}
+            panOnDrag={isFocusing ? false : coarse || hand ? true : [1]}
+            zoomOnScroll={!isFocusing}
+            zoomOnPinch={!isFocusing}
+            nodesDraggable={!isFocusing}
+            selectionOnDrag={!coarse && !isFocusing}
             selectionMode={SelectionMode.Partial}
             multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
             selectionKeyCode={null}
@@ -1651,7 +1785,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             canUndo={ctl.canUndo}
             canRedo={ctl.canRedo}
             terminalHint={terminalHint}
-            insert={compact ? <InsertButtons items={insertItems} /> : undefined}
+            insert={compact || coarse ? <InsertButtons items={insertItems} labelled={coarse} /> : undefined}
             shortcuts={shortcuts}
             spawnOpen={spawnOpen}
             onSpawnClick={openSpawn}
@@ -1678,10 +1812,30 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             }
           />
           <ResumeAllBanner workspaceId={ctl.workspaceId} />
+          {focused && (
+            <>
+              <div className="focus-area" ref={focusAreaRef} aria-hidden="true" />
+              <FocusBar ctl={ctl} node={focused} nodes={state.nodes} />
+            </>
+          )}
           <InsertRail items={railItems} />
           <Inspector ctl={ctl} ui={ui} selection={selectedNodes} tool={tool} penColor={penColor} penWidth={penWidth} />
           <CommandBar ctl={ctl} ui={ui} project={project} nt={nt} loopsRunning={loopsRunning} onArrange={arrange} />
           {connectFrom && <ConnectBanner ctl={ctl} from={connectFrom} onDone={() => ui.set({ connectFrom: null })} />}
+          {picking && (
+            <div className="connect-banner pick-banner" role="status">
+              <Icon name="selectAll" />
+              <span className="grow">
+                {selection.size === 0 ? 'Tap cards to select them' : `${selection.size} selected · long-press one for what to do with them`}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => ctl.select(ctl.nodes.filter((n) => n.kind !== 'group').map((n) => n.id))}>
+                All
+              </Button>
+              <Button size="sm" variant="primary" onClick={() => setPicking(false)}>
+                Done
+              </Button>
+            </div>
+          )}
         </>
       )}
 
@@ -1901,6 +2055,36 @@ function ConnectBanner({ ctl, from, onDone }: { ctl: BoardController; from: stri
       <Button size="sm" variant={forward ? 'secondary' : 'primary'} onClick={onDone}>
         {forward ? 'Cancel' : 'Done'}
       </Button>
+    </div>
+  );
+}
+
+/** Over a focused card: back to the board, its name, and the cards before and after it. */
+function FocusBar({ ctl, node, nodes }: { ctl: BoardController; node: BoardNode; nodes: BoardNode[] }) {
+  const order = cardOrder(nodes);
+  const i = order.findIndex((n) => n.id === node.id);
+  const prev = i > 0 ? order[i - 1] : undefined;
+  const next = i >= 0 && i < order.length - 1 ? order[i + 1] : undefined;
+  const name = (n: BoardNode) => {
+    if (n.kind !== 'terminal') return nodeLabelOf(ctl, n.id);
+    const s = sessionOf(n);
+    return s?.handle ? `@${s.handle}` : s?.name || 'Console';
+  };
+  return (
+    <div className="focus-bar" role="toolbar" aria-label="Focused card">
+      <Button size="sm" variant="ghost" icon="chevronLeft" onClick={leaveFocus}>
+        Board
+      </Button>
+      <span className="focus-title truncate" title={name(node)}>
+        {name(node)}
+      </span>
+      {order.length > 1 && (
+        <span className="focus-count tabular" aria-label={`Card ${i + 1} of ${order.length}`}>
+          {i + 1}/{order.length}
+        </span>
+      )}
+      <Button size="sm" variant="ghost" iconOnly icon="chevronLeft" disabled={!prev} aria-label={prev ? `Previous card: ${name(prev)}` : 'Previous card'} onClick={() => prev && focusCard(prev.id)} />
+      <Button size="sm" variant="ghost" iconOnly icon="chevronRight" disabled={!next} aria-label={next ? `Next card: ${name(next)}` : 'Next card'} onClick={() => next && focusCard(next.id)} />
     </div>
   );
 }

@@ -138,6 +138,48 @@
 .rail-flyout-insert .rail-flyout-row {
   flex-wrap: wrap;
 }
+/* touch: a grid of named tiles, from the top of the rail so all of it fits */
+.rail-flyout-insert:has(.insert-tiles) {
+  top: 0;
+}
+.insert-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  width: min(392px, calc(100vw - var(--w-rail) - var(--s-3) * 2 - var(--s-6)));
+  /* ends above the command bar */
+  max-height: calc(100dvh - var(--shell-top) - var(--h-cmdbar) - var(--s-10));
+  overflow-y: auto;
+}
+.insert-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  min-height: 68px;
+  padding: var(--s-2) var(--s-1);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-xs);
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+.insert-tile svg {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+}
+.insert-tile:hover,
+.insert-tile.active {
+  background: var(--surface-active);
+  color: var(--text);
+}
+.insert-tile:disabled {
+  opacity: 0.4;
+}
 .zoom-controls {
   flex-direction: row;
   align-items: center;
@@ -505,7 +547,8 @@
 }
 /* other cards show it on hover; a card that has one of the sizes keeps it */
 @media (hover: hover) {
-  .tile-display:not(.is-shown) {
+  .tile-display:not(.is-shown),
+  .tile-focus:not(.is-shown) {
     display: none;
   }
   .react-flow__node:hover .tile-display,
@@ -513,6 +556,14 @@
   .tile-display:has([aria-expanded='true']) {
     display: block;
   }
+  .react-flow__node:hover .tile-focus,
+  .react-flow__node.selected .tile-focus {
+    display: inline-flex;
+  }
+}
+/* a finger cannot hover: on a touch screen the focus button is always there */
+:root[data-input='touch'] .tile-focus {
+  display: inline-flex;
 }
 .btn.is-on {
   background: var(--surface-active);
@@ -1553,4 +1604,83 @@ textarea.text-body {
   width: calc(var(--w-menu) + var(--s-8));
   background: var(--surface-solid);
   font-weight: var(--fw-semibold);
+}
+
+/* =========================================================================
+   Focus mode (board/focus.ts, DESIGN.md §3.5): one card fills the view on this screen
+   ========================================================================= */
+
+:root {
+  --h-focusbar: calc(var(--h-control-sm) + var(--s-1) * 2);
+}
+.focus-area,
+.focus-bar {
+  position: fixed;
+  left: calc(var(--safe-l) + var(--s-3));
+  right: calc(var(--safe-r) + var(--s-3));
+}
+:root[data-layout='phone'] .focus-area,
+:root[data-layout='phone'] .focus-bar {
+  left: calc(var(--safe-l) + var(--s-2));
+  right: calc(var(--safe-r) + var(--s-2));
+}
+.focus-area {
+  top: calc(var(--shell-top) + var(--h-focusbar) + var(--s-2));
+  bottom: calc(var(--safe-b) + var(--s-2));
+  visibility: hidden;
+  pointer-events: none;
+}
+:root[data-layout='phone'] .focus-bar {
+  top: calc(var(--shell-top) + var(--s-2));
+}
+:root[data-layout='phone'] .focus-area {
+  top: calc(var(--shell-top) + var(--s-2) + var(--h-focusbar) + var(--s-2));
+}
+.focus-bar {
+  top: var(--shell-top);
+  z-index: var(--z-canvas-ui);
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: var(--h-focusbar);
+  padding: 0 var(--s-1);
+  border-radius: var(--r-lg);
+  background: var(--glass-1);
+  -webkit-backdrop-filter: var(--glass-blur-1);
+  backdrop-filter: var(--glass-blur-1);
+  border: var(--hairline) solid var(--glass-border);
+  box-shadow: var(--e-2), var(--glass-highlight);
+}
+.focus-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 var(--s-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  text-align: center;
+}
+.focus-count {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+/* everything else steps aside: the other cards, the wires and the board's own controls */
+:root[data-card-focus] .react-flow__node:not(.is-focused),
+:root[data-card-focus] .react-flow__edges,
+:root[data-card-focus] .react-flow__edgelabel-renderer {
+  visibility: hidden;
+}
+:root[data-card-focus] .rail,
+:root[data-card-focus] .cmdbar-wrap,
+:root[data-card-focus] .inspector,
+:root[data-card-focus] .insp-toggle,
+:root[data-card-focus] .bl-panel,
+:root[data-card-focus] .react-flow__minimap,
+:root[data-card-focus] .resume-banner,
+:root[data-card-focus] .connect-banner,
+:root[data-card-focus] .board-empty {
+  display: none;
+}
+.react-flow__node.is-focused .react-flow__resize-control,
+.react-flow__node.is-focused .react-flow__handle {
+  display: none;
 }

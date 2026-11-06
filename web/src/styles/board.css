@@ -55,19 +55,25 @@
   box-shadow: var(--e-2), var(--glass-highlight);
 }
 .board-canvas .react-flow__panel.bottom {
-  margin-bottom: var(--s-4);
+  margin-bottom: calc(var(--safe-b) + var(--s-4));
+}
+/* The zoom controls, the Git pill and the minimap stay clear of the command bar where they would
+   meet it. Here and not in orch.css: this file can load after that one, and would win. */
+@media (max-width: 1379px) {
+  .board-canvas .react-flow__panel.bottom {
+    margin-bottom: calc(var(--safe-b) + var(--s-4) + var(--h-cmdbar) + var(--s-3));
+  }
+}
+@media (max-width: 899px) {
+  .board-canvas .react-flow__panel.bottom {
+    margin-bottom: calc(var(--safe-b) + var(--s-2) + var(--h-cmdbar) + var(--s-3));
+  }
 }
 .board-canvas .react-flow__panel.left {
   margin-left: var(--s-4);
 }
 .board-canvas .react-flow__panel.right {
   margin-right: var(--s-4);
-}
-/* keep corners clear of the dock on medium widths */
-@media (min-width: 900px) and (max-width: 1379px) {
-  .board-canvas .react-flow__panel.bottom {
-    margin-bottom: calc(var(--s-4) + var(--h-dock) + var(--s-3));
-  }
 }
 @media (max-width: 719px) {
   .board-canvas .react-flow__minimap {
@@ -337,4 +343,27 @@
   .board-canvas .react-flow__panel.bl-panel {
     margin-left: calc(var(--s-3) + var(--h-icon-btn) + 2 * var(--s-1) + 2 * var(--hairline) + var(--s-2));
   }
+}
+
+/* ---- touch (DESIGN.md §3.5) ---- */
+/* The board owns two-finger gestures, so the page itself does not zoom; one finger still scrolls
+   what scrolls. A long press opens the right-click menu (Android Chrome fires contextmenu), so
+   the board and card headers do not select their text under it. */
+.page-board {
+  touch-action: pan-x pan-y;
+}
+:root[data-input='touch'] .board-canvas .react-flow__pane,
+:root[data-input='touch'] .board-canvas .tile-head,
+:root[data-input='touch'] .board-canvas .nb-node-header {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.pick-banner .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* pinch and two fingers move the board; the overview map is for a mouse */
+:root[data-input='touch'] .board-canvas .react-flow__minimap {
+  display: none;
 }

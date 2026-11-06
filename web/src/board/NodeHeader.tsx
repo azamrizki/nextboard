@@ -25,6 +25,7 @@ import type { Agent, Conversation, LaunchMode, Machine, Session } from '../lib/t
 import { store, useProfile } from '../store';
 import { rectOf } from './controller';
 import { DisplayButton } from './DisplayButton';
+import { FocusButton } from './FocusButton';
 import { placeNear } from './layout';
 import { machineStatus } from './sessionStatus';
 import { useBoardEnv } from './ui';
@@ -542,6 +543,7 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
         </span>
       )}
 
+      <FocusButton id={nodeId} />
       <DisplayButton id={nodeId} />
       <Menu className="nodrag" label={`Actions for ${handleOf(session)}`} items={items} />
     </div>

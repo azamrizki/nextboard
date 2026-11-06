@@ -357,7 +357,7 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
 
   return (
     <div className="ws-tabs-wrap">
-      <div className="ws-tabs" role="tablist" aria-label={`Workspaces of ${project.name}`} ref={listRef}>
+      <div className="ws-tabs" role="tablist" aria-label={`Workspaces of ${project.name}`} ref={listRef} data-longpress="">
         {workspaces.map((w, i) => {
           const active = w.id === activeId;
           const n = ws.terminalsIn(w);

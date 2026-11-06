@@ -20,6 +20,7 @@ import { Menu, type MenuEntry, type MenuItem } from '../../components/Menu';
 import type { NodeLayout } from '../../lib/types';
 import { rectOf } from '../controller';
 import { DisplayButton } from '../DisplayButton';
+import { FocusButton } from '../FocusButton';
 import { CONTENT_SOURCES } from '../groups';
 import { useBoardEnv } from '../ui';
 
@@ -153,6 +154,7 @@ export function TileHead({ id, icon, title, meta, actions, menu, menuLabel, dele
       {meta}
       <span className="spacer" />
       {actions}
+      <FocusButton id={id} />
       <DisplayButton id={id} always={showDisplay} />
       <Menu className="nodrag" label={menuLabel ?? (typeof title === 'string' ? `Actions for ${title}` : 'Card actions')} items={items} />
     </div>

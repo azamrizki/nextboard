@@ -80,6 +80,19 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange }: Co
   const leadName = useLeadName();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  // How tall the bar really is (chips that wrap, a taller field, touch sizes): what sits above
+  // it on the board reads --cmdbar-h instead of a fixed guess.
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const ro = new ResizeObserver(() => root.style.setProperty('--cmdbar-h', `${Math.ceil(el.getBoundingClientRect().height)}px`));
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty('--cmdbar-h');
+    };
+  }, []);
   const historyKey = `p.${project.id}`;
 
   useEffect(() => {

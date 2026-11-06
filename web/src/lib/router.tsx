@@ -6,11 +6,11 @@ import { prefs } from './format';
 
 const NAV_EVENT = 'nb:navigate';
 
-export function navigate(to: string, replace = false) {
+export function navigate(to: string, replace = false, state: unknown = null) {
   const current = window.location.pathname + window.location.search;
   if (to === current) return;
-  if (replace) window.history.replaceState(null, '', to);
-  else window.history.pushState(null, '', to);
+  if (replace) window.history.replaceState(state, '', to);
+  else window.history.pushState(state, '', to);
   window.dispatchEvent(new Event(NAV_EVENT));
 }
 
@@ -26,6 +26,12 @@ function subscribe(fn: () => void) {
 /** Current pathname (without query string). */
 export function usePath(): string {
   return useSyncExternalStore(subscribe, () => window.location.pathname);
+}
+
+/** One query parameter of the current URL, kept up to date. */
+export function useSearchParam(name: string): string | null {
+  const search = useSyncExternalStore(subscribe, () => window.location.search);
+  return new URLSearchParams(search).get(name);
 }
 
 type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & { to: string };

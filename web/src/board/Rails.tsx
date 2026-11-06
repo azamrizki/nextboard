@@ -300,8 +300,22 @@ export function InsertRail({ items }: { items: InsertItem[] }) {
   );
 }
 
-/** Insert items as a horizontal toolbar (used inside the left rail's flyout on narrow screens). */
-export function InsertButtons({ items }: { items: InsertItem[] }) {
+/**
+ * Insert items in the left rail's flyout (narrow screens, touch screens). A finger has no tooltip
+ * to read, so on a touch screen each one carries its name.
+ */
+export function InsertButtons({ items, labelled }: { items: InsertItem[]; labelled?: boolean }) {
+  if (labelled)
+    return (
+      <div className="rail-flyout-row insert-tiles" role="toolbar" aria-label="Insert" onKeyDown={(e) => onToolbarKey(e, false)}>
+        {items.map((it) => (
+          <button key={it.label} type="button" className={`insert-tile ${it.active ? 'active' : ''}`} aria-pressed={it.active} disabled={it.disabled} onClick={it.onClick}>
+            <Icon name={it.icon} />
+            <span className="insert-tile-label">{it.label}</span>
+          </button>
+        ))}
+      </div>
+    );
   return (
     <div className="rail-flyout-row" role="toolbar" aria-label="Insert" onKeyDown={(e) => onToolbarKey(e, false)}>
       {items.map((it) => (

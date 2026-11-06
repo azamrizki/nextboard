@@ -2877,17 +2877,7 @@ summary.memory-picker-head {
     border-radius: var(--r-lg);
   }
 }
-/* zoom controls / minimap stay clear of the bar where they would overlap it */
-@media (max-width: 1379px) {
-  .board-canvas .react-flow__panel.bottom {
-    margin-bottom: calc(var(--s-4) + var(--h-cmdbar) + var(--s-3));
-  }
-}
-@media (max-width: 899px) {
-  .board-canvas .react-flow__panel.bottom {
-    margin-bottom: calc(var(--s-2) + var(--h-cmdbar) + var(--s-3));
-  }
-}
+/* zoom controls / minimap above the bar: board.css, after the rule it overrides */
 
 /* toasts stay clear of the command bar on phones (the minimap is hidden there) */
 @media (max-width: 899px) {
