@@ -564,7 +564,7 @@ Dibaca lewat Machines › kartu server › Connection log, `nextboard connlog`, 
 
 ### 5.19 Credentials
 
-Password manager di board, mengikuti Bitwarden; kontrak dan model keamanannya di [API-vault.md](API-vault.md). Satu vault per hub, ditampilkan oleh semua kartu `credentials`, dan menghapus kartu tidak menyentuh vault.
+Password manager di board, mengikuti Bitwarden; kontrak dan model keamanannya di [API-vault.md](API-vault.md). Satu vault per hub, ditampilkan oleh semua kartu `credentials` dan oleh tombol kunci di header (jendela di halaman mana pun, tanpa kartu), dan menghapus kartu tidak menyentuh vault.
 
 - **Enkripsi di browser:** Argon2id (64 MiB, 3 pass) + AES-256-GCM dengan master password yang tidak pernah sampai ke hub. Hub hanya menyimpan ciphertext, karena agent di This PC bisa membaca `<data>`.
 - **Isi:** login (TOTP, beberapa alamat, riwayat password), kartu, identitas, catatan, kunci SSH, field custom, folder, favorit, trash 30 hari, cari.
@@ -899,7 +899,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey, mengisi kartu dan identitas, kode Steam, pemeriksaan kebocoran password, dan kartu Android dan desktop belum ada. Agent memakai credential hanya teruji dengan agent palsu dan Claude Code; Codex dan OpenCode belum ([API-vault.md](API-vault.md)) |
 | Uptime | Jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam belum ada. Halaman status publik mati bersama hub, jadi tidak bisa memberi tahu hub-nya sendiri mati ([API-uptime.md](API-uptime.md)) |
-| Test | Test unit web mencakup vault, markdown, socket, blok memory, dan aturan wire (144 test). Uji browser di repo (`make test-e2e`) baru mencakup memory tile, dialog Send, daftar perintah terblokir, halaman status publik, dan persetujuan credential untuk agent; alur UI lain masih dicoba di luar repo. Sisa kriteria SPEC §12 ada di §13 |
+| Test | Test unit web mencakup vault, markdown, socket, blok memory, dan aturan wire (144 test). Uji browser di repo (`make test-e2e`) baru mencakup memory tile, dialog Send, daftar perintah terblokir, halaman status publik, persetujuan credential untuk agent, dan jendela vault dari header; alur UI lain masih dicoba di luar repo. Sisa kriteria SPEC §12 ada di §13 |
 | Klien | Lihat §10 |
 
 ### Pertanyaan untuk pemilik

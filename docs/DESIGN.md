@@ -147,7 +147,7 @@ Aturan tata letak:
 - Grup dengan input tertaut: tombol "Input linked" di header frame dan border frame `--tint-warning-*`; tiap console anggota menampilkan ikon link di header-nya, karena Ctrl+C pun ikut ke semua.
 - Kiri: brand mark (logo 32 px, terbalik seperti tombol utama) + "NextBoard" 800 + chip nama hub.
 - Tengah/kiri: navigasi = segmented control kaca (Board · Machines · Devices); item aktif bg `--surface-active` + teks `--text` + `aria-current="page"`.
-- Kanan: indikator koneksi events (titik + "Live"/"Reconnecting…"), tombol ikon Settings, tema (matahari/bulan), About, Log out (ghost).
+- Kanan: indikator koneksi events (titik + "Live"/"Reconnecting…"), tombol kunci Credentials (titik kecil warna teks selama vault terbuka; membuka jendela vault, §3.16), tombol ikon Settings, tema (matahari/bulan), About, Log out (ghost).
 - < 720 px: navigasi turun ke baris kedua, tetap segmented, scroll horizontal bila perlu.
 
 ### 3.5 Board
@@ -282,6 +282,7 @@ Kontrak di [API-vault.md](API-vault.md). Tiga kolom: bagian, daftar, item. Di ba
 - **Kekuatan master password** memberi peringatan, tidak menolak; hanya kurang dari 8 karakter yang ditolak.
 - **PIN** satu field bertopeng dengan jarak antarhuruf lebar, numpad di ponsel, terkirim di digit keenam. Salah: field kosong lagi dan sisa percobaan disebut.
 - **Dialog isi login:** yang cocok dengan situs di atas, sisanya terpisah dengan "saved for …". Login untuk situs lain butuh klik kedua, dan tombolnya merah. Di Chrome This PC ada peringatan tetap bahwa situsnya tidak bisa dipastikan.
+- **Jendela dari header:** modal 960 px, tinggi sampai 760, isi sama dengan kartu (`vault/Panel.tsx`). New, Lock, dan `…` ada di kepala modal sebelum tombol tutup; jumlah item hilang di bawah 560 px. Menutup jendela tidak mengunci vault. Esc di menu `…` hanya menutup menu.
 - **Layar kunci dan buat vault** tanpa bingkai tambahan, di tengah kartu, dan menggulir kalau lebih tinggi dari kartu. Peringatan "tidak bisa dipulihkan" pakai `.alert.warning` dan centang wajib. Di HTTP biasa ada satu baris catatan kecil di bawah kolom password, tidak menghalangi.
 
 ### 3.9 Palet terminal (xterm)

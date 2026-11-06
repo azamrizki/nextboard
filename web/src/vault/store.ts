@@ -339,6 +339,11 @@ export function useVault(): VaultState {
   return useSyncExternalStore(subscribe, () => state);
 }
 
+/** Only whether it is open, for the header: this does not load the vault. */
+export function useVaultStatus(): VaultState['status'] {
+  return useSyncExternalStore(subscribe, () => state.status);
+}
+
 // ---- opening ----
 
 export async function createVault(password: string) {

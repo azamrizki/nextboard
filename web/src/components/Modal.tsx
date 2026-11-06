@@ -25,6 +25,8 @@ interface ModalProps {
   size?: 'sm' | 'md' | 'lg';
   /** Icon before the title. */
   icon?: IconName;
+  /** Controls in the head, before the close button. */
+  actions?: ReactNode;
   /** Red title (destructive / security warnings). */
   tone?: 'default' | 'danger';
   /** Close when clicking the backdrop (default true). */
@@ -40,6 +42,7 @@ export function Modal({
   help,
   size = 'md',
   icon,
+  actions,
   tone = 'default',
   dismissable = true,
   className,
@@ -126,6 +129,7 @@ export function Modal({
             {icon && <Icon name={icon} />}
             <span className="truncate">{title}</span>
           </h2>
+          {actions && <div className="modal-head-actions">{actions}</div>}
           <Button variant="ghost" size="sm" iconOnly icon="close" aria-label="Close dialog" onClick={onClose} />
         </div>
         <div className="modal-body">{children}</div>

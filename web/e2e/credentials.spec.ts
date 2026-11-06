@@ -50,6 +50,58 @@ async function addLogin(page: Page, hub: Hub, name: string, password: string, pr
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
+test('the header opens the vault on any page, with no card on the board', async ({ page, hub }) => {
+  const p = await hub.project('Header');
+  const button = page.locator('.vault-button');
+  const win = page.getByRole('dialog', { name: 'Credentials', exact: true });
+
+  // From the project list.
+  await page.goto('/');
+  await expect(button).toHaveAccessibleName('Credentials');
+  await button.click();
+  await expect(win).toBeVisible();
+  await openVault(page);
+  await expect(button).toHaveAccessibleName('Credentials, unlocked');
+  const name = `Mail ${p.name}`;
+  await addLogin(page, hub, name, `mail-CANARY-${p.id}`);
+  await expect(win.getByText(name, { exact: true }).first()).toBeVisible();
+
+  // Escape in its menu closes the menu, and the window stays.
+  await win.getByRole('button', { name: 'Vault actions' }).click();
+  await expect(page.getByRole('menu', { name: 'Vault actions' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu', { name: 'Vault actions' })).toBeHidden();
+  await expect(win).toBeVisible();
+  // Closing the window leaves the vault open; the lock button and the timer lock it.
+  await page.keyboard.press('Escape');
+  await expect(win).toBeHidden();
+  await expect(button).toHaveAccessibleName('Credentials, unlocked');
+
+  // On a board with no Credentials card. A page load locks it again.
+  await page.goto(`/p/${p.id}`);
+  await expect(page.locator('.react-flow')).toBeVisible();
+  await expect(page.locator('.vault-body')).toHaveCount(0);
+  await expect(button).toHaveAccessibleName('Credentials');
+  await button.click();
+  await openVault(page);
+  await expect(win.getByText(name, { exact: true }).first()).toBeVisible();
+  // Keys typed in the window stay in it: x opens the Mission Map on the board, and not here.
+  await win.getByLabel('Search credentials').fill('x');
+  await win.locator('.modal-head').click();
+  await page.keyboard.press('x');
+  await expect(page.getByRole('dialog', { name: 'Mission Map' })).toHaveCount(0);
+
+  await win.getByRole('button', { name: 'Lock the vault' }).click();
+  await expect(win.getByRole('button', { name: 'Unlock', exact: true })).toBeVisible();
+  await expect(button).toHaveAccessibleName('Credentials');
+  expect(await page.content()).not.toContain('CANARY');
+  // The same key on the board itself does open the map.
+  await page.keyboard.press('Escape');
+  await expect(win).toBeHidden();
+  await page.keyboard.press('x');
+  await expect(page.getByRole('dialog', { name: 'Mission Map' })).toBeVisible();
+});
+
 test('an agent runs a command with a credential it never sees', async ({ page, hub }) => {
   const p = await hub.project('Portal');
   const c = await hub.console(p.wid);

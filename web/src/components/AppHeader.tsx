@@ -1,7 +1,9 @@
 // Floating glass header (DESIGN.md §3.4): brand + hub chip, navigation, live chip with
 // running terminals, connection indicator, About popover, Log out. Inside a project the
-// navigation gives way to the project switcher and the workspace tabs.
+// navigation gives way to the project switcher and the workspace tabs. The key button opens the
+// vault on any page, with no Credentials card needed.
 
+import { lazy, Suspense, useState } from 'react';
 import { useAuth } from '../auth';
 import { Link, memoryPath, parseRoute, usePath } from '../lib/router';
 import type { Project } from '../lib/types';
@@ -14,6 +16,10 @@ import { LiveChip } from './LiveChip';
 import { NeedsYouChip } from './NeedsYouChip';
 import { ProjectSwitcher, WorkspaceTabs } from './ProjectBar';
 import { UsagePill } from '../usage/UsagePill';
+import { useVaultStatus } from '../vault/store';
+
+// The vault's screens load, and the vault with them, when the window is first opened.
+const VaultWindow = lazy(() => import('../vault/Window').then((m) => ({ default: m.VaultWindow })));
 
 const NAV: { to: string; label: string; icon: IconName; page: string }[] = [
   { to: '/', label: 'Projects', icon: 'grid', page: 'home' },
@@ -44,6 +50,8 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
   const ready = useStoreReady();
   const connLabel = connected ? 'Live' : ready ? 'Reconnecting…' : 'Connecting…';
   const inProject = !!project;
+  const unlocked = useVaultStatus() === 'unlocked';
+  const [vault, setVault] = useState(false);
 
   return (
     <header className={`app-header ${inProject ? 'in-project' : ''}`}>
@@ -106,6 +114,17 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
               ))}
             </nav>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            icon="key"
+            className={`vault-button ${unlocked ? 'is-unlocked' : ''}`}
+            aria-label={unlocked ? 'Credentials, unlocked' : 'Credentials'}
+            title={unlocked ? 'Credentials (unlocked)' : 'Credentials'}
+            aria-haspopup="dialog"
+            onClick={() => setVault(true)}
+          />
           <Link
             to="/settings"
             className="btn btn-ghost btn-sm btn-icon settings-link"
@@ -128,6 +147,11 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
           )}
         </div>
       </div>
+      {vault && (
+        <Suspense fallback={null}>
+          <VaultWindow onClose={() => setVault(false)} />
+        </Suspense>
+      )}
     </header>
   );
 }

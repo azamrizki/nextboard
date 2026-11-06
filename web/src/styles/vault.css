@@ -8,6 +8,44 @@
   container: vault / inline-size;
 }
 
+/* ---- the window the header's key button opens ---- */
+.modal.vault-window {
+  max-width: var(--w-modal-xl);
+  height: min(760px, calc(100dvh - var(--s-12)));
+}
+.vault-window .modal-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+/* tiles.css, with the board, may not be loaded */
+.vault-window-meta {
+  margin-right: var(--s-1);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+@media (max-width: 559px) {
+  .vault-window-meta {
+    display: none;
+  }
+}
+/* open: a dot on the key, in the text colour like the rest of the header */
+.vault-button {
+  position: relative;
+}
+.vault-button.is-unlocked::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
 /* ---- locked, new, unsupported ---- */
 .vault-gate {
   margin: auto;

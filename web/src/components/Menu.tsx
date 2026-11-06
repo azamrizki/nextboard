@@ -145,6 +145,8 @@ function MenuList({ label, items, style, listRef, onClose, className }: MenuList
       role="menu"
       aria-label={label}
       style={style}
+      // Escape closes the menu and not the modal it was opened from.
+      data-keep-escape=""
       onKeyDown={onListKey}
       onClick={stop}
       onMouseDown={stop}

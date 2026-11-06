@@ -1,6 +1,6 @@
 # Credentials (vault)
 
-Referensi: [Bitwarden](https://bitwarden.com). Password manager di board: kartu `credentials` menampilkan satu vault milik hub. Paket: `internal/vault`, handler `internal/server/h_vault.go`, klien `web/src/vault/` dan `web/src/board/tiles/CredentialsTile.tsx`.
+Referensi: [Bitwarden](https://bitwarden.com). Password manager di board: kartu `credentials` menampilkan satu vault milik hub, dan tombol kunci di header membuka vault yang sama di jendela dari halaman mana pun, tanpa kartu. Paket: `internal/vault`, handler `internal/server/h_vault.go`, klien `web/src/vault/` (jendela header: `Window.tsx`, isi bersama: `Panel.tsx`) dan `web/src/board/tiles/CredentialsTile.tsx`.
 
 ## Kenapa enkripsi di browser
 
@@ -123,7 +123,7 @@ File API sudah menolak `<data>`. Cadangan hub cukup menyalin `vault.json`: isiny
 ## Perilaku di browser
 
 - **Kunci hanya di memori tab.** Tidak ada localStorage atau sessionStorage untuk apa pun yang rahasia. Reload, logout, `pagehide`, dan idle mengunci. Tiap tab unlock sendiri. Kunci menolak dipakai setelah terkunci, dan form atau dialog yang terbuka ikut hilang, tidak muncul lagi saat unlock. Import yang sedang jalan berhenti di situ; yang sudah terkirim tetap ada.
-- **Idle:** bawaan 15 menit tanpa menyentuh kartu Credentials (1 menit sampai 4 jam, per browser). Kerja di console tidak dihitung, jadi berjam-jam di terminal tidak membiarkan vault terbuka. Lock lewat tombol mengunci semua tab (`BroadcastChannel`).
+- **Idle:** bawaan 15 menit tanpa menyentuh kartu Credentials atau jendela header (1 menit sampai 4 jam, per browser). Kerja di console tidak dihitung, jadi berjam-jam di terminal tidak membiarkan vault terbuka. Lock lewat tombol mengunci semua tab (`BroadcastChannel`).
 - **Clipboard:** rahasia dihapus dari clipboard 30 detik setelah disalin (bisa diatur, atau "Never"), dan saat vault terkunci. Browser tidak memberi izin membaca clipboard tanpa bertanya, jadi yang disalin dari aplikasi lain dalam waktu itu ikut terhapus; dialog pengaturannya menyebut ini. Username dan alamat tidak dihapus.
 - **Tertutup berarti tidak ada di DOM:** nilai yang dimask tidak dirender sama sekali, dan mask tidak mengikuti panjang aslinya.
 - **Master password** minimal 8 karakter (keputusan pemilik). Skor zxcvbn di bawah 3 hanya diberi peringatan, tidak ditolak, walau yang punya `vault.json` bisa menebak secara offline. Tombol di form mengusulkan 6 kata BIP-39 (66 bit).

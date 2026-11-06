@@ -1042,6 +1042,12 @@ textarea.control {
 .modal-head.danger h2 {
   color: var(--c-danger-300);
 }
+.modal-head-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
 .modal-body {
   flex: 1 1 auto;
   min-height: 0;
