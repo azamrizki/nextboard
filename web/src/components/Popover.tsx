@@ -64,11 +64,11 @@ export function Popover({ anchor, onClose, label, children, className, placement
     const onWheel = (e: WheelEvent) => {
       if (!ref.current?.contains(e.target as Node)) closeRef.current();
     };
-    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey, true);
     document.addEventListener('wheel', onWheel, { capture: true, passive: true });
     return () => {
-      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
       document.removeEventListener('wheel', onWheel, true);
     };

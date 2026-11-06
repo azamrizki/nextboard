@@ -1074,25 +1074,42 @@ textarea.control {
   gap: var(--s-2);
   margin-left: auto;
 }
-@media (max-width: 559px) {
-  .modal-layer {
-    align-items: flex-end;
-    padding: var(--s-3);
-  }
-  .modal-head {
-    padding-left: var(--s-4);
-  }
-  .modal-body,
-  .modal-foot {
-    padding-left: var(--s-4);
-    padding-right: var(--s-4);
-  }
-  .modal-foot .foot-actions {
-    width: 100%;
-  }
-  .modal-foot .foot-actions .btn {
-    flex: 1 1 0;
-  }
+/* phone: a sheet from the bottom edge, with a grip to drag it down by (Modal.tsx) */
+:root[data-layout='phone'] .modal-layer {
+  align-items: flex-end;
+  padding: calc(var(--safe-t) + var(--s-6)) calc(var(--safe-r) + var(--s-2)) calc(var(--safe-b) + var(--s-2)) calc(var(--safe-l) + var(--s-2));
+}
+:root[data-layout='phone'] .modal {
+  max-height: calc(100dvh - var(--safe-t) - var(--safe-b) - var(--s-8));
+  max-width: none;
+  transition: transform var(--t-fast) var(--ease);
+}
+:root[data-layout='phone'] .modal-head {
+  position: relative;
+  padding-left: var(--s-4);
+  touch-action: none;
+}
+:root[data-layout='phone'] .modal-head::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  margin-left: -18px;
+  border-radius: var(--r-pill);
+  background: var(--glass-border-strong);
+}
+:root[data-layout='phone'] .modal-body,
+:root[data-layout='phone'] .modal-foot {
+  padding-left: var(--s-4);
+  padding-right: var(--s-4);
+}
+:root[data-layout='phone'] .modal-foot .foot-actions {
+  width: 100%;
+}
+:root[data-layout='phone'] .modal-foot .foot-actions .btn {
+  flex: 1 1 0;
 }
 @keyframes nb-fade {
   from {
@@ -1271,6 +1288,12 @@ textarea.control {
     bottom: calc(var(--s-4) + var(--size-fab) + var(--s-4));
   }
 }
+:root[data-layout='phone']:has(.tab-bar) .toasts {
+  left: calc(var(--safe-l) + var(--s-3));
+  right: calc(var(--safe-r) + var(--s-3));
+  width: auto;
+  bottom: calc(var(--shell-bottom) + var(--s-3));
+}
 
 /* =========================================================================
    3.4 App header & navigation
@@ -1278,9 +1301,9 @@ textarea.control {
 
 .app-header {
   position: fixed;
-  top: var(--s-3);
-  left: var(--s-3);
-  right: var(--s-3);
+  top: calc(var(--safe-t) + var(--s-3));
+  left: calc(var(--safe-l) + var(--s-3));
+  right: calc(var(--safe-r) + var(--s-3));
   z-index: var(--z-header);
   display: flex;
   align-items: center;
@@ -1376,7 +1399,7 @@ textarea.control {
 /* page frame below the floating header */
 .page {
   min-height: 100%;
-  padding-top: calc(var(--h-header) + var(--s-3) * 2);
+  padding-top: var(--shell-top);
 }
 .content {
   width: 100%;
@@ -1400,51 +1423,123 @@ textarea.control {
   color: var(--text-2);
 }
 
-@media (max-width: 719px) {
-  .app-header {
-    flex-wrap: wrap;
-    height: auto;
-    row-gap: 0;
-    padding: 0 calc(var(--s-3) - var(--hairline)) var(--s-2);
-  }
-  .brand,
-  .header-right {
-    height: var(--h-header);
-  }
-  .app-nav {
-    order: 10;
-    flex: 1 0 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .app-nav .segmented {
-    width: 100%;
-  }
-  .page {
-    padding-top: calc(var(--h-header) + var(--h-header-nav-row) + var(--s-3) * 2);
-  }
-  .hub-chip {
+/* ---- the header per layout (DESIGN.md §3.4); the desktop is the rules above ---- */
+
+/* visually hidden but still announced */
+:root:not([data-layout='desktop']) .conn-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* tablet: one row, always. What does not fit goes in "…", then labels give way to icons. */
+:root[data-layout='tablet'] .hub-chip {
+  display: none;
+}
+@media (max-width: 1023px) {
+  :root[data-layout='tablet'] .app-header:not(.in-project) .brand-name {
     display: none;
   }
-  /* the mark alone: with the name the controls would wrap to a third row, under the page */
-  .brand-name {
+}
+@media (max-width: 899px) {
+  :root[data-layout='tablet'] .app-nav .nav-label {
     display: none;
   }
-  /* visually hidden but still announced */
-  .conn-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-  .content {
-    padding-top: var(--s-4);
-  }
-  .page-head h1 {
-    font-size: var(--fs-2xl);
-  }
+}
+
+/* phone: a bar along the top edge, and the tab bar (TabBar.tsx) along the bottom one */
+:root[data-layout='phone'] .app-header {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--shell-top);
+  gap: var(--s-2);
+  padding: var(--safe-t) calc(var(--safe-r) + var(--s-3)) 0 calc(var(--safe-l) + var(--s-3));
+  border-width: 0 0 var(--hairline);
+  border-radius: 0;
+  box-shadow: none;
+}
+:root[data-layout='phone'] .header-right {
+  gap: var(--s-1);
+}
+:root[data-layout='phone'] .conn.is-live {
+  display: none;
+}
+:root[data-layout='phone'] .page {
+  padding-bottom: var(--shell-bottom);
+}
+:root[data-layout='phone'] .content {
+  padding-top: var(--s-4);
+}
+:root[data-layout='phone'] .page-head h1 {
+  font-size: var(--fs-2xl);
+}
+
+.tab-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-header);
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  height: calc(var(--h-tabbar) + var(--safe-b));
+  padding: 0 var(--safe-r) var(--safe-b) var(--safe-l);
+  background: var(--glass-1);
+  -webkit-backdrop-filter: var(--glass-blur-1);
+  backdrop-filter: var(--glass-blur-1);
+  border-top: var(--hairline) solid var(--glass-border);
+}
+.tab-bar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  min-width: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab-bar-icon {
+  display: inline-grid;
+  place-content: center;
+  width: 56px;
+  height: 28px;
+  border-radius: var(--r-pill);
+  transition: background var(--t-fast) var(--ease);
+}
+.tab-bar-icon svg {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+}
+.tab-bar-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-bar-item[aria-current='page'] {
+  color: var(--text);
+}
+.tab-bar-item[aria-current='page'] .tab-bar-icon {
+  background: var(--surface-active);
+}
+.tab-bar-item:focus-visible {
+  outline: none;
+}
+.tab-bar-item:focus-visible .tab-bar-icon {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+:root[data-keyboard] .tab-bar {
+  display: none;
 }
 
 /* centred full-height message (boot/loading/errors) */

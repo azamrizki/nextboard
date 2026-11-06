@@ -64,7 +64,8 @@ export function parseRoute(path: string): Route {
   if (pd) return { page: 'print', kind: 'documents', docId: decodeURIComponent(pd[1]), versionId: decodeURIComponent(pd[2]) };
   if (path === '/print/markdown') return { page: 'print', kind: 'markdown' };
   const st = /^\/settings(?:\/([a-z-]+))?\/?$/.exec(path);
-  if (st) return { page: 'settings', pane: st[1] ?? 'agents' };
+  // no pane: a phone shows the list of panes, the others open the first one
+  if (st) return { page: 'settings', pane: st[1] ?? '' };
   const m = /^\/p\/([^/]+)(?:\/w\/([^/]+))?\/?$/.exec(path);
   if (m) return { page: 'board', projectId: decodeURIComponent(m[1]), workspaceId: m[2] ? decodeURIComponent(m[2]) : '' };
   return { page: 'unknown' };

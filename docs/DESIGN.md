@@ -92,6 +92,23 @@ Fallback wajib: `@supports not (backdrop-filter: blur(1px))` dan `@media (prefer
 
 Semua komponen interaktif wajib punya state: **default, hover, focus-visible, active, disabled**, plus **loading** dan **error** bila relevan.
 
+### 3.0 Layout: HP, tablet, desktop
+
+Satu tempat memutuskan (`web/src/lib/layout.ts`, dan `public/theme-boot.js` sebelum paint pertama dengan aturan yang sama): `<html data-layout="phone|tablet|desktop" data-input="touch|mouse">`, plus `data-keyboard` selama keyboard layar terbuka. CSS dan kode membaca jawaban yang sama; jangan menambah breakpoint lebar baru untuk memilih layout.
+
+| Layout | Kapan |
+|---|---|
+| phone | jendela < 600 px, atau layar sentuh yang sisi pendek layarnya < 600 px (tetap HP saat diputar dan saat keyboard terbuka) |
+| tablet | jendela < 1200 px, atau layar sentuh lain (Xiaomi Pad 6, Galaxy Tab S9 di kedua arah) |
+| desktop | ≥ 1200 px dengan mouse |
+
+- Settings › Appearance › Layout bisa mematok satu layout per browser (Auto, Phone, Tablet, Desktop), misalnya tablet dengan keyboard dan trackpad.
+- **Ruang shell:** `--shell-top` dan `--shell-bottom` adalah yang diambil bar aplikasi dari layar (header, tab bar, safe area). Yang menempel ke layar memakai keduanya, bukan menjumlah tinggi header sendiri.
+- **Safe area:** `viewport-fit=cover`; header, tab bar, sheet, dan toast memakai `--safe-*`.
+- **Keyboard layar:** `interactive-widget=resizes-content`, jadi di Android bar bawah dan sheet naik di atas keyboard; tab bar HP sembunyi selama `data-keyboard`.
+- **Sentuh:** `data-input="touch"` menaikkan kontrol ke 40/44 px dan item menu ke 44 px. Isi board tetap ukuran lama sampai board mendapat gilirannya; menu dan dialog yang dibuka dari board sudah ukuran sentuh. Dialog tidak memfokuskan field teks sendiri, supaya keyboard tidak menutupnya.
+- Uji: proyek Playwright `phone` (393×873), `tablet-portrait` (800×1280), `tablet-landscape` (1280×800), semuanya sentuh, ditambah desktop terang dan gelap. `e2e/layout.spec.ts` memeriksa tiap halaman: tidak scroll ke samping, header satu baris, kontrol header tidak bertumpuk dan tidak keluar, judul tidak tertutup, target sentuh ≥ 40.
+
 ### 3.1 Tombol
 
 | Varian | Default | Hover | Active | Disabled |
@@ -148,7 +165,9 @@ Aturan tata letak:
 - Kiri: brand mark (logo 32 px, terbalik seperti tombol utama) + "NextBoard" 800 + chip nama hub.
 - Tengah/kiri: navigasi = segmented control kaca (Board · Machines · Devices); item aktif bg `--surface-active` + teks `--text` + `aria-current="page"`.
 - Kanan: indikator koneksi events (titik + "Live"/"Reconnecting…"), tombol kunci Credentials (titik kecil warna teks selama vault terbuka; membuka jendela vault, §3.16), tombol ikon Settings, tema (matahari/bulan), About, Log out (ghost).
-- < 720 px: navigasi turun ke baris kedua, tetap segmented, scroll horizontal bila perlu.
+- **Tablet:** tetap satu baris. Settings, tema, About, dan Log out (di dalam project juga Projects, Memory, Machines, Devices) pindah ke menu `…`; nama hub hilang; di bawah 1024 px nama NextBoard hilang di luar project, dan di bawah 900 px label navigasi menjadi ikon saja.
+- **HP:** bar menempel di tepi atas (56 px + safe area, tanpa sudut membulat) dengan mark, lalu chip usage, needs-you, live, kunci vault, dan `…`; titik koneksi hanya tampil saat tidak live. Di dalam project satu tombol untuk project dan workspace-nya (nama project di atas, workspace di bawah); menunya berisi workspace (pindah, New workspace, Rename, Close) lalu daftar project. Di luar project ada **tab bar** di tepi bawah: Projects, Memory, Machines, Devices, Settings, ikon dalam pil `--surface-active` untuk yang aktif.
+- **Tab workspace:** klik kanan (long-press di layar sentuh) membuka Rename, Move left, Move right, Close, jadi tidak ada yang hanya bisa lewat dobel klik atau shortcut.
 
 ### 3.5 Board
 
@@ -185,6 +204,7 @@ Aturan tata letak:
 - Modal: `--glass-2` + blur-2, radius `--r-xl`, `--e-3`; lebar `sm 440` / `md 560` / `lg 720`; max-height `calc(100dvh - 48px)`, body scroll, header & footer sticky dengan pemisah `--glass-border`. Masuk: fade + scale .98→1 dalam `--t-base`. Fokus terkunci di dalam; Esc menutup; fokus kembali ke pemicu.
 - Menu/popover: `--glass-3` + blur-3, radius `--r-lg`, padding 6, item 34 px radius `--r-sm`, item danger `--c-danger-300`, navigasi panah atas/bawah.
 - Toast: kanan bawah (di atas minimap, bottom 16 + tinggi minimap), `--glass-3`, garis kiri 3 px warna jenis (success/danger/info), auto hilang 4 s (error 7 s), `role="status"` / `role="alert"` untuk error.
+- **HP:** modal adalah sheet dari tepi bawah selebar layar dengan pegangan 36×4 di kepalanya; menyeret kepala turun lebih dari 96 px menutupnya. Tombol footer selebar sheet. Menu ditutup oleh `pointerdown` di luar, jadi tap di layar sentuh juga menutupnya. Esc di menu yang dibuka dari modal hanya menutup menunya. Toast di atas tab bar, selebar layar.
 
 ### 3.7 Status & badge
 
@@ -311,7 +331,7 @@ terang  background #FFFFFF  foreground #1F1F1F  cursor #0D0D0D  selection rgba(0
 - [ ] Modal mengunci fokus, Esc menutup, fokus kembali ke pemicu. Menu bisa dinavigasi panah.
 - [ ] Segmented control & radio card memakai `role="radiogroup"`/`radio` dengan `aria-checked`, panah memindah pilihan.
 - [ ] Setiap input punya `<label>` terhubung; error memakai `aria-invalid` + `aria-describedby`.
-- [ ] Target sentuh ≥ 40×40 (dock board boleh 32 dengan jarak ≥ 8).
+- [ ] Target sentuh ≥ 40×40 di `data-input="touch"` (dicek `e2e/layout.spec.ts` untuk header dan tab bar; dock board boleh 32 dengan jarak ≥ 8 sampai board mendapat gilirannya).
 - [ ] `prefers-reduced-motion` mematikan transisi & pulse; `prefers-reduced-transparency` / tanpa `backdrop-filter` → permukaan padat.
 - [ ] Status tidak hanya dibedakan warna (ada teks/aria-label).
 - [ ] Zoom browser 200% tidak memotong form atau menyembunyikan tombol aksi.

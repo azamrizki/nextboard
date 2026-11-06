@@ -310,12 +310,6 @@
   .live-chip-sub {
     display: none;
   }
-  .settings-link {
-    display: none;
-  }
-  .app-header:not(.in-project) .settings-link {
-    display: inline-flex;
-  }
 }
 
 /* =========================================================================
@@ -383,7 +377,7 @@
 /* resume-all banner */
 .resume-banner {
   position: fixed;
-  top: calc(var(--h-header) + var(--s-3) * 2);
+  top: var(--shell-top);
   left: 50%;
   z-index: var(--z-header);
   transform: translateX(-50%);
@@ -562,7 +556,7 @@
 }
 .settings-nav {
   position: sticky;
-  top: calc(var(--h-header) + var(--s-6));
+  top: var(--shell-top);
   display: flex;
   flex-direction: column;
   gap: var(--nudge);
@@ -949,28 +943,57 @@ textarea.control.textarea-sm {
   color: var(--text-3);
 }
 
+/* tablet: the panes stay beside the list, which narrows and drops its hints */
 @media (max-width: 899px) {
-  .settings-layout {
-    grid-template-columns: minmax(0, 1fr);
+  :root[data-layout='tablet'] .settings-layout {
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: var(--s-4);
   }
-  .settings-nav {
-    position: static;
-    flex-direction: row;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .settings-nav-item {
-    flex: 0 0 auto;
-    min-height: var(--h-control);
-  }
-  .settings-nav-hint {
+  :root[data-layout='tablet'] .settings-nav-hint {
     display: none;
   }
 }
+/* phone: the list at /settings, one pane at a time below a way back */
+:root[data-layout='phone'] .settings-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-layout='phone'] .settings-layout.is-pane .settings-nav {
+  display: none;
+}
+:root[data-layout='phone'] .settings-nav {
+  position: static;
+  padding: var(--s-1);
+}
+:root[data-layout='phone'] .settings-nav-item {
+  min-height: 60px;
+}
+:root[data-layout='phone'] .settings-nav-text {
+  flex: 1 1 auto;
+}
+.settings-nav-chev {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  color: var(--text-3);
+}
+.settings-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: var(--h-control-sm);
+  margin: 0 0 var(--s-3) calc(var(--s-2) * -1);
+  padding: 0 var(--s-2);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+}
+.settings-back svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
 @media (max-width: 559px) {
-  .app-header.in-project .hub-info-btn {
-    display: none;
-  }
   .resume-modal .modal-foot .foot-actions {
     flex-direction: column-reverse;
   }

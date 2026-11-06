@@ -43,10 +43,10 @@ export function LiveChip() {
         btn.current?.focus();
       }
     };
-    document.addEventListener('mousedown', down, true);
+    document.addEventListener('pointerdown', down, true);
     document.addEventListener('keydown', key);
     return () => {
-      document.removeEventListener('mousedown', down, true);
+      document.removeEventListener('pointerdown', down, true);
       document.removeEventListener('keydown', key);
     };
   }, [open]);

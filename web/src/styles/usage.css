@@ -727,3 +727,9 @@
 .mcp-probe.is-bad svg {
   color: var(--c-danger-300);
 }
+
+/* a finger needs the whole square, even when the pill shows only the mark */
+:root[data-input='touch'] .app-header .usage-pill {
+  min-width: var(--h-control-sm);
+  justify-content: center;
+}

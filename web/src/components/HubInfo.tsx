@@ -1,4 +1,5 @@
-// "About this hub" popover: name, version, URLs.
+// "About this hub": name, version, URLs. A popover from the desktop header, a dialog from the
+// menu of the phone and tablet headers.
 // Rendered in a portal: inside the glass header (which has its own backdrop-filter) the
 // popover's blur would only see the header, not the page behind it.
 
@@ -7,9 +8,9 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '../auth';
 import { Button } from './Button';
 import { Icon } from './Icon';
+import { Modal } from './Modal';
 
 export function HubInfoButton() {
-  const { hub, me } = useAuth();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -23,7 +24,7 @@ export function HubInfoButton() {
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!popRef.current?.contains(t) && !triggerRef.current?.contains(t)) setOpen(false);
     };
@@ -34,11 +35,11 @@ export function HubInfoButton() {
       }
     };
     const onResize = () => setOpen(false);
-    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', onResize);
     return () => {
-      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onResize);
     };
@@ -68,42 +69,61 @@ export function HubInfoButton() {
             aria-label="About this hub"
             style={pos ? { top: pos.top, right: pos.right } : { visibility: 'hidden' }}
           >
-            <div className="popover-head">
-              <span className="brand-mark" aria-hidden="true">
-                <Icon name="terminal" />
-              </span>
-              <div className="grow">
-                <h2 className="truncate">{hub?.name ?? 'NextBoard hub'}</h2>
-                <span className="fs-xs text-3">NextBoard {hub?.version ?? ''}</span>
-              </div>
-            </div>
-            {!hub ? (
-              <p className="text-3">Loading…</p>
-            ) : (
-              <dl className="kv">
-                <dt>Signed in as</dt>
-                <dd>{me.kind === 'admin' ? 'Admin' : `Device “${me.deviceName}”`}</dd>
-                <dt>Listening on</dt>
-                <dd className="mono tabular">{hub.listen}</dd>
-                {hub.urls?.length > 0 && (
-                  <>
-                    <dt>Addresses</dt>
-                    <dd>
-                      <ul className="plain url-list">
-                        {hub.urls.map((u) => (
-                          <li key={u} title={u}>
-                            {u}
-                          </li>
-                        ))}
-                      </ul>
-                    </dd>
-                  </>
-                )}
-              </dl>
-            )}
+            <HubInfoContent />
           </div>,
           document.body,
         )}
     </>
+  );
+}
+
+function HubInfoContent() {
+  const { hub, me } = useAuth();
+  return (
+    <>
+      <div className="popover-head">
+        <span className="brand-mark" aria-hidden="true">
+          <Icon name="terminal" />
+        </span>
+        <div className="grow">
+          <h2 className="truncate">{hub?.name ?? 'NextBoard hub'}</h2>
+          <span className="fs-xs text-3">NextBoard {hub?.version ?? ''}</span>
+        </div>
+      </div>
+      {!hub ? (
+        <p className="text-3">Loading…</p>
+      ) : (
+        <dl className="kv">
+          <dt>Signed in as</dt>
+          <dd>{me.kind === 'admin' ? 'Admin' : `Device “${me.deviceName}”`}</dd>
+          <dt>Listening on</dt>
+          <dd className="mono tabular">{hub.listen}</dd>
+          {hub.urls?.length > 0 && (
+            <>
+              <dt>Addresses</dt>
+              <dd>
+                <ul className="plain url-list">
+                  {hub.urls.map((u) => (
+                    <li key={u} title={u}>
+                      {u}
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          )}
+        </dl>
+      )}
+    </>
+  );
+}
+
+export function AboutHubDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="About this hub" icon="info" size="sm" onClose={onClose}>
+      <div className="about-hub">
+        <HubInfoContent />
+      </div>
+    </Modal>
   );
 }

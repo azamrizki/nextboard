@@ -1,9 +1,11 @@
 // Settings (docs/API-agents.md §11, §17): hub-wide settings (agents, profiles,
 // notifications, shortcuts — shared by every device) and per-browser preferences
-// (appearance, whether this browser shows notifications).
+// (appearance, whether this browser shows notifications). A phone shows the list of panes at
+// /settings and one pane at a time, with a way back; the other layouts show both side by side.
 
 import { useEffect, useState } from 'react';
 import { loadSettings, settingsSupported } from '../agents/settings';
+import { useLayout } from '../lib/layout';
 import { AppHeader } from '../components/AppHeader';
 import { Icon, type IconName } from '../components/Icon';
 import { Link } from '../lib/router';
@@ -37,18 +39,20 @@ const PANES: { id: string; label: string; icon: IconName; hint: string }[] = [
 export function SettingsPage({ pane }: { pane: string }) {
   const settings = useSettings();
   const [checked, setChecked] = useState(settingsSupported() !== null);
+  const phone = useLayout().layout === 'phone';
   const current = PANES.find((p) => p.id === pane) ?? PANES[0];
+  const listOnly = phone && !PANES.some((p) => p.id === pane);
 
   useEffect(() => {
     if (!settings) void loadSettings().finally(() => setChecked(true));
   }, [settings]);
 
   useEffect(() => {
-    document.title = `${current.label} · Settings — NextBoard`;
+    document.title = listOnly ? 'Settings — NextBoard' : `${current.label} · Settings — NextBoard`;
     return () => {
       document.title = 'NextBoard';
     };
-  }, [current.label]);
+  }, [current.label, listOnly]);
 
   const unsupported = checked && settingsSupported() === false;
 
@@ -56,24 +60,33 @@ export function SettingsPage({ pane }: { pane: string }) {
     <div className="page">
       <AppHeader />
       <main className="content settings-page">
-        <div className="page-head">
-          <div>
-            <h1>Settings</h1>
-            <p>Agent, notification and shortcut settings are stored on the hub and apply to every device.</p>
+        {phone && !listOnly ? (
+          <Link to="/settings" className="settings-back">
+            <Icon name="chevronLeft" />
+            Settings
+          </Link>
+        ) : (
+          <div className="page-head">
+            <div>
+              <h1>Settings</h1>
+              <p>Agent, notification and shortcut settings are stored on the hub and apply to every device.</p>
+            </div>
           </div>
-        </div>
-        <div className="settings-layout">
+        )}
+        <div className={`settings-layout ${phone ? (listOnly ? 'is-list' : 'is-pane') : ''}`}>
           <nav className="settings-nav" aria-label="Settings sections">
             {PANES.map((p) => (
-              <Link key={p.id} to={`/settings/${p.id}`} className="settings-nav-item" aria-current={p.id === current.id ? 'page' : undefined}>
+              <Link key={p.id} to={`/settings/${p.id}`} className="settings-nav-item" aria-current={!listOnly && p.id === current.id ? 'page' : undefined}>
                 <Icon name={p.icon} />
                 <span className="settings-nav-text">
                   <span className="settings-nav-label">{p.label}</span>
                   <span className="settings-nav-hint">{p.hint}</span>
                 </span>
+                {phone && <Icon name="chevronRight" className="settings-nav-chev" />}
               </Link>
             ))}
           </nav>
+          {!listOnly && (
           <section className="settings-pane" aria-labelledby="settings-pane-title">
             <h2 id="settings-pane-title" className="settings-pane-title">
               <Icon name={current.icon} />
@@ -97,6 +110,7 @@ export function SettingsPage({ pane }: { pane: string }) {
             {current.id === 'connections' && <ConnectionsPane />}
             {current.id === 'appearance' && <AppearancePane />}
           </section>
+          )}
         </div>
       </main>
     </div>

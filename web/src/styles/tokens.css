@@ -750,3 +750,48 @@
     --t-base: 0ms;
   }
 }
+
+/* =========================================================================
+   Layouts (DESIGN.md §3.0): lib/layout.ts sets <html data-layout="phone|tablet|desktop"
+   data-input="touch|mouse">, and data-keyboard while the on-screen keyboard is open.
+   --shell-top and --shell-bottom are what the app's bars take from the screen; anything
+   fixed to the page sits inside them instead of adding up header heights itself.
+   ========================================================================= */
+
+:root {
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --h-topbar: 56px; /* phone: the bar along the top edge */
+  --h-tabbar: 60px; /* phone: the tab bar along the bottom edge */
+  --shell-top: calc(var(--safe-t) + var(--h-header) + var(--s-3) * 2);
+  --shell-bottom: var(--safe-b);
+}
+:root[data-layout='phone'] {
+  --shell-top: calc(var(--safe-t) + var(--h-topbar));
+}
+:root[data-layout='phone']:not([data-keyboard]):has(.tab-bar) {
+  --shell-bottom: calc(var(--safe-b) + var(--h-tabbar));
+}
+
+/* A finger needs bigger targets (DESIGN.md §6: at least 40, 44 where there is room). The board
+   keeps the old sizes until its own pass; menus and dialogs opened from it are full size. */
+:root[data-input='touch'] {
+  --h-control: 44px;
+  --h-control-sm: 40px;
+  --h-control-lg: 48px;
+  --h-icon-btn: 44px;
+  --h-icon-btn-sm: 40px;
+  --h-menu-item: 44px;
+  --h-tab: 40px;
+}
+:root[data-input='touch'] .page-board > :not(.app-header) {
+  --h-control: 40px;
+  --h-control-sm: 32px;
+  --h-control-lg: 44px;
+  --h-icon-btn: 36px;
+  --h-icon-btn-sm: 32px;
+  --h-menu-item: 34px;
+  --h-tab: 26px;
+}

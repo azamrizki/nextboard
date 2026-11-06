@@ -1,16 +1,21 @@
 // Header controls inside a project: project switcher + workspace tabs (add, double-click
-// or F2 to rename ≤ 24 chars, close with confirmation, Ctrl+Shift+←/→ to reorder).
+// or F2 to rename ≤ 24 chars, close with confirmation, Ctrl+Shift+←/→ to reorder). A tab's
+// right-click menu (a long press on a touch screen) does all of that too. Phones get one
+// switcher for the project and its workspaces instead (PhoneSwitcher).
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, errorMessage } from '../api';
 import { groupChain, groupTree, useCollapsedGroups, type GroupNode } from '../home/groups';
 import { boardPath, navigate } from '../lib/router';
 import type { CloseAllPreview, Project, Workspace } from '../lib/types';
 import { isActive } from '../agents/state';
 import { store, useMachines, useProjectGroups, useProjects, useSessions } from '../store';
+import { Button } from './Button';
 import { ConfirmDialog } from './ConfirmDialog';
+import { TextField } from './form';
 import { Icon } from './Icon';
 import { ContextMenu, type MenuEntry } from './Menu';
+import { Modal } from './Modal';
 import { toast } from './Toast';
 
 export const NAME_MAX = 24;
@@ -96,7 +101,22 @@ function CloseAllBoards({ project, onClose }: { project: Project; onClose: () =>
 }
 
 /** The projects by group, each group open or closed; those with no group under All projects. */
-function SwitchMenu({ x, y, project, onClose, onCloseAll }: { x: number; y: number; project: Project; onClose: () => void; onCloseAll: () => void }) {
+function SwitchMenu({
+  x,
+  y,
+  project,
+  onClose,
+  onCloseAll,
+  first = [],
+}: {
+  x: number;
+  y: number;
+  project: Project;
+  onClose: () => void;
+  onCloseAll: () => void;
+  /** Rows before the projects: the phone switcher's workspaces. */
+  first?: MenuEntry[];
+}) {
   const projects = useProjects();
   const machines = useMachines();
   const groups = useProjectGroups();
@@ -131,6 +151,7 @@ function SwitchMenu({ x, y, project, onClose, onCloseAll }: { x: number; y: numb
   };
 
   const items: MenuEntry[] = [
+    ...first,
     { label: 'Home', icon: 'home', onSelect: () => navigate('/') },
     'sep',
     ...roots.flatMap(groupRows),
@@ -174,20 +195,15 @@ export function ProjectSwitcher({ project }: { project: Project }) {
   );
 }
 
-export function WorkspaceTabs({ project, activeId }: { project: Project; activeId?: string }) {
+/** What every workspace control does: add, rename, move, close (with its confirmation). */
+function useWorkspaceActions(project: Project, activeId?: string) {
   const workspaces = project.workspaces ?? [];
   const sessions = useSessions();
-  const [renaming, setRenaming] = useState<string | null>(null);
   const [closing, setClosing] = useState<Workspace | null>(null);
   const [adding, setAdding] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // keep the active tab visible
-  useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [activeId]);
 
   const terminalsIn = (w: Workspace) => Math.max(w.sessionCount ?? 0, sessions.filter((s) => s.workspaceId === w.id).length);
+  const workingIn = (w: Workspace) => sessions.filter((s) => s.workspaceId === w.id && isActive(s)).length;
 
   const add = async () => {
     if (adding) return;
@@ -204,7 +220,6 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
   };
 
   const rename = async (w: Workspace, name: string) => {
-    setRenaming(null);
     const v = name.trim().slice(0, NAME_MAX);
     if (!v || v === w.name) return;
     store.upsertProject({ ...project, workspaces: workspaces.map((x) => (x.id === w.id ? { ...x, name: v } : x)) });
@@ -238,11 +253,88 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
     toast.success(`Workspace “${w.name}” closed. Its board is in the archive.`);
   };
 
+  const dialog: ReactNode = closing && (
+    <ConfirmDialog title={`Close “${closing.name}”?`} confirmLabel="Close workspace" danger onClose={() => setClosing(null)} onConfirm={() => close(closing)}>
+      {(() => {
+        const n = terminalsIn(closing);
+        return (
+          <p>
+            {n > 0 ? (
+              <>
+                <strong>{n === 1 ? '1 terminal' : `${n} terminals`}</strong> in this workspace will end.{' '}
+              </>
+            ) : null}
+            Its board moves to the archive; you can restore it from Home › Archive. Desktop apps shown only here close. Files on disk are not touched.
+          </p>
+        );
+      })()}
+    </ConfirmDialog>
+  );
+
+  return { workspaces, adding, add, rename, move, terminalsIn, workingIn, requestClose: setClosing, dialog };
+}
+
+function RenameWorkspaceDialog({ workspace, onSave, onClose }: { workspace: Workspace; onSave: (name: string) => void; onClose: () => void }) {
+  const [name, setName] = useState(workspace.name);
+  return (
+    <Modal
+      title="Rename workspace"
+      icon="pencil"
+      size="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="ws-rename-form">
+            Rename
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="ws-rename-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave(name);
+          onClose();
+        }}
+      >
+        <TextField label="Name" value={name} maxLength={NAME_MAX} onChange={(e) => setName(e.target.value)} hint={`Up to ${NAME_MAX} characters.`} />
+      </form>
+    </Modal>
+  );
+}
+
+export function WorkspaceTabs({ project, activeId }: { project: Project; activeId?: string }) {
+  const ws = useWorkspaceActions(project, activeId);
+  const { workspaces } = ws;
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; w: Workspace; i: number } | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // keep the active tab visible
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeId]);
+
+  const rename = (w: Workspace, name: string) => {
+    setRenaming(null);
+    void ws.rename(w, name);
+  };
+
+  const menuFor = (w: Workspace, i: number): MenuEntry[] => [
+    { label: 'Rename…', icon: 'pencil', shortcut: 'F2', onSelect: () => setRenaming(w.id) },
+    { label: 'Move left', icon: 'arrowLeft', shortcut: 'Ctrl+Shift+←', disabled: i === 0, onSelect: () => void ws.move(w, i - 1) },
+    { label: 'Move right', icon: 'arrowRight', shortcut: 'Ctrl+Shift+→', disabled: i === workspaces.length - 1, onSelect: () => void ws.move(w, i + 1) },
+    'sep',
+    { label: 'Close workspace…', icon: 'close', danger: true, disabled: workspaces.length < 2, onSelect: () => ws.requestClose(w) },
+  ];
+
   const onTabKey = (e: KeyboardEvent<HTMLElement>, w: Workspace, i: number) => {
     const tabs = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []);
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       e.preventDefault();
-      void move(w, i + (e.key === 'ArrowLeft' ? -1 : 1));
+      void ws.move(w, i + (e.key === 'ArrowLeft' ? -1 : 1));
       return;
     }
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -259,7 +351,7 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
       setRenaming(w.id);
     } else if (e.key === 'Delete' && workspaces.length > 1) {
       e.preventDefault();
-      setClosing(w);
+      ws.requestClose(w);
     }
   };
 
@@ -268,8 +360,8 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
       <div className="ws-tabs" role="tablist" aria-label={`Workspaces of ${project.name}`} ref={listRef}>
         {workspaces.map((w, i) => {
           const active = w.id === activeId;
-          const n = terminalsIn(w);
-          const working = sessions.filter((s) => s.workspaceId === w.id && isActive(s)).length;
+          const n = ws.terminalsIn(w);
+          const working = ws.workingIn(w);
           return (
             <div key={w.id} className={`ws-tab ${active ? 'active' : ''}`}>
               {renaming === w.id ? (
@@ -280,7 +372,7 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
                   maxLength={NAME_MAX}
                   aria-label="Workspace name"
                   onFocus={(e) => e.currentTarget.select()}
-                  onBlur={(e) => void rename(w, e.target.value)}
+                  onBlur={(e) => rename(w, e.target.value)}
                   onKeyDown={(e) => {
                     e.stopPropagation();
                     if (e.key === 'Enter') e.currentTarget.blur();
@@ -297,6 +389,10 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
                   title={`${w.name}${n ? ` · ${working} of ${n} terminal${n === 1 ? '' : 's'} active` : ''} — double-click to rename`}
                   onClick={() => navigate(boardPath(project.id, w.id))}
                   onDoubleClick={() => setRenaming(w.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setTabMenu({ x: e.clientX, y: e.clientY, w, i });
+                  }}
                   onKeyDown={(e) => onTabKey(e, w, i)}
                 >
                   <span className="truncate">{w.name}</span>
@@ -310,7 +406,7 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
                   tabIndex={-1}
                   aria-label={`Close workspace ${w.name}`}
                   title="Close workspace"
-                  onClick={() => setClosing(w)}
+                  onClick={() => ws.requestClose(w)}
                 >
                   <Icon name="close" />
                 </button>
@@ -319,32 +415,71 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
           );
         })}
       </div>
-      <button type="button" className="ws-add" aria-label="New workspace" title="New workspace" disabled={adding} onClick={() => void add()}>
+      <button type="button" className="ws-add" aria-label="New workspace" title="New workspace" disabled={ws.adding} onClick={() => void ws.add()}>
         <Icon name="plus" />
       </button>
-      {closing && (
-        <ConfirmDialog
-          title={`Close “${closing.name}”?`}
-          confirmLabel="Close workspace"
-          danger
-          onClose={() => setClosing(null)}
-          onConfirm={() => close(closing)}
-        >
-          {(() => {
-            const n = terminalsIn(closing);
-            return (
-              <p>
-                {n > 0 ? (
-                  <>
-                    <strong>{n === 1 ? '1 terminal' : `${n} terminals`}</strong> in this workspace will end.{' '}
-                  </>
-                ) : null}
-                Its board moves to the archive; you can restore it from Home › Archive. Desktop apps shown only here close. Files on disk are not touched.
-              </p>
-            );
-          })()}
-        </ConfirmDialog>
-      )}
+      {tabMenu && <ContextMenu x={tabMenu.x} y={tabMenu.y} label={`Workspace ${tabMenu.w.name}`} items={menuFor(tabMenu.w, tabMenu.i)} onClose={() => setTabMenu(null)} />}
+      {ws.dialog}
     </div>
+  );
+}
+
+/** Phones: one button for the project and its workspace, and one menu for both. */
+export function PhoneSwitcher({ project, activeId }: { project: Project; activeId?: string }) {
+  const ws = useWorkspaceActions(project, activeId);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState<Workspace | null>(null);
+  const [closingAll, setClosingAll] = useState(false);
+  const ref = useRef<HTMLButtonElement>(null);
+  const active = ws.workspaces.find((w) => w.id === activeId);
+
+  const first: MenuEntry[] = [
+    { type: 'heading', label: `Workspaces of ${project.name}` },
+    ...ws.workspaces.map((w): MenuEntry => {
+      const working = ws.workingIn(w);
+      return {
+        label: w.name,
+        icon: 'layers',
+        checked: w.id === activeId ? true : undefined,
+        meta: working ? `${working} active` : undefined,
+        onSelect: () => navigate(boardPath(project.id, w.id)),
+      };
+    }),
+    { label: 'New workspace', icon: 'plus', disabled: ws.adding, onSelect: () => void ws.add() },
+    ...(active
+      ? ([
+          { label: `Rename “${active.name}”…`, icon: 'pencil', onSelect: () => setRenaming(active) },
+          { label: `Close “${active.name}”…`, icon: 'close', danger: true, disabled: ws.workspaces.length < 2, onSelect: () => ws.requestClose(active) },
+        ] as MenuEntry[])
+      : []),
+    'sep',
+  ];
+
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        className="project-switch phone-switch"
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        aria-label={`Project ${project.name}${active ? `, workspace ${active.name}` : ''}. Switch`}
+        onClick={() => {
+          const r = ref.current!.getBoundingClientRect();
+          setMenu(menu ? null : { x: r.left, y: r.bottom + 6 });
+        }}
+      >
+        <Icon name="folder" />
+        <span className="phone-switch-text">
+          <span className="truncate">{project.name}</span>
+          {active && <span className="phone-switch-ws truncate">{active.name}</span>}
+        </span>
+        <Icon name="chevronDown" className="chev" />
+      </button>
+      {menu && <SwitchMenu x={menu.x} y={menu.y} project={project} first={first} onClose={() => setMenu(null)} onCloseAll={() => setClosingAll(true)} />}
+      {renaming && <RenameWorkspaceDialog workspace={renaming} onSave={(name) => void ws.rename(renaming, name)} onClose={() => setRenaming(null)} />}
+      {closingAll && <CloseAllBoards project={project} onClose={() => setClosingAll(false)} />}
+      {ws.dialog}
+    </>
   );
 }

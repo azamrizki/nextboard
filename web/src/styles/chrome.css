@@ -322,23 +322,6 @@
   }
 }
 @media (max-width: 719px) {
-  .app-header.in-project .app-tabs {
-    order: 10;
-    flex: 1 0 100%;
-    min-width: 0;
-  }
-  .app-header.in-project .ws-tabs-wrap {
-    width: 100%;
-  }
-  .app-header.in-project .ws-tabs {
-    flex: 1 1 auto;
-  }
-  .app-header.in-project .brand {
-    flex: 1 1 auto;
-  }
-  .app-header .icon-nav {
-    display: none;
-  }
   .live-chip-label {
     position: absolute;
     width: 1px;
@@ -346,9 +329,41 @@
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
   }
-  .project-switch {
-    max-width: 45vw;
-  }
+}
+/* phone: the project and its workspace on one button (PhoneSwitcher), as wide as the bar allows */
+:root[data-layout='phone'] .app-header .brand {
+  flex: 1 1 auto;
+}
+.phone-switch {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  height: var(--h-control-sm);
+}
+.phone-switch-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+  text-align: left;
+}
+.phone-switch-text > span {
+  max-width: 100%;
+}
+.phone-switch-ws {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
+}
+:root[data-layout='phone'] .live-chip-label,
+:root[data-layout='phone'] .live-chip-sub,
+:root[data-layout='phone'] .needs-chip-label,
+:root[data-layout='phone'] .needs-chip-kbd,
+:root[data-layout='phone'] .usage-pill-name,
+:root[data-layout='phone'] .usage-pill-reset {
+  display: none;
 }
 
 /* =========================================================================

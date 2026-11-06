@@ -9,6 +9,11 @@
   overflow: hidden;
   background: #04050e;
 }
+/* phone: the panels and controls end above the tab bar; the sky goes on behind it */
+:root[data-layout='phone'] .page-memory {
+  height: calc(100dvh - var(--shell-bottom));
+  padding-bottom: 0;
+}
 .mem-stage {
   position: fixed;
   inset: 0;
@@ -41,13 +46,13 @@
   box-shadow: var(--e-2), var(--glass-highlight);
 }
 .mem-vault {
-  top: calc(var(--h-header) + var(--s-4));
+  top: var(--shell-top);
   left: var(--s-4);
   bottom: var(--s-4);
   width: 300px;
 }
 .mem-doc {
-  top: calc(var(--h-header) + var(--s-4));
+  top: var(--shell-top);
   right: var(--s-4);
   bottom: var(--s-4);
   width: 440px;

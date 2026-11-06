@@ -168,10 +168,10 @@ export function ToolRail({
         spawnCloseRef.current();
       }
     };
-    document.addEventListener('mousedown', close, true);
+    document.addEventListener('pointerdown', close, true);
     document.addEventListener('keydown', esc, true);
     return () => {
-      document.removeEventListener('mousedown', close, true);
+      document.removeEventListener('pointerdown', close, true);
       document.removeEventListener('keydown', esc, true);
     };
   }, [shapesOpen, insertOpen, spawnOpen]);

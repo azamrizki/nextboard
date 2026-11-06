@@ -1279,7 +1279,7 @@
 }
 .connect-banner {
   position: fixed;
-  top: calc(var(--h-header) + var(--s-3) * 2);
+  top: var(--shell-top);
   left: 50%;
   z-index: var(--z-header);
   transform: translateX(-50%);
@@ -2215,7 +2215,7 @@ summary.memory-picker-head {
   flex-direction: column;
   gap: var(--s-3);
   /* ends above the command bar */
-  max-height: calc(100dvh - var(--h-header) - var(--s-3) * 2 - var(--h-cmdbar) - var(--s-8));
+  max-height: calc(100dvh - var(--shell-top) - var(--h-cmdbar) - var(--s-8));
 }
 @media (max-width: 899px) {
   .side-panel.loops-panel,
@@ -2226,7 +2226,7 @@ summary.memory-picker-head {
 @media (max-width: 719px) {
   .side-panel.loops-panel,
   .side-panel.memory-panel {
-    max-height: calc(100dvh - var(--h-header) - var(--h-header-nav-row) - var(--s-3) * 2 - var(--h-cmdbar) - var(--s-6));
+    max-height: calc(100dvh - var(--shell-top) - var(--h-cmdbar) - var(--s-6));
   }
 }
 .loops-new {
@@ -2873,7 +2873,7 @@ summary.memory-picker-head {
     max-height: min(60vh, 520px);
   }
   .connect-banner {
-    top: calc(var(--h-header) + var(--h-header-nav-row) + var(--s-3) * 2);
+    top: var(--shell-top);
     border-radius: var(--r-lg);
   }
 }

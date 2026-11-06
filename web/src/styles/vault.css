@@ -677,7 +677,7 @@ ul.vault-fill-list {
 }
 .vault-request-pill {
   position: fixed;
-  top: calc(var(--h-header) + var(--s-3));
+  top: calc(var(--shell-top) + var(--s-2));
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-popover);

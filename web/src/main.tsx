@@ -5,6 +5,7 @@ import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import '@fontsource-variable/jetbrains-mono';
 import './lib/theme';
+import './lib/layout';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/components.css';

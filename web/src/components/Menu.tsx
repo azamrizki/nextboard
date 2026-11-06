@@ -265,12 +265,12 @@ export function useDismiss(open: boolean, listRef: RefObject<HTMLDivElement | nu
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape' && !listRef.current?.contains(e.target as Node)) closeRef.current();
     };
-    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('wheel', onWheel, { capture: true, passive: true });
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', onResize);
     return () => {
-      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('wheel', onWheel, true);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onResize);

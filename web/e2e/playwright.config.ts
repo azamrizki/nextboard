@@ -21,8 +21,13 @@ export default defineConfig({
     viewport: { width: 1500, height: 950 },
     trace: 'retain-on-failure',
   },
+  // Desktop in both themes runs everything. The owner's devices (all Android Chrome) run the
+  // layout checks: a Poco F5, and a Xiaomi Pad 6 or Galaxy Tab S9 held either way.
   projects: [
     { name: 'light', use: { colorScheme: 'light' } },
     { name: 'dark', use: { colorScheme: 'dark' } },
+    { name: 'phone', testMatch: /layout\.spec\.ts/, use: { colorScheme: 'light', viewport: { width: 393, height: 873 }, deviceScaleFactor: 2.75, isMobile: true, hasTouch: true } },
+    { name: 'tablet-portrait', testMatch: /layout\.spec\.ts/, use: { colorScheme: 'dark', viewport: { width: 800, height: 1280 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+    { name: 'tablet-landscape', testMatch: /layout\.spec\.ts/, use: { colorScheme: 'light', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
   ],
 });

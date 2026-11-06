@@ -1,8 +1,11 @@
 // Glass modal (DESIGN.md §3.6), rendered in a portal outside React Flow's canvas.
 // Focus is trapped inside, Esc closes the topmost modal, focus returns to the trigger.
+// On a phone it is a sheet from the bottom edge, and dragging its head down closes it. On a
+// touch screen it does not focus a text field by itself, so the keyboard does not cover it.
 
-import { useEffect, useId, useRef, type ReactNode, type SyntheticEvent } from 'react';
+import { useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { layoutState } from '../lib/layout';
 import { Button } from './Button';
 import { Icon, type IconName } from './Icon';
 
@@ -60,10 +63,14 @@ export function Modal({
     const token = Symbol('modal');
     stack.push(token);
     // Respect a child that already took focus (autoFocus), otherwise focus the first control.
+    // A finger gets the dialog itself: a text field would open the keyboard over it.
     if (el && !el.contains(document.activeElement)) {
-      const first = el.querySelector<HTMLElement>(
-        '.modal-body input:not([type="hidden"]):not([disabled]), .modal-body select, .modal-body textarea, .modal-body [role="radio"][tabindex="0"], .modal-body button:not([disabled]), .modal-foot button:not([disabled])',
-      );
+      const first =
+        layoutState().input === 'touch'
+          ? null
+          : el.querySelector<HTMLElement>(
+              '.modal-body input:not([type="hidden"]):not([disabled]), .modal-body select, .modal-body textarea, .modal-body [role="radio"][tabindex="0"], .modal-body button:not([disabled]), .modal-foot button:not([disabled])',
+            );
       (first ?? el).focus();
     }
 
@@ -99,6 +106,29 @@ export function Modal({
     };
   }, []);
 
+  // Phone sheet: drag the head down to close it, like any sheet on the phone.
+  const drag = useRef<{ id: number; y: number; dy: number } | null>(null);
+  const onHeadDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (layoutState().layout !== 'phone' || e.pointerType === 'mouse' || (e.target as HTMLElement).closest('button')) return;
+    drag.current = { id: e.pointerId, y: e.clientY, dy: 0 };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (ref.current) ref.current.style.transition = 'none';
+  };
+  const onHeadMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId || !ref.current) return;
+    d.dy = Math.max(0, e.clientY - d.y);
+    ref.current.style.transform = d.dy ? `translateY(${d.dy}px)` : '';
+  };
+  const onHeadUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    drag.current = null;
+    if (ref.current) ref.current.style.transition = '';
+    if (d.dy > 96) onClose();
+    else if (ref.current) ref.current.style.transform = '';
+  };
+
   return createPortal(
     <div
       className="modal-layer"
@@ -124,7 +154,13 @@ export function Modal({
         aria-labelledby={titleId}
         tabIndex={-1}
       >
-        <div className={`modal-head ${tone === 'danger' ? 'danger' : ''}`}>
+        <div
+          className={`modal-head ${tone === 'danger' ? 'danger' : ''}`}
+          onPointerDown={onHeadDown}
+          onPointerMove={onHeadMove}
+          onPointerUp={onHeadUp}
+          onPointerCancel={onHeadUp}
+        >
           <h2 id={titleId}>
             {icon && <Icon name={icon} />}
             <span className="truncate">{title}</span>
