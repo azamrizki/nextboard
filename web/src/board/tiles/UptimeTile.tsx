@@ -14,6 +14,7 @@ import { copyText } from '../../lib/clipboard';
 import { formatDateTime } from '../../lib/format';
 import { useMachine } from '../../store';
 import { AlertsDialog } from '../../uptime/AlertsDialog';
+import { MaintenanceDialog } from '../../uptime/MaintenanceDialog';
 import { PublicPageDialog } from '../../uptime/PublicPageDialog';
 import { uptimeApi, type Monitor, type UptimeEvent } from '../../uptime/api';
 import { byUrgency, dateTime, duration, millis, percent, STATUS_BADGE, STATUS_DOT, STATUS_LABEL } from '../../uptime/format';
@@ -44,7 +45,7 @@ function Stat({ label, value, sub, warn }: { label: string; value: string; sub?:
 }
 
 function StatusBadge({ m }: { m: Monitor }) {
-  const icon = m.status === 'up' ? 'check' : m.status === 'down' ? 'alertCircle' : m.status === 'paused' ? 'pause' : 'clock';
+  const icon = m.status === 'up' ? 'check' : m.status === 'down' ? 'alertCircle' : m.status === 'paused' ? 'pause' : m.status === 'maintenance' ? 'calendar' : 'clock';
   return (
     <span className={`badge ${STATUS_BADGE[m.status]} up-status`}>
       <Icon name={icon} />
@@ -159,6 +160,15 @@ function Detail({ m, onBack, onEdit, onDelete }: { m: Monitor; onBack: () => voi
           ) : (
             <span className="up-target truncate">{m.target}</span>
           )}
+          {!!m.tags?.length && (
+            <span className="up-detail-tags">
+              {m.tags.map((t) => (
+                <span key={t} className="badge">
+                  {t}
+                </span>
+              ))}
+            </span>
+          )}
         </div>
         <span className="spacer" />
         {m.type !== 'push' && (
@@ -236,14 +246,28 @@ function UptimeTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [form, setForm] = useState<'add' | Monitor | null>(null);
   const [alerts, setAlerts] = useState(false);
   const [publicPage, setPublicPage] = useState(false);
+  const [maintenance, setMaintenance] = useState(false);
+  const [tag, setTag] = useState('');
   const [remove, setRemove] = useState<Monitor | null>(null);
   const [delCard, setDelCard] = useState(false);
 
   const sorted = useMemo(() => [...monitors].sort(byUrgency), [monitors]);
+  const allTags = useMemo(() => [...new Set(monitors.flatMap((m) => m.tags ?? []))].sort((a, b) => a.localeCompare(b)), [monitors]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? sorted.filter((m) => m.name.toLowerCase().includes(q) || m.target.toLowerCase().includes(q)) : sorted;
-  }, [sorted, query]);
+    return sorted.filter(
+      (m) =>
+        (!tag || m.tags?.includes(tag)) &&
+        (!q || m.name.toLowerCase().includes(q) || m.target.toLowerCase().includes(q) || (m.group ?? '').toLowerCase().includes(q) || (m.tags ?? []).some((t) => t.toLowerCase().includes(q))),
+    );
+  }, [sorted, query, tag]);
+  // By group, groups by name, the ungrouped last; within one, the most urgent first.
+  const groups = useMemo(() => {
+    if (!shown.some((m) => m.group)) return [{ name: '', items: shown }];
+    const by = new Map<string, Monitor[]>();
+    for (const m of shown) by.set(m.group ?? '', [...(by.get(m.group ?? '') ?? []), m]);
+    return [...by.entries()].sort(([a], [b]) => (!a ? 1 : !b ? -1 : a.localeCompare(b))).map(([name, items]) => ({ name, items }));
+  }, [shown]);
   // Nothing picked: the most urgent one, on a card wide enough to show it next to the list.
   const current = monitors.find((m) => m.id === picked) ?? sorted[0];
 
@@ -257,8 +281,10 @@ function UptimeTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
 
   const down = monitors.filter((m) => m.status === 'down').length;
   const meta = !monitors.length ? '' : down ? `${down} down of ${monitors.length}` : monitors.length === 1 ? '1 monitor' : `${monitors.length} monitors`;
+  const maintOn = monitors.filter((m) => m.status === 'maintenance').length;
   const menu: MenuEntry[] = [
     { label: 'Alerts…', icon: 'bell', onSelect: () => setAlerts(true) },
+    { label: 'Maintenance…', icon: 'calendar', meta: maintOn ? `${maintOn} on` : undefined, onSelect: () => setMaintenance(true) },
     { label: 'Public status page…', icon: 'globe', onSelect: () => setPublicPage(true) },
   ];
 
@@ -298,10 +324,24 @@ function UptimeTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
               {monitors.length >= SEARCH_FROM && (
                 <input className="control control-sm up-search" type="search" placeholder="Search monitors" aria-label="Search monitors" value={query} onChange={(e) => setQuery(e.target.value)} />
               )}
+              {allTags.length > 0 && (
+                <div className="chip-row up-tags" role="group" aria-label="Show monitors with a tag">
+                  {allTags.map((t) => (
+                    <button key={t} type="button" className={`chip-btn ${tag === t ? 'on' : ''}`} aria-pressed={tag === t} onClick={() => setTag(tag === t ? '' : t)}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
               <ul className="plain up-list nowheel" aria-label="Monitors">
-                {shown.map((m) => (
-                  <Row key={m.id} m={m} active={m.id === current?.id} onPick={() => setPicked(m.id)} />
-                ))}
+                {groups.map((g) => [
+                  g.name || groups.length > 1 ? (
+                    <li key={`g:${g.name}`} className="up-group-head" role="presentation">
+                      {g.name || 'Other'}
+                    </li>
+                  ) : null,
+                  ...g.items.map((m) => <Row key={m.id} m={m} active={m.id === current?.id} onPick={() => setPicked(m.id)} />),
+                ])}
                 {!shown.length && <li className="up-form-note up-no-match">No monitor matches.</li>}
               </ul>
             </div>
@@ -318,6 +358,7 @@ function UptimeTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         />
       )}
       {alerts && <AlertsDialog projectId={project.id} settings={settings} onClose={() => setAlerts(false)} />}
+      {maintenance && <MaintenanceDialog projectId={project.id} settings={settings} monitors={monitors} onClose={() => setMaintenance(false)} />}
       {publicPage && <PublicPageDialog projectId={project.id} settings={settings} publicCount={monitors.filter((m) => m.public).length} onClose={() => setPublicPage(false)} />}
       {remove && (
         <ConfirmDialog

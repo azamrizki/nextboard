@@ -1,11 +1,11 @@
 import type { Monitor, MonitorStatus } from './api';
 
-export const STATUS_LABEL: Record<MonitorStatus, string> = { up: 'Up', down: 'Down', pending: 'Pending', paused: 'Paused', waiting: 'Waiting' };
-export const STATUS_DOT: Record<MonitorStatus, string> = { up: 'success', down: 'danger', pending: 'warning', paused: 'grey', waiting: 'grey' };
-export const STATUS_BADGE: Record<MonitorStatus, string> = { up: 'badge-success', down: 'badge-danger', pending: 'badge-warning', paused: '', waiting: '' };
+export const STATUS_LABEL: Record<MonitorStatus, string> = { up: 'Up', down: 'Down', pending: 'Pending', paused: 'Paused', waiting: 'Waiting', maintenance: 'Maintenance' };
+export const STATUS_DOT: Record<MonitorStatus, string> = { up: 'success', down: 'danger', pending: 'warning', paused: 'grey', waiting: 'grey', maintenance: 'info' };
+export const STATUS_BADGE: Record<MonitorStatus, string> = { up: 'badge-success', down: 'badge-danger', pending: 'badge-warning', paused: '', waiting: '', maintenance: 'badge-info' };
 
 /** What matters most comes first. */
-const RANK: Record<MonitorStatus, number> = { down: 0, pending: 1, waiting: 2, up: 3, paused: 4 };
+const RANK: Record<MonitorStatus, number> = { down: 0, pending: 1, waiting: 2, maintenance: 3, up: 4, paused: 5 };
 export const byUrgency = (a: Monitor, b: Monitor) => RANK[a.status] - RANK[b.status] || a.name.localeCompare(b.name);
 
 /** 100 % only when it truly is: 99.996 must not round up to it. */

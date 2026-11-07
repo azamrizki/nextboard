@@ -154,6 +154,26 @@ func (s *Server) handleUptimeSettings(w http.ResponseWriter, r *http.Request, p 
 	writeJSON(w, http.StatusOK, c)
 }
 
+// handleUptimeMaintenance replaces the project's maintenance windows.
+func (s *Server) handleUptimeMaintenance(w http.ResponseWriter, r *http.Request, p *principal) {
+	id, ok := s.uptimeProject(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Windows []uptime.Window `json:"windows"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	c, err := s.uptime.SetMaintenance(id, req.Windows)
+	if err != nil {
+		uptimeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
 func (s *Server) handleUptimeTest(w http.ResponseWriter, r *http.Request, p *principal) {
 	id, ok := s.uptimeProject(w, r)
 	if !ok {

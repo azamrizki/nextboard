@@ -105,6 +105,7 @@ func (s *Server) routes() {
 	authed("POST /api/projects/{id}/uptime", s.handleUptimeCreate)
 	authed("PUT /api/projects/{id}/uptime/settings", s.handleUptimeSettings)
 	authed("POST /api/projects/{id}/uptime/settings/test", s.handleUptimeTest)
+	authed("PUT /api/projects/{id}/uptime/maintenance", s.handleUptimeMaintenance)
 	authed("PATCH /api/uptime/{id}", s.handleUptimeUpdate)
 	authed("DELETE /api/uptime/{id}", s.handleUptimeDelete)
 	authed("POST /api/uptime/{id}/check", s.handleUptimeCheck)

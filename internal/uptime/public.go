@@ -241,12 +241,14 @@ func (s *Service) publicPage(pid, title string, now time.Time) publicPage {
 		name := e.m.PublicName
 		state := "none"
 		switch {
+		case e.status == StatusMaintenance:
+			state = "maint" // only that: a window's title is the owner's note, not for the public
 		case e.status == StatusDown:
 			state = "down"
 		case e.status == StatusUp, e.status == StatusPending && e.settled == statusUp:
 			state = "up" // a blip within the retries is not an outage
 		}
-		mon := publicMonitor{Name: name, State: state, Label: map[string]string{"up": "Operational", "down": "Down", "none": "No data"}[state], Uptime: "–"}
+		mon := publicMonitor{Name: name, State: state, Label: map[string]string{"up": "Operational", "down": "Down", "none": "No data", "maint": "Maintenance"}[state], Uptime: "–"}
 		if u := e.hist.over(publicDays*24*time.Hour, now).Uptime; u != nil {
 			mon.Uptime = fmt.Sprintf("%.2f%%", math.Floor(*u*100)/100)
 		}
@@ -290,6 +292,8 @@ func (s *Service) publicPage(pid, title string, now time.Time) publicPage {
 		switch {
 		case counts["down"] > 0:
 			page.State, page.Overall = "down", "Some services are down"
+		case counts["maint"] > 0:
+			page.State, page.Overall = "maint", "Some services are under maintenance"
 		case counts["up"] == 0:
 			page.State, page.Overall = "none", "No data yet"
 		case counts["none"] > 0: // "all operational" would claim what nobody has checked
@@ -355,6 +359,7 @@ h2{margin:32px 0 12px;font-size:13px;font-weight:600;letter-spacing:.04em;text-t
 .dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--none)}
 .up .dot{background:var(--up)}
 .down .dot{background:var(--down)}
+.maint .dot{background:var(--partial)}
 .card{margin-top:10px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:12px}
 .row{display:flex;align-items:center;gap:10px}
 .name{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}

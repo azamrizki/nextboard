@@ -80,6 +80,12 @@ func check(ctx context.Context, m Monitor, h machine.Host) Result {
 		r = checkPing(ctx, m, h)
 	case TypeDNS:
 		r = checkDNS(ctx, m)
+	case TypeWebSocket:
+		r = checkWebSocket(ctx, m, h)
+	case TypeDocker:
+		r = checkDocker(ctx, m, h)
+	case TypeSteam:
+		r = checkSteam(ctx, m)
 	default:
 		return failed("Tipe tidak dikenal")
 	}
@@ -144,7 +150,7 @@ func checkHTTP(ctx context.Context, m Monitor, h machine.Host) Result {
 	if !ok {
 		return r
 	}
-	if m.Keyword == "" {
+	if m.Keyword == "" && m.JSONPath == "" {
 		r.OK = true
 		return r
 	}
@@ -154,6 +160,14 @@ func checkHTTP(ctx context.Context, m Monitor, h machine.Host) Result {
 		return r
 	}
 	r.Ms = int(time.Since(start).Milliseconds())
+	if m.JSONPath != "" {
+		ok, msg := jsonQuery(body, m.JSONPath, m.JSONOp, m.JSONExpect)
+		r.Msg = clip(resp.Status + ", " + msg)
+		if !ok || m.Keyword == "" {
+			r.OK = ok
+			return r
+		}
+	}
 	found := strings.Contains(string(body), m.Keyword)
 	switch {
 	case found && !m.KeywordInvert:

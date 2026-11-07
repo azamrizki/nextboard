@@ -2,8 +2,9 @@
 
 import { apiRequest } from '../api';
 
-export type MonitorType = 'http' | 'tcp' | 'ping' | 'dns' | 'push';
-export type MonitorStatus = 'up' | 'down' | 'pending' | 'paused' | 'waiting';
+export type MonitorType = 'http' | 'tcp' | 'ping' | 'dns' | 'push' | 'websocket' | 'docker' | 'steam';
+export type MonitorStatus = 'up' | 'down' | 'pending' | 'paused' | 'waiting' | 'maintenance';
+export type JsonOp = '==' | '!=' | 'contains' | '<' | '>' | '<=' | '>=';
 
 /** One check. s: 0 down, 1 up, 2 pending. ms is -1 when no time was measured. */
 export interface Beat {
@@ -24,6 +25,11 @@ export interface MonitorConfig {
   keywordInvert?: boolean;
   ignoreTls?: boolean;
   headers?: { name: string; value: string }[];
+  /** A value of a JSON answer ("data.items[0].status") compared with jsonExpect. */
+  jsonPath?: string;
+  jsonOp?: JsonOp;
+  jsonExpect?: string;
+  container?: string;
   host?: string;
   port?: number;
   dnsType?: string;
@@ -38,6 +44,9 @@ export interface MonitorConfig {
   /** On the project's public status page, under publicName and nothing else of it. */
   public?: boolean;
   publicName?: string;
+  /** Monitors with the same group sit under one heading; tags filter them. Not on the public page. */
+  group?: string;
+  tags?: string[];
 }
 
 export interface Cert {
@@ -79,11 +88,29 @@ export interface PublicPageSettings {
   title?: string;
 }
 
+/** A maintenance window: its monitors are not checked, counted, or alerted on while it is on. */
+export interface MaintenanceWindow {
+  id?: string;
+  title: string;
+  /** None: every monitor of the project. */
+  monitorIds?: string[];
+  mode: 'manual' | 'once' | 'weekly';
+  active?: boolean;
+  start?: string;
+  end?: string;
+  /** 0 Sunday to 6 Saturday. */
+  days?: number[];
+  from?: string;
+  minutes?: number;
+  tz?: string;
+}
+
 export interface UptimeSettings {
   webhook?: string;
   lastError?: string;
   lastErrorAt?: string;
   publicPage?: PublicPageSettings;
+  maintenance?: MaintenanceWindow[];
 }
 
 export interface UptimeEvent {
@@ -127,5 +154,6 @@ export const uptimeApi = {
   setWebhook: (pid: string, webhook: string) => apiRequest<UptimeSettings>('PUT', `/api/projects/${enc(pid)}/uptime/settings`, { webhook }),
   setPublicPage: (pid: string, body: { enabled: boolean; title: string }) => apiRequest<PublicPageSettings>('PUT', `/api/projects/${enc(pid)}/uptime/public`, body),
   rotatePublicPage: (pid: string) => apiRequest<PublicPageSettings>('POST', `/api/projects/${enc(pid)}/uptime/public/rotate`, {}),
+  setMaintenance: (pid: string, windows: MaintenanceWindow[]) => apiRequest<UptimeSettings>('PUT', `/api/projects/${enc(pid)}/uptime/maintenance`, { windows }),
   testWebhook: (pid: string) => apiRequest<{ ok: boolean }>('POST', `/api/projects/${enc(pid)}/uptime/settings/test`, {}),
 };

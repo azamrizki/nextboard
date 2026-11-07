@@ -9,7 +9,7 @@ export const PORT = Number(process.env.NEXTBOARD_E2E_PORT || 12398);
 export const STATE_FILE = join(tmpdir(), `nextboard-e2e-state-${PORT}.json`);
 
 // what the touch devices run: the layouts, and what is done by finger
-const DEVICE_SPECS = /(layout|board-touch|phone-board|console-touch|console-gl|cards-touch|studio-touch|app|sweep)\.spec\.ts/;
+const DEVICE_SPECS = /(layout|board-touch|phone-board|console-touch|console-gl|cards-touch|studio-touch|uptime-more|app|sweep)\.spec\.ts/;
 
 export default defineConfig({
   testDir: '.',

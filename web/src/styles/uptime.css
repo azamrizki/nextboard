@@ -357,3 +357,67 @@ a.up-target:hover {
     display: inline-flex;
   }
 }
+
+/* ---- maintenance ---- */
+.up-maint-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.up-maint-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+}
+.up-maint-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.up-maint-title {
+  font-weight: 600;
+}
+.up-maint-form {
+  padding: var(--s-3);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+}
+.up-maint-monitors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  max-height: 180px;
+  overflow: auto;
+}
+.up-maint-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+:root[data-input='touch'] .up-days .chip-btn,
+:root[data-input='touch'] .up-tags .chip-btn {
+  min-width: 40px;
+  height: 40px;
+}
+
+/* ---- groups and tags ---- */
+.up-group-head {
+  padding: var(--s-2) var(--s-3) var(--s-1);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.up-tags {
+  padding: var(--s-1) var(--s-2);
+}
+.up-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+}

@@ -17,6 +17,13 @@ Monitor milik **project**, bukan milik kartu. Semua kartu Uptime di satu project
 | `ping` | `ping -c 1` milik machine (ICMP mentah butuh hak yang tidak dimiliki hub) | `host` |
 | `dns` | Ada jawaban, dan memuat teks tertentu bila diminta | `host`, `dnsType` (`A AAAA CNAME MX NS TXT`), `dnsServer`, `dnsExpect` |
 | `push` | Pihak lain melapor; turun bila laporan berhenti | `pushToken` (dibuat hub) |
+| `websocket` | Upgrade WebSocket dikabulkan: `101` dengan `Sec-WebSocket-Accept` yang benar (RFC 6455). Tidak ada pesan yang dikirim | `url` (`ws://`/`wss://`), `headers`, `ignoreTls` |
+| `docker` | `docker inspect` di machine: up selama container `running`, dan `healthy` bila punya health check. Nama container jadi argumen, bukan lewat shell | `container` (nama atau id) |
+| `steam` | Server game menjawab `A2S_INFO` lewat UDP, termasuk challenge. Pesannya nama, map, dan jumlah pemain. Selalu dari This PC, karena SSH tidak membawa UDP | `host`, `port` (bawaan 27015) |
+
+**JSON query** (`http`): `jsonPath` mengambil satu nilai dari jawaban JSON (`data.items[0].status`, boleh diawali `$.`, kunci berspasi atau bertitik ditulis `["kunci ini"]`), lalu `jsonOp` (`==`, `!=`, `contains`, `<`, `>`, `<=`, `>=`) membandingkannya dengan `jsonExpect`. String dibandingkan apa adanya, nilai lain sebagai JSON (`true`, `3`, `null`). Nilai yang tidak ada selalu gagal. Butuh `GET`. Bila `keyword` juga diisi, keduanya harus lolos.
+
+**Grup dan tag:** `group` (≤ 40 karakter) mengelompokkan monitor di bawah satu judul di kartu, dan `tags` (≤ 10, masing-masing ≤ 24, tanpa koma, tanpa duplikat) menjadi chip filter. Keduanya tidak tampil di halaman publik.
 
 Semua: `name`, `intervalSec` (20 sampai 86400, bawaan 60), `retries` (0 sampai 10, bawaan 1), `retryIntervalSec` (bawaan sama dengan interval), `timeoutSec` (1 sampai 60, bawaan 80 % interval maks 30), `active`, `notify`. Maksimal 100 monitor per project; paling banyak 32 cek berjalan bersamaan.
 
@@ -31,8 +38,22 @@ Semua: `name`, `intervalSec` (20 sampai 86400, bawaan 60), `retries` (0 sampai 1
 | `down` | Gagal setelah jatah habis; sekali `down`, gagal berikutnya tetap `down` |
 | `paused` | `active:false` |
 | `waiting` | Belum ada hasil, atau machine-nya tidak terjangkau. Bukan heartbeat dan tidak dihitung: machine putus tidak berarti target mati |
+| `maintenance` | Jendela maintenance project sedang berlaku untuk monitor ini (lihat di bawah). `msg` berisi judul jendelanya |
 
 **Uptime** = `up / (up + down)`. `pending` tidak dihitung ke mana pun (blip yang lewat adalah alasan adanya retry; beda dengan Uptime Kuma 2, yang menghitungnya down). Waktu tanpa cek (hub mati, monitor di-pause) juga tidak dihitung.
+
+## Maintenance
+
+Jendela maintenance milik project, disimpan di `settings.json` project (`settings.maintenance`), paling banyak 20. Selama jendela berlaku, monitor yang dicakupnya tidak dicek, tidak ada heartbeat (uptime tidak menghitung waktu itu), dan tidak ada alert. Push yang datang dicatat sebagai tanda hidup, tetapi tidak dihitung. Monitor melihat lagi paling lambat tiap 1 menit, jadi akhir jendela cepat terasa. Sesudahnya monitor dicek seperti biasa, dan bila ternyata mati, itu alert baru. Jam push mulai lagi dari akhir jendela.
+
+| Field | Arti |
+|---|---|
+| `id` | Dibuat hub |
+| `title` | ≤ 80 karakter; tampil di kartu, tidak di halaman publik |
+| `monitorIds` | Monitor project ini yang dicakup; kosong = semua. Monitor yang dihapus keluar dari daftar, dan jendela yang jadi kosong ikut dihapus (bukan berubah mencakup semua) |
+| `mode` | `manual` (`active` menyalakan dan mematikan), `once` (`start` sampai `end`), `weekly` (`days` 0 Minggu sampai 6 Sabtu, `from` "HH:MM", `minutes` 1 sampai 10080, `tz` zona IANA; kosong = zona hub). Jendela mingguan boleh melewati tengah malam |
+
+Halaman publik menulis **Maintenance**, dan judul atas `Some services are under maintenance` bila tidak ada yang mati, tanpa judul jendela.
 
 ## Alert
 
@@ -50,6 +71,7 @@ URL webhook sering sekaligus rahasianya: tidak pernah masuk log atau pesan error
 | GET | `/api/projects/{id}/uptime` | — | `{"items":[View…],"settings":Settings}` |
 | POST | `/api/projects/{id}/uptime` | Monitor | `201 View`; bawaan `active`, `notify`, `retries:1` |
 | PUT | `/api/projects/{id}/uptime/settings` | `{"webhook"}` | `Settings`; `""` mematikan |
+| PUT | `/api/projects/{id}/uptime/maintenance` | `{"windows":[Window…]}` | `Settings`; menggantikan seluruh daftar. Monitornya langsung melihat lagi |
 | POST | `/api/projects/{id}/uptime/settings/test` | — | `{ok}`; `502 webhook_failed` |
 | PATCH | `/api/uptime/{id}` | sebagian Monitor | `View`; riwayat tetap, cek berikutnya langsung. `id`, `projectId`, `pushToken` tidak bisa diubah |
 | DELETE | `/api/uptime/{id}` | — | `{ok}` |
@@ -120,7 +142,7 @@ Isi `monitors.json` termasuk `headers` dan URL webhook **tertulis apa adanya** (
 
 ## Belum ada
 
-Jendela maintenance, tag dan grup monitor, tipe WebSocket, JSON query, Docker, dan Steam.
+Status page per grup, maintenance yang tampil dengan judul dan jadwal di halaman publik, dan pesan WebSocket (kirim lalu tunggu jawaban tertentu).
 
 ## Verifikasi (2026-11-03)
 

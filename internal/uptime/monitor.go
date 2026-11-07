@@ -20,6 +20,12 @@ const (
 	TypePing = "ping"
 	TypeDNS  = "dns"
 	TypePush = "push"
+	// TypeWebSocket asks for a WebSocket upgrade and wants it granted (101).
+	TypeWebSocket = "websocket"
+	// TypeDocker asks the machine's docker whether a container runs (and is healthy).
+	TypeDocker = "docker"
+	// TypeSteam asks a game server for its info (A2S_INFO over UDP), from This PC.
+	TypeSteam = "steam"
 
 	// As in Uptime Kuma: below this a check says little more, and costs the target.
 	MinIntervalSec     = 20
@@ -33,6 +39,10 @@ const (
 	maxNameLen    = 80
 	maxKeywordLen = 200
 	maxHeaders    = 20
+	maxGroupLen   = 40
+	maxTags       = 10
+	maxTagLen     = 24
+	maxJSONPath   = 200
 )
 
 // Header is one extra request header of an HTTP check.
@@ -59,8 +69,16 @@ type Monitor struct {
 	KeywordInvert bool     `json:"keywordInvert,omitempty"`
 	IgnoreTLS     bool     `json:"ignoreTls,omitempty"`
 	Headers       []Header `json:"headers,omitempty"`
+	// JSONPath picks a value from a JSON answer ("data.items[0].status"); JSONOp compares
+	// it with JSONExpect: == != contains < > <= >=.
+	JSONPath   string `json:"jsonPath,omitempty"`
+	JSONOp     string `json:"jsonOp,omitempty"`
+	JSONExpect string `json:"jsonExpect,omitempty"`
 
-	// tcp, ping, dns
+	// docker: a container's name or id
+	Container string `json:"container,omitempty"`
+
+	// tcp, ping, dns, steam
 	Host string `json:"host,omitempty"`
 	Port int    `json:"port,omitempty"`
 
@@ -85,6 +103,10 @@ type Monitor struct {
 	Public     bool   `json:"public,omitempty"`
 	PublicName string `json:"publicName,omitempty"`
 
+	// Group puts monitors under one heading; Tags filter them. Neither is on the public page.
+	Group string   `json:"group,omitempty"`
+	Tags  []string `json:"tags,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 
 	// Which warning a certificate already got, so that a restart does not repeat it.
@@ -99,6 +121,11 @@ var hostRe = regexp.MustCompile(`^[A-Za-z0-9:\[]([A-Za-z0-9._:\-\[\]]*[A-Za-z0-9
 var headerNameRe = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
 
 var dnsTypes = map[string]bool{"A": true, "AAAA": true, "CNAME": true, "MX": true, "NS": true, "TXT": true}
+
+var jsonOps = map[string]bool{"==": true, "!=": true, "contains": true, "<": true, ">": true, "<=": true, ">=": true}
+
+// containerRe is a docker container's name or id, never an option.
+var containerRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
 // parseAccepted reads "200-299,301" into ranges.
 func parseAccepted(s string) ([][2]int, error) {
@@ -139,12 +166,44 @@ func (m *Monitor) normalize() error {
 	if m.MachineID == "local" {
 		m.MachineID = ""
 	}
+	if err := m.normalizeLabels(); err != nil {
+		return err
+	}
 	o := *m
 	m.URL, m.Method, m.Accepted, m.Keyword, m.KeywordInvert, m.IgnoreTLS, m.Headers = "", "", "", "", false, false, nil
+	m.JSONPath, m.JSONOp, m.JSONExpect, m.Container = "", "", "", ""
 	m.DNSType, m.DNSServer, m.DNSExpect = "", "", ""
 	m.Host, m.Port, m.PushToken = "", 0, ""
 
 	switch m.Type {
+	case TypeWebSocket:
+		m.URL = strings.TrimSpace(o.URL)
+		u, err := url.Parse(m.URL)
+		if err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Hostname() == "" {
+			return errors.New("URL must be ws:// or wss:// with a host")
+		}
+		m.IgnoreTLS = o.IgnoreTLS
+		if err := m.takeHeaders(o.Headers); err != nil {
+			return err
+		}
+	case TypeDocker:
+		m.Container = strings.TrimSpace(o.Container)
+		if !containerRe.MatchString(m.Container) {
+			return errors.New("container must be a name or id")
+		}
+	case TypeSteam:
+		m.MachineID = "" // UDP: the hub asks, a server's SSH carries no datagrams
+		m.Host = strings.TrimSpace(o.Host)
+		if !hostRe.MatchString(m.Host) {
+			return errors.New("host tidak valid")
+		}
+		m.Port = o.Port
+		if m.Port == 0 {
+			m.Port = 27015
+		}
+		if m.Port < 1 || m.Port > 65535 {
+			return errors.New("port harus 1 sampai 65535")
+		}
 	case TypeHTTP:
 		m.URL = strings.TrimSpace(o.URL)
 		u, err := url.Parse(m.URL)
@@ -172,18 +231,30 @@ func (m *Monitor) normalize() error {
 		if m.Keyword != "" && m.Method == "HEAD" {
 			return errors.New("keyword butuh isi halaman: pakai GET")
 		}
-		if len(o.Headers) > maxHeaders {
-			return fmt.Errorf("header maksimal %d", maxHeaders)
+		if err := m.takeHeaders(o.Headers); err != nil {
+			return err
 		}
-		for _, h := range o.Headers {
-			h.Name = strings.TrimSpace(h.Name)
-			if h.Name == "" && h.Value == "" {
-				continue
+		m.JSONPath = strings.TrimSpace(o.JSONPath)
+		if m.JSONPath != "" {
+			if len(m.JSONPath) > maxJSONPath {
+				return fmt.Errorf("JSON query is at most %d characters", maxJSONPath)
 			}
-			if !headerNameRe.MatchString(h.Name) || strings.ContainsAny(h.Value, "\r\n") {
-				return fmt.Errorf("header tidak valid: %q", h.Name)
+			if _, err := parseJSONPath(m.JSONPath); err != nil {
+				return err
 			}
-			m.Headers = append(m.Headers, h)
+			if m.Method == "HEAD" {
+				return errors.New("a JSON query needs the body: use GET")
+			}
+			m.JSONOp, m.JSONExpect = o.JSONOp, o.JSONExpect
+			if m.JSONOp == "" {
+				m.JSONOp = "=="
+			}
+			if !jsonOps[m.JSONOp] {
+				return errors.New("JSON condition must be ==, !=, contains, <, >, <= or >=")
+			}
+			if len(m.JSONExpect) > maxKeywordLen {
+				return fmt.Errorf("expected value is at most %d characters", maxKeywordLen)
+			}
 		}
 	case TypeTCP, TypePing, TypeDNS:
 		m.Host = strings.TrimSpace(o.Host)
@@ -221,7 +292,7 @@ func (m *Monitor) normalize() error {
 		m.MachineID = "" // the hub only listens
 		m.PushToken = o.PushToken
 	default:
-		return errors.New("tipe harus http, tcp, ping, dns atau push")
+		return errors.New("type must be http, tcp, ping, dns, push, websocket, docker or steam")
 	}
 
 	if m.IntervalSec == 0 {
@@ -248,6 +319,49 @@ func (m *Monitor) normalize() error {
 	return nil
 }
 
+func (m *Monitor) takeHeaders(in []Header) error {
+	if len(in) > maxHeaders {
+		return fmt.Errorf("header maksimal %d", maxHeaders)
+	}
+	for _, h := range in {
+		h.Name = strings.TrimSpace(h.Name)
+		if h.Name == "" && h.Value == "" {
+			continue
+		}
+		if !headerNameRe.MatchString(h.Name) || strings.ContainsAny(h.Value, "\r\n") {
+			return fmt.Errorf("header tidak valid: %q", h.Name)
+		}
+		m.Headers = append(m.Headers, h)
+	}
+	return nil
+}
+
+// normalizeLabels tidies the group and the tags: trimmed, tags once each.
+func (m *Monitor) normalizeLabels() error {
+	m.Group = strings.TrimSpace(m.Group)
+	if len([]rune(m.Group)) > maxGroupLen {
+		return fmt.Errorf("group is at most %d characters", maxGroupLen)
+	}
+	seen := map[string]bool{}
+	var tags []string
+	for _, t := range m.Tags {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[strings.ToLower(t)] {
+			continue
+		}
+		if len([]rune(t)) > maxTagLen || strings.ContainsAny(t, ",\r\n") {
+			return fmt.Errorf("a tag is at most %d characters, without commas", maxTagLen)
+		}
+		seen[strings.ToLower(t)] = true
+		tags = append(tags, t)
+	}
+	if len(tags) > maxTags {
+		return fmt.Errorf("at most %d tags", maxTags)
+	}
+	m.Tags = tags
+	return nil
+}
+
 // Target says what is being watched, for people. Credentials in a URL stay out of it,
 // because this text goes to notifications and webhooks.
 func (m *Monitor) Target() string {
@@ -263,6 +377,15 @@ func (m *Monitor) Target() string {
 		return m.Host
 	case TypeDNS:
 		return m.Host + " " + m.DNSType
+	case TypeWebSocket:
+		if u, err := url.Parse(m.URL); err == nil {
+			return u.Redacted()
+		}
+		return ""
+	case TypeDocker:
+		return "container " + m.Container
+	case TypeSteam:
+		return net.JoinHostPort(m.Host, strconv.Itoa(m.Port)) + " (Steam)"
 	}
 	return "push"
 }

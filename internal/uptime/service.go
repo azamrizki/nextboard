@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -91,6 +92,8 @@ type ProjectSettings struct {
 	LastErrorAt time.Time `json:"lastErrorAt,omitzero"`
 	// Public is the project's public status page (public.go).
 	Public PublicSettings `json:"publicPage,omitzero"`
+	// Maintenance are the project's maintenance windows (maintenance.go).
+	Maintenance []Window `json:"maintenance,omitempty"`
 }
 
 // View is a monitor with what is known about it.
@@ -307,6 +310,9 @@ func (s *Service) loop(ctx context.Context, e *entry, m Monitor, delay time.Dura
 
 // runOnce does one check and says when the next one is.
 func (s *Service) runOnce(ctx context.Context, e *entry, m Monitor) time.Duration {
+	if w := s.maintenance(m); w != nil {
+		return s.recordMaintenance(e, m, w.Title)
+	}
 	if m.Type == TypePush {
 		r, next, due := s.pushDue(e, m)
 		if !due {
@@ -335,6 +341,68 @@ func (s *Service) runOnce(ctx context.Context, e *entry, m Monitor) time.Duratio
 		return 0 // stopped on the way: this says nothing about the target
 	}
 	return s.record(e, m, r, false)
+}
+
+// maintenance is the window that covers m now, if any.
+func (s *Service) maintenance(m Monitor) *Window {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return maintenanceFor(s.settings[m.ProjectID].Maintenance, m.ID, s.Now())
+}
+
+// recordMaintenance shows the monitor in maintenance: no heartbeat, nothing counted, no
+// alert. A push monitor's clock starts again when the window ends.
+func (s *Service) recordMaintenance(e *entry, m Monitor, title string) time.Duration {
+	now := s.Now()
+	e.mu.Lock()
+	changed := e.status != StatusMaintenance || e.msg != title
+	e.status, e.msg, e.ms = StatusMaintenance, title, -1
+	e.started = now
+	v := s.viewLocked(e, true)
+	e.mu.Unlock()
+	if changed {
+		s.Publish(map[string]any{"type": "uptimeMonitor", "monitor": v})
+	}
+	return min(time.Duration(m.IntervalSec)*time.Second, maintRecheck)
+}
+
+// SetMaintenance replaces a project's maintenance windows. Its monitors look again at
+// once, so that a window turned on or off shows now.
+func (s *Service) SetMaintenance(projectID string, windows []Window) (ProjectSettings, error) {
+	s.admin.Lock()
+	defer s.admin.Unlock()
+	s.mu.Lock()
+	ids := map[string]bool{}
+	var mine []*entry
+	for _, e := range s.entries {
+		if e.m.ProjectID == projectID {
+			ids[e.m.ID] = true
+			mine = append(mine, e)
+		}
+	}
+	s.mu.Unlock()
+	norm, err := normalizeWindows(windows, ids)
+	if err != nil {
+		return ProjectSettings{}, err
+	}
+	s.mu.Lock()
+	c := s.settings[projectID]
+	c.Maintenance = norm
+	s.settings[projectID] = c
+	s.mu.Unlock()
+	s.saveSettings()
+	for _, e := range mine {
+		e.mu.Lock()
+		if e.status == StatusMaintenance && maintenanceFor(norm, e.m.ID, s.Now()) == nil {
+			e.status = StatusWaiting // until the check that comes now
+		}
+		e.mu.Unlock()
+		select {
+		case e.poke <- struct{}{}:
+		default:
+		}
+	}
+	return c, nil
 }
 
 // pushDue looks at a push monitor: nothing is checked, a push is either overdue or not.
@@ -703,9 +771,30 @@ func (s *Service) deleteLocked(id string, save bool) error {
 	if e.m.PushToken != "" {
 		delete(s.byToken, e.m.PushToken)
 	}
+	// windows forget it; one that covered only gone monitors goes too, rather than
+	// coming to cover all of them
+	pruned := false
+	if c, ok := s.settings[e.m.ProjectID]; ok && len(c.Maintenance) > 0 {
+		var keep []Window
+		for _, w := range c.Maintenance {
+			if i := slices.Index(w.MonitorIDs, id); i >= 0 {
+				pruned = true
+				w.MonitorIDs = slices.Delete(slices.Clone(w.MonitorIDs), i, i+1)
+				if len(w.MonitorIDs) == 0 {
+					continue
+				}
+			}
+			keep = append(keep, w)
+		}
+		c.Maintenance = keep
+		s.settings[e.m.ProjectID] = c
+	}
 	s.mu.Unlock()
 	if save {
 		s.saveMonitors()
+		if pruned {
+			s.saveSettings()
+		}
 	}
 	_ = os.RemoveAll(s.dir(id))
 	s.Publish(map[string]any{"type": "uptimeRemoved", "projectId": e.m.ProjectID, "id": id})
@@ -755,6 +844,9 @@ func (s *Service) Push(token string, down bool, msg string, ms int) bool {
 	}
 	e.lastPush = now
 	e.mu.Unlock()
+	if s.maintenance(m) != nil {
+		return true // heard, not counted
+	}
 	if msg == "" {
 		msg = "OK"
 		if down {
@@ -840,7 +932,8 @@ func (s *Service) SetWebhook(projectID, webhook string) (ProjectSettings, error)
 		}
 	}
 	s.mu.Lock()
-	c := ProjectSettings{Webhook: webhook, Public: s.settings[projectID].Public}
+	old := s.settings[projectID]
+	c := ProjectSettings{Webhook: webhook, Public: old.Public, Maintenance: old.Maintenance}
 	s.settings[projectID] = c
 	s.mu.Unlock()
 	s.saveSettings()

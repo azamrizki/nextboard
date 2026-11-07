@@ -188,6 +188,22 @@ func TestUptimeAPI(t *testing.T) {
 		t.Fatalf("tes webhook mati: %d %v", st, r)
 	}
 
+	// maintenance: a bad window is refused, a good one shows on the monitor at once
+	if st, _ := h.do("PUT", "/api/projects/"+pid+"/uptime/maintenance", map[string]any{"windows": []map[string]any{{"title": "x", "mode": "sometimes"}}}, nil); st != 400 {
+		t.Fatalf("bad window: %d", st)
+	}
+	st, mc := h.do("PUT", "/api/projects/"+pid+"/uptime/maintenance", map[string]any{"windows": []map[string]any{{"title": "Deploy", "mode": "manual", "active": true, "monitorIds": []string{pushID}}}}, nil)
+	if st != 200 || len(mc["maintenance"].([]any)) != 1 {
+		t.Fatalf("window: %d %v", st, mc)
+	}
+	waitFor("in maintenance", func(e map[string]any) bool {
+		mon, _ := e["monitor"].(map[string]any)
+		return e["type"] == "uptimeMonitor" && mon["id"] == pushID && mon["status"] == "maintenance"
+	})
+	if _, l := h.do("GET", "/api/projects/"+pid+"/uptime", nil, nil); len(l["settings"].(map[string]any)["maintenance"].([]any)) != 1 {
+		t.Fatalf("list: %v", l["settings"])
+	}
+
 	if st, _ := h.do("DELETE", "/api/uptime/"+pushID, nil, nil); st != 200 {
 		t.Fatalf("hapus: %d", st)
 	}

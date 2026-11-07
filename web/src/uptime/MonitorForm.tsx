@@ -3,19 +3,27 @@
 import { useState, type FormEvent } from 'react';
 import { errorMessage } from '../api';
 import { Button } from '../components/Button';
-import { Checkbox, Field, FormSection, SegmentedControl, SelectField, TextField } from '../components/form';
+import { Checkbox, Field, FormSection, SelectField, TextField } from '../components/form';
 import { Modal } from '../components/Modal';
 import { useMachines } from '../store';
-import { uptimeApi, type Monitor, type MonitorConfig, type MonitorType } from './api';
+import { uptimeApi, type JsonOp, type Monitor, type MonitorConfig, type MonitorType } from './api';
 import { putMonitor } from './store';
 
 const TYPES: { value: MonitorType; label: string }[] = [
-  { value: 'http', label: 'HTTP(s)' },
+  { value: 'http', label: 'HTTP(s): a page or an API' },
   { value: 'tcp', label: 'TCP port' },
   { value: 'ping', label: 'Ping' },
-  { value: 'dns', label: 'DNS' },
-  { value: 'push', label: 'Push' },
+  { value: 'dns', label: 'DNS record' },
+  { value: 'websocket', label: 'WebSocket upgrade' },
+  { value: 'docker', label: 'Docker container' },
+  { value: 'steam', label: 'Steam game server' },
+  { value: 'push', label: 'Push: something else reports in' },
 ];
+
+const JSON_OPS: JsonOp[] = ['==', '!=', 'contains', '<', '>', '<=', '>='];
+
+/** Tags as typed: separated by commas. */
+const tagsOf = (text: string) => text.split(',').map((t) => t.trim()).filter(Boolean);
 
 const headersToText = (list?: { name: string; value: string }[]) => (list ?? []).map((h) => `${h.name}: ${h.value}`).join('\n');
 
@@ -31,8 +39,9 @@ function textToHeaders(text: string): { name: string; value: string }[] {
 }
 
 /** A name when none was typed: the host is what people call it anyway. */
-function nameFrom(f: { type: MonitorType; url: string; host: string; port: string }): string {
-  if (f.type === 'http') {
+function nameFrom(f: { type: MonitorType; url: string; host: string; port: string; container: string }): string {
+  if (f.type === 'docker') return f.container;
+  if (f.type === 'http' || f.type === 'websocket') {
     try {
       return new URL(f.url).hostname;
     } catch {
@@ -67,6 +76,12 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
   const [dnsType, setDnsType] = useState(m?.dnsType ?? 'A');
   const [dnsServer, setDnsServer] = useState(m?.dnsServer ?? '');
   const [dnsExpect, setDnsExpect] = useState(m?.dnsExpect ?? '');
+  const [jsonPath, setJsonPath] = useState(m?.jsonPath ?? '');
+  const [jsonOp, setJsonOp] = useState<JsonOp>(m?.jsonOp ?? '==');
+  const [jsonExpect, setJsonExpect] = useState(m?.jsonExpect ?? '');
+  const [container, setContainer] = useState(m?.container ?? '');
+  const [group, setGroup] = useState(m?.group ?? '');
+  const [tags, setTags] = useState((m?.tags ?? []).join(', '));
   const [interval, setIntervalSec] = useState(String(m?.intervalSec ?? 60));
   const [retries, setRetries] = useState(String(m?.retries ?? 1));
   const [retryInterval, setRetryInterval] = useState(m?.retryIntervalSec ? String(m.retryIntervalSec) : '');
@@ -82,7 +97,7 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
     setBusy(true);
     setError('');
     const body: MonitorConfig = {
-      name: name.trim() || nameFrom({ type, url, host, port }),
+      name: name.trim() || nameFrom({ type, url, host, port, container }),
       type,
       machineId,
       notify,
@@ -100,6 +115,12 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
       dnsType,
       dnsServer,
       dnsExpect,
+      jsonPath,
+      jsonOp,
+      jsonExpect,
+      container,
+      group,
+      tags: tagsOf(tags),
       intervalSec: Number(interval) || 0,
       retries: Number(retries) || 0,
       // left empty: as often as the interval, and what fits it
@@ -117,7 +138,7 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
     }
   };
 
-  const fromMachine = machines.length > 1 && (type === 'http' || type === 'tcp' || type === 'ping');
+  const fromMachine = machines.length > 1 && (type === 'http' || type === 'tcp' || type === 'ping' || type === 'websocket' || type === 'docker');
 
   return (
     <Modal
@@ -139,12 +160,29 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
             {error}
           </div>
         )}
-        <Field label="Check" as="group">
-          {(a) => <SegmentedControl<MonitorType> block labelledBy={a.labelId} value={type} onChange={setType} options={TYPES} />}
-        </Field>
+        <SelectField label="Check" value={type} onChange={(e) => setType(e.target.value as MonitorType)}>
+          {TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </SelectField>
         {type === 'http' && (
           <TextField label="URL" mono required type="url" placeholder="https://example.com/health" value={url} onChange={(e) => setUrl(e.target.value)} autoFocus />
         )}
+        {type === 'websocket' && (
+          <TextField label="URL" mono required placeholder="wss://example.com/socket" hint="Up when the server grants the upgrade. No message is sent." value={url} onChange={(e) => setUrl(e.target.value)} autoFocus />
+        )}
+        {type === 'docker' && (
+          <TextField label="Container" mono required placeholder="web-1" hint="Its name or id. Up while it runs, and while it is healthy if it has a health check." value={container} onChange={(e) => setContainer(e.target.value)} autoFocus />
+        )}
+        {type === 'steam' && (
+          <div className="up-form-row">
+            <TextField label="Host" mono required placeholder="game.example.com" value={host} onChange={(e) => setHost(e.target.value)} autoFocus fieldClassName="up-grow" />
+            <TextField label="Query port" mono inputMode="numeric" placeholder="27015" value={port} onChange={(e) => setPort(e.target.value)} fieldClassName="up-narrow" />
+          </div>
+        )}
+        {type === 'steam' && <p className="up-form-note">Asked from This PC: a server’s SSH carries no UDP.</p>}
         {(type === 'tcp' || type === 'ping' || type === 'dns') && (
           <div className="up-form-row">
             <TextField
@@ -168,11 +206,24 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
           </div>
         )}
         {type === 'push' && <p className="up-form-note">Something else reports in: a cron job calls this monitor’s URL, and it goes down when the calls stop. The URL appears once the monitor exists.</p>}
-        <TextField label="Name" optional placeholder={nameFrom({ type, url, host, port }) || 'Nightly backup'} maxLength={80} required={type === 'push'} value={name} onChange={(e) => setName(e.target.value)} />
+        <TextField label="Name" optional placeholder={nameFrom({ type, url, host, port, container }) || 'Nightly backup'} maxLength={80} required={type === 'push'} value={name} onChange={(e) => setName(e.target.value)} />
         {type === 'http' && (
           <>
             <TextField label="Text the page must contain" optional hint="Looked for in the first 1 MB." value={keyword} onChange={(e) => setKeyword(e.target.value)} />
             {keyword && <Checkbox checked={invert} onChange={setInvert} label="Down when this text appears, instead of when it is missing" />}
+            <div className="up-form-row">
+              <TextField label="JSON value" optional mono placeholder="data.status" hint="A value of a JSON answer: keys and [n]." value={jsonPath} onChange={(e) => setJsonPath(e.target.value)} fieldClassName="up-grow" />
+              {jsonPath.trim() && (
+                <>
+                  <SelectField label="Is" value={jsonOp} onChange={(e) => setJsonOp(e.target.value as JsonOp)} fieldClassName="up-narrow">
+                    {JSON_OPS.map((o) => (
+                      <option key={o}>{o}</option>
+                    ))}
+                  </SelectField>
+                  <TextField label="Value" mono placeholder="ok" value={jsonExpect} onChange={(e) => setJsonExpect(e.target.value)} fieldClassName="up-grow" />
+                </>
+              )}
+            </div>
           </>
         )}
         {type === 'dns' && (
@@ -199,6 +250,14 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
           </div>
           <p className="up-form-note">Every 20 s at the most. Retries are failures in a row that stay pending before it counts as down.</p>
         </FormSection>
+        {type === 'websocket' && (
+          <FormSection title="Request">
+            <Field label="Headers" optional hint="One per line, such as Authorization: Bearer abc. Kept on the hub as written.">
+              {({ labelId: _l, ...a }) => <textarea className="control mono" rows={2} spellCheck={false} {...a} value={headers} onChange={(e) => setHeaders(e.target.value)} />}
+            </Field>
+            <Checkbox checked={ignoreTls} onChange={setIgnoreTls} label="Accept an invalid certificate" />
+          </FormSection>
+        )}
         {type === 'http' && (
           <FormSection title="Request">
             <div className="up-form-row">
@@ -214,6 +273,10 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
             <Checkbox checked={ignoreTls} onChange={setIgnoreTls} label="Accept an invalid certificate" />
           </FormSection>
         )}
+        <div className="up-form-row">
+          <TextField label="Group" optional maxLength={40} placeholder="Shop" value={group} onChange={(e) => setGroup(e.target.value)} fieldClassName="up-grow" />
+          <TextField label="Tags" optional placeholder="prod, api" hint="Separated by commas." value={tags} onChange={(e) => setTags(e.target.value)} fieldClassName="up-grow" />
+        </div>
         <Checkbox checked={notify} onChange={setNotify} label="Tell me when it goes down or comes back" />
         <Checkbox checked={isPublic} onChange={setIsPublic} label="Show on the public status page" />
         {isPublic && (
