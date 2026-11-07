@@ -387,8 +387,14 @@ func TestRestartKeepsStateAndDoesNotAlert(t *testing.T) {
 	fmt.Fprint(f, `{"t":17`)
 	f.Close()
 
+	// the hub comes back two hours later and loads by that clock, not the wall's: the beats
+	// are from a fixed day, and a later day would have aged them out
+	later := r.clock.now().Add(time.Hour * 2)
+	saved := timeNow
+	timeNow = func() time.Time { return later }
 	r2 := newRig(t, dir)
-	r2.clock.t = r.clock.now().Add(time.Hour * 2)
+	timeNow = saved
+	r2.clock.t = later
 	v = r2.view(id)
 	if v.Status != StatusDown || v.Since == nil || !v.Since.Equal(*since) || len(v.Recent) != 2 {
 		t.Fatalf("setelah restart: %+v", v)

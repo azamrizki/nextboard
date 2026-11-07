@@ -71,7 +71,16 @@ test('kanban: a finger scrolls the cards, the grip moves one, a long press opens
   await f.drag(card, { x: card.x, y: card.y - 220 });
   await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(40);
   expect((await nodeOf(hub, p.wid, 'n_kanb000001')).data.columns[1].cards).toHaveLength(0);
-  await list.evaluate((el) => (el.scrollTop = 0));
+  // the swipe may still be flinging: back at the top only once it stays there for two frames,
+  // or the grip below is measured on a card that is still moving
+  await expect
+    .poll(() =>
+      list.evaluate((el) => {
+        el.scrollTop = 0;
+        return new Promise<number>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(el.scrollTop))));
+      }),
+    )
+    .toBe(0);
 
   // the "…" of a card is there without a hover
   expect(await page.locator('.kb-card-menu').first().evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
