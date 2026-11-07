@@ -7,7 +7,7 @@ import { store as hubStore } from '../store';
 import { reconcileAgents, syncAgentEntry } from './agents';
 import { vaultApi, type VaultBlob, type VaultHeader } from './api';
 import { copyText } from '../lib/clipboard';
-import { vaultSupported, createKey, keyFromPinSecret, open, openKey, proofForPin, randomId, rewrapKey, seal, wrapKeyForPin, type AeadKey, type PinRecord } from './crypto';
+import { vaultSupported, createKey, fromB64, keyFromPasskey, keyFromPinSecret, open, openKey, proofForPin, randomId, rewrapKey, seal, toB64, wrapKeyForPasskey, wrapKeyForPin, type AeadKey, type PasskeyRecord, type PinRecord } from './crypto';
 import type { Imported } from './importExport';
 import { readRecord, TRASH_DAYS, type VaultFolder, type VaultItem, type VaultRecord } from './model';
 
@@ -478,6 +478,124 @@ export async function unlockWithPin(pin: string) {
   await adoptKey(opened);
 }
 
+// ---- passkey ----
+
+const PASSKEY_KEY = 'nb.vault.passkey';
+
+/**
+ * WebAuthn is there: a secure context (HTTPS, or localhost) in a browser that has it, under a
+ * name. An IP address is never a passkey's site, even 127.0.0.1.
+ */
+export const passkeySupported = () =>
+  typeof window !== 'undefined' && window.isSecureContext && typeof PublicKeyCredential !== 'undefined' && !!navigator.credentials && !/^(\d+\.){3}\d+$|:/.test(location.hostname);
+
+function readPasskey(): PasskeyRecord | null {
+  try {
+    const rec = JSON.parse(localStorage.getItem(PASSKEY_KEY) ?? 'null') as PasskeyRecord | null;
+    return rec && header && rec.vaultId === header.id && rec.credentialId && rec.salt && rec.wrappedKey ? rec : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetPasskey() {
+  try {
+    localStorage.removeItem(PASSKEY_KEY);
+  } catch {
+    /* nothing to forget then */
+  }
+}
+
+/** This browser can open the vault with a passkey. */
+export const passkeyEnabled = () => passkeySupported() && !!readPasskey();
+
+export class PasskeyFailed extends Error {}
+
+const bytes = (n: number) => crypto.getRandomValues(new Uint8Array(n));
+
+/** The PRF output for a salt, from a passkey the person confirms; null when it has no PRF. */
+async function prfOf(credentialId: Uint8Array<ArrayBuffer>, salt: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
+  let got: Credential | null;
+  try {
+    got = await navigator.credentials.get({
+      publicKey: {
+        challenge: bytes(32),
+        rpId: location.hostname,
+        allowCredentials: [{ type: 'public-key', id: credentialId }],
+        userVerification: 'required',
+        timeout: 60_000,
+        extensions: { prf: { eval: { first: salt } } } as AuthenticationExtensionsClientInputs,
+      },
+    });
+  } catch (err) {
+    throw new PasskeyFailed(err instanceof DOMException && err.name === 'NotAllowedError' ? 'The passkey was not confirmed.' : `The passkey did not answer: ${(err as Error).message}`);
+  }
+  const results = (got as PublicKeyCredential | null)?.getClientExtensionResults() as { prf?: { results?: { first?: BufferSource } } } | undefined;
+  const first = results?.prf?.results?.first;
+  if (!first) throw new PasskeyFailed('This passkey cannot unlock a vault: its authenticator has no PRF. Use another one, such as a phone or a recent security key.');
+  return new Uint8Array(first instanceof ArrayBuffer ? first : (first as ArrayBufferView).buffer.slice(0)) as Uint8Array<ArrayBuffer>;
+}
+
+/** Makes a passkey for this vault and this site, and lets it open the vault in this browser. */
+export async function setupPasskey(master: string) {
+  if (!header) throw new Error('There is no vault.');
+  if (!passkeySupported()) throw new PasskeyFailed('Passkeys need the hub over HTTPS, or on localhost.');
+  await checkPassword(master);
+  let made: Credential | null;
+  try {
+    made = await navigator.credentials.create({
+      publicKey: {
+        rp: { name: 'NextBoard vault', id: location.hostname },
+        user: { id: bytes(16), name: `vault-${header.id.slice(0, 8)}`, displayName: 'NextBoard vault' },
+        challenge: bytes(32),
+        pubKeyCredParams: [
+          { type: 'public-key', alg: -7 },
+          { type: 'public-key', alg: -257 },
+        ],
+        authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
+        timeout: 60_000,
+        extensions: { prf: {} } as AuthenticationExtensionsClientInputs,
+      },
+    });
+  } catch (err) {
+    throw new PasskeyFailed(err instanceof DOMException && err.name === 'NotAllowedError' ? 'No passkey was made.' : `No passkey was made: ${(err as Error).message}`);
+  }
+  const cred = made as PublicKeyCredential | null;
+  if (!cred) throw new PasskeyFailed('No passkey was made.');
+  if ((cred.getClientExtensionResults() as { prf?: { enabled?: boolean } }).prf?.enabled === false) {
+    throw new PasskeyFailed('This passkey cannot unlock a vault: its authenticator has no PRF. Use another one, such as a phone or a recent security key.');
+  }
+  const id = new Uint8Array(cred.rawId) as Uint8Array<ArrayBuffer>;
+  const salt = bytes(32);
+  const prf = await prfOf(id, salt);
+  try {
+    const wrappedKey = await wrapKeyForPasskey(master, header, prf);
+    const rec: PasskeyRecord = { vaultId: header.id, credentialId: toB64(id), salt: toB64(salt), wrappedKey };
+    localStorage.setItem(PASSKEY_KEY, JSON.stringify(rec));
+  } finally {
+    prf.fill(0);
+  }
+}
+
+export function removePasskey() {
+  forgetPasskey();
+}
+
+export async function unlockWithPasskey() {
+  const rec = readPasskey();
+  if (!rec) throw new PasskeyFailed('This browser has no passkey for the vault any more.');
+  const prf = await prfOf(fromB64(rec.credentialId), fromB64(rec.salt));
+  let opened: AeadKey;
+  try {
+    opened = await keyFromPasskey(prf, rec);
+  } catch {
+    throw new PasskeyFailed('That passkey does not open this vault.');
+  } finally {
+    prf.fill(0);
+  }
+  await adoptKey(opened);
+}
+
 /** The password is right, without changing anything. For what deserves asking again. */
 export async function checkPassword(password: string) {
   if (!header) throw new Error('There is no vault.');
@@ -489,11 +607,13 @@ export async function changeMasterPassword(current: string, next: string) {
   const material = await rewrapKey(current, next, header);
   header = await vaultApi.setKey(material, header.keyRev);
   forgetPin(); // the hub turned every PIN off with it
+  forgetPasskey(); // as with a PIN: a new password is a fresh start
 }
 
 export async function resetVault(): Promise<string> {
   const { kept } = await vaultApi.reset();
   forgetPin();
+  forgetPasskey();
   closeSession();
   header = null;
   await refresh();

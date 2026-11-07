@@ -94,6 +94,20 @@ secret = HMAC-SHA256(kunci hub, proof)
 - PIN seperti `123456`, `111111`, `121212` ditolak.
 - **Ganti master password dan reset mematikan semua PIN.** Browser lain tahu saat mencoba berikutnya. "Turn off everywhere" untuk browser yang hilang: bagiannya sendiri tidak membuka apa pun lagi.
 
+## Passkey
+
+Unlock dengan sidik jari, wajah, atau PIN perangkat, per browser (menu vault → "Passkey unlock…"). Passkey dengan ekstensi **PRF** memberi 32 byte rahasia untuk sebuah salt, hanya untuk situs ini dan hanya setelah orangnya mengonfirmasi. Byte itu membungkus kunci vault (AES-256-GCM, AAD `nextboard-vault/v1/passkey`).
+
+```
+browser (localStorage nb.vault.passkey):  id kredensial, salt, kunci vault dibungkus keluaran PRF
+hub:                                      tidak ada
+```
+
+- Tidak ada separuh di hub, beda dengan PIN: tanpa authenticator, catatannya tidak berguna, dan authenticator sendiri yang menghitung tebakan salah (user verification `required`).
+- Menyiapkannya meminta master password, lalu `navigator.credentials.create` (RP id = hostname halaman) disusul `get` untuk keluaran PRF. Authenticator tanpa PRF ditolak dengan penjelasan. Ponsel, Windows Hello, macOS, dan security key baru punya PRF.
+- **Hanya dengan nama, lewat HTTPS dengan sertifikat valid, atau `localhost`.** Alamat IP (termasuk `127.0.0.1`) dan HTTP biasa tidak bisa, jadi dialognya menjelaskan dan gerbang vault tidak menawarkannya. Hub yang dibuka lewat `http://` tetap memakai master password dan PIN.
+- **Ganti master password dan reset mematikan passkey di browser itu**, sama seperti PIN.
+
 ## Mengisi form
 
 Tombol kunci di browser tile ("Fill from Credentials"). **Selalu atas pilihan orangnya**, tidak pernah saat halaman dimuat: halaman yang terisi sendiri bisa mengumpulkan tanpa ada yang melihat. Login, kartu, dan identitas, masing-masing di tabnya sendiri. Tidak pernah submit. Vault terkunci: dialognya meminta PIN atau password di tempat.
@@ -249,4 +263,4 @@ Export: format JSON Bitwarden tanpa enkripsi, setelah master password dimasukkan
 
 ## Belum ada
 
-Passkey, dan kartu Credentials di Android dan desktop.
+Menyimpan passkey situs lain di vault (butuh extension browser yang menjawab WebAuthn untuk situs itu), dan kartu Credentials di Android dan desktop.

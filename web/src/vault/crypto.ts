@@ -302,3 +302,46 @@ export async function keyFromPinSecret(secret: string, rec: PinRecord): Promise<
     k.wipe();
   }
 }
+
+// ---- passkey ----
+// A passkey with the PRF extension gives 32 secret bytes for a salt, after the person's
+// fingerprint, face or device PIN, and only to this site. Those bytes wrap the vault key in this
+// browser. Nothing goes to the hub: without the authenticator the record is useless, and the
+// authenticator does its own counting of wrong tries.
+
+const PASSKEY_AAD = new TextEncoder().encode('nextboard-vault/v1/passkey');
+
+export interface PasskeyRecord {
+  vaultId: string;
+  credentialId: string;
+  salt: string;
+  wrappedKey: string;
+}
+
+/** Wraps the vault key under a passkey's PRF output; the master password gets to the key. */
+export async function wrapKeyForPasskey(master: string, m: KeyMaterial, prf: Uint8Array<ArrayBuffer>): Promise<string> {
+  const raw = await unwrapRaw(master, m);
+  const k = await aeadKey(prf);
+  try {
+    const iv = random(NONCE);
+    return toB64(concat(iv, await k.seal(iv, raw, PASSKEY_AAD)));
+  } finally {
+    k.wipe();
+    raw.fill(0);
+  }
+}
+
+export async function keyFromPasskey(prf: Uint8Array<ArrayBuffer>, rec: PasskeyRecord): Promise<AeadKey> {
+  const k = await aeadKey(prf);
+  const blob = fromB64(rec.wrappedKey);
+  try {
+    const raw = Uint8Array.from(await k.open(blob.subarray(0, NONCE), blob.subarray(NONCE), PASSKEY_AAD));
+    try {
+      return await aeadKey(raw);
+    } finally {
+      raw.fill(0);
+    }
+  } finally {
+    k.wipe();
+  }
+}

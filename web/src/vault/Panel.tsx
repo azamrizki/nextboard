@@ -5,14 +5,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { MenuEntry } from '../components/Menu';
 import { VaultBrowser } from './Browser';
-import { ChangePasswordDialog, ExportDialog, FolderDialog, GeneratorDialog, ImportDialog, PinDialog, ResetDialog, SettingsDialog } from './Dialogs';
+import { ChangePasswordDialog, ExportDialog, FolderDialog, GeneratorDialog, ImportDialog, PasskeyDialog, PinDialog, ResetDialog, SettingsDialog } from './Dialogs';
 import { VaultGate } from './Gate';
 import { ItemForm } from './ItemForm';
 import { LeaksDialog } from './Leaks';
 import type { VaultItem } from './model';
 import { useVault, type VaultState } from './store';
 
-type DialogName = 'generator' | 'folder' | 'settings' | 'password' | 'pin' | 'import' | 'export' | 'reset' | 'leaks';
+type DialogName = 'generator' | 'folder' | 'settings' | 'password' | 'pin' | 'passkey' | 'import' | 'export' | 'reset' | 'leaks';
 
 export interface VaultPanel {
   v: VaultState;
@@ -54,6 +54,7 @@ export function useVaultPanel(): VaultPanel {
         'sep',
         { label: 'Vault settings…', icon: 'sliders', onSelect: () => setDialog('settings') },
         { label: 'PIN unlock…', icon: 'keyboard', onSelect: () => setDialog('pin') },
+        { label: 'Passkey unlock…', icon: 'key', onSelect: () => setDialog('passkey') },
         { label: 'Change master password…', icon: 'key', onSelect: () => setDialog('password') },
         { label: 'Reset the vault…', icon: 'alert', danger: true, onSelect: () => setDialog('reset') },
       ]
@@ -82,6 +83,7 @@ export function useVaultPanel(): VaultPanel {
       {open && dialog === 'settings' && <SettingsDialog onClose={close} />}
       {open && dialog === 'password' && <ChangePasswordDialog onClose={close} />}
       {open && dialog === 'pin' && <PinDialog onClose={close} />}
+      {open && dialog === 'passkey' && <PasskeyDialog onClose={close} />}
       {open && dialog === 'import' && <ImportDialog onClose={close} />}
       {open && dialog === 'export' && <ExportDialog items={v.items} folders={v.folders} onClose={close} />}
       {dialog === 'reset' && <ResetDialog count={open ? v.items.length : null} onClose={close} />}

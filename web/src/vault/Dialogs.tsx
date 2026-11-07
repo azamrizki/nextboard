@@ -21,7 +21,7 @@ import {
 } from './generator';
 import { download, parseImport, toBitwardenJson, type Imported } from './importExport';
 import type { VaultFolder, VaultItem } from './model';
-import { changeMasterPassword, checkPassword, importRecords, MAX_PIN_TRIES, pinEnabled, pinProblem, PIN_LENGTH, removeAllPins, removePin, resetVault, saveFolder, setVaultPrefs, setupPin, useVaultPrefs } from './store';
+import { changeMasterPassword, checkPassword, importRecords, MAX_PIN_TRIES, passkeyEnabled, passkeySupported, pinEnabled, pinProblem, PIN_LENGTH, removeAllPins, removePasskey, removePin, resetVault, saveFolder, setupPasskey, setVaultPrefs, setupPin, useVaultPrefs } from './store';
 
 // ---- generator ----
 
@@ -359,6 +359,86 @@ export function PinDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </form>
+    </Modal>
+  );
+}
+
+// ---- passkey ----
+
+export function PasskeyDialog({ onClose }: { onClose: () => void }) {
+  const supported = passkeySupported();
+  const [has, setHas] = useState(passkeyEnabled);
+  const [master, setMaster] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await setupPasskey(master);
+      toast.success('Passkey set for this browser.');
+      onClose();
+    } catch (err) {
+      setError(err instanceof WrongPassword ? 'That is not the master password.' : errorMessage(err));
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title="Passkey unlock"
+      icon="key"
+      size="sm"
+      onClose={onClose}
+      dismissable={!busy}
+      footer={
+        supported ? (
+          <>
+            <Button onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" form="vault-passkey-form" loading={busy} disabled={!master}>
+              {has ? 'Make a new passkey' : 'Make a passkey'}
+            </Button>
+          </>
+        ) : (
+          <Button onClick={onClose}>Close</Button>
+        )
+      }
+    >
+      {!supported ? (
+        <div className="vault-dialog">
+          <p className="vault-note">Passkeys only work when the hub is opened by name over HTTPS with a valid certificate, or as localhost; never by IP address or over plain HTTP. This page is not, so the master password and a PIN are what open the vault here.</p>
+        </div>
+      ) : (
+        <form id="vault-passkey-form" className="vault-dialog" onSubmit={(e) => void submit(e)}>
+          <p className="vault-note">
+            For this browser only: a locked vault opens with your fingerprint, face, or device PIN. The passkey needs PRF, which current phones, Windows Hello, macOS and recent security keys have. Nothing about it goes to the hub. Changing the master password turns it off.
+          </p>
+          <SecretInput label="Master password" value={master} onChange={setMaster} autoFocus />
+          {error && (
+            <div className="alert" role="alert">
+              {error}
+            </div>
+          )}
+          {has && (
+            <div className="vault-dialog-actions">
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  removePasskey();
+                  setHas(false);
+                  toast.success('Passkey unlock turned off on this browser.');
+                  onClose();
+                }}
+              >
+                Turn off here
+              </Button>
+            </div>
+          )}
+        </form>
+      )}
     </Modal>
   );
 }

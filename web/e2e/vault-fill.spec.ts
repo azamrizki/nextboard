@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Page } from '@playwright/test';
+import { PORT } from './playwright.config';
 import { expect, test, type Hub } from './hub';
-import { openVault } from './vault';
+import { MASTER, openVault } from './vault';
 
 // A card and an identity filled into a page in a browser tile, only when picked. The page says
 // what it wants by autocomplete for some fields and by name or label for others, and hides one
@@ -131,4 +132,42 @@ test('passwords are checked against breaches only when asked', async ({ page, hu
   await list.getByRole('button', { name: 'Show' }).click();
   await win.getByRole('button', { name: 'Check for leaks' }).click();
   await expect(win.getByRole('status')).toContainText('Seen 42 times in data breaches');
+});
+
+// A passkey with PRF opens the vault in this browser. Run on localhost: a passkey's site is a
+// name, never an IP address, and the tests otherwise use 127.0.0.1.
+test('a passkey opens the vault', async ({ page }) => {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
+    options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, hasPrf: true, automaticPresenceSimulation: true },
+  });
+  await page.goto(`http://localhost:${PORT}/`);
+  await page.getByLabel('Admin password').fill('rahasia123');
+  await page.getByRole('button', { name: 'Log in' }).click();
+  await page.locator('.vault-button').click();
+  await openVault(page);
+  const win = page.getByRole('dialog', { name: 'Credentials', exact: true });
+  await win.getByRole('button', { name: 'Vault actions' }).click();
+  await page.getByRole('menuitem', { name: 'Passkey unlock…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Passkey unlock' });
+  await dialog.getByLabel('Master password', { exact: true }).fill(MASTER);
+  await dialog.getByRole('button', { name: 'Make a passkey' }).click();
+  await expect(dialog).toBeHidden();
+  const { credentials } = await cdp.send('WebAuthn.getCredentials', { authenticatorId });
+  expect(credentials).toHaveLength(1);
+  // nothing of it on the hub: the record is this browser's
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('nb.vault.passkey') ?? 'null')?.wrappedKey)).toBeTruthy();
+
+  await win.getByRole('button', { name: 'Lock the vault' }).click();
+  await win.getByRole('button', { name: 'Unlock with passkey' }).click();
+  await expect(win.getByRole('button', { name: 'Lock the vault' })).toBeVisible();
+
+  // without a PRF answer, it does not open, and says why
+  await win.getByRole('button', { name: 'Lock the vault' }).click();
+  await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
+  await win.getByRole('button', { name: 'Unlock with passkey' }).click();
+  await expect(win.getByRole('alert')).toBeVisible();
+  await expect(win.getByRole('button', { name: 'Lock the vault' })).toHaveCount(0);
+  await page.evaluate(() => localStorage.removeItem('nb.vault.passkey'));
 });

@@ -7,7 +7,7 @@ import { Checkbox } from '../components/form';
 import { Icon } from '../components/Icon';
 import { plainHttp, WrongPassword } from './crypto';
 import { MasterFields, PinInput, SecretInput, useMasterChoice } from './fields';
-import { createVault, PinGone, pinEnabled, PIN_LENGTH, retryVault, unlockVault, unlockWithPin, WrongPin, type VaultState } from './store';
+import { createVault, passkeyEnabled, PinGone, pinEnabled, PIN_LENGTH, retryVault, unlockVault, unlockWithPasskey, unlockWithPin, WrongPin, type VaultState } from './store';
 
 /** Said where the password is typed, once, and without getting in the way. */
 function PlainHttpNote() {
@@ -97,6 +97,7 @@ function PasswordUnlock({ note, onForgot, onPin }: { note: string; onForgot: () 
       <Button type="submit" variant="primary" block loading={busy}>
         Unlock
       </Button>
+      {passkeyEnabled() && <PasskeyUnlock />}
       {onPin && (
         <button type="button" className="vault-link" onClick={onPin}>
           Use PIN
@@ -106,6 +107,36 @@ function PasswordUnlock({ note, onForgot, onPin }: { note: string; onForgot: () 
         Forgot it?
       </button>
     </form>
+  );
+}
+
+/** A passkey this browser was given (Dialogs.tsx PasskeyDialog). */
+function PasskeyUnlock() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <>
+      <Button
+        block
+        icon="key"
+        loading={busy}
+        onClick={() => {
+          setBusy(true);
+          setError('');
+          unlockWithPasskey().catch((err: unknown) => {
+            setError(errorMessage(err));
+            setBusy(false);
+          });
+        }}
+      >
+        Unlock with passkey
+      </Button>
+      {error && (
+        <p className="vault-note" role="alert">
+          {error}
+        </p>
+      )}
+    </>
   );
 }
 
