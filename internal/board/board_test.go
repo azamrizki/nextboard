@@ -199,7 +199,7 @@ func TestOpsApplyAndValidate(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		big = append(big, note(randomID("n_"), 0, `{"t":"`+strings.Repeat("x", 250<<10)+`"}`))
 	}
-	if _, err := f.apply(big...); err == nil || !strings.Contains(err.Error(), "terlalu besar") {
+	if _, err := f.apply(big...); err == nil || !strings.Contains(err.Error(), "too large") {
 		t.Fatalf("board size limit: %v", err)
 	}
 }

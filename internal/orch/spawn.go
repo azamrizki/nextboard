@@ -17,11 +17,11 @@ import (
 // (docs/API-orchestration.md §5), and layout deploys (§13).
 
 var (
-	ErrTooMany         = errors.New("terlalu banyak console (maks 12 per panggilan, 64 per workspace)")
-	ErrGroupNotFound   = errors.New("grup tidak ditemukan")
-	ErrOrderNotFound   = errors.New("order tidak ditemukan")
-	ErrNothingToResend = errors.New("tidak ada yang perlu dikirim ulang")
-	ErrMembersMissing  = errors.New("anggota grup tidak ada di board ini")
+	ErrTooMany         = errors.New("too many consoles (at most 12 per call, 64 per workspace)")
+	ErrGroupNotFound   = errors.New("group not found")
+	ErrOrderNotFound   = errors.New("order not found")
+	ErrNothingToResend = errors.New("there is nothing to resend")
+	ErrMembersMissing  = errors.New("group members are not on this board")
 )
 
 const (

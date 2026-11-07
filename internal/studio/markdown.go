@@ -410,7 +410,7 @@ func Backlinks(v *Vault, rel string) (in []Backlink, out []MDLink, err error) {
 		}
 	}
 	if !found {
-		return nil, nil, errors.New("file tidak ada di vault")
+		return nil, nil, errors.New("the file is not in the vault")
 	}
 	in, out = []Backlink{}, []MDLink{}
 	for _, l := range v.Links {

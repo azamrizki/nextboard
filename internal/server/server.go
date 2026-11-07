@@ -160,7 +160,7 @@ func New(opts Options) (*Server, error) {
 	}
 	connLog, err := connlog.Open(st.Path("logs"))
 	if err != nil {
-		log.Printf("log koneksi tidak tersedia: %v", err)
+		log.Printf("connection log not available: %v", err)
 	}
 	mgr := session.NewManager(st, reg)
 	mgr.Settings, mgr.Profiles = sets.Get, profs
@@ -182,7 +182,7 @@ func New(opts Options) (*Server, error) {
 		running:      map[string]bool{},
 	}
 	if err := s.startHookListener(); err != nil {
-		log.Printf("listener hook lokal gagal: %v", err)
+		log.Printf("local hook listener failed: %v", err)
 	}
 	s.wire()
 	s.setupOrchestration()
@@ -196,7 +196,7 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 	if err := s.migrate(); err != nil {
-		return nil, fmt.Errorf("migrasi project: %w", err)
+		return nil, fmt.Errorf("migrating projects: %w", err)
 	}
 	s.routes()
 	s.spa = spaHandler()
@@ -257,7 +257,7 @@ func (s *Server) wire() {
 	}
 	// a console works without them, only its agent may sign its commits
 	if dir := s.st.Path("agents", "git-hooks"); agent.WriteCommitHooks(dir) != nil {
-		log.Printf("hook commit agen %s tidak bisa ditulis", dir)
+		log.Printf("cannot write the agent commit hooks in %s", dir)
 	} else {
 		s.sessions.CommitHooks = dir
 	}
@@ -359,9 +359,9 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 	stopStatus := s.serveStatusOnly()
 	defer stopStatus()
 
-	log.Printf("NextBoard %s berjalan di http://%s", version.Version, s.listen)
+	log.Printf("NextBoard %s running at http://%s", version.Version, s.listen)
 	if !isLoopbackListen(s.listen) {
-		log.Printf("PERINGATAN: hub melayani HTTP tanpa enkripsi di %s. Password, token, dan isi terminal bisa disadap di jaringan ini. Untuk deploy: listen 127.0.0.1 dan pasang HTTPS di nginx (deploy/nginx.conf.example).", s.listen)
+		log.Printf("WARNING: the hub serves unencrypted HTTP on %s. Passwords, tokens and terminal contents can be intercepted on this network. To deploy: listen on 127.0.0.1 and set up HTTPS in nginx (deploy/nginx.conf.example).", s.listen)
 	}
 	for _, u := range s.urls() {
 		log.Printf("  %s", u)
@@ -376,7 +376,7 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 			return err
 		}
 	}
-	log.Printf("mematikan hub…")
+	log.Printf("shutting down the hub…")
 	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(sctx)
@@ -449,12 +449,12 @@ func (s *Server) announceSetup(print bool) {
 	if print {
 		code, _, err := s.auth.NewSetupCode()
 		if err == nil {
-			fmt.Fprintf(os.Stdout, "\nHub belum di-setup. Buka link setup ini (sekali pakai, berlaku 30 menit):\n  %s/setup?code=%s\n\n",
+			fmt.Fprintf(os.Stdout, "\nThe hub is not set up yet. Open this setup link (single use, valid for 30 minutes):\n  %s/setup?code=%s\n\n",
 				PrimaryURL(s.listen, nil), code)
 			return
 		}
 	}
-	log.Printf("hub belum di-setup: jalankan `nextboard setup-link` untuk membuat link setup")
+	log.Printf("hub not set up yet: run `nextboard setup-link` to make a setup link")
 }
 
 // ServeHTTP applies global headers, CSRF and body limits.
@@ -483,7 +483,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 	default:
 		if r.Header.Get("X-NextBoard") != "1" {
-			writeErr(w, http.StatusForbidden, "header X-NextBoard: 1 wajib ada")
+			writeErr(w, http.StatusForbidden, "header X-NextBoard: 1 is required")
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, bodyLimit(r.URL.Path))
@@ -552,7 +552,7 @@ func (s *Server) noLSPOffer(pf profiles.Profile) {
 		return
 	}
 	if err := profiles.NoLSPOffer(pf.Dir); err != nil {
-		log.Printf("tawaran plugin LSP agen: %v", err)
+		log.Printf("agent LSP plugin offer: %v", err)
 	}
 }
 
@@ -629,7 +629,7 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter 
 func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hj, ok := r.ResponseWriter.(http.Hijacker)
 	if !ok {
-		return nil, nil, errors.New("hijack tidak didukung")
+		return nil, nil, errors.New("hijack not supported")
 	}
 	return hj.Hijack()
 }

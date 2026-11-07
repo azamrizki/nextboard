@@ -27,7 +27,7 @@ func checkRegular(fi fs.FileInfo) error {
 		return ErrIsDir
 	}
 	if !fi.Mode().IsRegular() {
-		return errors.New("bukan file biasa")
+		return errors.New("not a regular file")
 	}
 	return nil
 }
@@ -117,7 +117,7 @@ func (l *Local) WriteFile(_ context.Context, p string, data []byte, opt WriteOpt
 			}
 			return l.finishWrite(f, cand, data)
 		}
-		return nil, fmt.Errorf("tidak ada nama bebas untuk %s", path.Base(abs))
+		return nil, fmt.Errorf("no free name for %s", path.Base(abs))
 	}
 	fi, err := os.Stat(abs)
 	if err != nil && !notExist(err) {
@@ -156,7 +156,7 @@ func (l *Local) finishWrite(f *os.File, p string, data []byte) (*FileStat, error
 // ReadAt reads up to n bytes of a local file starting at off.
 func (l *Local) ReadAt(_ context.Context, p string, off, n int64) ([]byte, *FileStat, error) {
 	if off < 0 || n < 0 {
-		return nil, nil, errors.New("offset tidak valid")
+		return nil, nil, errors.New("invalid offset")
 	}
 	f, st, err := l.openRegular(p)
 	if err != nil {

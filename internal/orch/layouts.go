@@ -23,9 +23,9 @@ import (
 const layoutsFile = "layouts.json"
 
 var (
-	ErrLayoutNotFound = errors.New("layout tidak ditemukan")
-	ErrLayoutBuiltin  = errors.New("layout bawaan tidak bisa diubah atau dihapus")
-	ErrBadLayout      = errors.New("layout tidak valid")
+	ErrLayoutNotFound = errors.New("layout not found")
+	ErrLayoutBuiltin  = errors.New("a built-in layout cannot be changed or deleted")
+	ErrBadLayout      = errors.New("invalid layout")
 )
 
 // Lane is a console slot.
@@ -300,7 +300,7 @@ func (l *Layouts) Rename(id, name string) (Layout, error) {
 	}
 	name = strings.TrimSpace(name)
 	if name == "" || len([]rune(name)) > 40 {
-		return Layout{}, fmt.Errorf("%w: nama 1–40 karakter", ErrBadLayout)
+		return Layout{}, fmt.Errorf("%w: name 1–40 characters", ErrBadLayout)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -331,10 +331,10 @@ func (l *Layouts) Delete(id string) error {
 func validateLayout(x *Layout) error {
 	x.Name = strings.TrimSpace(x.Name)
 	if len([]rune(x.Name)) > 40 {
-		return fmt.Errorf("%w: nama maks 40 karakter", ErrBadLayout)
+		return fmt.Errorf("%w: name at most 40 characters", ErrBadLayout)
 	}
 	if len(x.Lanes) > 12 || len(x.Nodes) > 40 || len(x.Groups) > 8 {
-		return fmt.Errorf("%w: maks 12 lane, 8 grup, 40 node", ErrBadLayout)
+		return fmt.Errorf("%w: at most 12 lanes, 8 groups, 40 nodes", ErrBadLayout)
 	}
 	keys := map[string]bool{}
 	for _, k := range x.Groups {

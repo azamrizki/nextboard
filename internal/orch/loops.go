@@ -38,9 +38,9 @@ const (
 )
 
 var (
-	ErrBadLoop      = errors.New("loop tidak valid")
-	ErrTooManyLoops = errors.New("terlalu banyak loop (maks 50 per hub)")
-	ErrLoopNotFound = errors.New("loop tidak ditemukan")
+	ErrBadLoop      = errors.New("invalid loop")
+	ErrTooManyLoops = errors.New("too many loops (at most 50 per hub)")
+	ErrLoopNotFound = errors.New("loop not found")
 )
 
 func badLoop(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrBadLoop, fmt.Sprintf(f, a...)) }
@@ -132,76 +132,76 @@ func ValidateLoop(l *LoopDef, byPlanner bool) error {
 		l.Name = "Loop"
 	}
 	if len([]rune(l.Name)) > 60 {
-		return badLoop("nama maks 60 karakter")
+		return badLoop("name at most 60 characters")
 	}
 	if t := strings.TrimSpace(l.Text); t == "" || len([]rune(t)) > 4000 {
-		return badLoop("text 1–4000 karakter")
+		return badLoop("text 1–4000 characters")
 	}
 	switch l.Trigger.Kind {
 	case "interval":
 		if l.Trigger.EverySec < 60 || l.Trigger.EverySec > 86400 {
-			return badLoop("interval harus 60 dtk–24 j")
+			return badLoop("interval must be 60 s–24 h")
 		}
 	case "cron":
 		if _, err := ParseCron(l.Trigger.Expr); err != nil {
-			return badLoop("cron tidak valid: %v", err)
+			return badLoop("invalid cron: %v", err)
 		}
 	case "agentIdle":
 	case "output":
 		if len([]rune(l.Trigger.Pattern)) < 2 {
-			return badLoop("pola output minimal 2 karakter")
+			return badLoop("output pattern at least 2 characters")
 		}
 		if l.Trigger.Regex {
 			if _, err := regexp.Compile(l.Trigger.Pattern); err != nil {
-				return badLoop("regex tidak valid")
+				return badLoop("invalid regex")
 			}
 		}
 	default:
-		return badLoop("trigger.kind tidak dikenal")
+		return badLoop("unknown trigger.kind")
 	}
 	switch l.Targets.Kind {
 	case "handles", "group", "orchestrator":
 		if len(l.Targets.IDs) == 0 || len(l.Targets.IDs) > 64 {
-			return badLoop("targets.ids wajib (maks 64)")
+			return badLoop("targets.ids is required (at most 64)")
 		}
 		for _, id := range l.Targets.IDs {
 			if !idRe.MatchString(id) {
-				return badLoop("target %q tidak valid", id)
+				return badLoop("invalid target %q", id)
 			}
 		}
 	case "allAgents":
 		l.Targets.IDs = []string{}
 	default:
-		return badLoop("targets.kind tidak dikenal")
+		return badLoop("unknown targets.kind")
 	}
 	st := l.Stop
 	if st.MaxRuns != 0 && (st.MaxRuns < 1 || st.MaxRuns > 500) {
-		return badLoop("maxRuns harus 1–500")
+		return badLoop("maxRuns must be 1–500")
 	}
 	if st.MaxDurationSec != 0 && (st.MaxDurationSec < 900 || st.MaxDurationSec > 86400) {
-		return badLoop("maxDurationSec harus 900–86400")
+		return badLoop("maxDurationSec must be 900–86400")
 	}
 	if st.OutputPattern != "" && len([]rune(st.OutputPattern)) < 2 {
-		return badLoop("stop.outputPattern minimal 2 karakter")
+		return badLoop("stop.outputPattern at least 2 characters")
 	}
 	if g := st.Goal; g != nil {
 		switch g.Kind {
 		case "agentJudged":
 			if strings.TrimSpace(g.Text) == "" || len(g.Text) > 2000 {
-				return badLoop("goal.text wajib (maks 2000)")
+				return badLoop("goal.text is required (at most 2000)")
 			}
 			if g.Agent == "" {
 				g.Agent = "claude"
 			}
 			if g.Agent != "claude" && g.Agent != "codex" {
-				return badLoop("goal.agent harus claude atau codex")
+				return badLoop("goal.agent must be claude or codex")
 			}
 		case "command":
 			if byPlanner || l.CreatedBy == "order" {
-				return badLoop("goal command hanya bisa dibuat user secara eksplisit")
+				return badLoop("a goal command can only be made by the user explicitly")
 			}
 			if strings.TrimSpace(g.Command) == "" || len(g.Command) > 1000 || strings.ContainsAny(g.Command, "\x00\n\r") {
-				return badLoop("goal.command 1–1000 karakter, satu baris")
+				return badLoop("goal.command 1–1000 characters, one line")
 			}
 			if g.TimeoutSec == 0 {
 				g.TimeoutSec = 300
@@ -210,7 +210,7 @@ func ValidateLoop(l *LoopDef, byPlanner bool) error {
 				return badLoop("goal.timeoutSec 5–3600")
 			}
 		default:
-			return badLoop("goal.kind tidak dikenal")
+			return badLoop("unknown goal.kind")
 		}
 	}
 	if l.CreatedBy != "order" {
@@ -454,7 +454,7 @@ func (l *Loops) Patch(id string, patch map[string]json.RawMessage, now time.Time
 	b, _ = json.Marshal(m)
 	var next LoopDef
 	if err := json.Unmarshal(b, &next); err != nil {
-		return LoopDef{}, badLoop("JSON tidak valid")
+		return LoopDef{}, badLoop("invalid JSON")
 	}
 	if err := ValidateLoop(&next, false); err != nil {
 		return LoopDef{}, err

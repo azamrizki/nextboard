@@ -122,38 +122,38 @@ func ValidateBoard(nodes []*board.Node, edges []*board.Edge, touched map[string]
 			groupTouched = true
 			var g GroupData
 			if err := json.Unmarshal(n.Data, &g); err != nil {
-				return board.Invalid(0, "bad_group", "data grup tidak valid")
+				return board.Invalid(0, "bad_group", "invalid group data")
 			}
 			name := strings.TrimSpace(g.Name)
 			if name == "" || len([]rune(name)) > 24 {
-				return board.Invalid(0, "bad_group", "nama grup 1–24 karakter")
+				return board.Invalid(0, "bad_group", "group name 1–24 characters")
 			}
 			if g.Role != "" && !slices.Contains(Roles, g.Role) {
-				return board.Invalid(0, "bad_group", "role grup tidak dikenal: %q", g.Role)
+				return board.Invalid(0, "bad_group", "unknown group role: %q", g.Role)
 			}
 			if g.Color != "" && !groupColors[g.Color] {
-				return board.Invalid(0, "bad_group", "warna grup tidak dikenal: %q", g.Color)
+				return board.Invalid(0, "bad_group", "unknown group color: %q", g.Color)
 			}
 			if len(g.Members) > maxMembers {
-				return board.Invalid(0, "too_many", "grup maksimal %d anggota", maxMembers)
+				return board.Invalid(0, "too_many", "a group can have at most %d members", maxMembers)
 			}
 			for _, m := range g.Members {
 				if t := byID[m]; t == nil || t.Kind != board.KindTerminal {
-					return board.Invalid(0, "member_conflict", "anggota %q bukan node terminal di board ini", m)
+					return board.Invalid(0, "member_conflict", "member %q is not a terminal node on this board", m)
 				}
 			}
 			for _, o := range nodes {
 				if o.ID != n.ID && o.Kind == KindGroup && strings.EqualFold(strings.TrimSpace(GroupOf(o).Name), name) {
-					return board.Invalid(http.StatusConflict, "name_conflict", "nama grup %q sudah dipakai di workspace ini", name)
+					return board.Invalid(http.StatusConflict, "name_conflict", "the group name %q is already used in this workspace", name)
 				}
 			}
 			if handleTaken != nil && handleTaken(name) {
-				return board.Invalid(http.StatusConflict, "name_conflict", "nama grup %q sama dengan handle console", name)
+				return board.Invalid(http.StatusConflict, "name_conflict", "the group name %q is the same as a console handle", name)
 			}
 		case KindOrchestrator:
 			var o OrchestratorData
 			if json.Unmarshal(n.Data, &o) != nil || len([]rune(o.Title)) > 40 {
-				return board.Invalid(0, "bad_orchestrator", "judul orchestrator maks 40 karakter")
+				return board.Invalid(0, "bad_orchestrator", "orchestrator title at most 40 characters")
 			}
 		case KindMemory:
 			var m struct {
@@ -161,14 +161,14 @@ func ValidateBoard(nodes []*board.Node, edges []*board.Edge, touched map[string]
 				Blocks []MemoryBlock `json:"blocks"`
 			}
 			if json.Unmarshal(n.Data, &m) != nil || (m.Scope != "" && m.Scope != "project" && m.Scope != "global") {
-				return board.Invalid(0, "bad_memory", `scope memory harus "project" atau "global"`)
+				return board.Invalid(0, "bad_memory", `memory scope must be "project" or "global"`)
 			}
 			if len(m.Blocks) > maxMemoryBlocks {
-				return board.Invalid(0, "bad_memory", "memory tile maksimal %d blok", maxMemoryBlocks)
+				return board.Invalid(0, "bad_memory", "a memory tile can have at most %d blocks", maxMemoryBlocks)
 			}
 			for _, bl := range m.Blocks {
 				if bl.Name == "" || bl.Name == CriticalSlug {
-					return board.Invalid(0, "bad_memory", "blok memory harus punya nama, dan bukan critical notes")
+					return board.Invalid(0, "bad_memory", "a memory block needs a name, and it cannot be critical notes")
 				}
 			}
 		}
@@ -181,9 +181,9 @@ func ValidateBoard(nodes []*board.Node, edges []*board.Edge, touched map[string]
 			}
 			for _, m := range GroupOf(n).Members {
 				if o, dup := owner[m]; dup && o != n.ID {
-					return board.Invalid(0, "member_conflict", "terminal %q sudah anggota grup lain", m)
+					return board.Invalid(0, "member_conflict", "terminal %q is already a member of another group", m)
 				} else if dup {
-					return board.Invalid(0, "member_conflict", "anggota ganda %q", m)
+					return board.Invalid(0, "member_conflict", "duplicate member %q", m)
 				}
 				owner[m] = n.ID
 			}
@@ -201,16 +201,16 @@ func ValidateBoard(nodes []*board.Node, edges []*board.Edge, touched map[string]
 		switch e.Kind {
 		case EdgeWire:
 			if !isWireSource(src) || !isWireTarget(dst, src) {
-				return board.Invalid(0, "bad_edge", "wire hanya dari orchestrator/memory/editor/tile berisi ke terminal/grup (orchestrator juga ke kanban/checklist; editor juga ke orchestrator)")
+				return board.Invalid(0, "bad_edge", "a wire only goes from an orchestrator/memory/editor/content tile to a terminal/group (an orchestrator also to a kanban/checklist; an editor also to an orchestrator)")
 			}
 			for _, o := range edges {
 				if o.ID != e.ID && o.Kind == EdgeWire && o.Source == e.Source && o.Target == e.Target {
-					return board.Invalid(0, "bad_edge", "wire ganda")
+					return board.Invalid(0, "bad_edge", "duplicate wire")
 				}
 			}
 		case EdgeForward:
 			if (src.Kind != board.KindTerminal && src.Kind != KindGroup) || (dst.Kind != board.KindTerminal && dst.Kind != KindGroup) || e.Source == e.Target {
-				return board.Invalid(0, "bad_edge", "forward hanya antar terminal/grup")
+				return board.Invalid(0, "bad_edge", "a forward only goes between terminals/groups")
 			}
 			var f ForwardData
 			_ = json.Unmarshal(e.Data, &f)
@@ -220,12 +220,12 @@ func ValidateBoard(nodes []*board.Node, edges []*board.Edge, touched map[string]
 			fwdTouched = true
 		case EdgePreview, EdgeLog:
 			if edgeKindFor(src, dst) != e.Kind {
-				return board.Invalid(0, "bad_edge", "preview hanya dari terminal ke web, log hanya dari web ke kartu log")
+				return board.Invalid(0, "bad_edge", "a preview only goes from a terminal to a web tile, a log only from a web tile to a log card")
 			}
 		}
 	}
 	if fwdTouched && ForwardCycle(nodes, edges) {
-		return board.Invalid(0, "forward_cycle", "edge forward membentuk siklus")
+		return board.Invalid(0, "forward_cycle", "the forward edges form a cycle")
 	}
 	return nil
 }

@@ -187,7 +187,7 @@ func (m *Manager) transport(p *preview) *http.Transport {
 			case host != "":
 				c, err = m.dialSite(ctx, host, port)
 			case m.cfg.Dial == nil:
-				return nil, errors.New("dial tidak tersedia")
+				return nil, errors.New("dial is not available")
 			default:
 				c, err = m.cfg.Dial(ctx, machineID, port)
 			}

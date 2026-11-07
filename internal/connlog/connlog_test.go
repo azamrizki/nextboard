@@ -108,7 +108,7 @@ func TestSummarizeAndDescribe(t *testing.T) {
 			t.Fatalf("no text for %s: %q", e.Kind, d)
 		}
 	}
-	if got := fmt.Sprint(Describe(Event{Kind: Connected, DurationMs: 40, DowntimeMs: 4000})); !strings.Contains(got, "putus 4s") {
+	if got := fmt.Sprint(Describe(Event{Kind: Connected, DurationMs: 40, DowntimeMs: 4000})); !strings.Contains(got, "after 4s disconnected") {
 		t.Fatal(got)
 	}
 	var nilLog *Log

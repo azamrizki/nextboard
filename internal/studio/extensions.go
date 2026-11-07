@@ -43,10 +43,10 @@ const (
 )
 
 var (
-	ErrExtensionNotFound = errors.New("extension tidak ditemukan")
+	ErrExtensionNotFound = errors.New("extension not found")
 	// ErrExtensionCodeOnly: nothing in it can work without running its code.
-	ErrExtensionCodeOnly = errors.New("extension ini hanya berisi kode; editor hanya bisa memakai tema, snippet, dan grammar")
-	ErrExtensionBadID    = errors.New("nama extension tidak valid")
+	ErrExtensionCodeOnly = errors.New("this extension is code only; the editor can only use themes, snippets and grammars")
+	ErrExtensionBadID    = errors.New("invalid extension name")
 )
 
 var extNamePart = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$`)
@@ -183,10 +183,10 @@ func NewExtensions(dir string) *Extensions {
 // httpsOnly keeps every step of a download on HTTPS.
 func httpsOnly(r *http.Request, via []*http.Request) error {
 	if len(via) >= 5 {
-		return errors.New("terlalu banyak redirect")
+		return errors.New("too many redirects")
 	}
 	if r.URL.Scheme != "https" {
-		return errors.New("redirect ke alamat bukan https")
+		return errors.New("redirect to a non-https address")
 	}
 	return nil
 }
@@ -234,7 +234,7 @@ func (e *Extensions) getJSON(ctx context.Context, u string, v any) error {
 		return ErrExtensionNotFound
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("open-vsx.org menjawab %d", res.StatusCode)
+		return fmt.Errorf("open-vsx.org answered %d", res.StatusCode)
 	}
 	return json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(v)
 }
@@ -344,7 +344,7 @@ func (e *Extensions) readVerdict(ctx context.Context, id, download string) (extV
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return extVerdict{}, fmt.Errorf("manifest %s menjawab %d", id, res.StatusCode)
+		return extVerdict{}, fmt.Errorf("manifest %s answered %d", id, res.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, extManifestMax+1))
 	if err != nil {
@@ -418,7 +418,7 @@ func (e *Extensions) Install(ctx context.Context, namespace, name string) (*Exte
 	}
 	dl := info.Files["download"]
 	if u, err := url.Parse(dl); err != nil || u.Scheme != "https" {
-		return nil, errors.New("alamat unduhan extension tidak valid")
+		return nil, errors.New("invalid extension download address")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dl, nil)
 	if err != nil {
@@ -430,14 +430,14 @@ func (e *Extensions) Install(ctx context.Context, namespace, name string) (*Exte
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unduhan menjawab %d", res.StatusCode)
+		return nil, fmt.Errorf("download answered %d", res.StatusCode)
 	}
 	pkg, err := io.ReadAll(io.LimitReader(res.Body, extMaxDownload+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(pkg) > extMaxDownload {
-		return nil, errors.New("paket extension lebih besar dari 100 MB")
+		return nil, errors.New("extension package is larger than 100 MB")
 	}
 	return e.installPackage(pkg, namespace, name, info.Version)
 }
@@ -448,7 +448,7 @@ func (e *Extensions) Install(ctx context.Context, namespace, name string) (*Exte
 func (e *Extensions) installPackage(pkg []byte, namespace, name, version string) (*Extension, error) {
 	zr, err := zip.NewReader(bytes.NewReader(pkg), int64(len(pkg)))
 	if err != nil {
-		return nil, fmt.Errorf("paket extension rusak: %w", err)
+		return nil, fmt.Errorf("extension package is broken: %w", err)
 	}
 	id := namespace + "." + name
 	e.mu.Lock()
@@ -478,7 +478,7 @@ func (e *Extensions) installPackage(pkg []byte, namespace, name, version string)
 		}
 		total += int64(f.UncompressedSize64)
 		if total > extMaxUnpacked {
-			return nil, errors.New("isi extension terlalu besar")
+			return nil, errors.New("extension contents are too large")
 		}
 		b, err := readZipFile(f)
 		if err != nil {
@@ -499,7 +499,7 @@ func (e *Extensions) installPackage(pkg []byte, namespace, name, version string)
 		}
 	}
 	if manifest == nil {
-		return nil, errors.New("paket extension tanpa package.json")
+		return nil, errors.New("extension package has no package.json")
 	}
 	x, err := parseExtManifest(manifest, nls)
 	if err != nil {
@@ -547,7 +547,7 @@ func parseExtManifest(b []byte, nls map[string]string) (*Extension, error) {
 		Contributes json.RawMessage `json:"contributes"`
 	}
 	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, fmt.Errorf("package.json extension rusak: %w", err)
+		return nil, fmt.Errorf("extension package.json is broken: %w", err)
 	}
 	loc := func(s string) string {
 		if k, ok := strings.CutPrefix(s, "%"); ok && strings.HasSuffix(k, "%") {

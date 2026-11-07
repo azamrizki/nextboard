@@ -194,7 +194,7 @@ func (s *Server) routes() {
 	authed("GET /api/assets/{id}", s.handleAssetGet)
 
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		writeErr(w, http.StatusNotFound, "endpoint tidak ditemukan")
+		writeErr(w, http.StatusNotFound, "endpoint not found")
 	})
 	s.mux = m
 }
@@ -232,7 +232,7 @@ func (s *Server) requireAuth(h handler, adminOnly bool) http.HandlerFunc {
 			return
 		}
 		if adminOnly && p.Kind != "admin" {
-			writeErr(w, http.StatusForbidden, "hanya admin")
+			writeErr(w, http.StatusForbidden, "admin only")
 			return
 		}
 		h(w, r, p)
@@ -295,10 +295,10 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := dec.Decode(v); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
-			writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "body terlalu besar")
+			writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "body too large")
 			return false
 		}
-		writeErr(w, http.StatusBadRequest, "JSON tidak valid")
+		writeErr(w, http.StatusBadRequest, "invalid JSON")
 		return false
 	}
 	return true

@@ -225,11 +225,11 @@ func (s *Server) handleCodeEdit(w http.ResponseWriter, r *http.Request, p *princ
 		return
 	}
 	if strings.TrimSpace(req.Instruction) == "" {
-		writeErrCode(w, http.StatusBadRequest, "bad_instruction", "instruksi wajib diisi")
+		writeErrCode(w, http.StatusBadRequest, "bad_instruction", "instruction is required")
 		return
 	}
 	if len(req.Before)+len(req.Selection)+len(req.After) > aiEditMaxContext {
-		writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "kode yang dikirim terlalu besar")
+		writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "the code sent is too large")
 		return
 	}
 	t, err := s.runnerFor(pr, req.Agent, req.ProfileID)
@@ -293,7 +293,7 @@ func (s *Server) handleESLint(w http.ResponseWriter, r *http.Request, p *princip
 // server lives exactly as long as the connection.
 func (s *Server) handleLSPSocket(w http.ResponseWriter, r *http.Request, p *principal) {
 	if !s.checkOrigin(r, p) {
-		writeErr(w, http.StatusForbidden, "origin tidak diizinkan")
+		writeErr(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
 	pr, h, ok := s.projectHost(w, r)
@@ -415,7 +415,7 @@ func (s *Server) handleDAPStatus(w http.ResponseWriter, r *http.Request, p *prin
 // closing the workbench ends the debug session.
 func (s *Server) handleDAPSocket(w http.ResponseWriter, r *http.Request, p *principal) {
 	if !s.checkOrigin(r, p) {
-		writeErr(w, http.StatusForbidden, "origin tidak diizinkan")
+		writeErr(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
 	pr, h, ok := s.projectHost(w, r)
@@ -475,7 +475,7 @@ func (s *Server) handleCodeComplete(w http.ResponseWriter, r *http.Request, p *p
 		return
 	}
 	if len(req.Before)+len(req.After) > aiEditMaxContext {
-		writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "kode yang dikirim terlalu besar")
+		writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "the code sent is too large")
 		return
 	}
 	t, err := s.runnerFor(pr, "", "")
@@ -515,11 +515,11 @@ func (s *Server) handleCodeAsk(w http.ResponseWriter, r *http.Request, p *princi
 		return
 	}
 	if strings.TrimSpace(req.Question) == "" {
-		writeErrCode(w, http.StatusBadRequest, "bad_question", "pertanyaan wajib diisi")
+		writeErrCode(w, http.StatusBadRequest, "bad_question", "question is required")
 		return
 	}
 	if len(req.Selection)+len(req.Question) > aiEditMaxContext {
-		writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "kode yang dikirim terlalu besar")
+		writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "the code sent is too large")
 		return
 	}
 	t, err := s.runnerFor(pr, "", "")

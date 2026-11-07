@@ -39,7 +39,7 @@ func (s *Server) skillLoc(ctx context.Context, w http.ResponseWriter, machineID,
 	if projectID != "" {
 		pr, ok := s.projects.Get(projectID)
 		if !ok || pr.MachineID != h.ID() {
-			writeErrCode(w, http.StatusNotFound, "project_not_found", "project tidak ditemukan di machine ini")
+			writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found on this machine")
 			return nil, skills.Loc{}, false
 		}
 		loc.Repo = pr.Path
@@ -74,7 +74,7 @@ func skillErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, machine.ErrNoSFTP):
 		writeErrCode(w, http.StatusNotImplemented, "no_sftp", err.Error())
 	case errors.Is(err, fs.ErrNotExist):
-		writeErrCode(w, http.StatusNotFound, "not_found", "skill tidak ditemukan")
+		writeErrCode(w, http.StatusNotFound, "not_found", "skill not found")
 	default:
 		fsErr(w, err)
 	}
@@ -170,7 +170,7 @@ func (s *Server) handleSkillWrite(w http.ResponseWriter, r *http.Request, p *pri
 	if req.IfMtime != nil && *req.IfMtime != "" {
 		t, err := time.Parse(time.RFC3339Nano, *req.IfMtime)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "ifMtime harus RFC 3339")
+			writeErr(w, http.StatusBadRequest, "ifMtime must be RFC 3339")
 			return
 		}
 		ifm = &t
@@ -237,7 +237,7 @@ func (s *Server) handleSkillImport(w http.ResponseWriter, r *http.Request, p *pr
 	}
 	if req.FromPath == "" || s.hubPrivate(w, src, req.FromPath) {
 		if req.FromPath == "" {
-			writeErr(w, http.StatusBadRequest, "fromPath wajib diisi")
+			writeErr(w, http.StatusBadRequest, "fromPath is required")
 		}
 		return
 	}

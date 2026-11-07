@@ -43,16 +43,16 @@ type errAuthNeeded struct{ need AuthNeed }
 
 func (e *errAuthNeeded) Error() string {
 	if e.need.Kind == AuthPassphrase {
-		return "private key perlu passphrase"
+		return "private key needs a passphrase"
 	}
-	return "server perlu password"
+	return "server needs a password"
 }
 
 // ErrAuthNotNeeded: nothing is waiting for this answer (any more).
-var ErrAuthNotNeeded = errors.New("machine tidak sedang menunggu ini")
+var ErrAuthNotNeeded = errors.New("machine is not waiting for this")
 
 // errAskPerson ends a method with nothing to answer.
-var errAskPerson = errors.New("menunggu jawaban pengguna")
+var errAskPerson = errors.New("waiting for the user's answer")
 
 type keyState int
 
@@ -210,7 +210,7 @@ func (m *SSH) Answer(ctx context.Context, kind, value string, remember bool) err
 	err := m.Connect(ctx)
 	m.EnsureLoop()
 	if err != nil {
-		return fmt.Errorf("sambung: %w", err)
+		return fmt.Errorf("connect: %w", err)
 	}
 	return nil
 }

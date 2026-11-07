@@ -38,7 +38,7 @@ const (
 
 // ErrUnsafeTemp: the fixed path exists but is a symlink or not the user's
 // own folder; the check refuses to use or remove it.
-var ErrUnsafeTemp = errors.New("folder usage sementara tidak aman (symlink atau bukan milik user)")
+var ErrUnsafeTemp = errors.New("the temp usage folder is unsafe (a symlink or not owned by the user)")
 
 // dirRe validates a usage folder path for root.
 func dirRe(root string) *regexp.Regexp {
@@ -150,11 +150,11 @@ func (t *tempDirs) make(ctx context.Context, h machine.Host) (string, error) {
 	}
 	i := strings.Index(out, dirMarker)
 	if res.ExitCode != 0 || i < 0 {
-		return "", fmt.Errorf("folder usage sementara gagal dibuat (kode %d): %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
+		return "", fmt.Errorf("could not create the temp usage folder (code %d): %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
 	}
 	p := strings.TrimSpace(strings.SplitN(out[i+len(dirMarker):], "\n", 2)[0])
 	if !ValidTempPath(p) {
-		return "", fmt.Errorf("path folder usage tidak terduga: %q", p)
+		return "", fmt.Errorf("unexpected usage folder path: %q", p)
 	}
 	t.record(h.ID(), p)
 	return p, nil
@@ -165,7 +165,7 @@ func (t *tempDirs) make(ctx context.Context, h machine.Host) (string, error) {
 func (t *tempDirs) remove(ctx context.Context, h machine.Host, p string) error {
 	if !ValidTempPath(p) {
 		t.forget(h.ID(), p)
-		return fmt.Errorf("path folder usage ditolak: %q", p)
+		return fmt.Errorf("usage folder path refused: %q", p)
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tempTimeout)
 	defer cancel()
@@ -178,7 +178,7 @@ func (t *tempDirs) remove(ctx context.Context, h machine.Host, p string) error {
 		return ErrUnsafeTemp
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("folder usage gagal dihapus (kode %d)", res.ExitCode)
+		return fmt.Errorf("could not remove the usage folder (code %d)", res.ExitCode)
 	}
 	t.forget(h.ID(), p)
 	return nil
@@ -192,7 +192,7 @@ func (t *tempDirs) cleanup(ctx context.Context, h machine.Host) {
 			continue
 		}
 		if err := t.remove(ctx, h, e.Path); err != nil {
-			log.Printf("usage: pembersihan %s di %s: %v", e.Path, e.MachineID, err)
+			log.Printf("usage: cleanup of %s on %s: %v", e.Path, e.MachineID, err)
 		}
 	}
 }

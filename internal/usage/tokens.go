@@ -140,7 +140,7 @@ func (x *tokenIndex) start() {
 				for _, id := range x.connected() {
 					ctx, cancel := context.WithTimeout(context.Background(), x.budget)
 					if _, err := x.scan(ctx, id); err != nil {
-						log.Printf("usage: indeks token %s: %v", id, err)
+						log.Printf("usage: token index %s: %v", id, err)
 					}
 					cancel()
 				}

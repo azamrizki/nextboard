@@ -25,11 +25,11 @@ const (
 )
 
 var (
-	ErrGroupNotFound  = errors.New("group tidak ditemukan")
-	ErrGroupNameTaken = errors.New("nama group sudah dipakai di tingkat ini")
-	ErrGroupTooDeep   = fmt.Errorf("group maksimal %d tingkat", MaxGroupDepth)
-	ErrGroupCycle     = errors.New("group tidak bisa dipindah ke dalam dirinya sendiri")
-	ErrBadTag         = fmt.Errorf("tag maksimal %d karakter tanpa koma, paling banyak %d per project", MaxName, MaxTags)
+	ErrGroupNotFound  = errors.New("group not found")
+	ErrGroupNameTaken = errors.New("the group name is already used at this level")
+	ErrGroupTooDeep   = fmt.Errorf("groups are at most %d levels deep", MaxGroupDepth)
+	ErrGroupCycle     = errors.New("a group cannot be moved into itself")
+	ErrBadTag         = fmt.Errorf("a tag is at most %d characters without commas, at most %d per project", MaxName, MaxTags)
 )
 
 // Group is one level of the tree. An empty ParentID is the top level.

@@ -73,7 +73,7 @@ func GitStatus(ctx context.Context, h Host, dir string) *GitInfo {
 	case *SSH:
 		out, err = m.Exec(ctx, loginWrap("exec /bin/sh -c "+Quote(gitScript(dir))))
 	default:
-		return &GitInfo{Error: "machine tidak didukung"}
+		return &GitInfo{Error: "unsupported machine"}
 	}
 	i := strings.Index(out, gitMarker)
 	switch {
@@ -83,7 +83,7 @@ func GitStatus(ctx context.Context, h Host, dir string) *GitInfo {
 	case ctx.Err() != nil:
 		return &GitInfo{Error: "git timeout"}
 	default:
-		return &GitInfo{Error: "folder tidak bisa dibuka"}
+		return &GitInfo{Error: "folder cannot be opened"}
 	}
 	info := parseGitStatus(out[i+len(gitMarker):])
 	if info.IsRepo && ctx.Err() != nil {
@@ -101,7 +101,7 @@ func parseGitStatus(out string) *GitInfo {
 	g := &GitInfo{}
 	switch {
 	case strings.Contains(out, gitNoGit):
-		g.Error = "git tidak ditemukan"
+		g.Error = "git not found"
 		return g
 	case strings.Contains(out, gitNoRepo):
 		return g

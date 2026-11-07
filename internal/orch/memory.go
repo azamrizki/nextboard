@@ -29,9 +29,9 @@ const (
 )
 
 var (
-	ErrMtimeMismatch = errors.New("memory sudah berubah sejak dibaca (mtime berbeda)")
-	ErrMemoryTooBig  = errors.New("memory melebihi 64 KB")
-	ErrBadScope      = errors.New(`scope harus "project" atau "global"`)
+	ErrMtimeMismatch = errors.New("the memory has changed since it was read (mtime differs)")
+	ErrMemoryTooBig  = errors.New("the memory is larger than 64 KB")
+	ErrBadScope      = errors.New(`scope must be "project" or "global"`)
 )
 
 // MemorySections are the headings of the memory convention.

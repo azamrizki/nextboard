@@ -236,7 +236,7 @@ func (m *SSH) Connect(ctx context.Context) error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		return errors.New("machine dihapus")
+		return errors.New("machine deleted")
 	}
 	if m.client != nil {
 		m.mu.Unlock()
@@ -244,7 +244,7 @@ func (m *SSH) Connect(ctx context.Context) error {
 	}
 	if m.dialing {
 		m.mu.Unlock()
-		return errors.New("sedang menyambung")
+		return errors.New("already connecting")
 	}
 	m.dialing = true
 	m.needAuth = nil // found out again below, unless the server is away this time
@@ -302,7 +302,7 @@ func (m *SSH) Connect(ctx context.Context) error {
 	if m.closed {
 		m.mu.Unlock()
 		client.Close()
-		return errors.New("machine dihapus")
+		return errors.New("machine deleted")
 	}
 	m.gen++
 	gen := m.gen
@@ -322,7 +322,7 @@ func (m *SSH) Connect(ctx context.Context) error {
 	m.note(connected)
 	if keep && m.keepCreds != nil {
 		if err := m.keepCreds(answers); err != nil {
-			log.Printf("machine %s: kredensial tidak tersimpan: %v", cfg.ID, err)
+			log.Printf("machine %s: credentials not saved: %v", cfg.ID, err)
 		}
 	}
 
@@ -364,7 +364,7 @@ func (m *SSH) AcceptHostKey(ctx context.Context, fingerprint string) error {
 }
 
 // ErrFingerprintMismatch: the confirmed fingerprint is not the pending one.
-var ErrFingerprintMismatch = errors.New("fingerprint tidak cocok dengan host key yang menunggu konfirmasi")
+var ErrFingerprintMismatch = errors.New("fingerprint does not match the host key awaiting confirmation")
 
 // EnsureLoop starts the background reconnect loop if it isn't running.
 func (m *SSH) EnsureLoop() {
@@ -505,7 +505,7 @@ loop:
 	closed := m.closed
 	if !closed {
 		m.status = StatusReconnecting
-		m.errMsg = "koneksi terputus"
+		m.errMsg = "connection lost"
 	}
 	m.mu.Unlock()
 	if sc != nil {
@@ -600,7 +600,7 @@ func (m *SSH) openForward(c *ssh.Client, gen int) {
 	}
 	m.fwd.asked = true
 	if err != nil {
-		m.fwd.port, m.fwd.err = 0, "reverse port-forward ditolak server: "+err.Error()
+		m.fwd.port, m.fwd.err = 0, "reverse port-forward refused by the server: "+err.Error()
 		m.mu.Unlock()
 		return
 	}
@@ -770,7 +770,7 @@ func (m *SSH) dialOne(ctx context.Context, cfg Config, t target, via *ssh.Client
 func cleanSSHError(err error) error {
 	s := err.Error()
 	if strings.Contains(s, "unable to authenticate") {
-		return fmt.Errorf("autentikasi SSH gagal (%s)", s)
+		return fmt.Errorf("SSH authentication failed (%s)", s)
 	}
 	return err
 }
@@ -796,7 +796,7 @@ func (m *SSH) authMethods(cfg Config, t target, isJump bool) ([]ssh.AuthMethod, 
 	if cfg.CredRef != "" && m.loadCreds != nil {
 		c, err := m.loadCreds()
 		if err != nil {
-			return nil, nil, cleanup, fmt.Errorf("gagal membuka kredensial: %w", err)
+			return nil, nil, cleanup, fmt.Errorf("failed to open credentials: %w", err)
 		}
 		creds = *c
 	}
@@ -842,12 +842,12 @@ func (m *SSH) authMethods(cfg Config, t target, isJump bool) ([]ssh.AuthMethod, 
 	switch method {
 	case "key":
 		if creds.PrivateKey == "" {
-			return nil, nil, cleanup, errors.New("private key belum di-upload")
+			return nil, nil, cleanup, errors.New("private key not uploaded yet")
 		}
 		s, locked, err := openKey([]byte(creds.PrivateKey), creds.Passphrase)
 		switch {
 		case err != nil:
-			return nil, nil, cleanup, fmt.Errorf("private key tidak valid: %w", err)
+			return nil, nil, cleanup, fmt.Errorf("invalid private key: %w", err)
 		case locked != keyOpen:
 			at.locked = append(at.locked, lockedKey{wrong: locked == keyWrong})
 		default:
@@ -857,7 +857,7 @@ func (m *SSH) authMethods(cfg Config, t target, isJump bool) ([]ssh.AuthMethod, 
 	case "agent":
 		agentSigners()
 		if len(signers) == 0 {
-			at.noKeys = errors.New("ssh-agent tidak tersedia (SSH_AUTH_SOCK kosong) atau tidak punya key")
+			at.noKeys = errors.New("ssh-agent not available (SSH_AUTH_SOCK empty) or has no keys")
 		}
 	default: // "sshconfig"
 		fileSigners()
@@ -868,7 +868,7 @@ func (m *SSH) authMethods(cfg Config, t target, isJump bool) ([]ssh.AuthMethod, 
 			}
 		}
 		if len(signers) == 0 {
-			at.noKeys = errors.New("tidak ada SSH key yang bisa dipakai di ~/.ssh atau ssh-agent")
+			at.noKeys = errors.New("no usable SSH key in ~/.ssh or ssh-agent")
 		}
 	}
 	methods := []ssh.AuthMethod{ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
@@ -974,7 +974,7 @@ func (m *SSH) Probe(ctx context.Context, commands []string) (*ProbeResult, error
 	}
 	out, err := m.Exec(ctx, loginWrap(probeScript(commands)))
 	if err != nil && !strings.Contains(out, probeEnd) {
-		return nil, fmt.Errorf("probe gagal: %w", err)
+		return nil, fmt.Errorf("probe failed: %w", err)
 	}
 	p := parseProbe(out, commands)
 	m.mu.Lock()
@@ -1006,7 +1006,7 @@ func (m *SSH) ListDir(ctx context.Context, p string) (*DirListing, error) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) == 0 || !strings.HasPrefix(lines[0], "/") {
-		return nil, fmt.Errorf("output ls tidak terduga")
+		return nil, fmt.Errorf("unexpected ls output")
 	}
 	dir := lines[0]
 	l := &DirListing{Path: dir, Entries: []DirEntry{}}
@@ -1043,7 +1043,7 @@ func (m *SSH) TmuxSessions(ctx context.Context) ([]string, error) {
 // KillTmux kills one nb-* tmux session.
 func (m *SSH) KillTmux(ctx context.Context, name string) error {
 	if !tmuxNameRe.MatchString(name) {
-		return fmt.Errorf("nama sesi tmux tidak valid: %q", name)
+		return fmt.Errorf("invalid tmux session name: %q", name)
 	}
 	out, err := m.Exec(ctx, loginWrap("tmux kill-session -t "+Quote(name)))
 	if err != nil {
@@ -1107,7 +1107,7 @@ func (m *SSH) buildCommand(spec StartSpec) string {
 // TmuxHas reports whether tmux session name exists (read-only).
 func (m *SSH) TmuxHas(ctx context.Context, name string) (bool, error) {
 	if !tmuxNameRe.MatchString(name) {
-		return false, fmt.Errorf("nama sesi tmux tidak valid: %q", name)
+		return false, fmt.Errorf("invalid tmux session name: %q", name)
 	}
 	out, err := m.Exec(ctx, loginWrap("tmux has-session -t "+Quote("="+name)+" 2>/dev/null && echo __NB_YES__; true"))
 	if err != nil {
@@ -1120,7 +1120,7 @@ func (m *SSH) TmuxHas(ctx context.Context, name string) (bool, error) {
 // wrapper (pid) and its command name; read-only, 3 s timeout.
 func (m *SSH) Foreground(ctx context.Context, pid int) (int, string, error) {
 	if pid <= 0 {
-		return 0, "", errors.New("pid wrapper belum diketahui")
+		return 0, "", errors.New("wrapper pid not known yet")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -1128,7 +1128,7 @@ func (m *SSH) Foreground(ctx context.Context, pid int) (int, string, error) {
 	pgid, comm, ok := parseRemoteForeground(out)
 	if !ok {
 		if err == nil {
-			err = errors.New("proses wrapper tidak ditemukan")
+			err = errors.New("wrapper process not found")
 		}
 		return 0, "", err
 	}
@@ -1142,7 +1142,7 @@ func (m *SSH) Start(spec StartSpec) (Proc, error) {
 		return nil, ErrNotConnected
 	}
 	if spec.TmuxName != "" && !tmuxNameRe.MatchString(spec.TmuxName) {
-		return nil, fmt.Errorf("nama tmux tidak valid")
+		return nil, fmt.Errorf("invalid tmux name")
 	}
 	s, err := openSession(context.Background(), c)
 	if err != nil {

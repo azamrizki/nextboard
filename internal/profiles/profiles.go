@@ -38,10 +38,10 @@ type Profile struct {
 }
 
 var (
-	ErrNotFound = errors.New("profil tidak ditemukan")
-	ErrBadName  = errors.New("nama profil wajib diisi (≤ 40 karakter)")
-	ErrBadDir   = errors.New("dir profil harus path absolut")
-	ErrIsHome   = errors.New("folder state NextBoard tidak bisa dihapus; matikan saja sebagai default")
+	ErrNotFound = errors.New("profile not found")
+	ErrBadName  = errors.New("a profile name is required (≤ 40 characters)")
+	ErrBadDir   = errors.New("the profile dir must be an absolute path")
+	ErrIsHome   = errors.New("the NextBoard state folder cannot be deleted; turn it off as the default instead")
 )
 
 // Store persists profiles.json.

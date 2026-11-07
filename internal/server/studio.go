@@ -146,9 +146,9 @@ type runnerTarget struct {
 }
 
 var (
-	errRunnerUnsupported = errors.New("runner hanya mendukung claude dan codex")
-	errRunnerOff         = errors.New("Claude Code dan Codex dimatikan di Settings › Agents")
-	errProfileMismatch   = errors.New("profil tidak cocok dengan machine/agen")
+	errRunnerUnsupported = errors.New("the runner supports only claude and codex")
+	errRunnerOff         = errors.New("Claude Code and Codex are turned off in Settings › Agents")
+	errProfileMismatch   = errors.New("the profile does not match the machine/agent")
 )
 
 // runnerFor resolves agent (request → settings.runner.defaultAgent, Codex
@@ -385,7 +385,7 @@ func (s *Server) writeAllowed(w http.ResponseWriter, r *http.Request, h machine.
 	if projectID != "" && !allowOutside {
 		pr, ok := s.projects.Get(projectID)
 		if !ok || pr.MachineID != h.ID() {
-			writeErrCode(w, http.StatusNotFound, "project_not_found", "project tidak ditemukan di machine ini")
+			writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found on this machine")
 			return false
 		}
 		out, err := studio.OutsideProject(r.Context(), h, pr.Path, p)
@@ -394,7 +394,7 @@ func (s *Server) writeAllowed(w http.ResponseWriter, r *http.Request, h machine.
 			return false
 		}
 		if out {
-			writeErrCode(w, http.StatusForbidden, "outside_project", "path nyata file berada di luar project; simpan dengan allowOutside")
+			writeErrCode(w, http.StatusForbidden, "outside_project", "the real path of the file is outside the project; save with allowOutside")
 			return false
 		}
 	}

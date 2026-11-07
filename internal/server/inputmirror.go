@@ -36,7 +36,7 @@ func (m *inputMirror) send(id string, peer *session.Session, p []byte) {
 		go m.drain(id, peer, q)
 	}
 	if q.size+len(p) > maxMirrorPending {
-		log.Printf("input tertaut: console %s tidak membaca input; %d byte dibuang", id, len(p))
+		log.Printf("linked input: console %s is not reading input; %d bytes dropped", id, len(p))
 		return
 	}
 	q.chunks = append(q.chunks, p)

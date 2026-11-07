@@ -96,7 +96,7 @@ var uiPanels = map[string]bool{"loops": true, "memory": true, "mission": true, "
 	"documents": true, "code": true, "markdown": true, "skills": true}
 
 // ErrBadStep is a step that does not match the schema.
-var ErrBadStep = errors.New("step tidak valid")
+var ErrBadStep = errors.New("invalid step")
 
 func badStep(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrBadStep, fmt.Sprintf(f, a...)) }
 
@@ -104,18 +104,18 @@ func badStep(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrBadStep,
 // for shape; the executor checks they exist).
 func (s Step) Validate() error {
 	if !stepOps[s.Op] {
-		return badStep("op tidak dikenal %q", s.Op)
+		return badStep("unknown op %q", s.Op)
 	}
 	ids := func(name string, l []string, need bool) error {
 		if need && len(l) == 0 {
-			return badStep("%s: %s wajib diisi", s.Op, name)
+			return badStep("%s: %s is required", s.Op, name)
 		}
 		if len(l) > 64 {
-			return badStep("%s: %s terlalu banyak", s.Op, name)
+			return badStep("%s: too many %s", s.Op, name)
 		}
 		for _, id := range l {
 			if !idRe.MatchString(id) {
-				return badStep("%s: id %q tidak valid", s.Op, id)
+				return badStep("%s: invalid id %q", s.Op, id)
 			}
 		}
 		return nil
@@ -123,7 +123,7 @@ func (s Step) Validate() error {
 	switch s.Op {
 	case "send":
 		if strings.TrimSpace(s.Text) == "" || len([]rune(s.Text)) > 32000 {
-			return badStep("send: text 1–32000 karakter")
+			return badStep("send: text 1–32000 characters")
 		}
 		if s.Mode != "" && s.Mode != "verbatim" && s.Mode != "rewritten" {
 			return badStep("send: mode")
@@ -138,12 +138,12 @@ func (s Step) Validate() error {
 		}
 	case "group.create":
 		if len(s.Members) > 12 {
-			return badStep("group.create: maks 12 anggota")
+			return badStep("group.create: at most 12 members")
 		}
 		return ids("members", s.Members, false)
 	case "group.add":
 		if s.Count < 1 || s.Count > 12 || !idRe.MatchString(s.GroupID) {
-			return badStep("group.add: groupId dan count 1–12")
+			return badStep("group.add: groupId and count 1–12")
 		}
 	case "group.dissolve":
 		if !idRe.MatchString(s.GroupID) {
@@ -153,7 +153,7 @@ func (s Step) Validate() error {
 		return ids("targets", s.Targets, true)
 	case "handoff":
 		if !idRe.MatchString(s.Source) || s.Agent == "" {
-			return badStep("handoff: source dan agent wajib")
+			return badStep("handoff: source and agent are required")
 		}
 	case "forward":
 		if s.Mode != "digest" && s.Mode != "split" {
@@ -168,7 +168,7 @@ func (s Step) Validate() error {
 		for _, a := range s.Sources {
 			for _, b := range s.Targets {
 				if a == b {
-					return badStep("forward: sumber sama dengan target")
+					return badStep("forward: a source is the same as a target")
 				}
 			}
 		}
@@ -212,7 +212,7 @@ func (s Step) Validate() error {
 		return ids("tiles", s.Tiles, true)
 	case "console.rename":
 		if strings.TrimSpace(s.Name) == "" {
-			return badStep("console.rename: name wajib")
+			return badStep("console.rename: name is required")
 		}
 		return ids("targets", s.Targets, true)
 	case "wire":
@@ -222,7 +222,7 @@ func (s Step) Validate() error {
 		return ids("targets", s.Targets, true)
 	case "loop.create":
 		if s.Loop == nil {
-			return badStep("loop.create: loop wajib")
+			return badStep("loop.create: loop is required")
 		}
 	case "git":
 		switch s.Action {
@@ -301,10 +301,10 @@ const (
 )
 
 var (
-	ErrAlreadyDecided = errors.New("konfirmasi sudah diputuskan")
-	ErrConfExpired    = errors.New("konfirmasi kedaluwarsa")
-	ErrConfNotFound   = errors.New("konfirmasi tidak ditemukan")
-	ErrBadDecision    = errors.New(`decision harus "confirm" atau "cancel"`)
+	ErrAlreadyDecided = errors.New("the confirmation is already decided")
+	ErrConfExpired    = errors.New("the confirmation has expired")
+	ErrConfNotFound   = errors.New("confirmation not found")
+	ErrBadDecision    = errors.New(`decision must be "confirm" or "cancel"`)
 )
 
 // Option is a confirmation button.

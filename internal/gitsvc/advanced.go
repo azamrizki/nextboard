@@ -58,7 +58,7 @@ func (s *Service) Stage(ctx context.Context, r Repo, paths []string, text *strin
 		return nil, err
 	}
 	if len(clean) == 0 {
-		return nil, newErr(http.StatusBadRequest, "bad_path", "tidak ada path")
+		return nil, newErr(http.StatusBadRequest, "bad_path", "no path given")
 	}
 	unlock, err := s.lock(r, "stage")
 	if err != nil {
@@ -69,7 +69,7 @@ func (s *Service) Stage(ctx context.Context, r Repo, paths []string, text *strin
 	o := execOpts{timeout: CommitTimeout}
 	if text != nil {
 		if len(clean) != 1 {
-			return nil, newErr(http.StatusBadRequest, "bad_path", "teks hanya untuk satu path")
+			return nil, newErr(http.StatusBadRequest, "bad_path", "text works for one path only")
 		}
 		q := machine.Quote(clean[0])
 		o.stdin = []byte(*text)
@@ -97,7 +97,7 @@ func (s *Service) Unstage(ctx context.Context, r Repo, paths []string) (*Status,
 		return nil, err
 	}
 	if len(clean) == 0 {
-		return nil, newErr(http.StatusBadRequest, "bad_path", "tidak ada path")
+		return nil, newErr(http.StatusBadRequest, "bad_path", "no path given")
 	}
 	unlock, err := s.lock(r, "unstage")
 	if err != nil {
@@ -151,7 +151,7 @@ func (s *Service) Stashes(ctx context.Context, r Repo) ([]Stash, error) {
 // StashSave stashes the changes, new files too when untracked is set.
 func (s *Service) StashSave(ctx context.Context, r Repo, message string, untracked bool) (*Status, error) {
 	if len(message) > maxMessage || strings.ContainsAny(message, "\x00\n") {
-		return nil, newErr(http.StatusBadRequest, "bad_message", "pesan stash tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_message", "invalid stash message")
 	}
 	unlock, err := s.lock(r, "stash")
 	if err != nil {
@@ -180,10 +180,10 @@ func (s *Service) StashSave(ctx context.Context, r Repo, message string, untrack
 // StashAct applies, pops or drops a stash entry.
 func (s *Service) StashAct(ctx context.Context, r Repo, action, ref string) (*Status, error) {
 	if !stashRef.MatchString(ref) {
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "stash tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid stash")
 	}
 	if action != "apply" && action != "pop" && action != "drop" {
-		return nil, newErr(http.StatusBadRequest, "bad_action", "aksi stash tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_action", "invalid stash action")
 	}
 	unlock, err := s.lock(r, "stash")
 	if err != nil {
@@ -218,7 +218,7 @@ type CommitOp struct {
 // under way and the files to resolve.
 func (s *Service) DoCommitOp(ctx context.Context, r Repo, op CommitOp) (*Status, error) {
 	if !showRef.MatchString(op.Ref) {
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "ref tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid ref")
 	}
 	q := machine.Quote(op.Ref)
 	var cmd string
@@ -233,11 +233,11 @@ func (s *Service) DoCommitOp(ctx context.Context, r Repo, op CommitOp) (*Status,
 		cmd = `git merge --no-edit ` + q
 	case "reset":
 		if op.Mode != "soft" && op.Mode != "mixed" && op.Mode != "hard" {
-			return nil, newErr(http.StatusBadRequest, "bad_mode", "mode reset tidak valid")
+			return nil, newErr(http.StatusBadRequest, "bad_mode", "invalid reset mode")
 		}
 		cmd = `git reset -q --` + op.Mode + ` ` + q + ` --`
 	default:
-		return nil, newErr(http.StatusBadRequest, "bad_action", "aksi tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_action", "invalid action")
 	}
 	unlock, err := s.lock(r, op.Op)
 	if err != nil {
@@ -250,7 +250,7 @@ func (s *Service) DoCommitOp(ctx context.Context, r Repo, op CommitOp) (*Status,
 	}
 	if res.ExitCode != 0 && !strings.Contains(string(res.Stdout)+string(res.Stderr), "CONFLICT") {
 		if strings.Contains(string(res.Stderr), markNoIdent) || strings.Contains(string(res.Stderr), "Please tell me who you are") {
-			return nil, newErr(http.StatusUnprocessableEntity, "git_identity", "user.name / user.email git belum diset di machine ini")
+			return nil, newErr(http.StatusUnprocessableEntity, "git_identity", "git user.name / user.email is not set on this machine")
 		}
 		return nil, failed(res, "git_refused", http.StatusConflict)
 	}
@@ -261,10 +261,10 @@ func (s *Service) DoCommitOp(ctx context.Context, r Repo, op CommitOp) (*Status,
 // CreateTag tags a commit; with a message the tag is annotated.
 func (s *Service) CreateTag(ctx context.Context, r Repo, name, ref, message string) (*Status, error) {
 	if !showRef.MatchString(ref) {
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "ref tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid ref")
 	}
 	if len(message) > maxMessage || strings.ContainsRune(message, 0) {
-		return nil, newErr(http.StatusBadRequest, "bad_message", "pesan tag tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_message", "invalid tag message")
 	}
 	unlock, err := s.lock(r, "tag")
 	if err != nil {
@@ -283,9 +283,9 @@ func (s *Service) CreateTag(ctx context.Context, r Repo, name, ref, message stri
 	switch res.ExitCode {
 	case 0:
 	case 11:
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "nama tag tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid tag name")
 	case 12:
-		return nil, newErr(http.StatusConflict, "exists", "tag %s sudah ada", name)
+		return nil, newErr(http.StatusConflict, "exists", "tag %s already exists", name)
 	default:
 		return nil, failed(res, "git_refused", http.StatusConflict)
 	}
@@ -296,7 +296,7 @@ func (s *Service) CreateTag(ctx context.Context, r Repo, name, ref, message stri
 // Operation aborts or continues the merge, cherry-pick or revert under way.
 func (s *Service) Operation(ctx context.Context, r Repo, action string) (*Status, error) {
 	if action != "abort" && action != "continue" {
-		return nil, newErr(http.StatusBadRequest, "bad_action", "aksi tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_action", "invalid action")
 	}
 	unlock, err := s.lock(r, "operation")
 	if err != nil {
@@ -317,7 +317,7 @@ func (s *Service) Operation(ctx context.Context, r Repo, action string) (*Status
 		return nil, err
 	}
 	if res.ExitCode == 13 {
-		return nil, newErr(http.StatusConflict, "no_operation", "tidak ada operasi yang sedang berjalan")
+		return nil, newErr(http.StatusConflict, "no_operation", "no operation is in progress")
 	}
 	if res.ExitCode != 0 {
 		return nil, failed(res, "git_refused", http.StatusConflict)

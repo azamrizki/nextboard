@@ -36,7 +36,7 @@ func ParsePorts(s string) ([]int, error) {
 		}
 		n, err := strconv.Atoi(f)
 		if err != nil || n < 1 || n > 65535 {
-			return nil, newErr(http.StatusBadRequest, "bad_port", "port tidak valid: %q", f)
+			return nil, newErr(http.StatusBadRequest, "bad_port", "invalid port: %q", f)
 		}
 		if !seen[n] {
 			seen[n] = true
@@ -44,10 +44,10 @@ func ParsePorts(s string) ([]int, error) {
 		}
 	}
 	if len(out) == 0 {
-		return nil, newErr(http.StatusBadRequest, "bad_port", "probe kosong")
+		return nil, newErr(http.StatusBadRequest, "bad_port", "no ports to probe")
 	}
 	if len(out) > MaxProbePorts {
-		return nil, newErr(http.StatusBadRequest, "too_many", "maksimal %d port", MaxProbePorts)
+		return nil, newErr(http.StatusBadRequest, "too_many", "at most %d ports", MaxProbePorts)
 	}
 	return out, nil
 }

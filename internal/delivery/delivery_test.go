@@ -305,7 +305,7 @@ func TestDeliveryRefusesDialogs(t *testing.T) {
 	for i, f := range files {
 		sid := fmt.Sprintf("s_%d", i)
 		got := h.get(t, ids[sid])
-		if got.State != Failed || got.Code != "prompt_unrecognized" || !strings.Contains(got.Error, "tidak diketik") {
+		if got.State != Failed || got.Code != "prompt_unrecognized" || !strings.Contains(got.Error, "not typed") {
 			t.Fatalf("%s: %+v", filepath.Base(f), got)
 		}
 		if w := h.cons[sid].written(); w != "" {

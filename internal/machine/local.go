@@ -29,7 +29,7 @@ const LocalID = "local"
 type CommandNotFoundError struct{ Command string }
 
 func (e *CommandNotFoundError) Error() string {
-	return fmt.Sprintf("perintah tidak ditemukan: %s", e.Command)
+	return fmt.Sprintf("command not found: %s", e.Command)
 }
 
 // Local runs processes on the hub's own machine through creack/pty.
@@ -225,7 +225,7 @@ func (l *Local) Start(spec StartSpec) (Proc, error) {
 	}
 	dir := l.expand(spec.Cwd)
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return nil, fmt.Errorf("folder tidak ditemukan: %s", dir)
+		return nil, fmt.Errorf("folder not found: %s", dir)
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir

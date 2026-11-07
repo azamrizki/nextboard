@@ -21,16 +21,16 @@ const (
 
 var (
 	// ErrRelativePath: file API paths must be absolute (or start with ~).
-	ErrRelativePath = errors.New("path harus absolut (atau diawali ~)")
+	ErrRelativePath = errors.New("path must be absolute (or start with ~)")
 	// ErrIsDir: a file operation targeted a folder.
-	ErrIsDir = errors.New("path adalah folder")
+	ErrIsDir = errors.New("path is a folder")
 	// ErrMtimeMismatch: fs/write ifMtime did not match the file on disk.
-	ErrMtimeMismatch = errors.New("file sudah berubah sejak dibuka (mtime tidak cocok)")
+	ErrMtimeMismatch = errors.New("file changed since it was opened (mtime mismatch)")
 	// ErrNoSFTP: the remote has no SFTP subsystem; the exec fallback is
 	// read-only.
-	ErrNoSFTP = errors.New("SFTP tidak tersedia di machine ini; hanya baca yang didukung")
+	ErrNoSFTP = errors.New("SFTP is not available on this machine; only reading is supported")
 	// ErrFileTooLarge: the file exceeds MaxFileBytes.
-	ErrFileTooLarge = fmt.Errorf("file lebih dari %d MB", MaxFileBytes>>20)
+	ErrFileTooLarge = fmt.Errorf("file larger than %d MB", MaxFileBytes>>20)
 )
 
 // FileStat is the API view of one path (fs/stat, fs/write).

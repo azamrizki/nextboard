@@ -244,7 +244,7 @@ func TestCheckCodexRetriesWhileLimitsArePending(t *testing.T) {
 	t.Setenv("FAKE_MODE", "pending")
 	before := strings.Count(f.logText(), "cmd /status")
 	r = f.check("codex")
-	if r.State != "error" || r.Parsed || !strings.Contains(r.Error, "belum menerima data limit") || len(r.Facts) != 2 {
+	if r.State != "error" || r.Parsed || !strings.Contains(r.Error, "no limit data from the server yet") || len(r.Facts) != 2 {
 		t.Fatalf("report %+v", r)
 	}
 	if n := strings.Count(f.logText(), "cmd /status") - before; n != pendingRetries+1 {
@@ -316,7 +316,7 @@ func TestCheckHangTimesOutAndCleansUp(t *testing.T) {
 func TestCheckMissingCLIAndUnsupported(t *testing.T) {
 	f := newUsageFixture(t)
 	f.hub.command["claude"] = "/nonexistent/nb-no-such-cli"
-	if r := f.check("claude"); r.State != "error" || !strings.Contains(r.Error, "tidak ditemukan") {
+	if r := f.check("claude"); r.State != "error" || !strings.Contains(r.Error, "not found") {
 		t.Fatalf("missing %+v", r)
 	}
 	f.assertFolderGone()

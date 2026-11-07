@@ -113,12 +113,12 @@ func (m *Manager) SubmitRunner(req RunnerRequest) (Job, error) {
 		return Job{}, ErrRunnerUnsupported
 	}
 	if strings.TrimSpace(req.Prompt) == "" {
-		return Job{}, fmt.Errorf("%w: prompt kosong", ErrBadRequest)
+		return Job{}, fmt.Errorf("%w: empty prompt", ErrBadRequest)
 	}
 	if len(req.Schema) > 0 {
 		var compact bytes.Buffer
 		if err := json.Compact(&compact, req.Schema); err != nil {
-			return Job{}, fmt.Errorf("%w: schema bukan JSON", ErrBadRequest)
+			return Job{}, fmt.Errorf("%w: schema is not JSON", ErrBadRequest)
 		}
 		req.Schema = compact.Bytes()
 	}
@@ -219,7 +219,7 @@ func runnerScript(req RunnerRequest) string {
 	run := strings.Replace(machine.Join(argv...), SchemaFileArg, `"$d/schema.json"`, 1)
 	return check +
 		`d=$(mktemp -d /tmp/nb-run.XXXXXX) || exit 125; ` +
-		`case "$d" in /tmp/nb-run.??????) ;; *) echo 'mktemp tidak terduga' >&2; exit 125;; esac; ` +
+		`case "$d" in /tmp/nb-run.??????) ;; *) echo 'unexpected mktemp path' >&2; exit 125;; esac; ` +
 		`trap 'rm -rf -- "$d"' EXIT; ` +
 		`printf '%s' ` + machine.Quote(string(req.Schema)) + ` > "$d/schema.json" || exit 125; ` +
 		`cat > "$d/prompt" || exit 125; ` +
@@ -250,7 +250,7 @@ func (m *Manager) run(ctx context.Context, j *job) {
 		if out.code == "" && req.Transform != nil {
 			b, err := req.Transform(out.text, out.structured)
 			if err != nil {
-				out.code, out.msg = "bad_output", "output runner tidak sesuai bentuk hasil: "+err.Error()
+				out.code, out.msg = "bad_output", "the runner output does not match the result shape: "+err.Error()
 			} else {
 				transformed = b
 			}
@@ -336,13 +336,13 @@ func classify(req RunnerRequest, res *machine.ExecResult, execErr error, p *stre
 		o.code = "cancelled"
 		return o
 	case res.TimedOut:
-		o.code, o.msg = "timeout", fmt.Sprintf("runner melebihi batas waktu %s", req.Timeout)
+		o.code, o.msg = "timeout", fmt.Sprintf("the runner went over its time limit of %s", req.Timeout)
 		return o
 	case res.IdleKilled:
-		o.code, o.msg = "idle_timeout", fmt.Sprintf("runner tidak mengeluarkan output selama %s", req.IdleTimeout)
+		o.code, o.msg = "idle_timeout", fmt.Sprintf("the runner gave no output for %s", req.IdleTimeout)
 		return o
 	case strings.Contains(stderr, missingMarker), res.ExitCode == 127:
-		o.code, o.msg = "cli_missing", fmt.Sprintf("CLI %s tidak ditemukan di machine ini", cmd)
+		o.code, o.msg = "cli_missing", fmt.Sprintf("CLI %s not found on this machine", cmd)
 		return o
 	}
 	failed := execErr != nil || res.ExitCode != 0 || p.isError || !p.haveFinal
@@ -355,7 +355,7 @@ func classify(req RunnerRequest, res *machine.ExecResult, execErr error, p *stre
 			diag += "\n" + string(res.Stdout[max(0, len(res.Stdout)-4096):])
 		}
 		if notLoggedIn(diag) {
-			o.code, o.msg = "cli_not_logged_in", fmt.Sprintf("%s belum login di machine ini", cmd)
+			o.code, o.msg = "cli_not_logged_in", fmt.Sprintf("%s is not logged in on this machine", cmd)
 			return o
 		}
 		o.code = "runner_failed"
@@ -369,7 +369,7 @@ func classify(req RunnerRequest, res *machine.ExecResult, execErr error, p *stre
 		if tail == "" && execErr != nil {
 			tail = execErr.Error()
 		}
-		o.msg = fmt.Sprintf("runner gagal (kode keluar %d)", res.ExitCode)
+		o.msg = fmt.Sprintf("the runner failed (exit code %d)", res.ExitCode)
 		if tail != "" {
 			o.msg += ": " + lastRunes(tail, errTail)
 		}
@@ -381,7 +381,7 @@ func classify(req RunnerRequest, res *machine.ExecResult, execErr error, p *stre
 			s = extractJSON(p.final)
 		}
 		if len(s) == 0 {
-			o.code, o.msg = "bad_output", "output runner bukan JSON yang valid"
+			o.code, o.msg = "bad_output", "the runner output is not valid JSON"
 			return o
 		}
 		o.structured = s

@@ -35,7 +35,7 @@ const (
 	truncMark         = "\n[… truncated by NextBoard …]"
 )
 
-var ErrForwardCycle = errors.New("forward tidak boleh meneruskan ke sumbernya sendiri")
+var ErrForwardCycle = errors.New("a forward cannot pass on to its own source")
 
 // Forward is a one-shot forward.
 type Forward struct {
@@ -132,7 +132,7 @@ func (s *Service) CancelForward(id string) error {
 	f, ok := s.forwards[id]
 	if !ok {
 		s.mu.Unlock()
-		return errors.New("forward tidak ditemukan")
+		return errors.New("forward not found")
 	}
 	if f.State == "waiting" || f.State == "collecting" {
 		f.State = "cancelled"

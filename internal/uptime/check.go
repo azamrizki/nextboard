@@ -87,7 +87,7 @@ func check(ctx context.Context, m Monitor, h machine.Host) Result {
 	case TypeSteam:
 		r = checkSteam(ctx, m)
 	default:
-		return failed("Tipe tidak dikenal")
+		return failed("Unknown type")
 	}
 	if !r.OK && h != nil && !h.Connected() {
 		return Result{Ms: -1, Waiting: true, Msg: "Waiting for " + h.Info().Name}
@@ -113,7 +113,7 @@ func checkHTTP(ctx context.Context, m Monitor, h machine.Host) Result {
 		Transport: tr,
 		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 			if len(via) >= maxRedirects {
-				return fmt.Errorf("lebih dari %d redirect", maxRedirects)
+				return fmt.Errorf("more than %d redirects", maxRedirects)
 			}
 			return nil
 		},
@@ -315,5 +315,5 @@ func lookup(ctx context.Context, res *net.Resolver, typ, host string) ([]string,
 	case "TXT":
 		return res.LookupTXT(ctx, host)
 	}
-	return nil, errors.New("tipe DNS tidak dikenal")
+	return nil, errors.New("unknown DNS type")
 }

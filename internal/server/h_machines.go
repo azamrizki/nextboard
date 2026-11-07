@@ -25,7 +25,7 @@ func (s *Server) handleMachines(w http.ResponseWriter, r *http.Request, p *princ
 func (s *Server) handleSSHConfig(w http.ResponseWriter, r *http.Request, p *principal) {
 	hosts, err := machine.ListSSHConfigHosts()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "gagal membaca ~/.ssh/config: "+err.Error())
+		writeErr(w, http.StatusInternalServerError, "cannot read ~/.ssh/config: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, hosts)
@@ -65,7 +65,7 @@ func (s *Server) handleMachineHostKey(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	if !req.Accept {
-		writeErr(w, http.StatusBadRequest, "accept harus true")
+		writeErr(w, http.StatusBadRequest, "accept must be true")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -95,7 +95,7 @@ func (s *Server) handleMachineCredentials(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if req.Value == "" {
-		writeErr(w, http.StatusBadRequest, "isi dulu")
+		writeErr(w, http.StatusBadRequest, "fill it in first")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -159,7 +159,7 @@ func (s *Server) handleMachineDelete(w http.ResponseWriter, r *http.Request, p *
 		return
 	}
 	if n := s.sessions.CountByMachine(id); n > 0 {
-		writeErr(w, http.StatusConflict, "machine masih punya sesi; tutup semua terminalnya dulu")
+		writeErr(w, http.StatusConflict, "the machine still has sessions; close all its terminals first")
 		return
 	}
 	if err := s.machines.Remove(id); err != nil {

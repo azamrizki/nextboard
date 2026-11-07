@@ -510,19 +510,19 @@ func (s *Server) credApprove(id string, values []string, by string) (credRequest
 	}
 	if len(values) != len(r.Uses) {
 		s.credReqs.mu.Unlock()
-		return credRequest{}, fmt.Errorf("%w: butuh %d nilai", errCredBad, len(r.Uses))
+		return credRequest{}, fmt.Errorf("%w: needs %d values", errCredBad, len(r.Uses))
 	}
 	for i, v := range values {
 		switch {
 		case len(v) < vault.MinCensored:
 			s.credReqs.mu.Unlock()
-			return credRequest{}, fmt.Errorf("%w: %s terlalu pendek untuk disembunyikan dari output (minimal %d karakter)", errCredBad, r.Uses[i].Value, vault.MinCensored)
+			return credRequest{}, fmt.Errorf("%w: %s is too short to hide in the output (at least %d characters)", errCredBad, r.Uses[i].Value, vault.MinCensored)
 		case len(v) > credValueMax:
 			s.credReqs.mu.Unlock()
-			return credRequest{}, fmt.Errorf("%w: %s terlalu panjang", errCredBad, r.Uses[i].Value)
+			return credRequest{}, fmt.Errorf("%w: %s is too long", errCredBad, r.Uses[i].Value)
 		case r.Uses[i].Env != "" && strings.ContainsRune(v, 0):
 			s.credReqs.mu.Unlock()
-			return credRequest{}, fmt.Errorf("%w: environment variable tidak bisa memuat byte nol", errCredBad)
+			return credRequest{}, fmt.Errorf("%w: an environment variable cannot hold a zero byte", errCredBad)
 		}
 	}
 	r.State, r.By = "running", by
@@ -534,9 +534,9 @@ func (s *Server) credApprove(id string, values []string, by string) (credRequest
 }
 
 var (
-	errCredGone    = errors.New("permintaan tidak ada lagi")
-	errCredDecided = errors.New("permintaan ini sudah diputuskan")
-	errCredBad     = errors.New("nilai tidak valid")
+	errCredGone    = errors.New("the request is gone")
+	errCredDecided = errors.New("this request is already decided")
+	errCredBad     = errors.New("invalid value")
 )
 
 func (s *Server) credExecute(r credRequest, values []string) {
@@ -740,7 +740,7 @@ func (s *Server) handleVaultAgentPut(w http.ResponseWriter, r *http.Request, p *
 	e.ID = r.PathValue("id")
 	for _, pid := range e.Projects {
 		if _, ok := s.projects.Get(pid); !ok {
-			writeErrCode(w, http.StatusBadRequest, "project_not_found", fmt.Sprintf("project %s tidak ada", pid))
+			writeErrCode(w, http.StatusBadRequest, "project_not_found", fmt.Sprintf("project %s does not exist", pid))
 			return
 		}
 	}

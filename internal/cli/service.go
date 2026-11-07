@@ -31,7 +31,7 @@ const (
 
 // Kept in sync with deploy/nextboard.service and deploy/id.nextboard.plist.
 var systemdUnit = template.Must(template.New("unit").Parse(`[Unit]
-Description=NextBoard hub (visual board untuk AI coding agents)
+Description=NextBoard hub (visual board for AI coding agents)
 After=network-online.target
 Wants=network-online.target
 
@@ -90,7 +90,7 @@ func unitPath() (string, error) {
 	case "darwin":
 		return filepath.Join(home, "Library", "LaunchAgents", launchLabel+".plist"), nil
 	}
-	return "", fmt.Errorf("OS %s belum didukung untuk service", runtime.GOOS)
+	return "", fmt.Errorf("OS %s is not supported yet for the service", runtime.GOOS)
 }
 
 func run(name string, args ...string) error {
@@ -106,10 +106,10 @@ func runQuiet(name string, args ...string) (string, error) {
 
 func cmdInstall(args []string) error {
 	fs, dir := newFlags("install")
-	statusListen := fs.String("status-listen", "", "alamat kedua yang hanya menyajikan halaman status publik (disimpan di config.json)")
-	listen := fs.String("listen", "", "alamat listen, default 127.0.0.1:12312 (disimpan di config.json)")
-	publicURL := fs.String("public-url", "", "URL HTTPS publik di nginx, mis. https://board.example.com (disimpan di config.json)")
-	noStart := fs.Bool("no-start", false, "pasang tanpa menyalakan service")
+	statusListen := fs.String("status-listen", "", "second address that serves only the public status page (saved in config.json)")
+	listen := fs.String("listen", "", "listen address, default 127.0.0.1:12312 (saved in config.json)")
+	publicURL := fs.String("public-url", "", "public HTTPS URL in nginx, e.g. https://board.example.com (saved in config.json)")
+	noStart := fs.Bool("no-start", false, "install without starting the service")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func cmdInstall(args []string) error {
 	}
 	if *publicURL != "" {
 		if !strings.HasPrefix(*publicURL, "https://") {
-			return errors.New("--public-url harus https://")
+			return errors.New("--public-url must be https://")
 		}
 		u := strings.TrimRight(*publicURL, "/")
 		if !slices.Contains(cfg.ExtraURLs, u) {
@@ -173,7 +173,7 @@ func cmdInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Service dipasang:", path)
+	fmt.Println("Service installed:", path)
 
 	if !*noStart {
 		if err := startService(path); err != nil {
@@ -188,8 +188,8 @@ func cmdInstall(args []string) error {
 	if !*noStart {
 		waitHealthy(h, 15*time.Second)
 	}
-	fmt.Printf("\nNextBoard berjalan di http://%s\n", h.cfg.Listen)
-	fmt.Println("Hub hanya melayani HTTP. Pasang HTTPS di nginx: lihat deploy/nginx.conf.example.")
+	fmt.Printf("\nNextBoard is running at http://%s\n", h.cfg.Listen)
+	fmt.Println("The hub serves only HTTP. Set up HTTPS in nginx: see deploy/nginx.conf.example.")
 	as, err := auth.Open(h.st)
 	if err != nil {
 		return err
@@ -214,7 +214,7 @@ func startService(path string) error {
 		}
 		u, _ := user.Current()
 		if out, err := runQuiet("loginctl", "enable-linger", u.Username); err != nil {
-			fmt.Fprintf(os.Stderr, "peringatan: loginctl enable-linger gagal (%s). Jalankan manual: sudo loginctl enable-linger %s\n", out, u.Username)
+			fmt.Fprintf(os.Stderr, "warning: loginctl enable-linger failed (%s). Run it manually: sudo loginctl enable-linger %s\n", out, u.Username)
 		}
 	case "darwin":
 		uid := strconv.Itoa(os.Getuid())
@@ -242,12 +242,12 @@ func restartService() error {
 	case "darwin":
 		return run("launchctl", "kickstart", "-k", "gui/"+strconv.Itoa(os.Getuid())+"/"+launchLabel)
 	}
-	return errors.New("OS tidak didukung")
+	return errors.New("unsupported OS")
 }
 
 func cmdUninstall(args []string) error {
 	fs, dir := newFlags("uninstall")
-	purge := fs.Bool("purge", false, "hapus juga folder data (~/.nextboard)")
+	purge := fs.Bool("purge", false, "also delete the data folder (~/.nextboard)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func cmdUninstall(args []string) error {
 	}
 	stopService(path)
 	if err := os.Remove(path); err == nil {
-		fmt.Println("Service dilepas:", path)
+		fmt.Println("Service removed:", path)
 	}
 	if runtime.GOOS == "linux" {
 		_, _ = runQuiet("systemctl", "--user", "daemon-reload")
@@ -265,14 +265,14 @@ func cmdUninstall(args []string) error {
 	if *purge {
 		abs, _ := filepath.Abs(*dir)
 		if abs == "/" || abs == os.Getenv("HOME") {
-			return fmt.Errorf("menolak menghapus %s", abs)
+			return fmt.Errorf("refusing to delete %s", abs)
 		}
 		if err := os.RemoveAll(abs); err != nil {
 			return err
 		}
-		fmt.Println("Data dihapus:", abs)
+		fmt.Println("Data deleted:", abs)
 	} else {
-		fmt.Println("Data tetap ada di", *dir, "(pakai --purge untuk menghapus)")
+		fmt.Println("Data kept in", *dir, "(use --purge to delete it)")
 	}
 	return nil
 }
@@ -297,7 +297,7 @@ func waitHealthy(h *hubInfo, timeout time.Duration) bool {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	fmt.Fprintln(os.Stderr, "peringatan: hub belum merespons; cek `nextboard logs`")
+	fmt.Fprintln(os.Stderr, "warning: hub not responding yet; check `nextboard logs`")
 	return false
 }
 
@@ -310,7 +310,7 @@ func cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	state := "tidak terpasang"
+	state := "not installed"
 	switch runtime.GOOS {
 	case "linux":
 		if out, _ := runQuiet("systemctl", "--user", "is-active", serviceName); out != "" {
@@ -321,14 +321,14 @@ func cmdStatus(args []string) error {
 			state = "loaded"
 		}
 	}
-	health := "tidak merespons"
+	health := "not responding"
 	if resp, err := localClient().Get(localURL(h.cfg) + "/api/health"); err == nil {
 		var body struct {
 			Version string `json:"version"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&body)
 		resp.Body.Close()
-		health = "OK (versi " + body.Version + ")"
+		health = "OK (version " + body.Version + ")"
 	}
 	var sessions []session.Spec
 	_, _ = h.st.Load("sessions.json", &sessions)
@@ -344,14 +344,14 @@ func cmdStatus(args []string) error {
 	_, _ = h.st.Load("devices.json", &devices)
 	name := h.cfg.HubName
 	if name == "" {
-		name = "(belum di-setup)"
+		name = "(not set up yet)"
 	}
 	fmt.Printf("Hub:         %s\n", name)
 	fmt.Printf("Service:     %s\n", state)
 	fmt.Printf("Health:      %s\n", health)
 	fmt.Printf("Listen:      %s\n", h.cfg.Listen)
-	fmt.Printf("Alamat:      %s\n", strings.Join(server.HubURLs(h.cfg.Listen, h.cfg.ExtraURLs), "\n             "))
-	fmt.Printf("Sesi:        %d\n", len(sessions))
+	fmt.Printf("Address:     %s\n", strings.Join(server.HubURLs(h.cfg.Listen, h.cfg.ExtraURLs), "\n             "))
+	fmt.Printf("Sessions:    %d\n", len(sessions))
 	fmt.Printf("Machine:     This PC + %d remote\n", remote)
 	fmt.Printf("Device:      %d\n", len(devices))
 	fmt.Printf("Data:        %s\n", h.st.Dir)
@@ -360,7 +360,7 @@ func cmdStatus(args []string) error {
 
 func cmdLogs(args []string) error {
 	fs, dir := newFlags("logs")
-	follow := fs.Bool("f", false, "ikuti log")
+	follow := fs.Bool("f", false, "follow the log")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -378,5 +378,5 @@ func cmdLogs(args []string) error {
 		}
 		return run("tail", append(a, filepath.Join(*dir, "nextboard.log"))...)
 	}
-	return errors.New("OS tidak didukung")
+	return errors.New("unsupported OS")
 }

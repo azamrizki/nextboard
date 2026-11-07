@@ -41,10 +41,10 @@ func (r Report) key() string { return key(r.MachineID, r.Agent, r.ProfileID) }
 func key(m, a, p string) string { return m + "|" + a + "|" + p }
 
 var (
-	ErrOffline     = errors.New("machine tidak tersambung")
-	ErrBackground  = errors.New("pemeriksaan usage latar dimatikan di settings")
-	ErrDisabled    = errors.New("pemeriksaan usage untuk agen ini dimatikan di settings")
-	ErrUnsupported = errors.New("agen ini tidak punya pemeriksaan usage")
+	ErrOffline     = errors.New("the machine is not connected")
+	ErrBackground  = errors.New("background usage checks are turned off in settings")
+	ErrDisabled    = errors.New("usage checks for this agent are turned off in settings")
+	ErrUnsupported = errors.New("this agent has no usage check")
 )
 
 // Settings is the part of settings.usage the service reads.
@@ -311,7 +311,7 @@ func (s *Service) run(ctx context.Context, h machine.Host, sp CheckSpec, rep *jo
 	}
 	out := drive(ctx, h, sp, dir, rep.Progress)
 	if err := s.tmp.remove(ctx, h, dir); err != nil {
-		r.Error = "folder sementara: " + err.Error() // kept in pending-cleanup.json
+		r.Error = "temp folder: " + err.Error() // kept in pending-cleanup.json
 	}
 	if ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled) {
 		return Report{}, ctx.Err()
@@ -334,9 +334,9 @@ func (s *Service) run(ctx context.Context, h machine.Host, sp CheckSpec, rep *jo
 	case len(p.Windows) == 0:
 		r.State, r.Parsed = "error", false
 		if r.Error == "" {
-			r.Error = "layar usage tidak dikenali"
+			r.Error = "the usage screen was not recognized"
 			if p.Pending {
-				r.Error = "belum menerima data limit dari server; coba lagi sebentar lagi"
+				r.Error = "no limit data from the server yet; try again shortly"
 			}
 		}
 	default:

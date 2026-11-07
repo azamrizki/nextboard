@@ -69,7 +69,7 @@ func (s *Server) handleBoardOps(w http.ResponseWriter, r *http.Request, p *princ
 		return
 	}
 	if !clientIDRe.MatchString(req.ClientID) {
-		writeErr(w, http.StatusBadRequest, "clientId tidak valid")
+		writeErr(w, http.StatusBadRequest, "invalid clientId")
 		return
 	}
 	rev, err := s.boards.Apply(ws.ID, req.ClientID, req.Ops)

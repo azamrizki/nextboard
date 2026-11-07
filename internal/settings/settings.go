@@ -266,11 +266,11 @@ var topLevel = map[string]bool{"schemaVersion": true, "lead": true, "agents": tr
 func (s *Store) Patch(patch []byte) (Settings, error) {
 	var p map[string]json.RawMessage
 	if err := json.Unmarshal(patch, &p); err != nil || p == nil {
-		return Settings{}, badSetting("patch harus objek JSON")
+		return Settings{}, badSetting("the patch must be a JSON object")
 	}
 	for k := range p {
 		if !topLevel[k] {
-			return Settings{}, badSetting("pengaturan tidak dikenal: %s", k)
+			return Settings{}, badSetting("unknown setting: %s", k)
 		}
 	}
 	s.mu.Lock()
@@ -285,7 +285,7 @@ func (s *Store) Patch(patch []byte) (Settings, error) {
 	dec := json.NewDecoder(bytes.NewReader(merged))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&next); err != nil {
-		return Settings{}, badSetting("pengaturan tidak valid: %v", err)
+		return Settings{}, badSetting("invalid settings: %v", err)
 	}
 	if err := validate(&next); err != nil {
 		return Settings{}, err
@@ -331,28 +331,28 @@ var (
 )
 
 // ErrBadShortcut marks a shortcut validation failure.
-var ErrBadShortcut = errors.New("shortcut tidak valid")
+var ErrBadShortcut = errors.New("invalid shortcut")
 
 func validate(s *Settings) error {
 	s.Lead.Name = strings.TrimSpace(s.Lead.Name)
 	if n := len([]rune(s.Lead.Name)); n < 1 || n > 24 || strings.ContainsAny(s.Lead.Name, "\r\n") {
-		return badSetting("lead.name: 1 sampai 24 karakter dalam satu baris")
+		return badSetting("lead.name: 1 to 24 characters on one line")
 	}
 	if len([]rune(s.Lead.Personality)) > 800 {
-		return badSetting("lead.personality: maksimal 800 karakter")
+		return badSetting("lead.personality: at most 800 characters")
 	}
 	if s.SchemaVersion != 1 {
-		return badSetting("schemaVersion harus 1")
+		return badSetting("schemaVersion must be 1")
 	}
 	if s.Editor.OnSave == nil {
 		s.Editor.OnSave = []OnSaveRule{}
 	}
 	if len(s.Editor.OnSave) > maxOnSaveRules {
-		return badSetting("editor.onSave maksimal %d aturan", maxOnSaveRules)
+		return badSetting("editor.onSave: at most %d rules", maxOnSaveRules)
 	}
 	for _, r := range s.Editor.OnSave {
 		if strings.TrimSpace(r.Pattern) == "" || strings.TrimSpace(r.Command) == "" {
-			return badSetting("editor.onSave: pattern dan command wajib diisi")
+			return badSetting("editor.onSave: pattern and command are required")
 		}
 	}
 	a := &s.Agents
@@ -368,7 +368,7 @@ func validate(s *Settings) error {
 	}
 	for mid, ag := range a.Defaults {
 		if !machineRe.MatchString(mid) || !idRe.MatchString(ag) {
-			return badSetting("agents.defaults tidak valid: %s", mid)
+			return badSetting("invalid agents.defaults: %s", mid)
 		}
 	}
 	for mid, per := range a.Paths {
@@ -377,7 +377,7 @@ func validate(s *Settings) error {
 		}
 		for ag, p := range per {
 			if !idRe.MatchString(ag) || p == "" || len(p) > 1024 || bytes.ContainsAny([]byte(p), "\x00\n\r") {
-				return badSetting("agents.paths.%s.%s tidak valid", mid, ag)
+				return badSetting("invalid agents.paths.%s.%s", mid, ag)
 			}
 		}
 	}
@@ -387,18 +387,18 @@ func validate(s *Settings) error {
 		}
 		for ag, p := range per {
 			if !idRe.MatchString(ag) || (p != "" && !profileRe.MatchString(p)) {
-				return badSetting("agents.profiles.%s.%s tidak valid", mid, ag)
+				return badSetting("invalid agents.profiles.%s.%s", mid, ag)
 			}
 		}
 	}
 	for ag := range a.Disabled {
 		if !idRe.MatchString(ag) {
-			return badSetting("agents.disabled.%s tidak valid", ag)
+			return badSetting("invalid agents.disabled.%s", ag)
 		}
 	}
 	for role, ag := range a.RoleAgents {
 		if role == "" || len(role) > 32 || (ag != "" && !idRe.MatchString(ag)) {
-			return badSetting("agents.roleAgents.%s tidak valid", role)
+			return badSetting("invalid agents.roleAgents.%s", role)
 		}
 	}
 	for _, m := range []*map[string]ModelChoice{&a.Models, &a.RoleModels} {
@@ -407,25 +407,25 @@ func validate(s *Settings) error {
 		}
 		for k, c := range *m {
 			if k == "" || len(k) > 32 || (c.Model != "" && !modelRe.MatchString(c.Model)) || (c.Effort != "" && !effortRe.MatchString(c.Effort)) {
-				return badSetting("agents: model untuk %s tidak valid", k)
+				return badSetting("agents: invalid model for %s", k)
 			}
 		}
 	}
 	switch a.HookChannel {
 	case "auto", "tty", "http":
 	default:
-		return badSetting(`agents.hookChannel harus "auto", "tty" atau "http"`)
+		return badSetting(`agents.hookChannel must be "auto", "tty" or "http"`)
 	}
 	switch a.ResumeOnRestart {
 	case "auto", "ask", "never":
 	default:
-		return badSetting(`agents.resumeOnRestart harus "auto", "ask" atau "never"`)
+		return badSetting(`agents.resumeOnRestart must be "auto", "ask" or "never"`)
 	}
 	if n := s.Notifications.FinishedMinSec; n < 0 || n > 86400 {
-		return badSetting("notifications.finishedMinSec harus 0–86400")
+		return badSetting("notifications.finishedMinSec must be 0–86400")
 	}
 	if s.Runner.DefaultAgent != "claude" && s.Runner.DefaultAgent != "codex" {
-		return badSetting(`runner.defaultAgent harus "claude" atau "codex"`)
+		return badSetting(`runner.defaultAgent must be "claude" or "codex"`)
 	}
 	if err := validateOrchestration(s); err != nil {
 		return err
@@ -441,10 +441,10 @@ func validate(s *Settings) error {
 	for name, k := range map[string]string{"select": sc.Select, "hand": sc.Hand, "spawn": sc.Spawn, "pen": sc.Pen, "eraser": sc.Eraser,
 		"git": sc.Git, "memory": sc.Memory, "skills": sc.Skills, "loops": sc.Loops, "markdown": sc.Markdown, "needsYou": sc.NeedsYou} {
 		if !shortcutRe.MatchString(k) || k == "x" {
-			return &Error{Code: "bad_shortcut", Msg: fmt.Sprintf("shortcut %s: satu karakter tercetak (huruf kecil, angka, tanda baca), bukan x atau spasi", name)}
+			return &Error{Code: "bad_shortcut", Msg: fmt.Sprintf("shortcut %s: one printable character (lowercase letter, digit, punctuation), not x or space", name)}
 		}
 		if other, dup := keys[k]; dup {
-			return &Error{Code: "bad_shortcut", Msg: fmt.Sprintf("shortcut %q dipakai %s dan %s", k, other, name)}
+			return &Error{Code: "bad_shortcut", Msg: fmt.Sprintf("shortcut %q is used by %s and %s", k, other, name)}
 		}
 		keys[k] = name
 	}
@@ -455,7 +455,7 @@ func validate(s *Settings) error {
 func validateOrchestration(s *Settings) error {
 	d := s.Delivery
 	if d.WhileWorking != "queue" && d.WhileWorking != "type" {
-		return badSetting(`delivery.whileWorking harus "queue" atau "type"`)
+		return badSetting(`delivery.whileWorking must be "queue" or "type"`)
 	}
 	for _, r := range []struct {
 		name      string
@@ -472,24 +472,24 @@ func validateOrchestration(s *Settings) error {
 		{"commands.reportTimeoutMin", s.Commands.ReportTimeoutMin, 1, 1440},
 	} {
 		if r.v < r.lo || r.v > r.hi {
-			return badSetting("%s harus %d–%d", r.name, r.lo, r.hi)
+			return badSetting("%s must be %d–%d", r.name, r.lo, r.hi)
 		}
 	}
 	if s.Commands.Planner != "auto" && s.Commands.Planner != "off" {
-		return badSetting(`commands.planner harus "auto" atau "off"`)
+		return badSetting(`commands.planner must be "auto" or "off"`)
 	}
 	if s.Commands.RiskyPatterns == nil {
 		s.Commands.RiskyPatterns = []string{}
 	}
 	if len(s.Commands.RiskyPatterns) > 50 {
-		return badSetting("commands.riskyPatterns maksimal 50")
+		return badSetting("commands.riskyPatterns: at most 50")
 	}
 	for _, p := range s.Commands.RiskyPatterns {
 		if p == "" || len(p) > 200 {
-			return badSetting("commands.riskyPatterns: pola 1–200 karakter")
+			return badSetting("commands.riskyPatterns: a pattern is 1–200 characters")
 		}
 		if _, err := regexp.Compile("(?i)" + p); err != nil {
-			return badSetting("commands.riskyPatterns: %q bukan RE2 valid", p)
+			return badSetting("commands.riskyPatterns: %q is not valid RE2", p)
 		}
 	}
 	return nil

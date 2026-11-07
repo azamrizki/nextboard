@@ -65,7 +65,7 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		return nil, nil
 	}
 	if s.hookURL == "" {
-		return nil, errors.New("listener hook belum berjalan")
+		return nil, errors.New("the hook listener is not running yet")
 	}
 	claude := a.CapBase() == "claude"
 	c := &agent.LaunchContext{MCPURL: strings.TrimSuffix(s.hookURL, "/nb/hook") + "/nb/mcp/" + sp.ID}
@@ -89,7 +89,7 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		// it. Only in config folders the hub made, never in the user's own.
 		if hasProfile && pf.CreatedByHub && claude {
 			if err := profiles.TrustFolder(pf.Dir, s.st.Path("agents", "remote")); err != nil {
-				log.Printf("trust folder agen: %v", err)
+				log.Printf("trust agent folder: %v", err)
 			}
 		}
 		docs := []string{"AGENTS.md", "CLAUDE.md"}
@@ -109,7 +109,7 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 			if hasProfile && pf.CreatedByHub {
 				src := filepath.Join(pf.Dir, "projects", transcript.ClaudeSlug(sp.Cwd), "memory")
 				if err := s.orch.Memory.Adopt(src, sp.ProjectID); err != nil {
-					log.Printf("memory lama %s: %v", src, err)
+					log.Printf("old memory %s: %v", src, err)
 				}
 			}
 		}
@@ -123,7 +123,7 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		// Codex keeps its rules in its config folder: only in one the hub made, never the user's own.
 		if a.CapBase() == "codex" && hasProfile && pf.CreatedByHub && !c.Remote {
 			if err := agent.WriteCodexRules(pf.Dir, s.orch.AllBlocked()); err != nil {
-				log.Printf("rules codex: %v", err)
+				log.Printf("codex rules: %v", err)
 			}
 		}
 	}
@@ -227,7 +227,7 @@ func (s *Server) handleRemoteMCP(w http.ResponseWriter, r *http.Request) {
 	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true, sessionID: sp.ID, workspaceID: sp.WorkspaceID,
 		credentials: sp.ProjectID != "" && s.credVault != nil && s.credVault.HasAgentEntries(sp.ProjectID)}
 	if len(t.tools()) == 0 {
-		http.Error(w, "console ini tidak memakai tool hub", http.StatusNotFound)
+		http.Error(w, "this console does not use hub tools", http.StatusNotFound)
 		return
 	}
 	s.serveRemoteRPC(w, r, t)
@@ -251,12 +251,12 @@ func (s *Server) serveRemoteRPC(w http.ResponseWriter, r *http.Request, t remote
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, remoteRequestLimit))
 	if err != nil {
-		http.Error(w, "body terlalu besar", http.StatusRequestEntityTooLarge)
+		http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	var req rpcRequest
 	if json.Unmarshal(body, &req) != nil {
-		http.Error(w, "bukan JSON-RPC", http.StatusBadRequest)
+		http.Error(w, "not JSON-RPC", http.StatusBadRequest)
 		return
 	}
 	if len(req.ID) == 0 { // a notification
@@ -398,7 +398,7 @@ func (s *Server) submitRemoteRunner(req jobs.RunnerRequest) (jobs.Job, error) {
 		return jobs.Job{}, machine.ErrNotFound
 	}
 	if s.hookURL == "" {
-		return jobs.Job{}, errors.New("listener hook belum berjalan")
+		return jobs.Job{}, errors.New("the hook listener is not running yet")
 	}
 	target := remoteTarget{machineID: req.MachineID, cwd: req.Cwd, readOnly: true}
 	if req.Cwd != "" {
@@ -770,7 +770,7 @@ func (s *Server) handleConnLog(w http.ResponseWriter, r *http.Request, p *princi
 	if v := r.URL.Query().Get("since"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "since harus RFC 3339")
+			writeErr(w, http.StatusBadRequest, "since must be RFC 3339")
 			return
 		}
 		q.Since = t

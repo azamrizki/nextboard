@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- LaunchAgent — `nextboard install` menulis file ini ke
-     ~/Library/LaunchAgents/id.nextboard.plist dengan path yang sudah terisi. -->
+<!-- LaunchAgent: `nextboard install` writes this file to
+     ~/Library/LaunchAgents/id.nextboard.plist with the paths filled in. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>

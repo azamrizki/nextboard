@@ -399,7 +399,7 @@ func TestNoKeysAndNoPasswords(t *testing.T) {
 	srv := startAuthServer(t, &authServer{takeKeys: true})
 	m := connectFirst(t, r, AddRequest{Name: "none"}, srv.addr)
 	in := m.Info()
-	if in.NeedsAuth != nil || in.Status == StatusAuth || !strings.Contains(in.Error, "tidak ada SSH key") {
+	if in.NeedsAuth != nil || in.Status == StatusAuth || !strings.Contains(in.Error, "no usable SSH key") {
 		t.Fatalf("status: %+v", in)
 	}
 }

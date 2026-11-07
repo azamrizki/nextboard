@@ -33,11 +33,11 @@ const (
 
 var (
 	// ErrNoReply: the transcript has no assistant reply (yet).
-	ErrNoReply = errors.New("belum ada balasan")
+	ErrNoReply = errors.New("no reply yet")
 	// ErrUnknownKind: the agent has no supported transcript format.
-	ErrUnknownKind = errors.New("jenis transcript tidak dikenal")
+	ErrUnknownKind = errors.New("unknown transcript kind")
 	// ErrBadID: an agent session id with characters outside [A-Za-z0-9-].
-	ErrBadID = errors.New("id percakapan tidak valid")
+	ErrBadID = errors.New("invalid conversation id")
 )
 
 // Message is one entry of GET /api/sessions/{id}/transcript.

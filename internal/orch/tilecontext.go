@@ -35,8 +35,8 @@ var contentTiles = map[string]bool{"note": true, "checklist": true, "kanban": tr
 	"image": true, "link": true, "document": true, "branches": true, "web": true, "weblog": true}
 
 var (
-	ErrTileNotFound   = errors.New("tile tidak ditemukan di board ini")
-	ErrNotContentTile = errors.New("tile ini tidak punya isi yang bisa dikirim")
+	ErrTileNotFound   = errors.New("tile not found on this board")
+	ErrNotContentTile = errors.New("this tile has no content that can be sent")
 )
 
 // contextTurn reports whether a finished turn was the answer to context, and takes that

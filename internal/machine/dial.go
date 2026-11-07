@@ -12,10 +12,10 @@ import (
 
 // ErrForwardingDisabled: the SSH server refuses direct-tcpip channels
 // (AllowTcpForwarding no).
-var ErrForwardingDisabled = errors.New("sshd menolak port forwarding (AllowTcpForwarding)")
+var ErrForwardingDisabled = errors.New("sshd refuses port forwarding (AllowTcpForwarding)")
 
 // ErrPortClosed: nothing listens on the loopback port.
-var ErrPortClosed = errors.New("port tertutup")
+var ErrPortClosed = errors.New("port closed")
 
 // DialLoopback opens a TCP connection to 127.0.0.1:port, then [::1]:port,
 // on machine h: a local dial on This PC, a direct-tcpip channel over the
@@ -23,7 +23,7 @@ var ErrPortClosed = errors.New("port tertutup")
 // Only loopback addresses are ever dialled.
 func DialLoopback(ctx context.Context, h Host, port int) (net.Conn, error) {
 	if port < 1 || port > 65535 {
-		return nil, fmt.Errorf("port tidak valid: %d", port)
+		return nil, fmt.Errorf("invalid port: %d", port)
 	}
 	var dial func(ctx context.Context, addr string) (net.Conn, error)
 	switch m := h.(type) {
@@ -37,7 +37,7 @@ func DialLoopback(ctx context.Context, h Host, port int) (net.Conn, error) {
 		}
 		dial = func(ctx context.Context, addr string) (net.Conn, error) { return c.DialContext(ctx, "tcp", addr) }
 	default:
-		return nil, errors.New("machine tidak didukung")
+		return nil, errors.New("unsupported machine")
 	}
 	p := strconv.Itoa(port)
 	conn, err := dial(ctx, net.JoinHostPort("127.0.0.1", p))
@@ -100,5 +100,5 @@ func Dial(ctx context.Context, h Host, addr string) (net.Conn, error) {
 		}
 		return conn, err
 	}
-	return nil, errors.New("machine tidak didukung")
+	return nil, errors.New("unsupported machine")
 }

@@ -21,7 +21,7 @@ var cronNames = map[string]int{"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5,
 func ParseCron(expr string) (*Cron, error) {
 	f := strings.Fields(expr)
 	if len(f) != 5 {
-		return nil, fmt.Errorf("cron harus 5 field")
+		return nil, fmt.Errorf("cron needs 5 fields")
 	}
 	c := &Cron{}
 	specs := []struct {
@@ -46,7 +46,7 @@ func cronValue(s string, lo, hi int) (int, error) {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < lo || n > hi {
-		return 0, fmt.Errorf("nilai %q di luar %d–%d", s, lo, hi)
+		return 0, fmt.Errorf("value %q is outside %d–%d", s, lo, hi)
 	}
 	return n, nil
 }
@@ -57,7 +57,7 @@ func cronField(s string, lo, hi int, set *[64]bool) error {
 		if a, b, ok := strings.Cut(part, "/"); ok {
 			n, err := strconv.Atoi(b)
 			if err != nil || n < 1 || n > hi {
-				return fmt.Errorf("langkah %q tidak valid", b)
+				return fmt.Errorf("invalid step %q", b)
 			}
 			part, step = a, n
 		}
@@ -74,7 +74,7 @@ func cronField(s string, lo, hi int, set *[64]bool) error {
 				return err
 			}
 			if from > to {
-				return fmt.Errorf("rentang %q terbalik", part)
+				return fmt.Errorf("range %q is reversed", part)
 			}
 		default:
 			v, err := cronValue(part, lo, hi)

@@ -47,7 +47,7 @@ func uptimeErr(w http.ResponseWriter, err error) {
 func (s *Server) uptimeProject(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id := r.PathValue("id")
 	if _, ok := s.projects.Get(id); !ok {
-		writeErrCode(w, http.StatusNotFound, "project_not_found", "project tidak ditemukan")
+		writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found")
 		return "", false
 	}
 	return id, true
@@ -195,7 +195,7 @@ func (s *Server) handleUptimePush(w http.ResponseWriter, r *http.Request) {
 		ms = v
 	}
 	if !s.uptime.Push(r.PathValue("token"), q.Get("status") == "down", q.Get("msg"), ms) {
-		writeErr(w, http.StatusNotFound, "monitor tidak ditemukan atau sedang di-pause")
+		writeErr(w, http.StatusNotFound, "monitor not found or paused")
 		return
 	}
 	writeJSON(w, http.StatusOK, okBody)
@@ -274,7 +274,7 @@ func (s *Server) serveStatusOnly() (stop func()) {
 	}
 	ln, err := net.Listen("tcp", s.statusListen)
 	if err != nil {
-		log.Printf("halaman status publik: %v", err)
+		log.Printf("public status page: %v", err)
 		return func() {}
 	}
 	srv := &http.Server{
@@ -286,7 +286,7 @@ func (s *Server) serveStatusOnly() (stop func()) {
 		MaxHeaderBytes:    8 << 10,
 	}
 	go func() { _ = srv.Serve(ln) }()
-	log.Printf("halaman status publik di http://%s/status/…", ln.Addr())
+	log.Printf("public status page at http://%s/status/…", ln.Addr())
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()

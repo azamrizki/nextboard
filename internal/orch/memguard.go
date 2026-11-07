@@ -23,7 +23,7 @@ const (
 )
 
 // ErrBadBlocked is a list the hub will not take.
-var ErrBadBlocked = errors.New("daftar perintah tidak valid")
+var ErrBadBlocked = errors.New("invalid command list")
 
 // defaultBlocked is what the first critical notes forbid in so many words. It is seeded
 // once, for all projects; the owner can change or empty it.

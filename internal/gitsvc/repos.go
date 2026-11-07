@@ -178,7 +178,7 @@ func (s *Service) Pick(ctx context.Context, r Repo, name string) (Repo, error) {
 			r.Sub = list.Items[0].Path
 			return r, nil
 		}
-		return refuse("repo_needed", "project ini punya beberapa repository; sebutkan salah satu")
+		return refuse("repo_needed", "this project has several repositories; name one")
 	}
 	if name == "." {
 		for _, it := range list.Items {
@@ -186,7 +186,7 @@ func (s *Service) Pick(ctx context.Context, r Repo, name string) (Repo, error) {
 				return r, nil
 			}
 		}
-		return refuse("repo_not_found", "project ini tidak punya repository di foldernya sendiri")
+		return refuse("repo_not_found", "this project has no repository in its own folder")
 	}
 	var hits []RepoInfo
 	for _, it := range list.Items {
@@ -200,10 +200,10 @@ func (s *Service) Pick(ctx context.Context, r Repo, name string) (Repo, error) {
 	}
 	switch len(hits) {
 	case 0:
-		return refuse("repo_not_found", "repository tidak ditemukan di project ini")
+		return refuse("repo_not_found", "repository not found in this project")
 	case 1:
 		r.Sub = hits[0].Path
 		return r, nil
 	}
-	return refuse("repo_ambiguous", "ada beberapa repository dengan nama ini; sebutkan path-nya")
+	return refuse("repo_ambiguous", "several repositories have this name; give its path")
 }

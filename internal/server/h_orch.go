@@ -258,7 +258,7 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request, p *princi
 		return
 	}
 	if !clientIDRe.MatchString(req.ClientID) {
-		writeErr(w, http.StatusBadRequest, "clientId tidak valid")
+		writeErr(w, http.StatusBadRequest, "invalid clientId")
 		return
 	}
 	req.ProjectID, req.By = r.PathValue("id"), by(p)
@@ -417,7 +417,7 @@ func (s *Server) handleConfirmation(w http.ResponseWriter, r *http.Request, p *p
 func (s *Server) threadID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	tid := r.PathValue("tid")
 	if !orch.ValidThreadID(tid) {
-		writeErrCode(w, http.StatusBadRequest, "bad_thread", "id thread tidak valid")
+		writeErrCode(w, http.StatusBadRequest, "bad_thread", "invalid thread id")
 		return "", false
 	}
 	return tid, true
@@ -839,7 +839,7 @@ func (s *Server) handleMemoryRefresh(w http.ResponseWriter, r *http.Request, p *
 		return
 	}
 	if strings.TrimSpace(req.Fact) == "" {
-		writeErrCode(w, http.StatusBadRequest, "empty_text", "fact kosong")
+		writeErrCode(w, http.StatusBadRequest, "empty_text", "fact is empty")
 		return
 	}
 	j, err := s.orch.RefreshMemory(pr.ID, req.Fact)

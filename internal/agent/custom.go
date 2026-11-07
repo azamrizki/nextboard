@@ -17,15 +17,15 @@ const File = "presets.json"
 
 // Errors map to {"error","code"} in the API.
 var (
-	ErrNotFound = errors.New("agen tidak ditemukan")
-	ErrExists   = errors.New("id agen sudah dipakai")
-	ErrBuiltin  = errors.New("agen bawaan/katalog tidak bisa diubah atau dihapus")
+	ErrNotFound = errors.New("agent not found")
+	ErrExists   = errors.New("the agent id is already used")
+	ErrBuiltin  = errors.New("a built-in/catalog agent cannot be changed or deleted")
 )
 
 // BadAgentError is a validation failure (400 bad_agent).
 type BadAgentError struct{ Msg string }
 
-func (e *BadAgentError) Error() string { return "agen tidak valid: " + e.Msg }
+func (e *BadAgentError) Error() string { return "invalid agent: " + e.Msg }
 
 func bad(format string, a ...any) error { return &BadAgentError{fmt.Sprintf(format, a...)} }
 
@@ -221,10 +221,10 @@ func slug(name string) string {
 func apply(e *entry, req Request, create bool) error {
 	for k := range req {
 		if !allowedFields[k] {
-			return bad("field %q tidak boleh untuk agen custom", k)
+			return bad("field %q is not allowed for a custom agent", k)
 		}
 		if k == "id" && !create {
-			return bad("id tidak bisa diubah")
+			return bad("the id cannot be changed")
 		}
 	}
 	dec := func(k string, v any) error {
@@ -265,23 +265,23 @@ func apply(e *entry, req Request, create bool) error {
 	e.Command = strings.TrimSpace(e.Command)
 	switch {
 	case e.Name == "" || len(e.Name) > 80:
-		return bad("name wajib diisi (≤ 80 karakter)")
+		return bad("name is required (≤ 80 characters)")
 	case e.Command == "" || len(e.Command) > 1024 || strings.ContainsAny(e.Command, "\x00\n\r"):
-		return bad("command wajib diisi")
+		return bad("command is required")
 	case e.Kind != "" && e.Kind != KindAgent && e.Kind != KindShell:
-		return bad(`kind harus "agent" atau "shell"`)
+		return bad(`kind must be "agent" or "shell"`)
 	case e.Base != "" && e.Base != "claude" && e.Base != "codex":
-		return bad(`base harus "claude", "codex" atau kosong`)
+		return bad(`base must be "claude", "codex" or empty`)
 	case e.Color != "" && !colorRe.MatchString(e.Color):
-		return bad("color harus #rrggbb")
+		return bad("color must be #rrggbb")
 	}
 	for _, list := range [][]string{e.Args, derefS(e.YoloArgs)} {
 		if len(list) > 64 {
-			return bad("terlalu banyak argumen")
+			return bad("too many arguments")
 		}
 		for _, a := range list {
 			if len(a) > 4096 || strings.ContainsRune(a, 0) {
-				return bad("argumen tidak valid")
+				return bad("invalid argument")
 			}
 		}
 	}
@@ -289,7 +289,7 @@ func apply(e *entry, req Request, create bool) error {
 		for _, kv := range list {
 			k, _, ok := strings.Cut(kv, "=")
 			if !ok || !envKeyRe.MatchString(k) || strings.ContainsRune(kv, 0) {
-				return bad("env harus KEY=VALUE: %q", kv)
+				return bad("env must be KEY=VALUE: %q", kv)
 			}
 		}
 	}
@@ -301,23 +301,23 @@ func apply(e *entry, req Request, create bool) error {
 		case ResumeContinue, ResumeNone:
 		case ResumeSessionID, ResumePicker:
 			if e.Base == "" {
-				return bad(`agen tanpa base hanya boleh resume.kind "continue" atau "none"`)
+				return bad(`an agent without a base can only use resume.kind "continue" or "none"`)
 			}
 		default:
-			return bad("resume.kind tidak dikenal")
+			return bad("unknown resume.kind")
 		}
 		if r.Kind == ResumeSessionID && !hasPlaceholder(r.ResumeArgs) {
-			return bad("resume.resumeArgs harus memakai %s", Placeholder)
+			return bad("resume.resumeArgs must use %s", Placeholder)
 		}
 		if e.Base == "" && (hasPlaceholder(r.LaunchArgs) || hasPlaceholder(r.ResumeArgs)) {
-			return bad("%s hanya untuk agen dengan base", Placeholder)
+			return bad("%s is only for agents with a base", Placeholder)
 		}
 	}
 	if badTemplate(all) {
-		return bad("template yang diizinkan hanya %s", Placeholder)
+		return bad("the only allowed template is %s", Placeholder)
 	}
 	if hasPlaceholder(append(append([]string{}, e.Args...), derefS(e.YoloArgs)...)) {
-		return bad("%s hanya boleh di resume", Placeholder)
+		return bad("%s is only allowed in resume", Placeholder)
 	}
 	return nil
 }
@@ -350,7 +350,7 @@ func (s *Store) Create(req Request) (Agent, error) {
 		e.ID = slug(e.Name)
 	}
 	if !idRe.MatchString(e.ID) {
-		return Agent{}, bad("id harus cocok ^[a-z][a-z0-9-]{1,23}$")
+		return Agent{}, bad("id must match ^[a-z][a-z0-9-]{1,23}$")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -140,7 +140,7 @@ func (m *Manager) bootstrapWayland(s *session, e *entry, target string, w, h int
 
 	ipc, err := dialSwayReady(s, 8*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("sway tidak siap: %s", lastLine(filepath.Join(s.dir, "display.log")))
+		return nil, fmt.Errorf("sway not ready: %s", lastLine(filepath.Join(s.dir, "display.log")))
 	}
 	ok := false
 	defer func() {
@@ -177,7 +177,7 @@ func (m *Manager) bootstrapWayland(s *session, e *entry, target string, w, h int
 func (m *Manager) startRFB(s *session) error {
 	wayvnc, ok := lookIn(m.pathEnv(), "wayvnc")
 	if !ok {
-		return errors.New("wayvnc tidak ditemukan")
+		return errors.New("wayvnc not found")
 	}
 	// A socket left by a crash would keep the new one from listening.
 	_ = os.Remove(s.sock())
@@ -194,7 +194,7 @@ func (m *Manager) startRFB(s *session) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return errors.New("wayvnc tidak siap: " + lastLine(filepath.Join(s.dir, "rfb.log")))
+			return errors.New("wayvnc not ready: " + lastLine(filepath.Join(s.dir, "rfb.log")))
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -230,13 +230,13 @@ func lockXwayland(s *session, ipc *swayIPC) error {
 			break
 		}
 		if time.Now().After(deadline) {
-			return errors.New("nomor display tidak diketahui")
+			return errors.New("display number not known")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(value), ":"))
 	if err != nil {
-		return fmt.Errorf("nomor display tidak valid: %q", value)
+		return fmt.Errorf("invalid display number: %q", value)
 	}
 	u, err := user.Current()
 	if err != nil {
@@ -294,7 +294,7 @@ func dialSwayReady(s *session, wait time.Duration) (*swayIPC, error) {
 			ipc.close()
 		}
 		if time.Now().After(deadline) || !processAlive(s.xpid) {
-			return nil, errors.New("sway tidak menjawab")
+			return nil, errors.New("sway does not answer")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -315,11 +315,11 @@ func (i *swayIPC) request(typ uint32, payload string) ([]byte, error) {
 		return nil, err
 	}
 	if string(head[:len(swayMagic)]) != swayMagic {
-		return nil, errors.New("sway: balasan tidak dikenal")
+		return nil, errors.New("sway: unknown reply")
 	}
 	n := binary.LittleEndian.Uint32(head[len(swayMagic):])
 	if n > 64<<20 {
-		return nil, errors.New("sway: balasan terlalu besar")
+		return nil, errors.New("sway: reply too large")
 	}
 	body := make([]byte, n)
 	_, err := io.ReadFull(i.c, body)
@@ -400,7 +400,7 @@ func walkSway(n swayNode) (count int, focused, newest string) {
 func (m *Manager) waylandVideoStream(s *session, w, h int, rate float64, codec string, cand []string, node string) (*Stream, error) {
 	bin, ok := lookIn(m.pathEnv(), "wf-recorder")
 	if !ok {
-		return nil, newErr(503, "video_unavailable", "wf-recorder tidak ditemukan")
+		return nil, newErr(503, "video_unavailable", "wf-recorder not found")
 	}
 	enc, mux := "h264_vaapi", "h264"
 	if codec == CodecAV1 {

@@ -43,7 +43,7 @@ const (
 )
 
 // ErrBadPattern is an invalid search regular expression.
-var ErrBadPattern = errors.New("pola pencarian tidak valid")
+var ErrBadPattern = errors.New("invalid search pattern")
 
 // gitSafe keeps git commands from running code out of a repo's own config:
 // opening a project must never execute anything from it.
@@ -98,7 +98,7 @@ func ListFiles(ctx context.Context, h machine.Host, root string) (*FileList, err
 		return nil, err
 	}
 	if res.ExitCode != 0 && !res.TimedOut && !res.Truncated {
-		return nil, fmt.Errorf("daftar file gagal: %s", strings.TrimSpace(string(res.Stderr)))
+		return nil, fmt.Errorf("listing files failed: %s", strings.TrimSpace(string(res.Stderr)))
 	}
 	return parseFileList(res.Stdout, res.TimedOut || res.Truncated), nil
 }
@@ -194,7 +194,7 @@ type SearchResult struct {
 // compileSearch builds the regular expression that locates matches in a line.
 func compileSearch(o SearchOptions) (*regexp.Regexp, error) {
 	if o.Query == "" {
-		return nil, fmt.Errorf("%w: kosong", ErrBadPattern)
+		return nil, fmt.Errorf("%w: empty", ErrBadPattern)
 	}
 	expr := o.Query
 	if !o.Regex {
@@ -282,7 +282,7 @@ func Search(ctx context.Context, h machine.Host, root string, o SearchOptions) (
 		if o.Regex {
 			return nil, fmt.Errorf("%w: %s", ErrBadPattern, msg)
 		}
-		return nil, fmt.Errorf("pencarian gagal: %s", msg)
+		return nil, fmt.Errorf("search failed: %s", msg)
 	}
 	out := parseSearch(res.Stdout, re, o)
 	out.Truncated = out.Truncated || res.TimedOut || res.Truncated
@@ -513,7 +513,7 @@ func Replace(ctx context.Context, h machine.Host, root string, o SearchOptions, 
 		return nil, err
 	}
 	if len(rels) > replaceMaxFiles {
-		return nil, fmt.Errorf("maksimal %d file sekaligus", replaceMaxFiles)
+		return nil, fmt.Errorf("at most %d files at once", replaceMaxFiles)
 	}
 	out := &ReplaceResult{Files: []ReplaceFile{}}
 	for _, rel := range rels {
@@ -543,7 +543,7 @@ func replaceOne(ctx context.Context, h machine.Host, root, rel string, re *regex
 		return 0, err
 	}
 	if fc.Binary || fc.Truncated {
-		return 0, errors.New("file biner atau lebih besar dari 1 MB dilewati")
+		return 0, errors.New("skipped: binary or larger than 1 MB")
 	}
 	n := len(re.FindAllStringIndex(fc.Content, -1))
 	if n == 0 {

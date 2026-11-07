@@ -15,14 +15,14 @@ import (
 
 // ErrDisconnected is returned by Proc.Wait when the transport (SSH
 // connection) dropped while the process may still be alive remotely.
-var ErrDisconnected = errors.New("koneksi terputus")
+var ErrDisconnected = errors.New("connection lost")
 
 // ErrNotConnected is returned by Start when the machine has no live link.
-var ErrNotConnected = errors.New("machine belum tersambung")
+var ErrNotConnected = errors.New("machine not connected yet")
 
 // ErrSessionsFull: the SSH server kept refusing a new channel; its MaxSessions
 // were all in use for as long as the hub waited. The link itself is fine.
-var ErrSessionsFull = errors.New("server SSH menolak sesi baru (MaxSessions penuh)")
+var ErrSessionsFull = errors.New("the SSH server refuses new sessions (MaxSessions reached)")
 
 // LinkLost says a call failed because of the connection, not because of what it
 // asked for. A dying link answers in many ways before the hub has noticed it.

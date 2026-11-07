@@ -451,7 +451,7 @@ func (s *Service) execConnect(c *execCtx, st Step, wid string) error {
 	}
 	src := byID[st.Source]
 	if src == nil {
-		return fmt.Errorf("tile %s sudah tidak ada", st.Source)
+		return fmt.Errorf("tile %s no longer exists", st.Source)
 	}
 	var ops []board.Op
 	var wired []string

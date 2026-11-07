@@ -21,10 +21,10 @@ import (
 // so the Host interface stays unchanged.
 
 // ErrExists: the target of a rename (or mkdir) already exists.
-var ErrExists = errors.New("path tujuan sudah ada")
+var ErrExists = errors.New("target path already exists")
 
 // ErrCopyIntoItself: the target of a copy lies inside the folder being copied.
-var ErrCopyIntoItself = errors.New("folder tidak bisa disalin ke dalam dirinya sendiri")
+var ErrCopyIntoItself = errors.New("a folder cannot be copied into itself")
 
 // copyTaken is the exit code of copyScript when the target already exists.
 const copyTaken = 73
@@ -79,12 +79,12 @@ func Copy(ctx context.Context, h Host, from, to string, unique bool) (*FileStat,
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			return nil, fmt.Errorf("gagal menyalin: %s", strings.TrimSpace(string(res.Stderr)))
+			return nil, fmt.Errorf("copy failed: %s", strings.TrimSpace(string(res.Stderr)))
 		case !unique:
 			return nil, ErrExists
 		}
 	}
-	return nil, fmt.Errorf("tidak ada nama bebas untuk %s", path.Base(to))
+	return nil, fmt.Errorf("no free name for %s", path.Base(to))
 }
 
 // Rename moves from to to on h; an existing target is never replaced.
@@ -95,7 +95,7 @@ func Rename(ctx context.Context, h Host, from, to string) (*FileStat, error) {
 	case *SSH:
 		return m.renameSFTP(ctx, from, to)
 	}
-	return nil, errors.New("machine tidak didukung")
+	return nil, errors.New("unsupported machine")
 }
 
 // Remove deletes one file, symlink or empty folder on h.
@@ -126,7 +126,7 @@ func Remove(ctx context.Context, h Host, p string) error {
 		}
 		return sc.Remove(abs)
 	}
-	return errors.New("machine tidak didukung")
+	return errors.New("unsupported machine")
 }
 
 // RealPath resolves symlinks of p (of its nearest existing parent when p
@@ -177,7 +177,7 @@ func RealPath(ctx context.Context, h Host, p string) (string, error) {
 			abs = parent
 		}
 	}
-	return "", errors.New("machine tidak didukung")
+	return "", errors.New("unsupported machine")
 }
 
 // Lstat reports p without following a final symlink (Exists:false when
@@ -216,7 +216,7 @@ func Lstat(ctx context.Context, h Host, p string) (*FileStat, bool, error) {
 		}
 		return statOf(abs, fi), fi.Mode()&os.ModeSymlink != 0, nil
 	}
-	return nil, false, errors.New("machine tidak didukung")
+	return nil, false, errors.New("unsupported machine")
 }
 
 func (l *Local) rename(from, to string) (*FileStat, error) {

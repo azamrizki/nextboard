@@ -39,7 +39,7 @@ func vaultErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
 		log.Printf("vault: %v", err)
-		writeErr(w, http.StatusInternalServerError, "vault gagal disimpan")
+		writeErr(w, http.StatusInternalServerError, "could not save the vault")
 	}
 }
 
@@ -100,7 +100,7 @@ func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, p *princ
 func (s *Server) handleVaultDelete(w http.ResponseWriter, r *http.Request, p *principal) {
 	base, err := strconv.ParseInt(r.URL.Query().Get("baseRev"), 10, 64)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "baseRev wajib ada")
+		writeErr(w, http.StatusBadRequest, "baseRev is required")
 		return
 	}
 	if err := s.credVault.Delete(r.PathValue("id"), base); err != nil {
@@ -183,7 +183,7 @@ func (s *Server) handleVaultReset(w http.ResponseWriter, r *http.Request, p *pri
 		return
 	}
 	if req.Confirm != "RESET" {
-		writeErr(w, http.StatusBadRequest, `konfirmasi harus "RESET"`)
+		writeErr(w, http.StatusBadRequest, `confirmation must be "RESET"`)
 		return
 	}
 	kept, err := s.credVault.Reset()

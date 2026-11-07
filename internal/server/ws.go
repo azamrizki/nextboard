@@ -106,7 +106,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, p *pri
 		return
 	}
 	if !s.checkOrigin(r, p) {
-		writeErr(w, http.StatusForbidden, "origin tidak diizinkan")
+		writeErr(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
 	c, err := upgrader.Upgrade(w, r, nil)
@@ -212,7 +212,7 @@ var snapshotKeys = map[string]string{"session": "sessions", "machine": "machines
 
 func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request, p *principal) {
 	if !s.checkOrigin(r, p) {
-		writeErr(w, http.StatusForbidden, "origin tidak diizinkan")
+		writeErr(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
 	c, err := upgrader.Upgrade(w, r, nil)

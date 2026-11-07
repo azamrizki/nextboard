@@ -41,12 +41,12 @@ const (
 var subSlugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 
 var (
-	ErrBadSubName    = errors.New("nama sub-memory harus huruf kecil, angka, dan tanda hubung")
-	ErrSubNotFound   = errors.New("sub-memory tidak ditemukan")
-	ErrCriticalStays = errors.New("critical notes wajib ada dan tidak bisa dihapus")
-	ErrCriticalOwner = errors.New("critical notes hanya bisa diubah pemilik project")
-	ErrTooManySubs   = errors.New("sub-memory sudah terlalu banyak (maksimal 64)")
-	ErrCriticalBig   = errors.New("critical notes melebihi 16 KB; aturan harus singkat")
+	ErrBadSubName    = errors.New("a sub-memory name must be lowercase letters, digits and hyphens")
+	ErrSubNotFound   = errors.New("sub-memory not found")
+	ErrCriticalStays = errors.New("critical notes must exist and cannot be deleted")
+	ErrCriticalOwner = errors.New("critical notes can only be changed by the project owner")
+	ErrTooManySubs   = errors.New("there are already too many sub-memories (at most 64)")
+	ErrCriticalBig   = errors.New("critical notes are larger than 16 KB; rules must be short")
 )
 
 // SubMemory is one sub-memory. Content is left out of listings.

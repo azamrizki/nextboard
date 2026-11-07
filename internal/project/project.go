@@ -25,10 +25,10 @@ const (
 )
 
 var (
-	ErrNotFound          = errors.New("project tidak ditemukan")
-	ErrWorkspaceNotFound = errors.New("workspace tidak ditemukan")
-	ErrLastWorkspace     = errors.New("workspace terakhir sebuah project tidak bisa dihapus")
-	ErrBadName           = fmt.Errorf("nama wajib diisi, maksimal %d karakter", MaxName)
+	ErrNotFound          = errors.New("project not found")
+	ErrWorkspaceNotFound = errors.New("workspace not found")
+	ErrLastWorkspace     = errors.New("the last workspace of a project cannot be deleted")
+	ErrBadName           = fmt.Errorf("a name is required, at most %d characters", MaxName)
 )
 
 // Workspace is one board tab inside a project.

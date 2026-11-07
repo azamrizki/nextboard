@@ -31,13 +31,13 @@ type ghRelease struct {
 
 func cmdUpdate(args []string) error {
 	fs, _ := newFlags("update")
-	repo := fs.String("repo", version.Repo, "repo GitHub owner/nama")
-	force := fs.Bool("force", false, "pasang ulang walau versinya sama")
+	repo := fs.String("repo", version.Repo, "GitHub repo owner/name")
+	force := fs.Bool("force", false, "reinstall even if the version is the same")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *repo == "" {
-		return errors.New("repo GitHub belum diketahui; pakai --repo owner/nextboard")
+		return errors.New("GitHub repo not known; use --repo owner/nextboard")
 	}
 	client := &http.Client{Timeout: 2 * time.Minute}
 	rel, err := latestRelease(client, *repo)
@@ -46,7 +46,7 @@ func cmdUpdate(args []string) error {
 	}
 	latest := strings.TrimPrefix(rel.TagName, "v")
 	if !*force && latest == strings.TrimPrefix(version.Version, "v") {
-		fmt.Println("Sudah versi terbaru:", version.Version)
+		fmt.Println("Already the latest version:", version.Version)
 		return nil
 	}
 	want := fmt.Sprintf("nextboard_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
@@ -60,7 +60,7 @@ func cmdUpdate(args []string) error {
 		}
 	}
 	if archiveURL == "" || sumsURL == "" {
-		return fmt.Errorf("aset %s atau checksums.txt tidak ada di rilis %s", want, rel.TagName)
+		return fmt.Errorf("asset %s or checksums.txt is missing from release %s", want, rel.TagName)
 	}
 	sums, err := fetch(client, sumsURL)
 	if err != nil {
@@ -86,15 +86,15 @@ func cmdUpdate(args []string) error {
 	}
 	tmp := self + ".new"
 	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
-		return fmt.Errorf("tidak bisa menulis %s: %w", tmp, err)
+		return fmt.Errorf("cannot write %s: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, self); err != nil {
 		os.Remove(tmp)
 		return err
 	}
-	fmt.Printf("Diperbarui %s → %s\n", version.Version, rel.TagName)
+	fmt.Printf("Updated %s → %s\n", version.Version, rel.TagName)
 	if err := restartService(); err != nil {
-		fmt.Fprintln(os.Stderr, "peringatan: restart service gagal:", err)
+		fmt.Fprintln(os.Stderr, "warning: service restart failed:", err)
 	}
 	return nil
 }
@@ -131,12 +131,12 @@ func verifyChecksum(sums []byte, name string, data []byte) error {
 		f := strings.Fields(sc.Text())
 		if len(f) == 2 && f[1] == name {
 			if f[0] != got {
-				return fmt.Errorf("checksum %s tidak cocok", name)
+				return fmt.Errorf("checksum %s does not match", name)
 			}
 			return nil
 		}
 	}
-	return fmt.Errorf("checksum untuk %s tidak ditemukan", name)
+	return fmt.Errorf("checksum for %s not found", name)
 }
 
 func extractBinary(archive []byte) ([]byte, error) {
@@ -148,7 +148,7 @@ func extractBinary(archive []byte) ([]byte, error) {
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
-			return nil, errors.New("binary nextboard tidak ada di arsip")
+			return nil, errors.New("nextboard binary not found in the archive")
 		}
 		if err != nil {
 			return nil, err

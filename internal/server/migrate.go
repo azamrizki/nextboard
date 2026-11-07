@@ -48,7 +48,7 @@ func (s *Server) migrate() error {
 	var old legacyBoard
 	legacy := false
 	if found, err := s.st.Load(legacyBoardFile, &old); err != nil {
-		log.Printf("board.json lama tidak terbaca, posisi node diabaikan: %v", err)
+		log.Printf("cannot read the old board.json, node positions ignored: %v", err)
 		legacy = true
 	} else {
 		legacy = found
@@ -60,13 +60,13 @@ func (s *Server) migrate() error {
 				continue
 			}
 			if _, err := s.boards.AddTerminal(pl.WorkspaceID, pl.ID, &r); err != nil {
-				log.Printf("migrasi node %s gagal: %v", pl.ID, err)
+				log.Printf("migrating node %s failed: %v", pl.ID, err)
 			}
 		}
 	}
 	for _, pl := range s.sessions.Placements() {
 		if _, err := s.boards.AddTerminal(pl.WorkspaceID, pl.ID, nil); err != nil {
-			log.Printf("node terminal %s gagal dibuat: %v", pl.ID, err)
+			log.Printf("could not make terminal node %s: %v", pl.ID, err)
 		}
 	}
 	s.boards.Flush()
@@ -74,7 +74,7 @@ func (s *Server) migrate() error {
 		if err := os.Rename(s.st.Path(legacyBoardFile), s.st.Path(legacyBoardFile+".migrated")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		log.Printf("board.json lama dimigrasi ke board workspace")
+		log.Printf("old board.json migrated to the workspace boards")
 	}
 	return nil
 }

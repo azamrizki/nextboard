@@ -23,11 +23,11 @@ import (
 // Errors of POST /api/sessions/{id}/agent (§3.3). The server maps them to
 // {"error","code"}.
 var (
-	ErrNotAgent     = errors.New("console ini bukan console agen")
-	ErrAgentRunning = errors.New("agen masih berjalan di console ini")
-	ErrShellBusy    = errors.New("shell sedang menjalankan perintah lain atau baru saja diketik")
-	ErrWrapMissing  = errors.New("wrapper agen tidak merespons; restart penuh console ini")
-	ErrOffline      = errors.New("machine belum tersambung")
+	ErrNotAgent     = errors.New("this console is not an agent console")
+	ErrAgentRunning = errors.New("an agent is still running in this console")
+	ErrShellBusy    = errors.New("the shell is running another command or was just typed in")
+	ErrWrapMissing  = errors.New("the agent wrapper does not respond; fully restart this console")
+	ErrOffline      = errors.New("the machine is not connected yet")
 )
 
 const (
@@ -306,11 +306,11 @@ func (s *Session) Foreground(ctx context.Context) (idle bool, comm string, err e
 	r, pid := s.cur, s.priv.WrapperPid
 	s.mu.Unlock()
 	if r == nil {
-		return false, "", errors.New("proses tidak berjalan")
+		return false, "", errors.New("the process is not running")
 	}
 	fg, ok := r.proc.(machine.Foregrounder)
 	if !ok {
-		return false, "", errors.New("cek proses tidak didukung")
+		return false, "", errors.New("the process check is not supported")
 	}
 	pgid, comm, err := fg.Foreground(ctx, pid)
 	if err != nil {

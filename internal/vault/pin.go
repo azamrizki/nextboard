@@ -33,8 +33,8 @@ const (
 )
 
 var (
-	ErrWrongPin = errors.New("PIN salah")
-	ErrPinGone  = errors.New("PIN tidak berlaku lagi")
+	ErrWrongPin = errors.New("wrong PIN")
+	ErrPinGone  = errors.New("the PIN is no longer valid")
 )
 
 // Pin is the hub's half of one browser's PIN.
@@ -67,7 +67,7 @@ func decodeProof(proof string) ([]byte, error) {
 
 func validatePin(id string, p Pin) error {
 	if p.ID != id || !idRe.MatchString(id) {
-		return errors.New("pin: id tidak cocok")
+		return errors.New("pin: id mismatch")
 	}
 	key, err := base64.StdEncoding.DecodeString(p.Key)
 	if err != nil || len(key) != 32 {

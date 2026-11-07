@@ -169,8 +169,8 @@ func Find(ctx context.Context, h machine.Host, root, q string, limit int) ([]Fin
 }
 
 var (
-	ErrOutsideProject = errors.New("path berada di luar folder project")
-	ErrTrashRoot      = errors.New("folder project sendiri tidak bisa dibuang")
+	ErrOutsideProject = errors.New("path is outside the project folder")
+	ErrTrashRoot      = errors.New("the project folder itself cannot be trashed")
 )
 
 // Inside reports whether p is root or below it (clean absolute paths).
@@ -191,7 +191,7 @@ func TrashPath(root, p string, git bool, now time.Time) (string, error) {
 	}
 	rel := strings.TrimPrefix(p, root+"/")
 	if strings.HasPrefix(rel, ".git/") || rel == ".git" || strings.HasPrefix(rel, ".nextboard-trash") {
-		return "", fmt.Errorf("%s tidak bisa dibuang", rel)
+		return "", fmt.Errorf("%s cannot be trashed", rel)
 	}
 	ts := now.Format("20060102-150405")
 	if git {
@@ -214,7 +214,7 @@ func MkdirAll(ctx context.Context, h machine.Host, root, dir string) error {
 		}
 		if st.Exists {
 			if !st.Dir {
-				return fmt.Errorf("%s bukan folder", d)
+				return fmt.Errorf("%s is not a folder", d)
 			}
 			break
 		}

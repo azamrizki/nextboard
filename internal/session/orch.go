@@ -80,7 +80,7 @@ func (s *Session) WriteDelivery(p []byte) error {
 	s.mu.Unlock()
 	s.finish(notify, ev)
 	if r == nil {
-		return errors.New("proses tidak berjalan")
+		return errors.New("the process is not running")
 	}
 	_, err := r.proc.Write(p)
 	return err
@@ -135,7 +135,7 @@ func (s *Session) Pause(ctx context.Context) error {
 	}
 	sg, ok := r.proc.(machine.ForegroundSignaler)
 	if !ok {
-		return errors.New("pause tidak didukung untuk console ini")
+		return errors.New("pause is not supported for this console")
 	}
 	if err := sg.SignalForeground(ctx, pid, "STOP"); err != nil {
 		return err
@@ -164,7 +164,7 @@ func (s *Session) Resume(ctx context.Context) error {
 	}
 	sg, ok := r.proc.(machine.ForegroundSignaler)
 	if !ok {
-		return errors.New("resume tidak didukung untuk console ini")
+		return errors.New("resume is not supported for this console")
 	}
 	if err := sg.SignalForeground(ctx, pid, "CONT"); err != nil {
 		return err

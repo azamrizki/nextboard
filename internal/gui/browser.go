@@ -42,7 +42,7 @@ type OpenedURL struct {
 // browser's command line, so anything else stays out: flags, file:// and the
 // browser's own schemes.
 func webURL(raw string) (string, error) {
-	bad := newErr(http.StatusBadRequest, "bad_url", "alamat web tidak valid (harus http atau https)")
+	bad := newErr(http.StatusBadRequest, "bad_url", "invalid web address (must be http or https)")
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > 8<<10 {
 		return "", bad
@@ -127,7 +127,7 @@ func (m *Manager) OpenURL(req OpenURLRequest) (OpenedURL, error) {
 	}
 	e := m.browser()
 	if e == nil {
-		return OpenedURL{}, newErr(http.StatusNotFound, "browser_not_found", "tidak ada browser yang didukung di This PC. Pasang Google Chrome atau Chromium (bukan versi snap atau flatpak).")
+		return OpenedURL{}, newErr(http.StatusNotFound, "browser_not_found", "no supported browser on This PC. Install Google Chrome or Chromium (not the snap or flatpak version)")
 	}
 	pub, err := m.launch(LaunchRequest{AppID: e.ID, Width: req.Width, Height: req.Height}, u)
 	var ge *Error
@@ -163,7 +163,7 @@ func (m *Manager) openTab(id string, e *entry, pageURL string) error {
 		_, err = m.spawn(s, argv, cwd, env, "app.log", nil)
 	}
 	if err != nil {
-		return newErr(http.StatusInternalServerError, "gui_start_failed", "gagal membuka tab baru: %v", err)
+		return newErr(http.StatusInternalServerError, "gui_start_failed", "failed to open a new tab: %v", err)
 	}
 	return nil
 }

@@ -254,38 +254,38 @@ func Describe(e Event) string {
 	}
 	switch e.Kind {
 	case HubStart:
-		return fmt.Sprintf("hub berjalan (versi %s, pid %d)", e.Version, e.PID)
+		return fmt.Sprintf("hub running (version %s, pid %d)", e.Version, e.PID)
 	case HubStop:
-		return "hub berhenti normal"
+		return "hub stopped normally"
 	case HubUnclean:
 		if e.LastSeen != nil {
-			return "hub sebelumnya mati mendadak, terakhir hidup " + e.LastSeen.Local().Format("15:04:05")
+			return "the previous hub died suddenly, last alive " + e.LastSeen.Local().Format("15:04:05")
 		}
-		return "hub sebelumnya mati mendadak"
+		return "the previous hub died suddenly"
 	case Connected:
-		s := "tersambung dalam " + d(e.DurationMs)
+		s := "connected in " + d(e.DurationMs)
 		if e.DowntimeMs > 0 {
-			s += fmt.Sprintf(", setelah putus %s", d(e.DowntimeMs))
+			s += fmt.Sprintf(", after %s disconnected", d(e.DowntimeMs))
 		}
 		return s
 	case ConnectFailed:
-		return fmt.Sprintf("gagal menyambung (percobaan %d): %s", e.Attempt, firstOf(e.Reason, e.Error))
+		return fmt.Sprintf("could not connect (attempt %d): %s", e.Attempt, firstOf(e.Reason, e.Error))
 	case Disconnected:
-		s := fmt.Sprintf("putus: %s, setelah tersambung %s", e.Reason, d(e.UptimeMs))
+		s := fmt.Sprintf("disconnected: %s, after %s connected", e.Reason, d(e.UptimeMs))
 		if e.Error != "" {
 			s += " (" + e.Error + ")"
 		}
 		return s
 	case KeepaliveMiss:
-		return fmt.Sprintf("keepalive tidak dijawab (%d berturut-turut)", e.Misses)
+		return fmt.Sprintf("keepalive not answered (%d in a row)", e.Misses)
 	case LinkStats:
-		return fmt.Sprintf("koneksi sehat: latensi rata-rata %d ms, maks %d ms, %d panggilan, %d gagal", e.RTTAvgMs, e.RTTMaxMs, e.Calls, e.Failures)
+		return fmt.Sprintf("connection healthy: average latency %d ms, max %d ms, %d calls, %d failed", e.RTTAvgMs, e.RTTMaxMs, e.Calls, e.Failures)
 	case ToolFailed:
-		return fmt.Sprintf("tool %s gagal setelah %s: %s", e.Tool, d(e.DurationMs), e.Reason)
+		return fmt.Sprintf("tool %s failed after %s: %s", e.Tool, d(e.DurationMs), e.Reason)
 	case ToolSlow:
-		return fmt.Sprintf("tool %s lambat: %s", e.Tool, d(e.DurationMs))
+		return fmt.Sprintf("tool %s slow: %s", e.Tool, d(e.DurationMs))
 	case ChannelLost:
-		return "channel console putus: " + e.SessionID
+		return "console channel lost: " + e.SessionID
 	}
 	return e.Kind
 }

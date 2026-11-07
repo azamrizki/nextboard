@@ -22,7 +22,7 @@ func defaultPreviews() Previews { return Previews{Auto: true, PortRange: [2]int{
 func validatePreviews(s *Settings) error {
 	r := s.Previews.PortRange
 	if r[0] < 1024 || r[1] > 65535 || r[1] < r[0] || r[1]-r[0] > 199 {
-		return badSetting("previews.portRange harus [awal, akhir] di 1024–65535, maksimal 200 port")
+		return badSetting("previews.portRange must be [start, end] within 1024–65535, at most 200 ports")
 	}
 	return nil
 }

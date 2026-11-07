@@ -36,10 +36,10 @@ func (s *Server) handleSettingsPatch(w http.ResponseWriter, r *http.Request, p *
 	if err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
-			writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "body terlalu besar")
+			writeErrCode(w, http.StatusRequestEntityTooLarge, "body_too_large", "body too large")
 			return
 		}
-		writeErr(w, http.StatusBadRequest, "body tidak terbaca")
+		writeErr(w, http.StatusBadRequest, "cannot read the body")
 		return
 	}
 	doc, err := s.settings.Patch(body)
@@ -103,7 +103,7 @@ func (s *Server) handleProfileCreate(w http.ResponseWriter, r *http.Request, p *
 	}
 	a, ok := s.agents.Get(req.Agent)
 	if !ok || a.ProfileEnv == "" {
-		writeErrCode(w, http.StatusBadRequest, "profile_unsupported", "agen ini tidak mendukung profil login")
+		writeErrCode(w, http.StatusBadRequest, "profile_unsupported", "this agent does not support login profiles")
 		return
 	}
 	if _, err := profiles.CleanName(req.Name); err != nil {
@@ -112,12 +112,12 @@ func (s *Server) handleProfileCreate(w http.ResponseWriter, r *http.Request, p *
 	}
 	local := req.MachineID == machine.LocalID
 	if req.Create && !local {
-		writeErrCode(w, http.StatusForbidden, "remote_create_forbidden", "hub tidak membuat folder profil di machine remote; pilih folder yang sudah ada")
+		writeErrCode(w, http.StatusForbidden, "remote_create_forbidden", "the hub does not make profile folders on a remote machine; pick an existing folder")
 		return
 	}
 	if !req.Create {
 		if req.Dir == "" {
-			writeErrCode(w, http.StatusBadRequest, "profile_dir_missing", "dir wajib diisi")
+			writeErrCode(w, http.StatusBadRequest, "profile_dir_missing", "dir is required")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -128,7 +128,7 @@ func (s *Server) handleProfileCreate(w http.ResponseWriter, r *http.Request, p *
 			return
 		}
 		if !st.Exists || !st.Dir {
-			writeErrCode(w, http.StatusBadRequest, "profile_dir_missing", "folder profil tidak ada: "+st.Path)
+			writeErrCode(w, http.StatusBadRequest, "profile_dir_missing", "profile folder does not exist: "+st.Path)
 			return
 		}
 		req.Dir = st.Path

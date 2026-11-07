@@ -157,14 +157,14 @@ type PublishResult struct {
 func (s *Service) PublishGitHub(ctx context.Context, r Repo, req PublishRequest, onFinish func(jobs.Job)) (jobs.Job, error) {
 	req.Name = strings.TrimSpace(req.Name)
 	if !repoNameRe.MatchString(req.Name) || strings.HasSuffix(req.Name, ".git") || strings.HasPrefix(path0(req.Name), ".") {
-		return jobs.Job{}, newErr(http.StatusBadRequest, "bad_name", "nama repository tidak valid")
+		return jobs.Job{}, newErr(http.StatusBadRequest, "bad_name", "invalid repository name")
 	}
 	switch req.Visibility {
 	case "":
 		req.Visibility = "private"
 	case "private", "public":
 	default:
-		return jobs.Job{}, newErr(http.StatusBadRequest, "bad_visibility", `visibility harus "private" atau "public"`)
+		return jobs.Job{}, newErr(http.StatusBadRequest, "bad_visibility", `visibility must be "private" or "public"`)
 	}
 	st, err := s.Status(ctx, r)
 	if err != nil {
@@ -174,25 +174,25 @@ func (s *Service) PublishGitHub(ctx context.Context, r Repo, req PublishRequest,
 		return jobs.Job{}, errNotRepo()
 	}
 	if st.HasRemote {
-		return jobs.Job{}, newErr(http.StatusConflict, "remote_exists", "repository sudah punya remote (%s)", st.RemoteName)
+		return jobs.Job{}, newErr(http.StatusConflict, "remote_exists", "the repository already has a remote (%s)", st.RemoteName)
 	}
 	if st.Detached {
-		return jobs.Job{}, newErr(http.StatusConflict, "detached", "HEAD tidak berada di branch")
+		return jobs.Job{}, newErr(http.StatusConflict, "detached", "HEAD is not on a branch")
 	}
 	if req.CommitAll && st.Changed > 0 {
 		if st.Conflicts > 0 {
-			return jobs.Job{}, newErr(http.StatusConflict, "conflicts", "selesaikan konflik merge dulu")
+			return jobs.Job{}, newErr(http.StatusConflict, "conflicts", "resolve the merge conflicts first")
 		}
 		if len(st.LargeFiles) > 0 {
 			var ps []string
 			for _, l := range st.LargeFiles {
 				ps = append(ps, l.Path)
 			}
-			return jobs.Job{}, &Error{Status: http.StatusConflict, Code: "large_files", Msg: "file lebih dari 100 MB tidak bisa di-push ke GitHub", Paths: ps}
+			return jobs.Job{}, &Error{Status: http.StatusConflict, Code: "large_files", Msg: "files over 100 MB cannot be pushed to GitHub", Paths: ps}
 		}
 	}
 	if !req.CommitAll && !st.HasCommits {
-		return jobs.Job{}, newErr(http.StatusConflict, "no_commits", "belum ada commit untuk di-push")
+		return jobs.Job{}, newErr(http.StatusConflict, "no_commits", "there are no commits to push yet")
 	}
 	msg := strings.TrimSpace(req.Message)
 	if msg == "" {
@@ -226,7 +226,7 @@ func (s *Service) PublishGitHub(ctx context.Context, r Repo, req PublishRequest,
 		}
 		if err != nil {
 			if strings.Contains(pw.output(), markNoGh) {
-				err = &Error{Status: http.StatusConflict, Code: "gh_missing", Msg: "gh tidak terpasang di machine ini"}
+				err = &Error{Status: http.StatusConflict, Code: "gh_missing", Msg: "gh is not installed on this machine"}
 			} else if ge, ok := err.(*Error); ok && (strings.Contains(strings.ToLower(pw.output()), "gh auth login") || strings.Contains(strings.ToLower(pw.output()), "not logged")) {
 				ge.Code = "gh_not_logged_in"
 			}

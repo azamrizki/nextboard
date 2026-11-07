@@ -273,7 +273,7 @@ func TestLocalTerminalOverWS(t *testing.T) {
 	snap, _ := h.srv.sessions.Get(id)
 	b, sub := snap.Subscribe()
 	snap.Unsubscribe(sub)
-	if !bytes.Contains(b, []byte("proses selesai (kode 3)")) {
+	if !bytes.Contains(b, []byte("process exited (code 3)")) {
 		t.Fatalf("scrollback missing exit marker")
 	}
 	if st, _ := h.do("DELETE", "/api/sessions/"+id, nil, nil); st != 200 {
@@ -302,7 +302,7 @@ func TestUnknownCommandKeepsNode(t *testing.T) {
 			s, _ := h.srv.sessions.Get(id)
 			b, sub := s.Subscribe()
 			s.Unsubscribe(sub)
-			if !bytes.Contains(b, []byte("perintah tidak ditemukan")) {
+			if !bytes.Contains(b, []byte("command not found")) {
 				t.Fatalf("no red message: %q", b)
 			}
 			return
@@ -427,7 +427,7 @@ func TestHubRestartResumesSessions(t *testing.T) {
 	defer srv2.boards.Close()
 	srv2.sessions.Start()
 	b := waitScrollback(t, srv2, in.ID, "RUN:resumed")
-	if !bytes.Contains(b, []byte("RUN:sh")) || !bytes.Contains(b, []byte("hub dimulai ulang")) {
+	if !bytes.Contains(b, []byte("RUN:sh")) || !bytes.Contains(b, []byte("hub restarted")) {
 		t.Fatalf("old scrollback not restored: %q", b)
 	}
 }

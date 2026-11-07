@@ -34,12 +34,12 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	key := "setup:" + clientIP(r)
 	if s.limiter.Blocked(key) {
-		writeErr(w, http.StatusTooManyRequests, "terlalu banyak percobaan, coba lagi nanti")
+		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again later")
 		return
 	}
 	req.HubName = strings.TrimSpace(req.HubName)
 	if req.HubName == "" || len(req.HubName) > 64 {
-		writeErr(w, http.StatusBadRequest, "nama hub wajib diisi (maks 64 karakter)")
+		writeErr(w, http.StatusBadRequest, "hub name is required (at most 64 characters)")
 		return
 	}
 	tok, err := s.auth.CompleteSetup(req.Code, req.Password)
@@ -79,7 +79,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	key := "login:" + clientIP(r)
 	if s.limiter.Blocked(key) {
-		writeErr(w, http.StatusTooManyRequests, "terlalu banyak percobaan gagal, coba lagi dalam 10 menit")
+		writeErr(w, http.StatusTooManyRequests, "too many failed attempts, try again in 10 minutes")
 		return
 	}
 	tok, err := s.auth.Login(req.Password)
@@ -89,7 +89,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.limiter.Fail(key)
-		writeErr(w, http.StatusUnauthorized, "password salah")
+		writeErr(w, http.StatusUnauthorized, "wrong password")
 		return
 	}
 	s.setCookie(w, r, tok)
@@ -140,7 +140,7 @@ func (s *Server) handleDeviceAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	key := "device:" + clientIP(r)
 	if s.limiter.Blocked(key) {
-		writeErr(w, http.StatusTooManyRequests, "terlalu banyak percobaan gagal")
+		writeErr(w, http.StatusTooManyRequests, "too many failed attempts")
 		return
 	}
 	tok, exp, err := s.auth.DeviceLogin(req.DeviceID, req.Nonce, req.Sig)
@@ -197,7 +197,7 @@ func (s *Server) handlePairComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	key := "pair:" + clientIP(r)
 	if s.limiter.Blocked(key) {
-		writeErr(w, http.StatusTooManyRequests, "terlalu banyak percobaan gagal")
+		writeErr(w, http.StatusTooManyRequests, "too many failed attempts")
 		return
 	}
 	d, err := s.auth.CompletePairing(req.Code, req.DeviceName, req.Platform, req.PublicKey)
@@ -207,7 +207,7 @@ func (s *Server) handlePairComplete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, err.Error())
 		return
 	case errors.Is(err, auth.ErrBadInput):
-		writeErr(w, http.StatusBadRequest, "deviceName/platform/publicKey tidak valid")
+		writeErr(w, http.StatusBadRequest, "invalid deviceName/platform/publicKey")
 		return
 	case err != nil:
 		writeErr(w, http.StatusInternalServerError, err.Error())

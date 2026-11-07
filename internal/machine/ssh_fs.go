@@ -291,7 +291,7 @@ func (m *SSH) ReadFile(ctx context.Context, p string, max int64) (*FileContent, 
 // `tail -c | head -c` through the read-only exec fallback).
 func (m *SSH) ReadAt(ctx context.Context, p string, off, n int64) ([]byte, *FileStat, error) {
 	if off < 0 || n < 0 {
-		return nil, nil, errors.New("offset tidak valid")
+		return nil, nil, errors.New("invalid offset")
 	}
 	sc, home, done, err := m.sftpClient(ctx)
 	if errors.Is(err, ErrNoSFTP) {
@@ -379,7 +379,7 @@ func (m *SSH) WriteFile(ctx context.Context, p string, data []byte, opt WriteOpt
 			}
 			return finishSFTPWrite(sc, f, cand, data)
 		}
-		return nil, fmt.Errorf("tidak ada nama bebas untuk %s", path.Base(abs))
+		return nil, fmt.Errorf("no free name for %s", path.Base(abs))
 	}
 	fi, err := sc.Stat(abs)
 	if err != nil && !notExist(err) {
@@ -416,7 +416,7 @@ func (m *SSH) Mkdir(ctx context.Context, p string) error {
 		if fi.IsDir() {
 			return nil
 		}
-		return errors.New("path sudah ada dan bukan folder")
+		return errors.New("path already exists and is not a folder")
 	}
 	return sc.Mkdir(abs)
 }
@@ -510,11 +510,11 @@ func statScript(expr string) string {
 func parseStat(out string) (*FileStat, string, error) {
 	i := strings.Index(out, statMarker+" ")
 	if i < 0 {
-		return nil, "", errors.New("output stat tidak terduga")
+		return nil, "", errors.New("unexpected stat output")
 	}
 	lines := strings.SplitN(out[i+len(statMarker)+1:], "\n", 3)
 	if len(lines) < 2 {
-		return nil, "", errors.New("output stat tidak terduga")
+		return nil, "", errors.New("unexpected stat output")
 	}
 	abs := path.Clean(lines[0])
 	st := &FileStat{Path: abs, Name: path.Base(abs)}
@@ -569,14 +569,14 @@ func (m *SSH) execRead(ctx context.Context, p string, n int64) (*FileStat, []byt
 	case kind == "d":
 		return nil, nil, ErrIsDir
 	case kind != "f":
-		return nil, nil, errors.New("bukan file biasa")
+		return nil, nil, errors.New("not a regular file")
 	}
 	i := bytes.Index(out, []byte(dataMarker+"\n"))
 	if i < 0 {
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, nil, errors.New("output head tidak terduga")
+		return nil, nil, errors.New("unexpected head output")
 	}
 	return st, out[i+len(dataMarker)+1:], nil
 }
@@ -603,11 +603,11 @@ func (m *SSH) execReadAt(ctx context.Context, p string, off, n int64) ([]byte, *
 	case kind == "d":
 		return nil, nil, ErrIsDir
 	case kind != "f":
-		return nil, nil, errors.New("bukan file biasa")
+		return nil, nil, errors.New("not a regular file")
 	}
 	i := bytes.Index(out, []byte(dataMarker+"\n"))
 	if i < 0 {
-		return nil, nil, errors.New("output tail tidak terduga")
+		return nil, nil, errors.New("unexpected tail output")
 	}
 	data := out[i+len(dataMarker)+1:]
 	if int64(len(data)) > n {

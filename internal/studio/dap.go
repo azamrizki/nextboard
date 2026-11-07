@@ -70,7 +70,7 @@ var DebugAdapters = []DebugAdapter{
 }
 
 // ErrNoDebugAdapter: the catalog has no such adapter or none is installed.
-var ErrNoDebugAdapter = errors.New("debug adapter tidak ditemukan di machine ini")
+var ErrNoDebugAdapter = errors.New("debug adapter not found on this machine")
 
 // DebugAdapterStatus is one row of GET /api/projects/{id}/dap.
 type DebugAdapterStatus struct {
@@ -176,7 +176,7 @@ func AdapterPort(stdout io.Reader) (int, error) {
 				return
 			}
 			if err != nil {
-				got <- result{err: errors.New("debug adapter berhenti sebelum membuka port")}
+				got <- result{err: errors.New("the debug adapter stopped before opening a port")}
 				return
 			}
 		}
@@ -185,6 +185,6 @@ func AdapterPort(stdout io.Reader) (int, error) {
 	case r := <-got:
 		return r.port, r.err
 	case <-time.After(adapterPortWait):
-		return 0, errors.New("debug adapter tidak membuka port")
+		return 0, errors.New("the debug adapter did not open a port")
 	}
 }

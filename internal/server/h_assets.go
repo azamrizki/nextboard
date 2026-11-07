@@ -32,32 +32,32 @@ func (s *Server) assetPath(id string) string { return s.st.Path("assets", id) }
 func (s *Server) handleAssetUpload(w http.ResponseWriter, r *http.Request, p *principal) {
 	declared, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if !assetTypes[declared] {
-		writeErr(w, http.StatusUnsupportedMediaType, "tipe gambar tidak didukung (png, jpeg, gif, webp)")
+		writeErr(w, http.StatusUnsupportedMediaType, "image type not supported (png, jpeg, gif, webp)")
 		return
 	}
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
-			writeErr(w, http.StatusRequestEntityTooLarge, "gambar lebih dari 20 MB")
+			writeErr(w, http.StatusRequestEntityTooLarge, "image larger than 20 MB")
 			return
 		}
-		writeErr(w, http.StatusBadRequest, "gagal membaca body")
+		writeErr(w, http.StatusBadRequest, "could not read the body")
 		return
 	}
 	if len(data) == 0 {
-		writeErr(w, http.StatusBadRequest, "body kosong")
+		writeErr(w, http.StatusBadRequest, "empty body")
 		return
 	}
 	// Trust the bytes, not the header.
 	typ := http.DetectContentType(data)
 	if !assetTypes[typ] {
-		writeErr(w, http.StatusUnsupportedMediaType, "isi file bukan gambar png, jpeg, gif atau webp")
+		writeErr(w, http.StatusUnsupportedMediaType, "the file content is not a png, jpeg, gif or webp image")
 		return
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		writeErr(w, http.StatusUnsupportedMediaType, "gambar tidak bisa dibaca")
+		writeErr(w, http.StatusUnsupportedMediaType, "the image cannot be read")
 		return
 	}
 	if err := os.MkdirAll(s.st.Path("assets"), 0o700); err != nil {
@@ -77,18 +77,18 @@ func (s *Server) handleAssetUpload(w http.ResponseWriter, r *http.Request, p *pr
 func (s *Server) handleAssetGet(w http.ResponseWriter, r *http.Request, p *principal) {
 	id := r.PathValue("id")
 	if !assetIDRe.MatchString(id) {
-		writeErr(w, http.StatusNotFound, "aset tidak ditemukan")
+		writeErr(w, http.StatusNotFound, "asset not found")
 		return
 	}
 	f, err := os.Open(s.assetPath(id))
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "aset tidak ditemukan")
+		writeErr(w, http.StatusNotFound, "asset not found")
 		return
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil || !fi.Mode().IsRegular() {
-		writeErr(w, http.StatusNotFound, "aset tidak ditemukan")
+		writeErr(w, http.StatusNotFound, "asset not found")
 		return
 	}
 	head := make([]byte, 512)

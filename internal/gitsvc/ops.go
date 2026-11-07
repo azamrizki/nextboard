@@ -19,7 +19,7 @@ import (
 // cleanPath validates a repo-relative path from a client: relative, inside
 // the repository, no control characters, never the .git folder.
 func cleanPath(p string) (string, error) {
-	bad := func() error { return newErr(http.StatusBadRequest, "bad_path", "path tidak valid: %q", p) }
+	bad := func() error { return newErr(http.StatusBadRequest, "bad_path", "invalid path: %q", p) }
 	if p == "" || len(p) > 4096 || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\x00\r\n") || !utf8.ValidString(p) {
 		return "", bad()
 	}
@@ -37,7 +37,7 @@ func cleanPath(p string) (string, error) {
 
 func cleanPaths(ps []string) ([]string, error) {
 	if len(ps) > maxPaths {
-		return nil, newErr(http.StatusBadRequest, "too_many", "maksimal %d path", maxPaths)
+		return nil, newErr(http.StatusBadRequest, "too_many", "at most %d paths", maxPaths)
 	}
 	out := make([]string, 0, len(ps))
 	seen := map[string]bool{}
@@ -121,7 +121,7 @@ func (s *Service) Show(ctx context.Context, r Repo, p, ref string) (*FileAt, err
 		ref = "HEAD"
 	}
 	if !showRef.MatchString(ref) {
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "ref tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid ref")
 	}
 	q := machine.Quote(ref + ":" + p)
 	script := prelude(true, true) + fmt.Sprintf(`git cat-file -e %s 2>/dev/null || exit %d; git cat-file blob %s`, q, exitNoBlob, q)
@@ -307,7 +307,7 @@ const commitStatsMark = "\x00@@STATS@@\x00"
 // changed against its first parent, a first commit everything it added.
 func (s *Service) CommitDetail(ctx context.Context, r Repo, ref string) (*CommitDetail, error) {
 	if !showRef.MatchString(ref) {
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "ref tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid ref")
 	}
 	script := prelude(true, true) +
 		`h=$(git rev-parse -q --verify ` + machine.Quote(ref+"^{commit}") + ` 2>/dev/null) || exit ` + strconv.Itoa(exitNoBlob) + `; ` +
@@ -321,13 +321,13 @@ func (s *Service) CommitDetail(ctx context.Context, r Repo, ref string) (*Commit
 	}
 	switch {
 	case res.ExitCode == exitNoBlob:
-		return nil, newErr(http.StatusNotFound, "commit_not_found", "commit tidak ditemukan")
+		return nil, newErr(http.StatusNotFound, "commit_not_found", "commit not found")
 	case res.ExitCode != 0:
 		return nil, failed(res, "git_failed", http.StatusBadGateway)
 	}
 	d := parseCommitDetail(string(res.Stdout))
 	if d == nil {
-		return nil, newErr(http.StatusBadGateway, "git_failed", "keluaran git tidak terbaca")
+		return nil, newErr(http.StatusBadGateway, "git_failed", "could not read git's output")
 	}
 	return d, nil
 }
@@ -585,17 +585,17 @@ const markNoIdent = "__NB_NOIDENT__"
 func (s *Service) Commit(ctx context.Context, r Repo, req CommitRequest) (*CommitResult, error) {
 	msg := strings.TrimSpace(req.Message)
 	if msg == "" {
-		return nil, newErr(http.StatusBadRequest, "empty_message", "pesan commit kosong")
+		return nil, newErr(http.StatusBadRequest, "empty_message", "the commit message is empty")
 	}
 	if len(msg) > maxMessage || strings.ContainsRune(msg, 0) {
-		return nil, newErr(http.StatusBadRequest, "bad_message", "pesan commit tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_message", "invalid commit message")
 	}
 	paths, err := cleanPaths(req.Paths)
 	if err != nil {
 		return nil, err
 	}
 	if !req.All && !req.Staged && len(paths) == 0 {
-		return nil, newErr(http.StatusBadRequest, "no_paths", "pilih file yang akan di-commit")
+		return nil, newErr(http.StatusBadRequest, "no_paths", "choose the files to commit")
 	}
 	unlock, err := s.lock(r, "commit")
 	if err != nil {
@@ -635,14 +635,14 @@ func (s *Service) commitLocked(ctx context.Context, r Repo, req CommitRequest, m
 		return nil, errNotRepo()
 	}
 	if st.Conflicts > 0 {
-		return nil, newErr(http.StatusConflict, "conflicts", "selesaikan konflik merge dulu (%d file)", st.Conflicts)
+		return nil, newErr(http.StatusConflict, "conflicts", "resolve the merge conflicts first (%d files)", st.Conflicts)
 	}
 	// Resolve the selection against the current changes; a renamed
 	// file brings its old path along.
 	var sel []string
 	if req.Staged {
 		if !st.hasStaged() {
-			return nil, newErr(http.StatusConflict, "nothing_to_commit", "tidak ada yang di-stage")
+			return nil, newErr(http.StatusConflict, "nothing_to_commit", "nothing is staged")
 		}
 	} else if !req.All {
 		set := map[string]bool{}
@@ -661,13 +661,13 @@ func (s *Service) commitLocked(ctx context.Context, r Repo, req CommitRequest, m
 		}
 		sort.Strings(sel)
 		if len(sel) == 0 && !st.Truncated {
-			return nil, newErr(http.StatusConflict, "nothing_to_commit", "tidak ada perubahan pada file yang dipilih")
+			return nil, newErr(http.StatusConflict, "nothing_to_commit", "the chosen files have no changes")
 		}
 		if len(sel) == 0 {
 			sel = paths // beyond the 400 listed files; git decides
 		}
 	} else if st.Changed == 0 {
-		return nil, newErr(http.StatusConflict, "nothing_to_commit", "tidak ada perubahan untuk di-commit")
+		return nil, newErr(http.StatusConflict, "nothing_to_commit", "no changes to commit")
 	}
 	if !req.AllowLarge {
 		var big []string
@@ -681,7 +681,7 @@ func (s *Service) commitLocked(ctx context.Context, r Repo, req CommitRequest, m
 			}
 		}
 		if len(big) > 0 {
-			return nil, &Error{Status: http.StatusConflict, Code: "large_files", Msg: "file lebih dari 100 MB tidak bisa di-push ke GitHub", Paths: big}
+			return nil, &Error{Status: http.StatusConflict, Code: "large_files", Msg: "files over 100 MB cannot be pushed to GitHub", Paths: big}
 		}
 	}
 	ident := `[ -n "$(git config user.email)" ] || [ -n "${GIT_AUTHOR_EMAIL:-}${EMAIL:-}" ] || { echo ` + markNoIdent + ` >&2; exit 3; }; ` +
@@ -708,10 +708,10 @@ func (s *Service) commitLocked(ctx context.Context, r Repo, req CommitRequest, m
 	if res.ExitCode != 0 {
 		stderr := string(res.Stderr)
 		if strings.Contains(stderr, markNoIdent) || strings.Contains(stderr, "Please tell me who you are") || strings.Contains(stderr, "Author identity unknown") {
-			return nil, newErr(http.StatusUnprocessableEntity, "git_identity", "user.name / user.email git belum diset di machine ini (git config --global user.email …)")
+			return nil, newErr(http.StatusUnprocessableEntity, "git_identity", "git user.name / user.email is not set on this machine (git config --global user.email …)")
 		}
 		if strings.Contains(stderr, "nothing to commit") || strings.Contains(string(res.Stdout), "nothing to commit") {
-			return nil, newErr(http.StatusConflict, "nothing_to_commit", "tidak ada perubahan untuk di-commit")
+			return nil, newErr(http.StatusConflict, "nothing_to_commit", "no changes to commit")
 		}
 		return nil, failed(res, "git_failed", http.StatusConflict)
 	}
@@ -744,7 +744,7 @@ func (s *Service) Discard(ctx context.Context, r Repo, paths []string) (*Discard
 		return nil, err
 	}
 	if len(paths) == 0 {
-		return nil, newErr(http.StatusBadRequest, "no_paths", "pilih file yang akan dibuang")
+		return nil, newErr(http.StatusBadRequest, "no_paths", "choose the files to discard")
 	}
 	unlock, err := s.lock(r, "discard")
 	if err != nil {
@@ -777,7 +777,7 @@ func (s *Service) Discard(ctx context.Context, r Repo, paths []string) (*Discard
 		}
 	}
 	if len(untracked)+len(tracked) == 0 {
-		return nil, newErr(http.StatusConflict, "nothing_to_discard", "tidak ada perubahan pada file yang dipilih")
+		return nil, newErr(http.StatusConflict, "nothing_to_discard", "the chosen files have no changes")
 	}
 	ts := s.Now().Format("20060102-150405")
 	// mkdir without -p on the item folder: a second discard within the
@@ -815,7 +815,7 @@ func (s *Service) Discard(ctx context.Context, r Repo, paths []string) (*Discard
 	if res.ExitCode != 0 {
 		e := failed(res, "git_failed", http.StatusConflict)
 		if id != "" {
-			e.Msg += " (salinan ada di .git/nextboard-trash/" + id + ")"
+			e.Msg += " (a copy is in .git/nextboard-trash/" + id + ")"
 		}
 		return nil, e
 	}
@@ -885,7 +885,7 @@ const markExists = "__NB_EXISTS__"
 // exists with the paths in the way).
 func (s *Service) RestoreTrash(ctx context.Context, r Repo, id string, paths []string) ([]string, error) {
 	if !tsRe.MatchString(id) {
-		return nil, newErr(http.StatusBadRequest, "bad_id", "id trash tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_id", "invalid trash id")
 	}
 	paths, err := cleanPaths(paths)
 	if err != nil {
@@ -907,7 +907,7 @@ func (s *Service) RestoreTrash(ctx context.Context, r Repo, id string, paths []s
 		}
 	}
 	if item == nil {
-		return nil, newErr(http.StatusNotFound, "not_found", "item trash tidak ditemukan")
+		return nil, newErr(http.StatusNotFound, "not_found", "trash item not found")
 	}
 	want := item.Paths
 	if len(paths) > 0 {
@@ -918,7 +918,7 @@ func (s *Service) RestoreTrash(ctx context.Context, r Repo, id string, paths []s
 		want = nil
 		for _, p := range paths {
 			if !have[p] {
-				return nil, newErr(http.StatusNotFound, "not_found", "path tidak ada di trash: %s", p)
+				return nil, newErr(http.StatusNotFound, "not_found", "path is not in the trash: %s", p)
 			}
 			want = append(want, p)
 		}
@@ -950,7 +950,7 @@ func (s *Service) RestoreTrash(ctx context.Context, r Repo, id string, paths []s
 				in = append(in, strings.TrimPrefix(f, markExists))
 			}
 		}
-		return nil, &Error{Status: http.StatusConflict, Code: "exists", Msg: "file dengan nama yang sama sudah ada; tidak ditimpa", Paths: in}
+		return nil, &Error{Status: http.StatusConflict, Code: "exists", Msg: "a file with the same name already exists; not overwritten", Paths: in}
 	}
 	if res.ExitCode != 0 {
 		return nil, failed(res, "git_failed", http.StatusConflict)
@@ -979,11 +979,11 @@ func (s *Service) Init(ctx context.Context, r Repo, branch string) (*Status, err
 		return nil, err
 	}
 	if st.IsRepo {
-		return nil, newErr(http.StatusConflict, "exists", "folder ini sudah berada di dalam repository git (%s)", st.Root)
+		return nil, newErr(http.StatusConflict, "exists", "this folder is already inside a git repository (%s)", st.Root)
 	}
 	// A repository here would wrap the ones below it.
 	if l, err := s.scan(ctx, r); err == nil && len(l.Items) > 0 {
-		return nil, &Error{Status: http.StatusConflict, Code: "nested_repos", Msg: "folder ini berisi repository git di subfolder; pilih salah satu", Paths: l.labels()}
+		return nil, &Error{Status: http.StatusConflict, Code: "nested_repos", Msg: "this folder holds git repositories in subfolders; choose one", Paths: l.labels()}
 	}
 	qb := machine.Quote(branch)
 	script := prelude(false, false) + `git check-ref-format --branch ` + qb + ` >/dev/null || exit 7; ` +
@@ -993,7 +993,7 @@ func (s *Service) Init(ctx context.Context, r Repo, branch string) (*Status, err
 		return nil, err
 	}
 	if res.ExitCode == 7 {
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "nama branch tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid branch name")
 	}
 	if res.ExitCode != 0 {
 		return nil, failed(res, "git_failed", http.StatusConflict)
@@ -1026,7 +1026,7 @@ func (s *Service) UntrackLarge(ctx context.Context, r Repo, paths []string) (*St
 		return nil, err
 	}
 	if len(paths) == 0 {
-		return nil, newErr(http.StatusBadRequest, "no_paths", "pilih file")
+		return nil, newErr(http.StatusBadRequest, "no_paths", "choose the files")
 	}
 	unlock, err := s.lock(r, "untrack")
 	if err != nil {

@@ -87,7 +87,7 @@ func attachSweepScript(root string, live []string) string {
 // attachDir is the folder for key on h, made when needed.
 func (s *Server) attachDir(ctx context.Context, h machine.Host, key string) (string, error) {
 	if !attachID.MatchString(key) {
-		return "", errors.New("id tidak valid")
+		return "", errors.New("invalid id")
 	}
 	if h.ID() == machine.LocalID {
 		dir := s.st.Path("attachments", key)
@@ -98,7 +98,7 @@ func (s *Server) attachDir(ctx context.Context, h machine.Host, key string) (str
 		return "", err
 	}
 	if res.ExitCode != 0 {
-		return "", fmt.Errorf("folder sementara tidak bisa dibuat di %s (kode %d)", h.Info().Name, res.ExitCode)
+		return "", fmt.Errorf("cannot make a temporary folder on %s (code %d)", h.Info().Name, res.ExitCode)
 	}
 	return strings.TrimSpace(string(res.Stdout)), nil
 }
@@ -109,14 +109,14 @@ func (s *Server) attachTo(w http.ResponseWriter, r *http.Request, h machine.Host
 	if err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
-			writeErr(w, http.StatusRequestEntityTooLarge, "file lebih dari 20 MB")
+			writeErr(w, http.StatusRequestEntityTooLarge, "file larger than 20 MB")
 			return
 		}
-		writeErr(w, http.StatusBadRequest, "gagal membaca body")
+		writeErr(w, http.StatusBadRequest, "could not read the body")
 		return
 	}
 	if len(data) == 0 {
-		writeErr(w, http.StatusBadRequest, "file kosong")
+		writeErr(w, http.StatusBadRequest, "empty file")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), attachTimeout)
@@ -153,7 +153,7 @@ func (s *Server) handleSessionAttach(w http.ResponseWriter, r *http.Request, p *
 func (s *Server) handleProjectAttach(w http.ResponseWriter, r *http.Request, p *principal) {
 	id := r.PathValue("id")
 	if _, ok := s.projects.Get(id); !ok {
-		writeErrCode(w, http.StatusNotFound, "project_not_found", "project tidak ditemukan")
+		writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found")
 		return
 	}
 	h, ok := s.machines.Host(machine.LocalID)
@@ -171,10 +171,10 @@ func (s *Server) handleProjectAttach(w http.ResponseWriter, r *http.Request, p *
 func (s *Server) handleProjectAttachRaw(w http.ResponseWriter, r *http.Request, p *principal) {
 	id, name := r.PathValue("id"), r.PathValue("name")
 	if _, ok := s.projects.Get(id); !ok {
-		writeErrCode(w, http.StatusNotFound, "project_not_found", "project tidak ditemukan")
+		writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found")
 		return
 	}
-	notFound := func() { writeErr(w, http.StatusNotFound, "file tidak ditemukan") }
+	notFound := func() { writeErr(w, http.StatusNotFound, "file not found") }
 	if !attachID.MatchString(id) || name != attachName(name) {
 		notFound()
 		return
@@ -247,7 +247,7 @@ func (s *Server) sweepRemoteAttachments(machineID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), attachSweep)
 	defer cancel()
 	if res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachSweepScript(s.attachRoot, live), MaxOutput: 4 << 10}); err != nil || res.ExitCode > 1 {
-		log.Printf("folder paste di %s: %v", machineID, err)
+		log.Printf("paste folders on %s: %v", machineID, err)
 	}
 }
 

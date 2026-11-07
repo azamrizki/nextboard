@@ -122,7 +122,7 @@ func InputPrompt(rulesID string, lines []string, cursorY int) (bool, string) {
 		}
 	}
 	if cursorY < 0 || cursorY >= len(lines) {
-		return false, "cursor di luar layar"
+		return false, "the cursor is off the screen"
 	}
 	cur := lines[cursorY]
 	if selectedOption.MatchString(cur) {
@@ -151,7 +151,7 @@ func InputPrompt(rulesID string, lines []string, cursorY int) (bool, string) {
 	if l := dialogLine(lines, cursorY, false); l != "" {
 		return false, "dialog: " + l
 	}
-	return false, "prompt input tidak dikenali di baris kursor: " + strings.TrimSpace(cur)
+	return false, "no known input prompt on the cursor line: " + strings.TrimSpace(cur)
 }
 
 // neighbour returns the nearest non-empty line within 2 rows of y in
@@ -255,11 +255,11 @@ func InputPromptPasted(rulesID string, lines []string, cursorY int) (bool, strin
 		}
 	}
 	if start < 0 {
-		return false, "prompt input tidak ditemukan di atas kursor"
+		return false, "no input prompt found above the cursor"
 	}
 	if rulesID == "claude" {
 		if !ruleLine.MatchString(neighbour(norm, start, -1)) || !ruleEnd.MatchString(neighbour(norm, cursorY, 1)) {
-			return false, "kotak input tidak lengkap"
+			return false, "the input box is incomplete"
 		}
 	}
 	if l := dialogLine(norm, cursorY, rulesID == "claude"); l != "" {

@@ -120,14 +120,14 @@ func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
 func (r Rect) Validate() error {
 	for _, f := range []float64{r.X, r.Y, r.W, r.H} {
 		if !finite(f) {
-			return invalid("angka harus finite")
+			return invalid("numbers must be finite")
 		}
 	}
 	if math.Abs(r.X) > MaxCoord || math.Abs(r.Y) > MaxCoord {
-		return invalid("x/y di luar batas ±%d", MaxCoord)
+		return invalid("x/y outside the limit ±%d", MaxCoord)
 	}
 	if r.W < 1 || r.W > MaxSide || r.H < 1 || r.H > MaxSide {
-		return invalid("w/h harus 1…%d", MaxSide)
+		return invalid("w/h must be 1…%d", MaxSide)
 	}
 	return nil
 }
@@ -140,14 +140,14 @@ func normObject(raw json.RawMessage, what string) (json.RawMessage, error) {
 		return json.RawMessage("{}"), nil
 	}
 	if t[0] != '{' {
-		return nil, invalid("%s harus objek JSON", what)
+		return nil, invalid("%s must be a JSON object", what)
 	}
 	var buf bytes.Buffer
 	if err := json.Compact(&buf, t); err != nil {
-		return nil, invalid("%s bukan JSON valid", what)
+		return nil, invalid("%s is not valid JSON", what)
 	}
 	if buf.Len() > MaxDataBytes {
-		return nil, invalid("%s lebih dari %d KB", what, MaxDataBytes>>10)
+		return nil, invalid("%s is larger than %d KB", what, MaxDataBytes>>10)
 	}
 	return json.RawMessage(buf.Bytes()), nil
 }
@@ -156,20 +156,20 @@ func normObject(raw json.RawMessage, what string) (json.RawMessage, error) {
 // fields. It returns a fresh copy.
 func prepare(in *Node) (*Node, error) {
 	if in == nil {
-		return nil, invalid("node kosong")
+		return nil, invalid("empty node")
 	}
 	n := *in
 	if !IDRe.MatchString(n.ID) {
-		return nil, invalid("id node tidak valid: %q", n.ID)
+		return nil, invalid("invalid node id: %q", n.ID)
 	}
 	if !kindRe.MatchString(n.Kind) {
-		return nil, invalid("kind node tidak valid: %q", n.Kind)
+		return nil, invalid("invalid node kind: %q", n.Kind)
 	}
 	if err := (Rect{n.X, n.Y, n.W, n.H}).Validate(); err != nil {
 		return nil, err
 	}
 	if !finite(n.Rotation) {
-		return nil, invalid("rotation harus finite")
+		return nil, invalid("rotation must be finite")
 	}
 	data, err := normObject(n.Data, "data")
 	if err != nil {
@@ -183,7 +183,7 @@ func prepare(in *Node) (*Node, error) {
 		}
 		_ = json.Unmarshal(data, &d)
 		if d.SessionID == "" {
-			return nil, invalid("node terminal wajib punya data.sessionId")
+			return nil, invalid("a terminal node needs data.sessionId")
 		}
 		n.sid = d.SessionID
 	}
@@ -194,22 +194,22 @@ func prepare(in *Node) (*Node, error) {
 
 func prepareEdge(in *Edge) (*Edge, error) {
 	if in == nil {
-		return nil, invalid("edge kosong")
+		return nil, invalid("empty edge")
 	}
 	e := *in
 	if !IDRe.MatchString(e.ID) {
-		return nil, invalid("id edge tidak valid: %q", e.ID)
+		return nil, invalid("invalid edge id: %q", e.ID)
 	}
 	if !IDRe.MatchString(e.Source) || !IDRe.MatchString(e.Target) {
-		return nil, invalid("source/target edge tidak valid")
+		return nil, invalid("invalid edge source/target")
 	}
 	if e.Kind == "" {
 		e.Kind = "wire"
 	}
 	if !kindRe.MatchString(e.Kind) {
-		return nil, invalid("kind edge tidak valid: %q", e.Kind)
+		return nil, invalid("invalid edge kind: %q", e.Kind)
 	}
-	data, err := normObject(e.Data, "data edge")
+	data, err := normObject(e.Data, "edge data")
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func prepareEdge(in *Edge) (*Edge, error) {
 // replaced, "data" is merged key by key (a null value removes the key).
 func patchNode(old *Node, set map[string]json.RawMessage) (*Node, map[string]json.RawMessage, error) {
 	if len(set) == 0 {
-		return nil, nil, invalid("patch tanpa set")
+		return nil, nil, invalid("patch without set")
 	}
 	n := *old
 	norm := make(map[string]json.RawMessage, len(set))
@@ -232,7 +232,7 @@ func patchNode(old *Node, set map[string]json.RawMessage) (*Node, map[string]jso
 		case "x", "y", "w", "h", "rotation":
 			var f float64
 			if json.Unmarshal(raw, &f) != nil {
-				return nil, nil, invalid("set.%s harus angka", k)
+				return nil, nil, invalid("set.%s must be a number", k)
 			}
 			switch k {
 			case "x":
@@ -250,7 +250,7 @@ func patchNode(old *Node, set map[string]json.RawMessage) (*Node, map[string]jso
 		case "locked":
 			var b bool
 			if json.Unmarshal(raw, &b) != nil {
-				return nil, nil, invalid("set.locked harus boolean")
+				return nil, nil, invalid("set.locked must be a boolean")
 			}
 			n.Locked = b
 			norm[k], _ = json.Marshal(b)
@@ -266,7 +266,7 @@ func patchNode(old *Node, set map[string]json.RawMessage) (*Node, map[string]jso
 			n.Data = merged
 			norm[k] = patch
 		default:
-			return nil, nil, invalid("field %q tidak bisa di-patch", k)
+			return nil, nil, invalid("field %q cannot be patched", k)
 		}
 	}
 	out, err := prepare(&n)
@@ -283,7 +283,7 @@ func mergeData(base, patch json.RawMessage) (json.RawMessage, error) {
 	}
 	var p map[string]json.RawMessage
 	if err := json.Unmarshal(patch, &p); err != nil {
-		return nil, invalid("set.data bukan objek JSON")
+		return nil, invalid("set.data is not a JSON object")
 	}
 	for k, v := range p {
 		if string(bytes.TrimSpace(v)) == "null" {
@@ -294,7 +294,7 @@ func mergeData(base, patch json.RawMessage) (json.RawMessage, error) {
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
-		return nil, invalid("set.data tidak valid")
+		return nil, invalid("invalid set.data")
 	}
 	return b, nil
 }

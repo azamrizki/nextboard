@@ -481,7 +481,7 @@ nb_m agent-start "{\"k\":\"$NB_TOKEN\",\"pid\":$$,\"mode\":\"$1\",\"sid\":\"$2\"
 		}
 	}
 	b.WriteString(modelScript(a))
-	b.WriteString(`command -v "$4" >/dev/null 2>&1 || printf '\r\n\033[1;31mnextboard: perintah tidak ditemukan: %s\033[0m\r\n' "$4"
+	b.WriteString(`command -v "$4" >/dev/null 2>&1 || printf '\r\n\033[1;31mnextboard: command not found: %s\033[0m\r\n' "$4"
 shift 3; "$@"; nb_rc=$?
 trap - INT QUIT
 nb_m agent-exit "{\"k\":\"$NB_TOKEN\",\"rc\":$nb_rc}"
@@ -518,7 +518,7 @@ func WrapperLine(mode, id string, yolo bool, model, effort string) string {
 }
 
 // ErrNotWrapped: shell agents run without the wrapper.
-var ErrNotWrapped = errors.New("agen shell tidak memakai wrapper")
+var ErrNotWrapped = errors.New("shell agents do not use the wrapper")
 
 // Build prepares a launch of agent a.
 func Build(a Agent, o Options) (Plan, error) {
@@ -526,7 +526,7 @@ func Build(a Agent, o Options) (Plan, error) {
 		return Plan{Mode: ModeShell, LiveStatus: "off"}, nil
 	}
 	if !ValidMode(o.Mode) && o.Mode != "" {
-		return Plan{}, fmt.Errorf("mode peluncuran tidak dikenal: %q", o.Mode)
+		return Plan{}, fmt.Errorf("unknown launch mode: %q", o.Mode)
 	}
 	mode, id := ResolveMode(a, o.Mode, o.AgentSessionID)
 	command := o.Command
@@ -539,7 +539,7 @@ func Build(a Agent, o Options) (Plan, error) {
 	memoryDir := ""
 	if c := o.Context; c != nil {
 		if c.Remote && !a.WorksOnServers() {
-			return Plan{}, fmt.Errorf("%s belum bisa bekerja di server", a.Name)
+			return Plan{}, fmt.Errorf("%s cannot work on servers yet", a.Name)
 		}
 		if a.TakesContext() {
 			cp := planContext(a, c)
@@ -602,7 +602,7 @@ func Build(a Agent, o Options) (Plan, error) {
 		n += len(machine.Quote(kv)) + 1
 	}
 	if n > MaxCommandLine/2 {
-		return Plan{}, fmt.Errorf("baris perintah peluncuran terlalu panjang (%d byte)", n)
+		return Plan{}, fmt.Errorf("the launch command line is too long (%d bytes)", n)
 	}
 	// Only This PC gets these: the process env, never a command line.
 	p.Env = append(p.Env, contextEnv...)

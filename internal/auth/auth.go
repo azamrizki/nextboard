@@ -34,14 +34,14 @@ const (
 )
 
 var (
-	ErrAlreadySetup  = errors.New("hub sudah di-setup")
-	ErrNotSetup      = errors.New("hub belum di-setup")
-	ErrBadCode       = errors.New("kode tidak valid, kedaluwarsa, atau sudah dipakai")
-	ErrWeakPassword  = errors.New("password minimal 8 karakter")
-	ErrBadPassword   = errors.New("password salah")
-	ErrUnknownDevice = errors.New("device tidak dikenal")
-	ErrBadSignature  = errors.New("signature tidak valid")
-	ErrBadInput      = errors.New("input tidak valid")
+	ErrAlreadySetup  = errors.New("the hub is already set up")
+	ErrNotSetup      = errors.New("the hub is not set up yet")
+	ErrBadCode       = errors.New("the code is invalid, expired or already used")
+	ErrWeakPassword  = errors.New("the password must be at least 8 characters")
+	ErrBadPassword   = errors.New("wrong password")
+	ErrUnknownDevice = errors.New("unknown device")
+	ErrBadSignature  = errors.New("invalid signature")
+	ErrBadInput      = errors.New("invalid input")
 )
 
 type codeEntry struct {

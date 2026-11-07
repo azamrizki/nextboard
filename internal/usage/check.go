@@ -127,7 +127,7 @@ func startHidden(h machine.Host, sp CheckSpec, cs cliSpec, dir string) (*hidden,
 		cmd = sp.Agent
 	}
 	if strings.ContainsAny(cmd, "\x00\n") {
-		return nil, errors.New("command tidak valid")
+		return nil, errors.New("invalid command")
 	}
 	env := append([]string{}, cs.env...)
 	if sp.ProfileEnv != "" && sp.ProfileDir != "" {
@@ -271,7 +271,7 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 	defer cancel()
 	hp, err := startHidden(h, sp, cs, dir)
 	if errors.Is(err, errMissing) {
-		return outcome{state: "error", err: fmt.Sprintf("CLI %s tidak ditemukan di machine ini", sp.Agent)}
+		return outcome{state: "error", err: fmt.Sprintf("CLI %s not found on this machine", sp.Agent)}
 	}
 	if err != nil {
 		return outcome{state: "error", err: err.Error()}
@@ -294,7 +294,7 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 	trustKeys, updateKeys := 0, 0
 	for {
 		if !sleepCtx(ctx, pollEvery) {
-			return outcome{state: "error", err: "pemeriksaan usage dibatalkan atau melebihi batas waktu", snap: hp.scr.Snapshot()}
+			return outcome{state: "error", err: "the usage check was cancelled or timed out", snap: hp.scr.Snapshot()}
 		}
 		sn := seen("start")
 		if sn.Version != prevV {
@@ -302,10 +302,10 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 		}
 		if hp.exited() {
 			if hp.missing() {
-				return outcome{state: "error", err: fmt.Sprintf("CLI %s tidak ditemukan di machine ini", sp.Agent)}
+				return outcome{state: "error", err: fmt.Sprintf("CLI %s not found on this machine", sp.Agent)}
 			}
 			sn = hp.scr.Snapshot()
-			return outcome{state: "error", err: "CLI keluar sebelum prompt siap" + exitReason(sn.Lines), snap: sn}
+			return outcome{state: "error", err: "the CLI exited before its prompt was ready" + exitReason(sn.Lines), snap: sn}
 		}
 		lines := norm(sn.Lines)
 		text := strings.Join(lines, "\n")
@@ -321,7 +321,7 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 			// The hub's own empty folder: select "Yes, I trust this
 			// folder" (cursor checked on screen), then Enter.
 			if trustKeys >= 6 {
-				return outcome{state: "needsInteractive", err: "dialog trust folder tidak bisa dijawab", snap: sn}
+				return outcome{state: "needsInteractive", err: "the trust folder dialog could not be answered", snap: sn}
 			}
 			trustKeys++
 			if cursorOn(lines, trustCursorRe) {
@@ -335,7 +335,7 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 		case m.NeedsYou == "Update dialog" || (m.NeedsYou != "" && updateRe.MatchString(text)):
 			// Never install: Esc skips the update prompt.
 			if updateKeys >= 2 {
-				return outcome{state: "needsInteractive", err: "dialog update tidak bisa dilewati", snap: sn}
+				return outcome{state: "needsInteractive", err: "the update dialog could not be skipped", snap: sn}
 			}
 			updateKeys++
 			_ = hp.key("\x1b")
@@ -344,13 +344,13 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 		case m.NeedsYou == "Login dialog":
 			return outcome{state: "notLoggedIn", snap: sn}
 		case m.NeedsYou != "":
-			return outcome{state: "needsInteractive", err: "CLI menunggu jawaban: " + m.NeedsYou, snap: sn}
+			return outcome{state: "needsInteractive", err: "the CLI is waiting for an answer: " + m.NeedsYou, snap: sn}
 		}
 		if ok, _ := agent.InputPrompt(cs.rules, lines, sn.CursorY); ok && time.Since(changedAt) >= promptStable {
 			break
 		}
 		if time.Now().After(readyBy) {
-			return outcome{state: "needsInteractive", err: "prompt CLI tidak siap dalam 30 detik", snap: sn}
+			return outcome{state: "needsInteractive", err: "the CLI prompt was not ready within 30 seconds", snap: sn}
 		}
 	}
 	// ---- 2. type the usage command and wait for a stable screen ----
@@ -361,7 +361,7 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 			return outcome{state: "error", err: err.Error()}
 		}
 		if !sleepCtx(ctx, 250*time.Millisecond) {
-			return outcome{state: "error", err: "dibatalkan"}
+			return outcome{state: "error", err: "cancelled"}
 		}
 		before := hp.scr.Snapshot().Version
 		_ = hp.key("\r")
@@ -369,7 +369,7 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 		changedAt, prevV = time.Now(), before
 		for {
 			if !sleepCtx(ctx, pollEvery) {
-				return outcome{state: "error", err: "pemeriksaan usage dibatalkan atau melebihi batas waktu", snap: hp.scr.Snapshot()}
+				return outcome{state: "error", err: "the usage check was cancelled or timed out", snap: hp.scr.Snapshot()}
 			}
 			sn = seen("usage")
 			if sn.Version != prevV {
@@ -388,7 +388,7 @@ func drive(ctx context.Context, h machine.Host, sp CheckSpec, dir string, progre
 		}
 		progress("thinking", "Waiting for "+sp.Agent+"’s limits…")
 		if !sleepCtx(ctx, pendingGap) {
-			return outcome{state: "error", err: "pemeriksaan usage dibatalkan atau melebihi batas waktu", snap: sn}
+			return outcome{state: "error", err: "the usage check was cancelled or timed out", snap: sn}
 		}
 	}
 	progress("finishing", "Parsing…")

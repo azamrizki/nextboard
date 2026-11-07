@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/machine"
 )
 
 // Limits and timeouts (docs/API-studio.md §4, §15).
@@ -85,7 +86,7 @@ func newErr(status int, code, format string, a ...any) *Error {
 }
 
 // ErrNotFound: unknown preview id.
-var ErrNotFound = &Error{Status: http.StatusNotFound, Code: "preview_not_found", Msg: "preview tidak ditemukan"}
+var ErrNotFound = &Error{Status: http.StatusNotFound, Code: "preview_not_found", Msg: "preview not found"}
 
 // Config wires the manager to the hub.
 type Config struct {
@@ -239,10 +240,10 @@ func cleanTarget(p string) (string, error) {
 		return "/", nil
 	}
 	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.HasPrefix(p, "/\\") || len(p) > 2048 || strings.ContainsAny(p, "\x00\r\n\t ") {
-		return "", newErr(http.StatusBadRequest, "bad_path", "path preview harus diawali / (tanpa host)")
+		return "", newErr(http.StatusBadRequest, "bad_path", "the preview path must start with / (no host)")
 	}
 	if _, err := url.ParseRequestURI(p); err != nil {
-		return "", newErr(http.StatusBadRequest, "bad_path", "path preview tidak valid")
+		return "", newErr(http.StatusBadRequest, "bad_path", "invalid preview path")
 	}
 	return p, nil
 }
@@ -278,11 +279,11 @@ func (m *Manager) siteListener(port int) bool {
 
 func (m *Manager) CheckPort(machineID string, port int) error {
 	if port < 1 || port > 65535 {
-		return newErr(http.StatusBadRequest, "bad_port", "port harus 1–65535")
+		return newErr(http.StatusBadRequest, "bad_port", "port must be 1–65535")
 	}
 	if machineID == m.cfg.LocalID {
 		if m.InRange(port) || (m.cfg.LocalReserved != nil && m.cfg.LocalReserved(port)) {
-			return newErr(http.StatusBadRequest, "bad_port", "port %d dipakai hub NextBoard", port)
+			return newErr(http.StatusBadRequest, "bad_port", "port %d is used by the NextBoard hub", port)
 		}
 	}
 	return nil
@@ -299,13 +300,13 @@ func (m *Manager) checkSite(host string, port int) error {
 		c.Close()
 		return nil
 	case errors.Is(err, errNoHost):
-		return newErr(http.StatusBadRequest, "no_such_host", "%s tidak ditemukan", host)
+		return newErr(http.StatusBadRequest, "no_such_host", "%s not found", host)
 	case errors.Is(err, errPrivate):
-		return newErr(http.StatusBadRequest, "private_address", "%s mengarah ke alamat lokal", host)
+		return newErr(http.StatusBadRequest, "private_address", "%s points to a local address", host)
 	case errors.Is(err, errOwnPort):
-		return newErr(http.StatusBadRequest, "bad_port", "port %d dipakai hub NextBoard", port)
+		return newErr(http.StatusBadRequest, "bad_port", "port %d is used by the NextBoard hub", port)
 	}
-	return newErr(http.StatusBadGateway, "site_unreachable", "%s tidak terjangkau: %v", host, err)
+	return newErr(http.StatusBadGateway, "site_unreachable", "%s cannot be reached: %v", host, err)
 }
 
 // Create opens a preview, or returns the existing one of (machine, host, port)
@@ -340,7 +341,7 @@ func (m *Manager) Create(req CreateRequest) (Preview, string, bool, error) {
 		req.Scheme = "http"
 	case "http", "https":
 	default:
-		return Preview{}, "", false, newErr(http.StatusBadRequest, "bad_scheme", `scheme harus "http" atau "https"`)
+		return Preview{}, "", false, newErr(http.StatusBadRequest, "bad_scheme", `scheme must be "http" or "https"`)
 	}
 	path, err := cleanTarget(req.Path)
 	if err != nil {
@@ -349,7 +350,7 @@ func (m *Manager) Create(req CreateRequest) (Preview, string, bool, error) {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		return Preview{}, "", false, newErr(http.StatusServiceUnavailable, "closed", "hub sedang dimatikan")
+		return Preview{}, "", false, newErr(http.StatusServiceUnavailable, "closed", "the hub is shutting down")
 	}
 	for _, p := range m.byID {
 		if p.MachineID == req.MachineID && p.TargetPort == req.Port && p.TargetHost == targetHost {
@@ -366,7 +367,7 @@ func (m *Manager) Create(req CreateRequest) (Preview, string, bool, error) {
 	}
 	if len(m.byID) >= MaxListeners {
 		m.mu.Unlock()
-		return Preview{}, "", false, newErr(http.StatusServiceUnavailable, "no_preview_port", "semua port preview terpakai (maks %d)", MaxListeners)
+		return Preview{}, "", false, newErr(http.StatusServiceUnavailable, "no_preview_port", "all preview ports are in use (max %d)", MaxListeners)
 	}
 	used := map[int]bool{}
 	for _, p := range m.byID {
@@ -394,7 +395,7 @@ func (m *Manager) Create(req CreateRequest) (Preview, string, bool, error) {
 	}
 	if ln == nil {
 		m.mu.Unlock()
-		return Preview{}, "", false, newErr(http.StatusServiceUnavailable, "no_preview_port", "tidak ada port preview yang bebas di %d–%d", m.cfg.PortMin, m.cfg.PortMax)
+		return Preview{}, "", false, newErr(http.StatusServiceUnavailable, "no_preview_port", "no free preview port in %d–%d", m.cfg.PortMin, m.cfg.PortMax)
 	}
 	now := m.now().UTC()
 	p := &preview{m: m, Preview: Preview{ID: auth.RandomID("pv_"), MachineID: req.MachineID, TargetHost: targetHost, TargetPort: req.Port, TargetScheme: req.Scheme,
@@ -446,10 +447,11 @@ func (m *Manager) checkLive(id string) {
 }
 
 // stateFor maps a dial error to a state and message.
+// A port nobody listens on yet is waiting; a machine that cannot be reached, or a server that
+// refuses forwarding, is an error to show. By the error, not its text: that is for people.
 func stateFor(err error) (string, string) {
-	msg := err.Error()
-	if strings.Contains(msg, "AllowTcpForwarding") || strings.Contains(msg, "tersambung") || strings.Contains(msg, "terputus") {
-		return StateError, msg
+	if errors.Is(err, machine.ErrForwardingDisabled) || errors.Is(err, machine.ErrNotConnected) || errors.Is(err, machine.ErrDisconnected) || errors.Is(err, machine.ErrNotFound) {
+		return StateError, err.Error()
 	}
 	return StateWaiting, ""
 }

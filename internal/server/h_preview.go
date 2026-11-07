@@ -230,7 +230,7 @@ type previewOpener struct{ s *Server }
 
 func (o previewOpener) OpenPreview(machineID string, port int) (string, error) {
 	if o.s.gitPrev == nil {
-		return "", errors.New("preview tidak tersedia")
+		return "", errors.New("preview not available")
 	}
 	pv, _, _, err := o.s.gitPrev.previews.Create(preview.CreateRequest{MachineID: machineID, Port: port})
 	if err != nil {

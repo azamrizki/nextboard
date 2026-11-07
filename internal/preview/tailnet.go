@@ -85,7 +85,7 @@ var (
 // parseSiteURL splits the address of a site: host in lower case and without brackets, the port
 // spelled out, and what goes after the host.
 func parseSiteURL(raw string) (scheme, host string, port int, path string, err *Error) {
-	bad := newErr(http.StatusBadRequest, "bad_url", "alamat harus http atau https dengan host")
+	bad := newErr(http.StatusBadRequest, "bad_url", "the address must be http or https with a host")
 	if len(raw) > 2048 {
 		return "", "", 0, "", bad
 	}
@@ -386,7 +386,7 @@ func sameSiteName(a, b string) bool {
 
 // needsBrowser is the answer for a site the proxy would only break.
 func needsBrowser(host, why string) *Error {
-	return newErr(http.StatusBadRequest, "needs_browser", "%s butuh browser sungguhan: %s", host, why)
+	return newErr(http.StatusBadRequest, "needs_browser", "%s needs a real browser: %s", host, why)
 }
 
 // probeSite asks a public site for the page once, before a listener opens for it. It finds out
@@ -420,7 +420,7 @@ func (m *Manager) probeSite(ua string, at siteAddr) (siteAddr, error) {
 	for range maxSiteRedirects {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, at.url(), nil)
 		if err != nil {
-			return at, newErr(http.StatusBadRequest, "bad_url", "alamat tidak valid")
+			return at, newErr(http.StatusBadRequest, "bad_url", "invalid address")
 		}
 		req.Header.Set("Accept", "text/html,application/xhtml+xml,*/*")
 		if ua != "" {
@@ -430,30 +430,30 @@ func (m *Manager) probeSite(ua string, at siteAddr) (siteAddr, error) {
 		if err != nil {
 			var de *dialError
 			if errors.As(err, &de) {
-				return at, newErr(http.StatusBadGateway, "site_unreachable", "%s tidak terjangkau: %v", at.host, de.err)
+				return at, newErr(http.StatusBadGateway, "site_unreachable", "%s cannot be reached: %v", at.host, de.err)
 			}
-			return at, needsBrowser(at.host, "tidak menjawab lewat hub")
+			return at, needsBrowser(at.host, "it does not answer through the hub")
 		}
 		resp.Body.Close()
 		switch {
 		case resp.Header.Get("Cf-Mitigated") != "", resp.StatusCode == http.StatusForbidden,
 			resp.StatusCode == http.StatusTooManyRequests, resp.StatusCode == http.StatusServiceUnavailable:
-			return at, needsBrowser(at.host, "menolak permintaan dari hub")
+			return at, needsBrowser(at.host, "it refuses requests from the hub")
 		case resp.StatusCode < 300 || resp.StatusCode >= 400 || resp.Header.Get("Location") == "":
 			return at, nil
 		}
 		next, err := req.URL.Parse(resp.Header.Get("Location"))
 		if err != nil {
-			return at, needsBrowser(at.host, "redirect tidak valid")
+			return at, needsBrowser(at.host, "invalid redirect")
 		}
 		scheme, host, port, path, perr := parseSiteURL(next.String())
 		if perr != nil {
-			return at, needsBrowser(at.host, "redirect tidak valid")
+			return at, needsBrowser(at.host, "invalid redirect")
 		}
 		if !sameSiteName(at.host, host) {
-			return at, needsBrowser(at.host, "pindah ke "+host)
+			return at, needsBrowser(at.host, "it moves to "+host)
 		}
 		at = siteAddr{scheme, host, port, path}
 	}
-	return at, needsBrowser(at.host, "terlalu banyak redirect")
+	return at, needsBrowser(at.host, "too many redirects")
 }

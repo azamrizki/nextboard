@@ -35,9 +35,9 @@ const (
 )
 
 var (
-	ErrHandoffRunning = errors.New("handoff dari console ini sedang berjalan")
-	ErrNotAgentSrc    = errors.New("console sumber bukan console agen")
-	ErrHandoffAgent   = errors.New("agen tujuan tidak dikenal atau bukan agen")
+	ErrHandoffRunning = errors.New("a handoff from this console is already running")
+	ErrNotAgentSrc    = errors.New("the source console is not an agent console")
+	ErrHandoffAgent   = errors.New("the target agent is unknown or not an agent")
 )
 
 // HandoffRequest is the body of POST /api/sessions/{id}/handoff.
@@ -361,7 +361,7 @@ func (s *Service) switchInPlace(id string) {
 }
 
 // ErrSessionNotFound is a missing console.
-var ErrSessionNotFound = errors.New("sesi tidak ditemukan")
+var ErrSessionNotFound = errors.New("session not found")
 
 func (s *Service) setHandoff(id string, f func(h *Handoff)) (Handoff, bool) {
 	s.mu.Lock()
@@ -502,7 +502,7 @@ func (s *Service) spawnTarget(id string) {
 	}
 	res, err := s.Spawn(req)
 	if err != nil || len(res.Sessions) == 0 {
-		msg := "spawn gagal"
+		msg := "spawn failed"
 		if err != nil {
 			msg = err.Error()
 		}
@@ -570,7 +570,7 @@ func (s *Service) handoffsTick(now time.Time) {
 		case "waitingReady":
 			in, ok := s.hub.SessionInfo(*h.TargetSessionID)
 			if !ok {
-				s.handoffManual(h.ID, "failed", "console tujuan hilang")
+				s.handoffManual(h.ID, "failed", "the target console is gone")
 				continue
 			}
 			if h.InPlace && !in.StartedAt.After(h.startedAfter) {

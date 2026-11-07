@@ -1,7 +1,7 @@
-# systemd user unit — `nextboard install` menulis file ini ke
-# ~/.config/systemd/user/nextboard.service dengan path yang sudah terisi.
+# systemd user unit: `nextboard install` writes this file to
+# ~/.config/systemd/user/nextboard.service with the paths filled in.
 [Unit]
-Description=NextBoard hub (visual board untuk AI coding agents)
+Description=NextBoard hub (visual board for AI coding agents)
 After=network-online.target
 Wants=network-online.target
 

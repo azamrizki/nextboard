@@ -56,7 +56,7 @@ type ExecResult struct {
 const execPipeWait = 2 * time.Second
 
 // errExecSpec: neither or both of Argv and Script.
-var errExecSpec = errors.New("exec: isi tepat satu dari Argv atau Script")
+var errExecSpec = errors.New("exec: set exactly one of Argv or Script")
 
 // Exec runs spec on h: locally through os/exec with the login PATH, on SSH
 // over a non-PTY channel in the login shell. A process that outlives its
@@ -76,7 +76,7 @@ func Exec(ctx context.Context, h Host, spec ExecSpec) (*ExecResult, error) {
 	case *SSH:
 		return m.execSpec(ctx, spec)
 	}
-	return nil, errors.New("machine tidak didukung")
+	return nil, errors.New("unsupported machine")
 }
 
 // execScript turns spec into one POSIX script: cd, exports, then the

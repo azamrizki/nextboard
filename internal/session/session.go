@@ -487,9 +487,9 @@ func (s *Session) launch(mode string) {
 	host, ok := s.m.machines.Host(spec.MachineID)
 	if !ok {
 		s.mu.Lock()
-		s.writeLocked("\r\n\x1b[31mnextboard: machine tidak ditemukan\x1b[0m\r\n")
+		s.writeLocked("\r\n\x1b[31mnextboard: machine not found\x1b[0m\r\n")
 		s.mu.Unlock()
-		s.setStatus(StatusError, -1, "machine tidak ditemukan")
+		s.setStatus(StatusError, -1, "machine not found")
 		return
 	}
 	s.setStatus(StatusStarting, 0, "")
@@ -530,15 +530,15 @@ func (s *Session) launch(mode string) {
 		var nf *machine.CommandNotFoundError
 		switch {
 		case errors.Is(err, machine.ErrNotConnected):
-			s.setStatus(StatusReconnecting, 0, "menunggu koneksi machine")
+			s.setStatus(StatusReconnecting, 0, "waiting for the machine to connect")
 		case errors.As(err, &nf):
 			s.mu.Lock()
-			s.writeLocked(fmt.Sprintf("\r\n\x1b[1;31mnextboard: perintah tidak ditemukan: %s\x1b[0m\r\n\x1b[31mPastikan CLI terpasang dan ada di PATH login shell.\x1b[0m\r\n", nf.Command))
+			s.writeLocked(fmt.Sprintf("\r\n\x1b[1;31mnextboard: command not found: %s\x1b[0m\r\n\x1b[31mCheck that the CLI is installed and on the login shell's PATH.\x1b[0m\r\n", nf.Command))
 			s.mu.Unlock()
 			s.setStatus(StatusError, 127, err.Error())
 		default:
 			s.mu.Lock()
-			s.writeLocked(fmt.Sprintf("\r\n\x1b[1;31mnextboard: gagal menjalankan: %s\x1b[0m\r\n", err))
+			s.writeLocked(fmt.Sprintf("\r\n\x1b[1;31mnextboard: failed to run: %s\x1b[0m\r\n", err))
 			s.mu.Unlock()
 			s.setStatus(StatusError, -1, err.Error())
 		}
@@ -649,13 +649,13 @@ func (s *Session) exited(r *run, code int, werr error) {
 	killed := s.killing
 	disconnected := errors.Is(werr, machine.ErrDisconnected) && !killed
 	if disconnected {
-		s.writeLocked("\r\n\x1b[33m── koneksi terputus, menyambung ulang… ──\x1b[0m\r\n")
+		s.writeLocked("\r\n\x1b[33m── connection lost, reconnecting… ──\x1b[0m\r\n")
 	} else {
 		color := "90"
 		if code != 0 && !killed {
 			color = "31"
 		}
-		s.writeLocked(fmt.Sprintf("\r\n\x1b[%sm── proses selesai (kode %d) ──\x1b[0m\r\n", color, code))
+		s.writeLocked(fmt.Sprintf("\r\n\x1b[%sm── process exited (code %d) ──\x1b[0m\r\n", color, code))
 	}
 	s.mu.Unlock()
 	if disconnected {
@@ -716,7 +716,7 @@ func (s *Session) Input(p []byte) error {
 	s.mu.Unlock()
 	s.finish(notify, ev)
 	if r == nil {
-		return errors.New("proses tidak berjalan")
+		return errors.New("the process is not running")
 	}
 	_, err := r.proc.Write(p)
 	return err

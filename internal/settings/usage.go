@@ -31,18 +31,18 @@ func validateUsage(s *Settings) error {
 	}
 	for k := range s.Usage.Agents {
 		if k == "" || len(k) > 64 {
-			return badSetting("usage.agents: id agent tidak valid")
+			return badSetting("usage.agents: invalid agent id")
 		}
 	}
 	switch s.Usage.Chime.Play {
 	case "after100", "always":
 	default:
-		return badSetting(`usage.chime.play harus "after100" atau "always"`)
+		return badSetting(`usage.chime.play must be "after100" or "always"`)
 	}
 	switch s.Usage.Chime.Sound {
 	case "bell", "chime", "pop", "soft":
 	default:
-		return badSetting(`usage.chime.sound harus "bell", "chime", "pop" atau "soft"`)
+		return badSetting(`usage.chime.sound must be "bell", "chime", "pop" or "soft"`)
 	}
 	return nil
 }

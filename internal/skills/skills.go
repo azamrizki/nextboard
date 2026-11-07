@@ -50,14 +50,14 @@ const (
 )
 
 var (
-	ErrNotSkill    = errors.New("path bukan skill atau command yang dikelola")
-	ErrReadOnly    = errors.New("skill plugin hanya bisa dibaca")
-	ErrBadName     = errors.New("nama harus huruf kecil, angka dan tanda hubung (1–64)")
-	ErrBadScope    = errors.New("scope tidak dikenal atau project tidak dipilih")
-	ErrExists      = errors.New("skill atau command dengan nama itu sudah ada")
-	ErrTooLarge    = errors.New("folder skill terlalu besar (maks 50 file / 5 MB)")
-	ErrNoSkillFile = errors.New("folder tidak berisi SKILL.md")
-	ErrContent     = errors.New("isi terlalu besar")
+	ErrNotSkill    = errors.New("the path is not a managed skill or command")
+	ErrReadOnly    = errors.New("plugin skills are read-only")
+	ErrBadName     = errors.New("the name must be lowercase letters, digits and hyphens (1–64)")
+	ErrBadScope    = errors.New("unknown scope or no project chosen")
+	ErrExists      = errors.New("a skill or command with that name already exists")
+	ErrTooLarge    = errors.New("the skill folder is too large (at most 50 files / 5 MB)")
+	ErrNoSkillFile = errors.New("the folder has no SKILL.md")
+	ErrContent     = errors.New("the content is too large")
 )
 
 // ConfirmError is HTTP 428: the request must carry confirm.paths equal to
@@ -580,7 +580,7 @@ func missingDirs(ctx context.Context, h machine.Host, stop, dir string) ([]strin
 		}
 		if st.Exists {
 			if !st.Dir {
-				return nil, fmt.Errorf("%s bukan folder", d)
+				return nil, fmt.Errorf("%s is not a folder", d)
 			}
 			break
 		}
@@ -611,10 +611,10 @@ func newPlan(ctx context.Context, h machine.Host, l Loc, scope, name string, fil
 		return nil, "", err
 	}
 	if st, ok := exists(ctx, h, l.Cfg); (scope == ScopePersonal || scope == ScopePersonalCommand) && (!ok || !st.Dir) {
-		return nil, "", fmt.Errorf("folder config %s tidak ada", l.Cfg)
+		return nil, "", fmt.Errorf("config folder %s does not exist", l.Cfg)
 	}
 	if st, ok := exists(ctx, h, l.Repo); (scope == ScopeProject || scope == ScopeProjectCommand) && (!ok || !st.Dir) {
-		return nil, "", fmt.Errorf("folder project %s tidak ada", l.Repo)
+		return nil, "", fmt.Errorf("project folder %s does not exist", l.Repo)
 	}
 	var root, mainFile string
 	if kindOf(scope) == KindSkill {
@@ -657,7 +657,7 @@ func newPlan(ctx context.Context, h machine.Host, l Loc, scope, name string, fil
 		}
 		for _, d := range dirs {
 			if d == stop {
-				return nil, "", fmt.Errorf("folder %s tidak ada", stop)
+				return nil, "", fmt.Errorf("folder %s does not exist", stop)
 			}
 			if !seen[d] {
 				seen[d] = true

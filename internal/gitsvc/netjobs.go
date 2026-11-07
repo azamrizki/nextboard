@@ -100,11 +100,11 @@ func classifyNet(out string, exit int) *Error {
 	code := "git_failed"
 	switch {
 	case strings.Contains(out, markNoBranch):
-		code, msg = "detached", "HEAD tidak berada di branch (detached); buat branch dulu"
+		code, msg = "detached", "HEAD is not on a branch (detached); create a branch first"
 	case strings.Contains(out, markNoRemote):
-		code, msg = "no_remote", "repository belum punya remote"
+		code, msg = "no_remote", "the repository has no remote yet"
 	case strings.Contains(out, markNoUpstream):
-		code, msg = "no_upstream", "branch ini belum punya upstream; push dulu (Publish branch)"
+		code, msg = "no_upstream", "this branch has no upstream yet; push it first (Publish branch)"
 	case strings.Contains(lower, "not possible to fast-forward"), strings.Contains(lower, "diverging branches"),
 		strings.Contains(lower, "have diverged"):
 		code, msg = "diverged", "Branches diverged — merge in a console"
@@ -124,7 +124,7 @@ func classifyNet(out string, exit int) *Error {
 		code = "network"
 	}
 	if msg == "" {
-		msg = "git keluar dengan kode " + strconv.Itoa(exit)
+		msg = "git exited with code " + strconv.Itoa(exit)
 	}
 	return &Error{Status: http.StatusBadGateway, Code: code, Msg: msg}
 }

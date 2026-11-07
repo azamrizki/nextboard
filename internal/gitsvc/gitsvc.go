@@ -101,11 +101,13 @@ func newErr(status int, code, format string, a ...any) *Error {
 
 var (
 	errBusy = func() *Error {
-		return newErr(http.StatusConflict, "git_busy", "operasi git lain sedang berjalan di project ini")
+		return newErr(http.StatusConflict, "git_busy", "another git operation is running in this project")
 	}
-	errNotRepo = func() *Error { return newErr(http.StatusConflict, "not_repo", "folder project bukan repository git") }
-	errNoGit   = func() *Error {
-		return newErr(http.StatusNotImplemented, "git_missing", "git tidak ditemukan di machine ini")
+	errNotRepo = func() *Error {
+		return newErr(http.StatusConflict, "not_repo", "the project folder is not a git repository")
+	}
+	errNoGit = func() *Error {
+		return newErr(http.StatusNotImplemented, "git_missing", "git was not found on this machine")
 	}
 	errNotFound = func() *Error {
 		return newErr(http.StatusNotFound, "machine_not_found", "%s", machine.ErrNotFound.Error())
@@ -182,7 +184,7 @@ func (s *Service) SetSelection(r Repo, paths []string) error {
 		clean = append(clean, c)
 	}
 	if len(clean) > maxPaths {
-		return newErr(http.StatusBadRequest, "too_many", "maksimal %d path", maxPaths)
+		return newErr(http.StatusBadRequest, "too_many", "at most %d paths", maxPaths)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -304,17 +306,17 @@ func (s *Service) exec(ctx context.Context, r Repo, script string, o execOpts) (
 	}
 	switch {
 	case res.Cancelled:
-		return res, newErr(499, "cancelled", "dibatalkan")
+		return res, newErr(499, "cancelled", "cancelled")
 	case res.TimedOut:
-		return res, newErr(http.StatusGatewayTimeout, "timeout", "git melebihi batas waktu %s", o.timeout)
+		return res, newErr(http.StatusGatewayTimeout, "timeout", "git took longer than %s", o.timeout)
 	case res.IdleKilled:
-		return res, newErr(http.StatusGatewayTimeout, "idle_timeout", "git tidak mengeluarkan output selama %s", o.idle)
+		return res, newErr(http.StatusGatewayTimeout, "idle_timeout", "git gave no output for %s", o.idle)
 	case res.ExitCode == exitNoGit && strings.Contains(string(res.Stderr), markNoGit):
 		return res, errNoGit()
 	case res.ExitCode == exitNoRepo && strings.Contains(string(res.Stderr), markNoRepo):
 		return res, errNotRepo()
 	case res.ExitCode == 126:
-		return res, newErr(http.StatusNotFound, "not_found", "folder project tidak bisa dibuka")
+		return res, newErr(http.StatusNotFound, "not_found", "the project folder cannot be opened")
 	}
 	return res, nil
 }
@@ -350,7 +352,7 @@ func gitMessage(res *machine.ExecResult) string {
 func failed(res *machine.ExecResult, code string, status int) *Error {
 	msg := gitMessage(res)
 	if msg == "" {
-		msg = fmt.Sprintf("git keluar dengan kode %d", res.ExitCode)
+		msg = fmt.Sprintf("git exited with code %d", res.ExitCode)
 	}
 	return &Error{Status: status, Code: code, Msg: msg}
 }
@@ -411,7 +413,7 @@ func (s *Service) refresh(r Repo) *Status {
 // submit starts a git/publish job holding the repository lock until it ends.
 func (s *Service) submit(r Repo, kind, purpose string, run func(ctx context.Context, rep *jobs.Reporter) (json.RawMessage, error), onFinish func(jobs.Job)) (jobs.Job, error) {
 	if s.Jobs == nil {
-		return jobs.Job{}, newErr(http.StatusServiceUnavailable, "jobs_unavailable", "job tidak tersedia")
+		return jobs.Job{}, newErr(http.StatusServiceUnavailable, "jobs_unavailable", "jobs are not available")
 	}
 	if _, err := s.host(r); err != nil {
 		return jobs.Job{}, err

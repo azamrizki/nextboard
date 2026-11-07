@@ -26,9 +26,9 @@ const (
 )
 
 var (
-	ErrTooManyPaths = errors.New("terlalu banyak path (maks 200)")
-	ErrWatchLimit   = errors.New("terlalu banyak watch aktif")
-	ErrWatchUnknown = errors.New("watch tidak ditemukan atau kedaluwarsa")
+	ErrTooManyPaths = errors.New("too many paths (max 200)")
+	ErrWatchLimit   = errors.New("too many active watches")
+	ErrWatchUnknown = errors.New("watch not found or expired")
 )
 
 // StatResult is one entry of fs/stat-batch (Error set when the stat

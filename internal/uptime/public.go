@@ -48,14 +48,14 @@ func (m *Monitor) checkPublic() error {
 		return nil
 	}
 	if m.PublicName == "" {
-		return errors.New("monitor publik butuh nama publik")
+		return errors.New("a public monitor needs a public name")
 	}
 	if len([]rune(m.PublicName)) > maxPublicName {
-		return fmt.Errorf("nama publik maksimal %d karakter", maxPublicName)
+		return fmt.Errorf("a public name is at most %d characters", maxPublicName)
 	}
 	low := strings.ToLower(m.PublicName)
 	if strings.Contains(low, "://") || publicIPRe.MatchString(low) {
-		return errors.New("nama publik tidak boleh berisi alamat")
+		return errors.New("a public name must not contain an address")
 	}
 	hosts := []string{m.Host, m.DNSServer}
 	if u, err := url.Parse(m.URL); err == nil {
@@ -63,7 +63,7 @@ func (m *Monitor) checkPublic() error {
 	}
 	for _, h := range hosts {
 		if h != "" && strings.Contains(low, strings.ToLower(h)) {
-			return errors.New("nama publik tidak boleh berisi host yang dipantau")
+			return errors.New("a public name must not contain the monitored host")
 		}
 	}
 	return nil
@@ -74,7 +74,7 @@ func (m *Monitor) checkPublic() error {
 func (s *Service) SetPublic(projectID string, enabled bool, title string) (PublicSettings, error) {
 	title = strings.Join(strings.Fields(title), " ")
 	if len([]rune(title)) > maxPublicTitle {
-		return PublicSettings{}, fmt.Errorf("judul maksimal %d karakter", maxPublicTitle)
+		return PublicSettings{}, fmt.Errorf("the title is at most %d characters", maxPublicTitle)
 	}
 	s.mu.Lock()
 	c := s.settings[projectID]

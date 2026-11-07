@@ -67,16 +67,16 @@ func (w *work) apply(op Op) ([]Op, error) {
 		i := w.findNode(n.ID)
 		if n.Kind == KindTerminal {
 			if w.sessionOK == nil || !w.sessionOK(n.sid) {
-				return nil, invalid("sesi %q tidak ada di workspace ini", n.sid)
+				return nil, invalid("session %q is not in this workspace", n.sid)
 			}
 			if j := w.terminalFor(n.sid); j >= 0 && j != i {
-				return nil, invalid("sesi %q sudah punya node terminal", n.sid)
+				return nil, invalid("session %q already has a terminal node", n.sid)
 			}
 		}
 		if i >= 0 {
 			old := w.nodes[i]
 			if old.Kind == KindTerminal && (n.Kind != KindTerminal || n.sid != old.sid) {
-				return nil, invalid("node terminal tidak bisa diganti lewat put")
+				return nil, invalid("a terminal node cannot be replaced with put")
 			}
 			w.nodes[i] = n // keeps its z position
 		} else {
@@ -86,7 +86,7 @@ func (w *work) apply(op Op) ([]Op, error) {
 
 	case "patch":
 		if !IDRe.MatchString(op.ID) {
-			return nil, invalid("id node tidak valid: %q", op.ID)
+			return nil, invalid("invalid node id: %q", op.ID)
 		}
 		i := w.findNode(op.ID)
 		if i < 0 {
@@ -98,14 +98,14 @@ func (w *work) apply(op Op) ([]Op, error) {
 			return nil, err
 		}
 		if old.Kind == KindTerminal && n.sid != old.sid {
-			return nil, invalid("data.sessionId node terminal tidak bisa diubah")
+			return nil, invalid("the data.sessionId of a terminal node cannot be changed")
 		}
 		w.nodes[i] = n
 		return []Op{{Op: "patch", ID: op.ID, Set: set}}, nil
 
 	case "del":
 		if !IDRe.MatchString(op.ID) {
-			return nil, invalid("id node tidak valid: %q", op.ID)
+			return nil, invalid("invalid node id: %q", op.ID)
 		}
 		i := w.findNode(op.ID)
 		if i < 0 || w.nodes[i].Kind == KindTerminal {
@@ -115,10 +115,10 @@ func (w *work) apply(op Op) ([]Op, error) {
 
 	case "z":
 		if !IDRe.MatchString(op.ID) {
-			return nil, invalid("id node tidak valid: %q", op.ID)
+			return nil, invalid("invalid node id: %q", op.ID)
 		}
 		if op.To != "front" && op.To != "back" {
-			return nil, invalid(`z.to harus "front" atau "back"`)
+			return nil, invalid(`z.to must be "front" or "back"`)
 		}
 		i := w.findNode(op.ID)
 		if i < 0 {
@@ -139,7 +139,7 @@ func (w *work) apply(op Op) ([]Op, error) {
 			return nil, err
 		}
 		if w.findNode(e.Source) < 0 || w.findNode(e.Target) < 0 {
-			return nil, invalid("edge %q menunjuk node yang tidak ada", e.ID)
+			return nil, invalid("edge %q points to a node that does not exist", e.ID)
 		}
 		if i := w.findEdge(e.ID); i >= 0 {
 			w.edges[i] = e
@@ -150,7 +150,7 @@ func (w *work) apply(op Op) ([]Op, error) {
 
 	case "delEdge":
 		if !IDRe.MatchString(op.ID) {
-			return nil, invalid("id edge tidak valid: %q", op.ID)
+			return nil, invalid("invalid edge id: %q", op.ID)
 		}
 		i := w.findEdge(op.ID)
 		if i < 0 {
@@ -159,7 +159,7 @@ func (w *work) apply(op Op) ([]Op, error) {
 		w.edges = slices.Delete(w.edges, i, i+1)
 		return []Op{{Op: "delEdge", ID: op.ID}}, nil
 	}
-	return nil, invalid("op tidak dikenal: %q", op.Op)
+	return nil, invalid("unknown op: %q", op.Op)
 }
 
 // contentCount counts non-terminal nodes (what an archive preserves).

@@ -18,10 +18,10 @@ import (
 var (
 	// ErrPidUnknown: the wrapper pid of a remote console is not known (no
 	// agent-start marker yet and no tmux pane to ask).
-	ErrPidUnknown = errors.New("pid proses console belum diketahui")
+	ErrPidUnknown = errors.New("console process pid not known yet")
 	// ErrSignalRefused: the foreground group failed validation (pgid ≤ 1,
 	// the hub's own group, or another terminal session).
-	ErrSignalRefused = errors.New("sinyal ditolak: grup proses foreground tidak valid untuk console ini")
+	ErrSignalRefused = errors.New("signal refused: the foreground process group is not valid for this console")
 )
 
 // ForegroundSignaler is implemented by procs that can stop/continue the
@@ -38,7 +38,7 @@ func signalOf(sig string) (syscall.Signal, error) {
 	case "CONT":
 		return syscall.SIGCONT, nil
 	}
-	return 0, fmt.Errorf("sinyal tidak didukung: %q", sig)
+	return 0, fmt.Errorf("unsupported signal: %q", sig)
 }
 
 // SignalForeground (local): TIOCGPGRP on the PTY master gives the
@@ -101,14 +101,14 @@ func (m *SSH) SignalForeground(ctx context.Context, pid int, sig string) error {
 	case err != nil:
 		return err
 	}
-	return fmt.Errorf("sinyal gagal: %s", strings.TrimSpace(out))
+	return fmt.Errorf("signal failed: %s", strings.TrimSpace(out))
 }
 
 // TmuxPanePid asks tmux for the pid of the console's pane (read-only),
 // used when no agent-start marker reported the wrapper pid.
 func (m *SSH) TmuxPanePid(ctx context.Context, name string) (int, error) {
 	if !tmuxNameRe.MatchString(name) {
-		return 0, fmt.Errorf("nama sesi tmux tidak valid: %q", name)
+		return 0, fmt.Errorf("invalid tmux session name: %q", name)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

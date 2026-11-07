@@ -34,7 +34,7 @@ func Open(path string) (*Box, error) {
 		return nil, err
 	}
 	if len(key) != 32 {
-		return nil, fmt.Errorf("%s: master key harus 32 byte", path)
+		return nil, fmt.Errorf("%s: the master key must be 32 bytes", path)
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -60,7 +60,7 @@ func (b *Box) Seal(plaintext []byte) ([]byte, error) {
 func (b *Box) Open(blob []byte) ([]byte, error) {
 	n := b.aead.NonceSize()
 	if len(blob) < n {
-		return nil, errors.New("ciphertext terlalu pendek")
+		return nil, errors.New("ciphertext too short")
 	}
 	return b.aead.Open(nil, blob[:n], blob[n:], nil)
 }

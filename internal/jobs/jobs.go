@@ -44,12 +44,12 @@ const (
 )
 
 var (
-	ErrNotFound          = errors.New("job tidak ditemukan")
-	ErrRunnerUnsupported = errors.New("agen ini tidak didukung untuk runner")
-	ErrQueueFull         = errors.New("antrean job penuh, coba lagi nanti")
-	ErrBadPurpose        = errors.New("purpose runner tidak dikenal")
-	ErrBadRequest        = errors.New("request runner tidak valid")
-	ErrClosed            = errors.New("hub sedang dimatikan")
+	ErrNotFound          = errors.New("job not found")
+	ErrRunnerUnsupported = errors.New("this agent is not supported for the runner")
+	ErrQueueFull         = errors.New("the job queue is full, try again later")
+	ErrBadPurpose        = errors.New("unknown runner purpose")
+	ErrBadRequest        = errors.New("invalid runner request")
+	ErrClosed            = errors.New("the hub is shutting down")
 )
 
 // Progress is the live phase of a job.
@@ -133,7 +133,7 @@ func NewManager(st *store.Store, host func(machineID string) (machine.Host, bool
 			continue
 		}
 		if j.Active() {
-			j.State, j.Code, j.Error = StateFailed, "hub_restart", "hub dimulai ulang sebelum job selesai"
+			j.State, j.Code, j.Error = StateFailed, "hub_restart", "the hub restarted before the job finished"
 			j.FinishedAt = &now
 		}
 		rec := &job{Job: j, done: make(chan struct{})}
@@ -331,7 +331,7 @@ func (m *Manager) finish(j *job, state, code, msg string, result json.RawMessage
 	}
 	j.finishedC = true
 	if m.closed && state != StateDone {
-		state, code, msg = StateFailed, "hub_restart", "hub dimatikan sebelum job selesai"
+		state, code, msg = StateFailed, "hub_restart", "the hub shut down before the job finished"
 	}
 	now := time.Now().UTC()
 	j.State, j.Code, j.Error, j.FinishedAt = state, code, msg, &now

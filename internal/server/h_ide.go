@@ -43,7 +43,7 @@ func (s *Server) handleIDESocket(w http.ResponseWriter, r *http.Request, p *prin
 		return
 	}
 	if !s.checkOrigin(r, p) {
-		writeErr(w, http.StatusForbidden, "origin tidak diizinkan")
+		writeErr(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
 	c, err := upgrader.Upgrade(w, r, nil)
@@ -67,7 +67,7 @@ func (s *Server) handleIDESocket(w http.ResponseWriter, r *http.Request, p *prin
 			return nil
 		default:
 			conn.revoke()
-			return errors.New("browser editor tertinggal")
+			return errors.New("the browser editor fell behind")
 		}
 	})
 	defer editor.Close()

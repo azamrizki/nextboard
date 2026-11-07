@@ -16,11 +16,11 @@ import (
 
 // Errors of POST /api/projects/{id}/commands.
 var (
-	ErrEmptyText      = errors.New("teks perintah kosong")
-	ErrCommandTooLong = errors.New("teks perintah melebihi 4000 karakter")
-	ErrThreadBusy     = errors.New("sudah 3 perintah antre di belakang giliran planner thread ini")
-	ErrBadCard        = errors.New("cardId bukan kartu orchestrator di workspace ini")
-	ErrWrongProject   = errors.New("workspace bukan milik project ini")
+	ErrEmptyText      = errors.New("the command text is empty")
+	ErrCommandTooLong = errors.New("the command text is longer than 4000 characters")
+	ErrThreadBusy     = errors.New("3 commands are already queued behind the planner turn of this thread")
+	ErrBadCard        = errors.New("cardId is not an orchestrator card in this workspace")
+	ErrWrongProject   = errors.New("the workspace does not belong to this project")
 	ErrMixedBoards    = errors.New("consoles on different boards cannot share a group")
 )
 
@@ -153,7 +153,7 @@ func (s *Service) Command(req CommandRequest) (CommandResponse, error) {
 }
 
 // ErrWorkspaceNotFound mirrors project.ErrWorkspaceNotFound for the API.
-var ErrWorkspaceNotFound = errors.New("workspace tidak ditemukan")
+var ErrWorkspaceNotFound = errors.New("workspace not found")
 
 func (s *Service) response(c *execCtx, handled string, cf *Confirmation) CommandResponse {
 	r := CommandResponse{CommandID: c.commandID, ThreadID: c.threadID, HandledBy: handled, OrderID: c.orderID,

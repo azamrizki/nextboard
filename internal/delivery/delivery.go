@@ -67,14 +67,14 @@ const (
 )
 
 var (
-	ErrNotFound    = errors.New("sesi tidak ditemukan")
-	ErrNotAgent    = errors.New("tidak ada agen di foreground console ini; teks tidak pernah diketik ke shell")
-	ErrTargetBusy  = errors.New("agen tidak siap menerima dikte (starting, needs you, atau tidak di foreground)")
-	ErrTextTooLong = errors.New("teks melebihi 32 000 karakter")
-	ErrQueueFull   = errors.New("antrean delivery penuh (maks 20)")
-	ErrEmptyText   = errors.New("teks kosong")
-	ErrNoDelivery  = errors.New("delivery tidak ditemukan")
-	ErrAlreadySent = errors.New("delivery sudah diketik atau terkirim")
+	ErrNotFound    = errors.New("session not found")
+	ErrNotAgent    = errors.New("there is no agent in the foreground of this console; text is never typed into a shell")
+	ErrTargetBusy  = errors.New("the agent is not ready to take dictation (starting, needs you, or not in the foreground)")
+	ErrTextTooLong = errors.New("the text is longer than 32 000 characters")
+	ErrQueueFull   = errors.New("the delivery queue is full (at most 20)")
+	ErrEmptyText   = errors.New("empty text")
+	ErrNoDelivery  = errors.New("delivery not found")
+	ErrAlreadySent = errors.New("the delivery was already typed or sent")
 )
 
 // Delivery is the API view (§2). ProjectID is a NextBoard addition used
@@ -352,7 +352,7 @@ func (e *Engine) SessionRemoved(sessionID string) {
 		if it.d.State == Sent {
 			e.finishLocked(it, Sent, "", "")
 		} else {
-			e.finishLocked(it, Failed, "session_gone", "sesi dihapus")
+			e.finishLocked(it, Failed, "session_gone", "the session was deleted")
 		}
 		out = append(out, it.d)
 	}
@@ -465,7 +465,7 @@ func (e *Engine) process(it *item, now time.Time) {
 			e.fail(it, Sent, "", "")
 			return
 		}
-		e.fail(it, Failed, "session_gone", "sesi sudah tidak ada")
+		e.fail(it, Failed, "session_gone", "the session no longer exists")
 		return
 	}
 	switch state {
@@ -504,12 +504,12 @@ func reasonTimeout(st settings.Delivery, reason string) (time.Duration, string, 
 func blocked(v session.DeliveryView, hadAgent bool, st settings.Delivery, now time.Time, forSubmit bool) (final, code, msg, reason string) {
 	switch {
 	case v.Status == session.StatusExited || v.Status == session.StatusError || v.AgentState == agentstate.Exited || v.AgentState == agentstate.Error:
-		return Failed, "session_gone", "proses console sudah berakhir", ""
+		return Failed, "session_gone", "the console process has ended", ""
 	case v.AgentKind != agent.KindAgent || v.ManualAgent:
 		return Failed, "not_agent", ErrNotAgent.Error(), ""
 	case v.Foreground == agentstate.FgShell || v.AgentState == agentstate.Shell:
 		if hadAgent {
-			return Failed, "agent_exited", "agen keluar sebelum teks diketik", ""
+			return Failed, "agent_exited", "the agent exited before the text was typed", ""
 		}
 		return Failed, "not_agent", ErrNotAgent.Error(), ""
 	case v.Paused:
@@ -531,7 +531,7 @@ func blocked(v session.DeliveryView, hadAgent bool, st settings.Delivery, now ti
 // gate decides whether a queued/waiting delivery can be typed now.
 func (e *Engine) gate(it *item, c Console, now time.Time) {
 	if now.After(it.d.Deadline) {
-		e.fail(it, Expired, "deadline", "batas waktu delivery lewat")
+		e.fail(it, Expired, "deadline", "the delivery deadline passed")
 		return
 	}
 	st := e.Settings()
@@ -561,9 +561,9 @@ func (e *Engine) gate(it *item, c Console, now time.Time) {
 		}
 		e.mu.Unlock()
 		if lim, fstate, fcode := reasonTimeout(st, reason); lim > 0 && now.Sub(since) >= lim {
-			m := "agen tidak siap dalam batas waktu (" + reason + ")"
+			m := "the agent was not ready in time (" + reason + ")"
 			if reason == WaitDialog {
-				m = "layar console tidak dikenali sebagai prompt input agen; tidak diketik"
+				m = "the console screen is not recognized as an agent input prompt; not typed"
 				if why != "" {
 					m += " (" + why + ")"
 				}
@@ -587,7 +587,7 @@ func (e *Engine) gate(it *item, c Console, now time.Time) {
 		return
 	}
 	if !fg {
-		e.fail(it, Failed, "agent_exited", "cek proses: agen tidak di foreground")
+		e.fail(it, Failed, "agent_exited", "process check: the agent is not in the foreground")
 		return
 	}
 	// The check may have taken a while (SSH): look at the screen again.
@@ -635,14 +635,14 @@ func (e *Engine) submit(it *item, c Console, now time.Time) {
 	final, _, _, reason := blocked(v, it.hadAgent, st, now, true)
 	switch {
 	case final != "" || reason != "":
-		e.fail(it, Failed, "submit_aborted", "kondisi console berubah setelah teks ditempel; Return tidak dikirim (teks tetap di input agen)")
+		e.fail(it, Failed, "submit_aborted", "the console state changed after the text was pasted; Return not sent (the text stays in the agent's input)")
 		return
 	case v.LastHuman.After(it.typedAt):
-		e.fail(it, Failed, "submit_aborted", "ada input manusia setelah teks ditempel; Return tidak dikirim")
+		e.fail(it, Failed, "submit_aborted", "a person typed after the text was pasted; Return not sent")
 		return
 	}
 	if ok, why := agent.InputPromptPasted(v.ScreenRules, v.Lines, v.CursorY); !ok || v.ScreenStale {
-		e.fail(it, Failed, "submit_aborted", "layar bukan lagi prompt input agen; Return tidak dikirim ("+why+")")
+		e.fail(it, Failed, "submit_aborted", "the screen is no longer an agent input prompt; Return not sent ("+why+")")
 		return
 	}
 	if !e.update(it, func(it *item) bool { return it.d.State == Typing }) {

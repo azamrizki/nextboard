@@ -97,7 +97,7 @@ func (h *Hub) Env(sessionID string, roots []string, configDir string) ([]string,
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
-		return nil, errors.New("hub berhenti")
+		return nil, errors.New("the hub stopped")
 	}
 	l := h.links[sessionID]
 	if l == nil {

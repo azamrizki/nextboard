@@ -96,7 +96,7 @@ func replySaveDir(w http.ResponseWriter, r *http.Request) (string, bool) {
 		dir = "outputs"
 	}
 	if strings.Contains(dir, "..") || strings.ContainsAny(dir, "\x00\\") || len(dir) > 200 {
-		writeErr(w, http.StatusBadRequest, "dir harus folder relatif di dalam project")
+		writeErr(w, http.StatusBadRequest, "dir must be a relative folder inside the project")
 		return "", false
 	}
 	return dir, true
@@ -150,7 +150,7 @@ func (s *Server) transcriptOf(w http.ResponseWriter, r *http.Request) (*session.
 	defer cancel()
 	h, kind, p, err := sess.TranscriptLocation(ctx)
 	if err != nil || p == "" {
-		writeErrCode(w, http.StatusNotFound, "no_transcript", "transcript sesi ini tidak ditemukan")
+		writeErrCode(w, http.StatusNotFound, "no_transcript", "transcript of this session not found")
 		return nil, nil, "", "", false
 	}
 	return sess, h, kind, p, true
@@ -161,7 +161,7 @@ func (s *Server) handleSessionTranscript(w http.ResponseWriter, r *http.Request,
 	if v := r.URL.Query().Get("last"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 200 {
-			writeErr(w, http.StatusBadRequest, "last harus 1–200")
+			writeErr(w, http.StatusBadRequest, "last must be 1–200")
 			return
 		}
 		last = n
@@ -188,7 +188,7 @@ func (s *Server) handleSessionTokens(w http.ResponseWriter, r *http.Request, p *
 	if v := r.URL.Query().Get("since"); v != "" {
 		t, err := time.Parse(time.RFC3339Nano, v)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "since harus RFC 3339")
+			writeErr(w, http.StatusBadRequest, "since must be RFC 3339")
 			return
 		}
 		since = t
@@ -220,21 +220,21 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request, p *
 	q := r.URL.Query()
 	a, ok := s.agents.Get(q.Get("agent"))
 	if !ok || (a.Transcript != agent.TranscriptClaude && a.Transcript != agent.TranscriptCodex) {
-		writeErrCode(w, http.StatusBadRequest, "no_transcript", "agen ini tidak punya transcript")
+		writeErrCode(w, http.StatusBadRequest, "no_transcript", "this agent has no transcript")
 		return
 	}
 	limit := 50
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 200 {
-			writeErr(w, http.StatusBadRequest, "limit harus 1–200")
+			writeErr(w, http.StatusBadRequest, "limit must be 1–200")
 			return
 		}
 		limit = n
 	}
 	cwd := strings.TrimSpace(q.Get("cwd"))
 	if cwd == "" {
-		writeErr(w, http.StatusBadRequest, "cwd wajib diisi")
+		writeErr(w, http.StatusBadRequest, "cwd is required")
 		return
 	}
 	profileDir := ""

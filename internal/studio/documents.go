@@ -61,11 +61,11 @@ const DocIdle = 200 * time.Second
 const maxAsk = 2000
 
 var (
-	ErrDocNotFound     = errors.New("dokumen tidak ditemukan")
-	ErrVersionNotFound = errors.New("versi dokumen tidak ditemukan")
-	ErrBadDocType      = errors.New("tipe dokumen tidak dikenal")
-	ErrBadEffort       = errors.New(`effort harus "quick", "balanced" atau "thorough"`)
-	ErrBadAsk          = fmt.Errorf("ask wajib untuk tipe custom (≤ %d karakter)", maxAsk)
+	ErrDocNotFound     = errors.New("document not found")
+	ErrVersionNotFound = errors.New("document version not found")
+	ErrBadDocType      = errors.New("unknown document type")
+	ErrBadEffort       = errors.New(`effort must be "quick", "balanced" or "thorough"`)
+	ErrBadAsk          = fmt.Errorf("ask is required for the custom type (≤ %d characters)", maxAsk)
 )
 
 // Version is one generated version of a document.

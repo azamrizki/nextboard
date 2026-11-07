@@ -69,7 +69,7 @@ var dIDRe = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 // ErrDiagram is a validation failure of runner output.
 type ErrDiagram struct{ Msg string }
 
-func (e *ErrDiagram) Error() string { return "diagram tidak valid: " + e.Msg }
+func (e *ErrDiagram) Error() string { return "invalid diagram: " + e.Msg }
 
 func bad(format string, a ...any) error { return &ErrDiagram{fmt.Sprintf(format, a...)} }
 
@@ -88,7 +88,7 @@ func ValidateDiagram(raw []byte) (*Diagram, []string, error) {
 	var d Diagram
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	if err := dec.Decode(&d); err != nil {
-		return nil, nil, bad("bukan JSON nb.diagram/v1: %v", err)
+		return nil, nil, bad("not nb.diagram/v1 JSON: %v", err)
 	}
 	if d.Schema == "" {
 		d.Schema = DiagramSchemaID
@@ -98,7 +98,7 @@ func ValidateDiagram(raw []byte) (*Diagram, []string, error) {
 	}
 	d.Title = strings.TrimSpace(d.Title)
 	if utf8.RuneCountInString(d.Title) > MaxDiagramTitle {
-		return nil, nil, bad("judul lebih dari %d karakter", MaxDiagramTitle)
+		return nil, nil, bad("title longer than %d characters", MaxDiagramTitle)
 	}
 	switch strings.ToUpper(d.Direction) {
 	case "", "TB", "TD", "DOWN":
@@ -109,19 +109,19 @@ func ValidateDiagram(raw []byte) (*Diagram, []string, error) {
 		return nil, nil, bad("direction %q", d.Direction)
 	}
 	if len(d.Nodes) == 0 {
-		return nil, nil, bad("tanpa node")
+		return nil, nil, bad("no nodes")
 	}
 	if len(d.Nodes) > MaxDiagramNodes || len(d.Edges) > MaxDiagramEdges || len(d.Groups) > MaxDiagramGroups {
-		return nil, nil, bad("lebih dari %d node, %d edge atau %d grup", MaxDiagramNodes, MaxDiagramEdges, MaxDiagramGroups)
+		return nil, nil, bad("more than %d nodes, %d edges or %d groups", MaxDiagramNodes, MaxDiagramEdges, MaxDiagramGroups)
 	}
 	groups := map[string]bool{}
 	for i, g := range d.Groups {
 		g.Label = strings.TrimSpace(g.Label)
 		if !dIDRe.MatchString(g.ID) || groups[g.ID] {
-			return nil, nil, bad("id grup %q", g.ID)
+			return nil, nil, bad("group id %q", g.ID)
 		}
 		if g.Label == "" || utf8.RuneCountInString(g.Label) > MaxDiagramLabel {
-			return nil, nil, bad("label grup %q", g.ID)
+			return nil, nil, bad("group label %q", g.ID)
 		}
 		groups[g.ID] = true
 		d.Groups[i] = g
@@ -130,13 +130,13 @@ func ValidateDiagram(raw []byte) (*Diagram, []string, error) {
 	for i, n := range d.Nodes {
 		n.Label, n.Note = strings.TrimSpace(n.Label), strings.TrimSpace(n.Note)
 		if !dIDRe.MatchString(n.ID) || nodes[n.ID] != "" {
-			return nil, nil, bad("id node %q", n.ID)
+			return nil, nil, bad("node id %q", n.ID)
 		}
 		if n.Label == "" || utf8.RuneCountInString(n.Label) > MaxDiagramLabel {
-			return nil, nil, bad("label node %q kosong atau lebih dari %d karakter", n.ID, MaxDiagramLabel)
+			return nil, nil, bad("node %q label is empty or longer than %d characters", n.ID, MaxDiagramLabel)
 		}
 		if utf8.RuneCountInString(n.Note) > MaxDiagramNote {
-			return nil, nil, bad("note node %q lebih dari %d karakter", n.ID, MaxDiagramNote)
+			return nil, nil, bad("node %q note is longer than %d characters", n.ID, MaxDiagramNote)
 		}
 		sh, ok := shapeAlias[strings.ToLower(strings.TrimSpace(n.Shape))]
 		if !ok {
@@ -144,7 +144,7 @@ func ValidateDiagram(raw []byte) (*Diagram, []string, error) {
 		}
 		n.Shape = sh
 		if n.Group != "" && !groups[n.Group] {
-			return nil, nil, bad("node %q di grup %q yang tidak ada", n.ID, n.Group)
+			return nil, nil, bad("node %q is in group %q, which does not exist", n.ID, n.Group)
 		}
 		nodes[n.ID] = sh
 		d.Nodes[i] = n
@@ -153,10 +153,10 @@ func ValidateDiagram(raw []byte) (*Diagram, []string, error) {
 	for i, e := range d.Edges {
 		e.Label = strings.TrimSpace(e.Label)
 		if nodes[e.From] == "" || nodes[e.To] == "" {
-			return nil, nil, bad("edge %s→%s menunjuk node yang tidak ada", e.From, e.To)
+			return nil, nil, bad("edge %s→%s points at a node that does not exist", e.From, e.To)
 		}
 		if utf8.RuneCountInString(e.Label) > MaxDiagramLabel {
-			return nil, nil, bad("label edge %s→%s lebih dari %d karakter", e.From, e.To, MaxDiagramLabel)
+			return nil, nil, bad("edge %s→%s label is longer than %d characters", e.From, e.To, MaxDiagramLabel)
 		}
 		switch e.Style {
 		case "", "solid":
@@ -164,10 +164,10 @@ func ValidateDiagram(raw []byte) (*Diagram, []string, error) {
 		case "dashed", "dotted":
 			e.Style = "dashed"
 		default:
-			return nil, nil, bad("style edge %q", e.Style)
+			return nil, nil, bad("edge style %q", e.Style)
 		}
 		if nodes[e.From] == "diamond" && e.Label == "" {
-			warn = append(warn, fmt.Sprintf("cabang keputusan %s→%s tanpa label", e.From, e.To))
+			warn = append(warn, fmt.Sprintf("decision branch %s→%s has no label", e.From, e.To))
 		}
 		d.Edges[i] = e
 	}
@@ -216,9 +216,9 @@ var DiagramSubjects = map[string]string{
 var diagramEffort = map[string][2]int{"quick": {6, 10}, "balanced": {8, 14}, "thorough": {10, 16}}
 
 var (
-	ErrBadSubject      = errors.New("subject diagram tidak dikenal")
-	ErrBadStyle        = errors.New(`style harus "ink" atau "color"`)
-	ErrDiagramNotFound = errors.New("diagram tidak ditemukan")
+	ErrBadSubject      = errors.New("unknown diagram subject")
+	ErrBadStyle        = errors.New(`style must be "ink" or "color"`)
+	ErrDiagramNotFound = errors.New("diagram not found")
 )
 
 // DiagramPrompt is the runner prompt.
@@ -406,7 +406,7 @@ func (g *Diagrams) finish(pid, id string, j jobs.Job) {
 			d := out.Diagram
 			r.Diagram, r.Warnings, r.Title, r.State = &d, out.Warnings, d.Title, "done"
 		} else {
-			r.State, r.Error = "failed", "hasil job tidak terbaca"
+			r.State, r.Error = "failed", "could not read the job result"
 		}
 	case jobs.StateCancelled:
 		r.State = "cancelled"
@@ -442,7 +442,7 @@ func (g *Diagrams) Recover() {
 		for _, f := range files {
 			var r DiagramRecord
 			if ok, err := g.st.Load(filepath.Join("diagrams", e.Name(), f.Name()), &r); ok && err == nil && r.State == "running" {
-				r.State, r.Error = "failed", "hub dimulai ulang sebelum diagram selesai"
+				r.State, r.Error = "failed", "the hub restarted before the diagram was done"
 				_ = g.put(r)
 			}
 		}

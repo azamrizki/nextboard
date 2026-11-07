@@ -20,9 +20,9 @@ import (
 const machinesFile = "machines.json"
 
 var (
-	ErrNotFound    = errors.New("machine tidak ditemukan")
-	ErrLocal       = errors.New("This PC tidak bisa diubah atau dihapus")
-	ErrInvalidSpec = errors.New("data machine tidak valid")
+	ErrNotFound    = errors.New("machine not found")
+	ErrLocal       = errors.New("This PC cannot be changed or deleted")
+	ErrInvalidSpec = errors.New("invalid machine data")
 )
 
 // AddRequest is the body of POST /api/machines.
@@ -256,10 +256,10 @@ func (r *Registry) Add(req AddRequest) (*SSH, error) {
 	req.Host = strings.TrimSpace(req.Host)
 	req.User = strings.TrimSpace(req.User)
 	if req.SSHConfigHost == "" && req.Host == "" {
-		return nil, fmt.Errorf("%w: isi sshConfigHost atau host", ErrInvalidSpec)
+		return nil, fmt.Errorf("%w: set sshConfigHost or host", ErrInvalidSpec)
 	}
 	if strings.ContainsAny(req.SSHConfigHost+req.Host+req.User, " \t\r\n'\"`;$\\") {
-		return nil, fmt.Errorf("%w: karakter tidak diizinkan pada host/user", ErrInvalidSpec)
+		return nil, fmt.Errorf("%w: character not allowed in host/user", ErrInvalidSpec)
 	}
 	if req.Port < 0 || req.Port > 65535 {
 		return nil, fmt.Errorf("%w: port", ErrInvalidSpec)
@@ -275,10 +275,10 @@ func (r *Registry) Add(req AddRequest) (*SSH, error) {
 		return nil, err
 	}
 	if req.AuthMethod == "key" && strings.TrimSpace(req.PrivateKey) == "" {
-		return nil, fmt.Errorf("%w: private key kosong", ErrInvalidSpec)
+		return nil, fmt.Errorf("%w: private key is empty", ErrInvalidSpec)
 	}
 	if req.AuthMethod == "password" && req.Password == "" {
-		return nil, fmt.Errorf("%w: password kosong", ErrInvalidSpec)
+		return nil, fmt.Errorf("%w: password is empty", ErrInvalidSpec)
 	}
 	if req.Name == "" {
 		req.Name = req.SSHConfigHost

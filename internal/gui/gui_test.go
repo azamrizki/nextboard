@@ -314,7 +314,7 @@ func TestNoWindowFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	e = waitGone(t, m, ev, s.ID)
-	if e["reason"] != ReasonFailed || !strings.Contains(fmt.Sprint(e["message"]), "layar lain") {
+	if e["reason"] != ReasonFailed || !strings.Contains(fmt.Sprint(e["message"]), "another screen") {
 		t.Errorf("silent: %v", e)
 	}
 }

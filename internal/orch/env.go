@@ -119,7 +119,7 @@ func (s *Service) goalAgent(l LoopDef, reply string, done func(met, ok bool, rea
 func (s *Service) goalCommand(l LoopDef, done func(met, ok bool, reason string)) {
 	p, ok := s.hub.Project(l.ProjectID)
 	if !ok {
-		done(false, false, "project hilang")
+		done(false, false, "the project is gone")
 		return
 	}
 	g := l.Stop.Goal
@@ -469,8 +469,8 @@ func (s *Service) autoPush(in session.Info) {
 }
 
 var (
-	ErrProjectNotFound = fmt.Errorf("project tidak ditemukan")
-	ErrMemoryEmpty     = fmt.Errorf("memory kosong; tidak ada yang dikirim")
+	ErrProjectNotFound = fmt.Errorf("project not found")
+	ErrMemoryEmpty     = fmt.Errorf("the memory is empty; nothing was sent")
 )
 
 var _ = slices.Contains[[]string]

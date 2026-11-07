@@ -45,13 +45,13 @@ const (
 )
 
 var (
-	ErrAbsent     = errors.New("vault belum dibuat")
-	ErrExists     = errors.New("vault sudah ada")
-	ErrNotFound   = errors.New("item tidak ditemukan")
-	ErrConflict   = errors.New("item sudah berubah di tempat lain")
-	ErrFull       = errors.New("vault penuh")
-	ErrInvalid    = errors.New("data vault tidak valid")
-	ErrUnreadable = errors.New("vault.json tidak bisa dibaca")
+	ErrAbsent     = errors.New("the vault has not been created")
+	ErrExists     = errors.New("the vault already exists")
+	ErrNotFound   = errors.New("item not found")
+	ErrConflict   = errors.New("the item was changed elsewhere")
+	ErrFull       = errors.New("the vault is full")
+	ErrInvalid    = errors.New("invalid vault data")
+	ErrUnreadable = errors.New("vault.json cannot be read")
 )
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
@@ -70,7 +70,7 @@ func (k KDF) validate() error {
 		return fmt.Errorf("%w: kdf %q", ErrInvalid, k.Name)
 	}
 	if k.M < 32<<10 || k.M > 1<<20 || k.T < 2 || k.T > 16 || k.P < 1 || k.P > 16 {
-		return fmt.Errorf("%w: parameter kdf di luar batas", ErrInvalid)
+		return fmt.Errorf("%w: kdf parameters out of range", ErrInvalid)
 	}
 	return nil
 }
@@ -126,7 +126,7 @@ func validateItem(id, blob string) error {
 		return fmt.Errorf("%w: id", ErrInvalid)
 	}
 	if len(blob) > MaxBlobChars {
-		return fmt.Errorf("%w: item terlalu besar", ErrInvalid)
+		return fmt.Errorf("%w: item too large", ErrInvalid)
 	}
 	raw, err := base64.StdEncoding.DecodeString(blob)
 	if err != nil || len(raw) < minBlobBytes {
@@ -156,11 +156,11 @@ type doc struct {
 
 func (d *doc) check() error {
 	if d.Version != version {
-		return fmt.Errorf("versi %d", d.Version)
+		return fmt.Errorf("version %d", d.Version)
 	}
 	if d.Header == nil {
 		if len(d.Items) > 0 {
-			return errors.New("item tanpa header")
+			return errors.New("items without a header")
 		}
 		return nil
 	}
@@ -169,7 +169,7 @@ func (d *doc) check() error {
 	}
 	for id, it := range d.Items {
 		if it.ID != id {
-			return fmt.Errorf("item %q: id tidak cocok", id)
+			return fmt.Errorf("item %q: id mismatch", id)
 		}
 		if err := validateItem(id, it.Blob); err != nil {
 			return fmt.Errorf("item %q: %w", id, err)
@@ -182,10 +182,10 @@ func (d *doc) check() error {
 	}
 	for id, e := range d.Agents {
 		if e.ID != id {
-			return fmt.Errorf("agent %q: id tidak cocok", id)
+			return fmt.Errorf("agent %q: id mismatch", id)
 		}
 		if _, ok := d.Items[id]; !ok {
-			return fmt.Errorf("agent %q: item tidak ada", id)
+			return fmt.Errorf("agent %q: no such item", id)
 		}
 		if err := e.validate(); err != nil {
 			return fmt.Errorf("agent %q: %w", id, err)
@@ -235,7 +235,7 @@ func New(st *store.Store) *Service {
 		s.broken = err
 		return s
 	}
-	log.Printf("vault: memakai salinan sebelumnya, file rusak disimpan terpisah")
+	log.Printf("vault: using the previous copy, the damaged file is kept aside")
 	s.d = *prev
 	return s
 }
@@ -307,7 +307,7 @@ func (s *Service) published() {
 
 func (s *Service) unreadable() error {
 	if s.broken != nil {
-		return fmt.Errorf("%w: pulihkan dari cadangan atau reset vault", ErrUnreadable)
+		return fmt.Errorf("%w: restore from a backup or reset the vault", ErrUnreadable)
 	}
 	return nil
 }
@@ -470,7 +470,7 @@ func (s *Service) Delete(id string, baseRev int64) error {
 // Batch adds new items in one write: all of them, or none.
 func (s *Service) Batch(items []NewItem) ([]Item, error) {
 	if len(items) > MaxBatch {
-		return nil, fmt.Errorf("%w: lebih dari %d item", ErrInvalid, MaxBatch)
+		return nil, fmt.Errorf("%w: more than %d items", ErrInvalid, MaxBatch)
 	}
 	for _, it := range items {
 		if err := validateItem(it.ID, it.Blob); err != nil {

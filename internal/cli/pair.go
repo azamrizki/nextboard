@@ -25,7 +25,7 @@ func cmdPair(args []string) error {
 		return err
 	}
 	if as.NeedsSetup() {
-		return fmt.Errorf("hub belum di-setup; jalankan `nextboard setup-link` dulu")
+		return fmt.Errorf("hub not set up yet; run `nextboard setup-link` first")
 	}
 	code, exp, err := as.NewPairCode()
 	if err != nil {
@@ -38,13 +38,13 @@ func cmdPair(args []string) error {
 		return err
 	}
 	fmt.Println(renderQR(q))
-	fmt.Printf("Kode pairing: %s  (berlaku sampai %s, sekali pakai)\n", code, exp.Local().Format(time.Kitchen))
+	fmt.Printf("Pairing code: %s  (valid until %s, single use)\n", code, exp.Local().Format(time.Kitchen))
 	fmt.Printf("Hub:          %s\n", h.cfg.HubName)
-	fmt.Printf("Alamat:       %s\n", strings.Join(urls, ", "))
+	fmt.Printf("Address:      %s\n", strings.Join(urls, ", "))
 	fmt.Printf("URI:          %s\n", uri)
 	if !hasHTTPS(urls) {
-		fmt.Println("\nCatatan: belum ada alamat HTTPS. App Android rilis hanya menerima HTTPS; pasang nginx lalu isi extraUrls di config.json")
-		fmt.Println("(atau `nextboard install --public-url https://...`), atau buat kode dari Web UI lewat HTTPS.")
+		fmt.Println("\nNote: no HTTPS address yet. The release Android app accepts only HTTPS; set up nginx, then fill in extraUrls in config.json")
+		fmt.Println("(or `nextboard install --public-url https://...`), or create the code from the Web UI over HTTPS.")
 	}
 	return nil
 }

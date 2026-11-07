@@ -15,9 +15,9 @@ import (
 
 var (
 	// ErrNotFound: the workspace board was dropped (workspace deleted).
-	ErrNotFound = errors.New("board tidak ditemukan")
+	ErrNotFound = errors.New("board not found")
 	// ErrReadOnly: the board was saved by a newer hub (schemaVersion > 2).
-	ErrReadOnly = errors.New("board disimpan oleh versi hub yang lebih baru; tidak bisa diubah")
+	ErrReadOnly = errors.New("the board was saved by a newer hub version; it cannot be changed")
 )
 
 // Manager owns every loaded board. The hub is authoritative: each board
@@ -125,7 +125,7 @@ func (m *Manager) load(wid string) (*doc, bool) {
 			return d, false
 		}
 		if errMain == nil {
-			log.Printf("board %s tidak terbaca; diarsipkan", wid)
+			log.Printf("board %s is unreadable; archived", wid)
 			m.archiveRaw(wid, main)
 		}
 		b = Board{}
@@ -238,7 +238,7 @@ func (m *Manager) Get(wid string) (Board, error) {
 // batch with a *ValidationError.
 func (m *Manager) Apply(wid, clientID string, ops []Op) (int64, error) {
 	if len(ops) > MaxOps {
-		return 0, invalid("terlalu banyak op (maks %d)", MaxOps)
+		return 0, invalid("too many ops (at most %d)", MaxOps)
 	}
 	d, err := m.doc(wid, true)
 	if err != nil {
@@ -285,13 +285,13 @@ func (m *Manager) Apply(wid, clientID string, ops []Op) (int64, error) {
 		}
 	}
 	if w.size() > MaxBoardBytes {
-		return 0, invalid("board terlalu besar (maks %d MB)", MaxBoardBytes>>20)
+		return 0, invalid("the board is too large (at most %d MB)", MaxBoardBytes>>20)
 	}
 	// A board emptied in one go goes to the archive first.
 	if before := contentCount(d.nodes); before >= 3 && contentCount(w.nodes) == 0 {
 		pn, wn := m.names(wid)
 		if _, err := m.writeArchive(d.boardLocked(), pn, wn, ReasonCleared); err != nil {
-			log.Printf("arsip board %s gagal: %v", wid, err)
+			log.Printf("archive of board %s failed: %v", wid, err)
 		}
 	}
 	d.commitLocked(w, clientID, applied)
@@ -513,7 +513,7 @@ func (d *doc) save(force bool) {
 		err = d.m.writeBoard(d, data, len(b.Nodes))
 	}
 	if err != nil {
-		log.Printf("simpan board %s gagal: %v", d.wid, err)
+		log.Printf("saving board %s failed: %v", d.wid, err)
 		d.mu.Lock()
 		if !d.dropped {
 			d.markDirtyLocked()

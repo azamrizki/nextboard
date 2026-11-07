@@ -94,11 +94,11 @@ func (s *Service) ghRun(ctx context.Context, r Repo, timeout time.Duration, maxO
 		text := strings.ToLower(string(res.Stderr) + string(res.Stdout))
 		switch {
 		case strings.Contains(text, strings.ToLower(markNoGh)):
-			return nil, newErr(http.StatusConflict, "gh_missing", "gh tidak terpasang di machine ini")
+			return nil, newErr(http.StatusConflict, "gh_missing", "gh is not installed on this machine")
 		case strings.Contains(text, "gh auth login"), strings.Contains(text, "not logged"):
-			return nil, newErr(http.StatusConflict, "gh_auth", "gh belum login di machine ini")
+			return nil, newErr(http.StatusConflict, "gh_auth", "gh is not logged in on this machine")
 		case strings.Contains(text, "no git remotes"), strings.Contains(text, "none of the git remotes"), strings.Contains(text, "could not determine"):
-			return nil, newErr(http.StatusConflict, "no_github_remote", "repository ini tidak punya remote GitHub")
+			return nil, newErr(http.StatusConflict, "no_github_remote", "this repository has no GitHub remote")
 		}
 		return nil, failed(res, "gh_failed", http.StatusBadGateway)
 	}
@@ -113,14 +113,14 @@ func (s *Service) Pulls(ctx context.Context, r Repo) ([]PullSummary, error) {
 	}
 	items := []PullSummary{}
 	if err := json.Unmarshal(out, &items); err != nil {
-		return nil, newErr(http.StatusBadGateway, "gh_failed", "keluaran gh tidak terbaca")
+		return nil, newErr(http.StatusBadGateway, "gh_failed", "could not read gh's output")
 	}
 	return items, nil
 }
 
 func prNumber(n int) (string, error) {
 	if n <= 0 {
-		return "", newErr(http.StatusBadRequest, "bad_number", "nomor pull request tidak valid")
+		return "", newErr(http.StatusBadRequest, "bad_number", "invalid pull request number")
 	}
 	return strconv.Itoa(n), nil
 }
@@ -138,7 +138,7 @@ func (s *Service) PullRequest(ctx context.Context, r Repo, number int) (*PullDet
 	}
 	d := &PullDetail{}
 	if err := json.Unmarshal(out, d); err != nil {
-		return nil, newErr(http.StatusBadGateway, "gh_failed", "keluaran gh tidak terbaca")
+		return nil, newErr(http.StatusBadGateway, "gh_failed", "could not read gh's output")
 	}
 	return d, nil
 }
@@ -168,7 +168,7 @@ type PullCreate struct {
 func (s *Service) CreatePull(ctx context.Context, r Repo, req PullCreate) (string, error) {
 	title := strings.TrimSpace(req.Title)
 	if title == "" || len(title) > 1000 || len(req.Body) > maxPRText || strings.ContainsRune(title+req.Body, 0) {
-		return "", newErr(http.StatusBadRequest, "bad_message", "judul atau isi pull request tidak valid")
+		return "", newErr(http.StatusBadRequest, "bad_message", "invalid pull request title or body")
 	}
 	unlock, err := s.lock(r, "pull-request")
 	if err != nil {
@@ -224,13 +224,13 @@ func (s *Service) ReviewPull(ctx context.Context, r Repo, number int, event, bod
 		return err
 	}
 	if len(body) > maxPRText || strings.ContainsRune(body, 0) {
-		return newErr(http.StatusBadRequest, "bad_message", "isi review tidak valid")
+		return newErr(http.StatusBadRequest, "bad_message", "invalid review body")
 	}
 	if (event == "comment" || event == "request-changes") && strings.TrimSpace(body) == "" {
-		return newErr(http.StatusBadRequest, "bad_message", "tulis dulu isinya")
+		return newErr(http.StatusBadRequest, "bad_message", "write the body first")
 	}
 	if event != "approve" && event != "comment" && event != "request-changes" {
-		return newErr(http.StatusBadRequest, "bad_action", "jenis review tidak valid")
+		return newErr(http.StatusBadRequest, "bad_action", "invalid review type")
 	}
 	args := []string{"pr", "review", n, "--" + event}
 	if body != "" {
@@ -247,7 +247,7 @@ func (s *Service) MergePull(ctx context.Context, r Repo, number int, method stri
 		return nil, err
 	}
 	if method != "merge" && method != "squash" && method != "rebase" {
-		return nil, newErr(http.StatusBadRequest, "bad_action", "cara merge tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_action", "invalid merge method")
 	}
 	unlock, err := s.lock(r, "pull-request")
 	if err != nil {

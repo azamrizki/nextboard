@@ -146,7 +146,7 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request, p *
 		return
 	}
 	if strings.TrimSpace(req.Path) == "" {
-		writeErr(w, http.StatusBadRequest, "path wajib diisi")
+		writeErr(w, http.StatusBadRequest, "path is required")
 		return
 	}
 	if req.Name != "" {
@@ -163,7 +163,7 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request, p *
 		return
 	}
 	if !st.Exists || !st.Dir {
-		writeErr(w, http.StatusBadRequest, "path bukan folder: "+st.Path)
+		writeErr(w, http.StatusBadRequest, "path is not a folder: "+st.Path)
 		return
 	}
 	pr, created, err := s.projects.Create(req.MachineID, st.Path, req.Name)
@@ -294,7 +294,7 @@ func (s *Server) closeBoards(projectName string, closing []project.Workspace) (a
 	for _, ws := range closing {
 		id, err := s.boards.Archive(ws.ID, projectName, ws.Name, board.ReasonClosed)
 		if err != nil {
-			log.Printf("arsip board %s gagal: %v", ws.ID, err)
+			log.Printf("archiving board %s failed: %v", ws.ID, err)
 		} else if id != "" {
 			archived++
 		}

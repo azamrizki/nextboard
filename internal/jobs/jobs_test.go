@@ -328,13 +328,13 @@ func TestRunnerFailures(t *testing.T) {
 	f := newFixture(t)
 	r := f.req("planner", "echo")
 	r.Command = "/nonexistent/claude-nb-test"
-	if j := f.wait(f.submit(r).ID, finished); j.Code != "cli_missing" || !strings.Contains(j.Error, "tidak ditemukan") {
+	if j := f.wait(f.submit(r).ID, finished); j.Code != "cli_missing" || !strings.Contains(j.Error, "not found") {
 		t.Fatalf("missing %+v", j)
 	}
 	if j := f.wait(f.submit(f.req("planner", "login")).ID, finished); j.Code != "cli_not_logged_in" {
 		t.Fatalf("login %+v", j)
 	}
-	if j := f.wait(f.submit(f.req("planner", "crash")).ID, finished); j.Code != "runner_failed" || !strings.Contains(j.Error, "boom") || !strings.Contains(j.Error, "kode keluar 3") {
+	if j := f.wait(f.submit(f.req("planner", "crash")).ID, finished); j.Code != "runner_failed" || !strings.Contains(j.Error, "boom") || !strings.Contains(j.Error, "exit code 3") {
 		t.Fatalf("crash %+v", j)
 	}
 

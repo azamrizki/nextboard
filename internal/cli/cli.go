@@ -25,25 +25,25 @@ import (
 	"github.com/azamrizki/nextboard/internal/version"
 )
 
-const usage = `NextBoard — visual board untuk AI coding agents
+const usage = `NextBoard — visual board for AI coding agents
 
-Pemakaian: nextboard <perintah> [opsi]
+Usage: nextboard <command> [options]
 
-Perintah:
-  serve            Jalan di foreground (dipakai service, juga untuk dev)
-  install          Pasang service (systemd user / LaunchAgent) dan cetak link setup
-  uninstall        Lepas service (data tetap ada kecuali --purge)
-  status           Status service, alamat, jumlah sesi, machine, dan device
-  logs [-f]        Tampilkan log service
-  connlog          Riwayat koneksi ke server: putus, sambung ulang, latensi
-  setup-link       Buat link setup baru (sekali pakai, 30 menit)
-  reset-password   Reset password admin
-  pair             Cetak QR + kode pairing di terminal
-  update           Unduh rilis terbaru lalu restart service
-  version          Cetak versi
+Commands:
+  serve            Run in the foreground (used by the service, also for dev)
+  install          Install the service (systemd user / LaunchAgent) and print a setup link
+  uninstall        Remove the service (data stays unless --purge)
+  status           Service status, addresses, number of sessions, machines, and devices
+  logs [-f]        Show the service log
+  connlog          Connection history to servers: drops, reconnects, latency
+  setup-link       Create a new setup link (single use, 30 minutes)
+  reset-password   Reset the admin password
+  pair             Print a QR + pairing code in the terminal
+  update           Download the latest release, then restart the service
+  version          Print the version
 
-Opsi umum:
-  --data-dir DIR   Folder data (default ~/.nextboard, atau $NEXTBOARD_HOME)
+Common options:
+  --data-dir DIR   Data folder (default ~/.nextboard, or $NEXTBOARD_HOME)
 `
 
 // Main runs the CLI and returns the process exit code.
@@ -83,7 +83,7 @@ func Main(args []string) int {
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:
-		fmt.Fprintf(os.Stderr, "perintah tidak dikenal: %s\n\n%s", cmd, usage)
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", cmd, usage)
 		return 2
 	}
 	if err != nil {
@@ -98,16 +98,16 @@ func Main(args []string) int {
 
 func newFlags(name string) (*flag.FlagSet, *string) {
 	fs := flag.NewFlagSet("nextboard "+name, flag.ContinueOnError)
-	dir := fs.String("data-dir", store.DefaultDir(), "folder data")
+	dir := fs.String("data-dir", store.DefaultDir(), "data folder")
 	return fs, dir
 }
 
 func cmdServe(args []string) error {
 	fs, dir := newFlags("serve")
-	listen := fs.String("listen", "", "alamat listen (default dari config.json, 127.0.0.1:12312)")
-	statusListen := fs.String("status-listen", "", "alamat kedua yang hanya menyajikan halaman status publik (default dari config.json)")
-	dev := fs.Bool("dev", false, "mode dev: izinkan Origin server Vite lokal")
-	devWebPort := fs.Int("dev-web-port", 5173, "mode dev: port server Vite")
+	listen := fs.String("listen", "", "listen address (default from config.json, 127.0.0.1:12312)")
+	statusListen := fs.String("status-listen", "", "second address that serves only the public status page (default from config.json)")
+	dev := fs.Bool("dev", false, "dev mode: allow the Origin of the local Vite server")
+	devWebPort := fs.Int("dev-web-port", 5173, "dev mode: Vite server port")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -161,13 +161,13 @@ func printSetupLink(h *hubInfo) error {
 	}
 	code, _, err := as.NewSetupCode()
 	if errors.Is(err, auth.ErrAlreadySetup) {
-		fmt.Println("Hub sudah di-setup. Pakai `nextboard reset-password` kalau lupa password.")
+		fmt.Println("Hub is already set up. Use `nextboard reset-password` if you forgot the password.")
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	fmt.Println("Buka link setup ini (sekali pakai, berlaku 30 menit):")
+	fmt.Println("Open this setup link (single use, valid for 30 minutes):")
 	for i, u := range server.HubURLs(h.cfg.Listen, h.cfg.ExtraURLs) {
 		if i == 3 {
 			break
@@ -190,21 +190,21 @@ func cmdResetPassword(args []string) error {
 	if err != nil {
 		return err
 	}
-	pw1, err := readPassword("Password baru (min 8 karakter): ")
+	pw1, err := readPassword("New password (min 8 characters): ")
 	if err != nil {
 		return err
 	}
-	pw2, err := readPassword("Ulangi password: ")
+	pw2, err := readPassword("Repeat password: ")
 	if err != nil {
 		return err
 	}
 	if pw1 != pw2 {
-		return errors.New("password tidak sama")
+		return errors.New("passwords do not match")
 	}
 	if err := as.SetPassword(pw1); err != nil {
 		return err
 	}
-	fmt.Println("Password admin diganti. Semua browser perlu login ulang.")
+	fmt.Println("Admin password changed. All browsers need to log in again.")
 	return nil
 }
 
@@ -224,9 +224,9 @@ func readPassword(prompt string) (string, error) {
 // is down, which is often when it is needed.
 func cmdConnLog(args []string) error {
 	fs, dir := newFlags("connlog")
-	mach := fs.String("machine", "", "hanya machine ini (nama atau id)")
-	n := fs.Int("n", 50, "jumlah kejadian")
-	asJSON := fs.Bool("json", false, "keluaran JSON")
+	mach := fs.String("machine", "", "only this machine (name or id)")
+	n := fs.Int("n", 50, "number of events")
+	asJSON := fs.Bool("json", false, "JSON output")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -242,7 +242,7 @@ func cmdConnLog(args []string) error {
 		return enc.Encode(map[string]any{"items": items, "summary": sum})
 	}
 	if len(items) == 0 {
-		fmt.Println("Belum ada kejadian tercatat.")
+		fmt.Println("No events recorded yet.")
 		return nil
 	}
 	for i := len(items) - 1; i >= 0; i-- {
@@ -253,7 +253,7 @@ func cmdConnLog(args []string) error {
 		}
 		fmt.Printf("%s  %-16s %s\n", e.At.Local().Format("2006-01-02 15:04:05"), name, connlog.Describe(e))
 	}
-	fmt.Printf("\nRingkasan %d kejadian: %d putus %v, putus rata-rata %s (maks %s), latensi rata-rata %d ms (maks %d ms), %d tool gagal, %d kali hub mati mendadak.\n",
+	fmt.Printf("\nSummary of %d events: %d disconnects %v, average downtime %s (max %s), average latency %d ms (max %d ms), %d tool failures, %d unexpected hub exits.\n",
 		len(items), sum.Disconnects, sum.Reasons, time.Duration(sum.AvgDowntimeMs)*time.Millisecond, time.Duration(sum.MaxDowntimeMs)*time.Millisecond,
 		sum.RTTAvgMs, sum.RTTMaxMs, sum.ToolFailed, sum.UncleanExits)
 	return nil

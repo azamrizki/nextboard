@@ -39,7 +39,7 @@ var threadIDRe = regexp.MustCompile(`^[pn]_[a-z0-9]{6,24}$`)
 func ValidThreadID(tid string) bool { return threadIDRe.MatchString(tid) }
 
 // ErrNoOutput: the message is gone, or it has no reply to show.
-var ErrNoOutput = errors.New("pesan ini tidak punya balasan tersimpan")
+var ErrNoOutput = errors.New("this message has no saved reply")
 
 // ReplyOutput is the reply a report message stands for.
 type ReplyOutput struct {

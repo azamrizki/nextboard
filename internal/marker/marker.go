@@ -60,8 +60,8 @@ func (m Marker) RawBytes() []byte {
 }
 
 var (
-	errFormat = errors.New("marker tidak valid")
-	errToken  = errors.New("token marker salah")
+	errFormat = errors.New("invalid marker")
+	errToken  = errors.New("wrong marker token")
 )
 
 // decodeB64 accepts base64url or standard base64, with or without padding.

@@ -24,8 +24,8 @@ const (
 )
 
 var (
-	ErrSnapshotNotFound = errors.New("snapshot tidak ditemukan")
-	ErrArchiveNotFound  = errors.New("arsip tidak ditemukan")
+	ErrSnapshotNotFound = errors.New("snapshot not found")
+	ErrArchiveNotFound  = errors.New("archive not found")
 )
 
 // Snapshot ids: YYYYMMDDHH for hourly snapshots, YYYYMMDDHHMMSS for the
@@ -77,7 +77,7 @@ func (m *Manager) hourlySnapshot(wid string, old []byte, nodes int) {
 		return
 	}
 	if err := m.writeSnapshot(wid, id, old, nodes); err != nil {
-		log.Printf("snapshot board %s gagal: %v", wid, err)
+		log.Printf("snapshot of board %s failed: %v", wid, err)
 	}
 }
 
@@ -199,7 +199,7 @@ func (m *Manager) RestoreSnapshot(wid, sid string) (Board, error) {
 			backup = t.Format("20060102150405")
 		}
 		if err := m.writeSnapshot(wid, backup, b, len(cur.Nodes)); err != nil {
-			log.Printf("snapshot sebelum restore gagal: %v", err)
+			log.Printf("snapshot before restore failed: %v", err)
 		}
 	}
 	next := &doc{m: m, wid: wid}
@@ -271,7 +271,7 @@ func (m *Manager) archiveRaw(wid string, raw []byte) {
 		WorkspaceID: wid, Raw: raw,
 	}
 	if err := m.saveArchive(&f); err != nil {
-		log.Printf("arsip board %s gagal: %v", wid, err)
+		log.Printf("archive of board %s failed: %v", wid, err)
 	}
 }
 
@@ -366,7 +366,7 @@ func (m *Manager) RestoreArchive(id, newWid string) (Board, error) {
 	d.mu.Lock()
 	if d.dropped || len(d.nodes) > 0 || len(d.edges) > 0 {
 		d.mu.Unlock()
-		return Board{}, errors.New("workspace tujuan sudah punya isi")
+		return Board{}, errors.New("the target workspace already has content")
 	}
 	ops := make([]Op, 0, len(nd.nodes)+len(nd.edges))
 	for _, n := range nd.nodes {

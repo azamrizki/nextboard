@@ -31,7 +31,7 @@ type Branches struct {
 // checkBranchName is a cheap local pre-check; git check-ref-format
 // --branch decides in the script.
 func checkBranchName(name string) error {
-	bad := newErr(http.StatusBadRequest, "bad_ref", "nama branch tidak valid: %q", name)
+	bad := newErr(http.StatusBadRequest, "bad_ref", "invalid branch name: %q", name)
 	if name == "" || len(name) > 200 || strings.HasPrefix(name, "-") {
 		return bad
 	}
@@ -105,7 +105,7 @@ func (s *Service) CreateBranch(ctx context.Context, r Repo, name, from string, s
 		return nil, err
 	}
 	if from != "" && (strings.HasPrefix(from, "-") || len(from) > 256 || strings.ContainsAny(from, "\x00\n\r")) {
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "titik awal branch tidak valid")
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid branch start point")
 	}
 	unlock, err := s.lock(r, "branch")
 	if err != nil {
@@ -134,11 +134,11 @@ func (s *Service) CreateBranch(ctx context.Context, r Repo, name, from string, s
 	switch res.ExitCode {
 	case 0:
 	case exitBadRef:
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "nama branch tidak valid: %q", name)
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "invalid branch name: %q", name)
 	case exitExists:
-		return nil, newErr(http.StatusConflict, "exists", "branch %s sudah ada", name)
+		return nil, newErr(http.StatusConflict, "exists", "branch %s already exists", name)
 	case exitBadFrom:
-		return nil, newErr(http.StatusBadRequest, "bad_ref", "titik awal %q tidak ditemukan", from)
+		return nil, newErr(http.StatusBadRequest, "bad_ref", "start point %q not found", from)
 	default:
 		return nil, failed(res, "git_refused", http.StatusConflict)
 	}
@@ -168,7 +168,7 @@ func (s *Service) Switch(ctx context.Context, r Repo, name string) (*Status, err
 	switch res.ExitCode {
 	case 0:
 	case exitNoBranch:
-		return nil, newErr(http.StatusNotFound, "not_found", "branch %s tidak ada", name)
+		return nil, newErr(http.StatusNotFound, "not_found", "branch %s does not exist", name)
 	default:
 		return nil, failed(res, "git_refused", http.StatusConflict)
 	}
@@ -197,7 +197,7 @@ func (s *Service) DeleteBranch(ctx context.Context, r Repo, name string) error {
 	switch {
 	case res.ExitCode == 0:
 	case res.ExitCode == exitNoBranch:
-		return newErr(http.StatusNotFound, "not_found", "branch %s tidak ada", name)
+		return newErr(http.StatusNotFound, "not_found", "branch %s does not exist", name)
 	case strings.Contains(string(res.Stderr), "not fully merged"):
 		e := failed(res, "not_merged", http.StatusConflict)
 		return e

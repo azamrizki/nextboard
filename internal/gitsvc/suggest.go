@@ -233,7 +233,7 @@ const (
 // so whatever it says must not be able to reach tools. Result: {message, subject, source}.
 func (s *Service) SuggestAI(ctx context.Context, r Repo, paths []string, staged bool) (jobs.Job, error) {
 	if s.Runner == nil {
-		return jobs.Job{}, newErr(http.StatusServiceUnavailable, "runner_unavailable", "runner tidak tersedia")
+		return jobs.Job{}, newErr(http.StatusServiceUnavailable, "runner_unavailable", "the runner is not available")
 	}
 	st, err := s.Status(ctx, r)
 	if err != nil {
@@ -241,7 +241,7 @@ func (s *Service) SuggestAI(ctx context.Context, r Repo, paths []string, staged 
 	}
 	files := pick(st, paths)
 	if len(files) == 0 {
-		return jobs.Job{}, newErr(http.StatusConflict, "nothing_to_commit", "tidak ada perubahan")
+		return jobs.Job{}, newErr(http.StatusConflict, "nothing_to_commit", "no changes")
 	}
 	var b strings.Builder
 	b.WriteString(commitPrompt)
@@ -269,7 +269,7 @@ func (s *Service) SuggestAI(ctx context.Context, r Repo, paths []string, staged 
 			}
 			var c commitParts
 			if err := json.Unmarshal(raw, &c); err != nil || strings.TrimSpace(c.Description) == "" {
-				return nil, fmt.Errorf("pesan commit kosong")
+				return nil, fmt.Errorf("the commit message is empty")
 			}
 			msg := c.message()
 			subject, _, _ := strings.Cut(msg, "\n")

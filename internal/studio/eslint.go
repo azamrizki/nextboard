@@ -24,7 +24,7 @@ const (
 )
 
 // ErrBadLintPath: the path is not a file inside the project.
-var ErrBadLintPath = errors.New("path tidak valid")
+var ErrBadLintPath = errors.New("invalid path")
 
 // ESLintResult is POST /api/projects/{id}/eslint.
 type ESLintResult struct {
@@ -84,7 +84,7 @@ func RunESLint(ctx context.Context, h machine.Host, root, rel, text string, fix 
 		msg = msg[:2000]
 	}
 	if msg == "" {
-		msg = "eslint berhenti tanpa pesan"
+		msg = "eslint stopped without a message"
 	}
 	out.Error = msg
 	return out, nil

@@ -143,12 +143,12 @@ func parseAccepted(s string) ([][2]int, error) {
 			b, errB = strconv.Atoi(strings.TrimSpace(to))
 		}
 		if errA != nil || errB != nil || a < 100 || b > 599 || a > b {
-			return nil, fmt.Errorf("kode status tidak valid: %q", part)
+			return nil, fmt.Errorf("invalid status code: %q", part)
 		}
 		out = append(out, [2]int{a, b})
 	}
 	if len(out) == 0 {
-		return nil, errors.New("kode status wajib diisi")
+		return nil, errors.New("a status code is required")
 	}
 	return out, nil
 }
@@ -158,10 +158,10 @@ func parseAccepted(s string) ([][2]int, error) {
 func (m *Monitor) normalize() error {
 	m.Name = strings.TrimSpace(m.Name)
 	if m.Name == "" {
-		return errors.New("nama wajib diisi")
+		return errors.New("a name is required")
 	}
 	if len([]rune(m.Name)) > maxNameLen {
-		return fmt.Errorf("nama maksimal %d karakter", maxNameLen)
+		return fmt.Errorf("the name is at most %d characters", maxNameLen)
 	}
 	if m.MachineID == "local" {
 		m.MachineID = ""
@@ -195,27 +195,27 @@ func (m *Monitor) normalize() error {
 		m.MachineID = "" // UDP: the hub asks, a server's SSH carries no datagrams
 		m.Host = strings.TrimSpace(o.Host)
 		if !hostRe.MatchString(m.Host) {
-			return errors.New("host tidak valid")
+			return errors.New("invalid host")
 		}
 		m.Port = o.Port
 		if m.Port == 0 {
 			m.Port = 27015
 		}
 		if m.Port < 1 || m.Port > 65535 {
-			return errors.New("port harus 1 sampai 65535")
+			return errors.New("the port must be 1 to 65535")
 		}
 	case TypeHTTP:
 		m.URL = strings.TrimSpace(o.URL)
 		u, err := url.Parse(m.URL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-			return errors.New("URL harus http:// atau https:// dengan host")
+			return errors.New("URL must be http:// or https:// with a host")
 		}
 		m.Method = strings.ToUpper(o.Method)
 		if m.Method == "" {
 			m.Method = "GET"
 		}
 		if m.Method != "GET" && m.Method != "HEAD" {
-			return errors.New("method harus GET atau HEAD")
+			return errors.New("method must be GET or HEAD")
 		}
 		m.Accepted = strings.TrimSpace(o.Accepted)
 		if m.Accepted == "" {
@@ -226,10 +226,10 @@ func (m *Monitor) normalize() error {
 		}
 		m.Keyword, m.KeywordInvert, m.IgnoreTLS = o.Keyword, o.KeywordInvert, o.IgnoreTLS
 		if len(m.Keyword) > maxKeywordLen {
-			return fmt.Errorf("keyword maksimal %d karakter", maxKeywordLen)
+			return fmt.Errorf("keyword is at most %d characters", maxKeywordLen)
 		}
 		if m.Keyword != "" && m.Method == "HEAD" {
-			return errors.New("keyword butuh isi halaman: pakai GET")
+			return errors.New("a keyword needs the body: use GET")
 		}
 		if err := m.takeHeaders(o.Headers); err != nil {
 			return err
@@ -259,12 +259,12 @@ func (m *Monitor) normalize() error {
 	case TypeTCP, TypePing, TypeDNS:
 		m.Host = strings.TrimSpace(o.Host)
 		if !hostRe.MatchString(m.Host) {
-			return errors.New("host tidak valid")
+			return errors.New("invalid host")
 		}
 		if m.Type == TypeTCP {
 			m.Port = o.Port
 			if m.Port < 1 || m.Port > 65535 {
-				return errors.New("port harus 1 sampai 65535")
+				return errors.New("the port must be 1 to 65535")
 			}
 		}
 		if m.Type == TypeDNS {
@@ -274,7 +274,7 @@ func (m *Monitor) normalize() error {
 				m.DNSType = "A"
 			}
 			if !dnsTypes[m.DNSType] {
-				return errors.New("tipe DNS harus A, AAAA, CNAME, MX, NS atau TXT")
+				return errors.New("DNS type must be A, AAAA, CNAME, MX, NS or TXT")
 			}
 			m.DNSServer = strings.TrimSpace(o.DNSServer)
 			if m.DNSServer != "" {
@@ -283,7 +283,7 @@ func (m *Monitor) normalize() error {
 					h = a
 				}
 				if !hostRe.MatchString(h) {
-					return errors.New("server DNS tidak valid")
+					return errors.New("invalid DNS server")
 				}
 			}
 			m.DNSExpect = strings.TrimSpace(o.DNSExpect)
@@ -299,29 +299,29 @@ func (m *Monitor) normalize() error {
 		m.IntervalSec = DefaultIntervalSec
 	}
 	if m.IntervalSec < MinIntervalSec || m.IntervalSec > MaxIntervalSec {
-		return fmt.Errorf("interval harus %d sampai %d detik", MinIntervalSec, MaxIntervalSec)
+		return fmt.Errorf("the interval must be %d to %d seconds", MinIntervalSec, MaxIntervalSec)
 	}
 	if m.RetryIntervalSec == 0 {
 		m.RetryIntervalSec = m.IntervalSec
 	}
 	if m.RetryIntervalSec < MinIntervalSec || m.RetryIntervalSec > MaxIntervalSec {
-		return fmt.Errorf("interval ulang harus %d sampai %d detik", MinIntervalSec, MaxIntervalSec)
+		return fmt.Errorf("the retry interval must be %d to %d seconds", MinIntervalSec, MaxIntervalSec)
 	}
 	if m.TimeoutSec == 0 {
 		m.TimeoutSec = min(m.IntervalSec*8/10, 30)
 	}
 	if m.TimeoutSec < 1 || m.TimeoutSec > MaxTimeoutSec {
-		return fmt.Errorf("timeout harus 1 sampai %d detik", MaxTimeoutSec)
+		return fmt.Errorf("the timeout must be 1 to %d seconds", MaxTimeoutSec)
 	}
 	if m.Retries < 0 || m.Retries > MaxRetries {
-		return fmt.Errorf("retries harus 0 sampai %d", MaxRetries)
+		return fmt.Errorf("retries must be 0 to %d", MaxRetries)
 	}
 	return nil
 }
 
 func (m *Monitor) takeHeaders(in []Header) error {
 	if len(in) > maxHeaders {
-		return fmt.Errorf("header maksimal %d", maxHeaders)
+		return fmt.Errorf("at most %d headers", maxHeaders)
 	}
 	for _, h := range in {
 		h.Name = strings.TrimSpace(h.Name)
@@ -329,7 +329,7 @@ func (m *Monitor) takeHeaders(in []Header) error {
 			continue
 		}
 		if !headerNameRe.MatchString(h.Name) || strings.ContainsAny(h.Value, "\r\n") {
-			return fmt.Errorf("header tidak valid: %q", h.Name)
+			return fmt.Errorf("invalid header: %q", h.Name)
 		}
 		m.Headers = append(m.Headers, h)
 	}

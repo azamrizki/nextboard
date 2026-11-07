@@ -118,7 +118,7 @@ func (s *Server) handleMachineAgents(w http.ResponseWriter, r *http.Request, p *
 func (s *Server) handleAgentModels(w http.ResponseWriter, r *http.Request, p *principal) {
 	a, ok := s.agents.Get(r.PathValue("agent"))
 	if !ok {
-		writeErr(w, http.StatusNotFound, "agen tidak dikenal")
+		writeErr(w, http.StatusNotFound, "unknown agent")
 		return
 	}
 	id := r.URL.Query().Get("profileId")

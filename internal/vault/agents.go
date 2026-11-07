@@ -57,10 +57,10 @@ func (e AgentEntry) validate() error {
 		return fmt.Errorf("%w: id", ErrInvalid)
 	}
 	if !plainText(e.Name, maxAgentName) {
-		return fmt.Errorf("%w: nama", ErrInvalid)
+		return fmt.Errorf("%w: name", ErrInvalid)
 	}
 	if !agentTypes[e.Type] {
-		return fmt.Errorf("%w: tipe %q", ErrInvalid, e.Type)
+		return fmt.Errorf("%w: type %q", ErrInvalid, e.Type)
 	}
 	if len(e.Projects) == 0 || len(e.Projects) > maxAgentProjs {
 		return fmt.Errorf("%w: project", ErrInvalid)
@@ -71,13 +71,13 @@ func (e AgentEntry) validate() error {
 		}
 	}
 	if len(e.Values) == 0 || len(e.Values) > maxAgentValues {
-		return fmt.Errorf("%w: nilai", ErrInvalid)
+		return fmt.Errorf("%w: values", ErrInvalid)
 	}
 	seen := map[string]bool{}
 	for _, v := range e.Values {
 		k := strings.ToLower(v)
 		if !plainText(v, maxAgentValue) || seen[k] {
-			return fmt.Errorf("%w: nama nilai %q", ErrInvalid, v)
+			return fmt.Errorf("%w: value name %q", ErrInvalid, v)
 		}
 		seen[k] = true
 	}

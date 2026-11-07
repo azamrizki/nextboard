@@ -59,7 +59,7 @@ var LangServers = []LangServer{
 }
 
 // ErrNoLangServer: the catalog has no such server or none is installed.
-var ErrNoLangServer = errors.New("language server tidak ditemukan di machine ini")
+var ErrNoLangServer = errors.New("language server not found on this machine")
 
 // lspPath adds the usual per-user install folders, which login shells often
 // leave out of a non-interactive PATH. The last three are where a Go tarball
@@ -198,12 +198,12 @@ func ReadLSPFrame(r *bufio.Reader) ([]byte, error) {
 		}
 		if k, v, ok := strings.Cut(line, ":"); ok && strings.EqualFold(strings.TrimSpace(k), "Content-Length") {
 			if size, err = strconv.Atoi(strings.TrimSpace(v)); err != nil {
-				return nil, fmt.Errorf("Content-Length tidak valid: %w", err)
+				return nil, fmt.Errorf("invalid Content-Length: %w", err)
 			}
 		}
 	}
 	if size < 0 || size > LSPMaxMessage {
-		return nil, fmt.Errorf("ukuran pesan language server tidak valid: %d", size)
+		return nil, fmt.Errorf("invalid language server message size: %d", size)
 	}
 	body := make([]byte, size)
 	if _, err := io.ReadFull(r, body); err != nil {

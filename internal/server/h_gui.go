@@ -105,7 +105,7 @@ func (s *Server) handleGUIApps(w http.ResponseWriter, r *http.Request, p *princi
 func (s *Server) handleGUIIcon(w http.ResponseWriter, r *http.Request, p *principal) {
 	path := s.gui.IconPath(r.PathValue("id"))
 	if path == "" {
-		writeErrCode(w, http.StatusNotFound, "icon_not_found", "ikon tidak ditemukan")
+		writeErrCode(w, http.StatusNotFound, "icon_not_found", "icon not found")
 		return
 	}
 	hd := w.Header()
@@ -167,7 +167,7 @@ func (s *Server) handleGUIStop(w http.ResponseWriter, r *http.Request, p *princi
 // the RFB protocol itself runs between the server and the tile.
 func (s *Server) handleGUIWS(w http.ResponseWriter, r *http.Request, p *principal) {
 	if !s.checkOrigin(r, p) {
-		writeErr(w, http.StatusForbidden, "origin tidak diizinkan")
+		writeErr(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
 	vnc, err := s.gui.Dial(r.PathValue("id"))
@@ -250,7 +250,7 @@ func (s *Server) handleGUIWS(w http.ResponseWriter, r *http.Request, p *principa
 // viewer's decoder takes in stride on the same socket.
 func (s *Server) handleGUIVideo(w http.ResponseWriter, r *http.Request, p *principal) {
 	if !s.checkOrigin(r, p) {
-		writeErr(w, http.StatusForbidden, "origin tidak diizinkan")
+		writeErr(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
 	id := r.PathValue("id")
@@ -478,7 +478,7 @@ func (p *videoPacer) wait(done <-chan struct{}) bool {
 // link frames are dropped: late sound is worse than a short gap.
 func (s *Server) handleGUIAudio(w http.ResponseWriter, r *http.Request, p *principal) {
 	if !s.checkOrigin(r, p) {
-		writeErr(w, http.StatusForbidden, "origin tidak diizinkan")
+		writeErr(w, http.StatusForbidden, "origin not allowed")
 		return
 	}
 	st, err := s.gui.AudioStream(r.PathValue("id"))

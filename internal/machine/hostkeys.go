@@ -30,7 +30,7 @@ type errHostKeyUnknown struct {
 }
 
 func (e *errHostKeyUnknown) Error() string {
-	return "host key belum dikenal: " + e.info.Fingerprint
+	return "unknown host key: " + e.info.Fingerprint
 }
 
 type errHostKeyChanged struct {
@@ -38,7 +38,7 @@ type errHostKeyChanged struct {
 }
 
 func (e *errHostKeyChanged) Error() string {
-	return fmt.Sprintf("HOST KEY BERUBAH untuk %s (sekarang %s). Kemungkinan serangan MITM; koneksi ditolak.", e.info.Host, e.info.Fingerprint)
+	return fmt.Sprintf("HOST KEY CHANGED for %s (now %s). Possibly a man-in-the-middle attack; connection refused.", e.info.Host, e.info.Fingerprint)
 }
 
 func (h *hostKeyStore) files() []string {

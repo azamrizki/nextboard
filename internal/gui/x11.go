@@ -77,17 +77,17 @@ func (x *xconn) setup(cookie []byte) error {
 		if n := int(head[1]); head[0] == 0 && n <= len(body) {
 			reason = string(body[:n])
 		}
-		return fmt.Errorf("x11 setup ditolak: %s", strings.TrimRight(reason, "\x00\n "))
+		return fmt.Errorf("x11 setup refused: %s", strings.TrimRight(reason, "\x00\n "))
 	}
 	// Offsets below are the setup reply's, minus the 8 byte head.
 	if len(body) < 32 {
-		return errors.New("x11 setup: balasan terlalu pendek")
+		return errors.New("x11 setup: reply too short")
 	}
 	vendor := int(le.Uint16(body[16:]))
 	formats := int(body[21])
 	off := 32 + vendor + pad4(vendor) + 8*formats
 	if len(body) < off+4 {
-		return errors.New("x11 setup: balasan terlalu pendek")
+		return errors.New("x11 setup: reply too short")
 	}
 	x.ridBase = le.Uint32(body[4:])
 	x.root = le.Uint32(body[off:])

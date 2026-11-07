@@ -215,12 +215,12 @@ func (s *Server) handleDiagramLand(w http.ResponseWriter, r *http.Request, p *pr
 		return
 	}
 	if d.Diagram == nil {
-		writeErrCode(w, http.StatusConflict, "diagram_not_ready", "diagram belum selesai")
+		writeErrCode(w, http.StatusConflict, "diagram_not_ready", "diagram not finished yet")
 		return
 	}
 	ws, pr, ok := s.projects.Workspace(req.WorkspaceID)
 	if !ok || pr.ID != d.ProjectID {
-		writeErrCode(w, http.StatusNotFound, "workspace_not_found", "workspace tidak ditemukan di project diagram ini")
+		writeErrCode(w, http.StatusNotFound, "workspace_not_found", "workspace not found in the project of this diagram")
 		return
 	}
 	style := d.Style
@@ -293,7 +293,7 @@ func (s *Server) handleFSFind(w http.ResponseWriter, r *http.Request, p *princip
 	q := r.URL.Query()
 	root := q.Get("root")
 	if root == "" {
-		writeErr(w, http.StatusBadRequest, "root wajib diisi")
+		writeErr(w, http.StatusBadRequest, "root is required")
 		return
 	}
 	if s.hubPrivate(w, h, root) {
@@ -322,7 +322,7 @@ func (s *Server) handleFSMkdir(w http.ResponseWriter, r *http.Request, p *princi
 		return
 	}
 	if req.Path == "" {
-		writeErr(w, http.StatusBadRequest, "path wajib diisi")
+		writeErr(w, http.StatusBadRequest, "path is required")
 		return
 	}
 	if s.hubPrivate(w, h, req.Path) || !s.remoteConfigConfirm(w, r, h, []string{req.Path}, req.Confirm) {
@@ -365,7 +365,7 @@ func (s *Server) handleFSRename(w http.ResponseWriter, r *http.Request, p *princ
 		return
 	}
 	if req.From == "" || req.To == "" {
-		writeErr(w, http.StatusBadRequest, "from dan to wajib diisi")
+		writeErr(w, http.StatusBadRequest, "from and to are required")
 		return
 	}
 	if s.hubPrivate(w, h, req.From) || s.hubPrivate(w, h, req.To) ||
@@ -402,7 +402,7 @@ func (s *Server) handleFSCopy(w http.ResponseWriter, r *http.Request, p *princip
 		return
 	}
 	if req.From == "" || req.To == "" {
-		writeErr(w, http.StatusBadRequest, "from dan to wajib diisi")
+		writeErr(w, http.StatusBadRequest, "from and to are required")
 		return
 	}
 	if s.hubPrivate(w, h, req.From) || s.hubPrivate(w, h, req.To) ||
@@ -438,12 +438,12 @@ func (s *Server) handleFSTrash(w http.ResponseWriter, r *http.Request, p *princi
 	}
 	pr, ok := s.projects.Get(req.ProjectID)
 	if !ok || pr.MachineID != h.ID() {
-		writeErrCode(w, http.StatusNotFound, "project_not_found", "project tidak ditemukan di machine ini")
+		writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found on this machine")
 		return
 	}
 	if req.Path == "" || s.hubPrivate(w, h, req.Path) {
 		if req.Path == "" {
-			writeErr(w, http.StatusBadRequest, "path wajib diisi")
+			writeErr(w, http.StatusBadRequest, "path is required")
 		}
 		return
 	}

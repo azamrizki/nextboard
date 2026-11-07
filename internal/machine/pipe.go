@@ -58,7 +58,7 @@ func StartPipe(h Host, spec ExecSpec) (*PipeProc, error) {
 	case *SSH:
 		return m.startPipe(spec)
 	}
-	return nil, errors.New("machine tidak didukung")
+	return nil, errors.New("unsupported machine")
 }
 
 func (l *Local) startPipe(spec ExecSpec) (*PipeProc, error) {

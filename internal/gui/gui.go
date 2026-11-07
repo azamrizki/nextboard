@@ -57,10 +57,10 @@ const (
 	// nor its process group finds them again.
 	markerEnv = "NEXTBOARD_GUI_SESSION"
 
-	installHint = "sudo apt install tigervnc-standalone-server openbox (atau sway wayvnc wf-recorder xwayland, dengan GPU)"
+	installHint = "sudo apt install tigervnc-standalone-server openbox (or sway wayvnc wf-recorder xwayland, with a GPU)"
 )
 
-var errBadExec = errors.New("exec tidak valid")
+var errBadExec = errors.New("invalid exec")
 
 // App is a launchable desktop entry.
 type App struct {
@@ -228,7 +228,7 @@ func (m *Manager) xvncBinary() string {
 func (m *Manager) Status() Status {
 	st := Status{Missing: []string{}, Codecs: []string{}}
 	if runtime.GOOS != "linux" {
-		st.Hint = "Aplikasi GUI di board baru tersedia di Linux."
+		st.Hint = "GUI apps on the board are only available on Linux."
 		return st
 	}
 	// Either kind of display will do.
@@ -315,13 +315,13 @@ func (m *Manager) Dial(id string) (net.Conn, error) {
 	}
 	c, err := net.DialTimeout("unix", sock, 2*time.Second)
 	if err != nil {
-		return nil, newErr(http.StatusBadGateway, "gui_unreachable", "display aplikasi tidak bisa dihubungi: %v", err)
+		return nil, newErr(http.StatusBadGateway, "gui_unreachable", "cannot reach the app's display: %v", err)
 	}
 	return c, nil
 }
 
 func notFound() *Error {
-	return newErr(http.StatusNotFound, "session_not_found", "sesi aplikasi tidak ditemukan")
+	return newErr(http.StatusNotFound, "session_not_found", "app session not found")
 }
 
 func randID() (string, error) {
@@ -344,7 +344,7 @@ func (m *Manager) reserve(e *entry, display string) (*session, error) {
 		m.mu.Lock()
 		if m.closed {
 			m.mu.Unlock()
-			return nil, newErr(http.StatusServiceUnavailable, "gui_closed", "hub sedang berhenti")
+			return nil, newErr(http.StatusServiceUnavailable, "gui_closed", "hub is stopping")
 		}
 		var gone chan struct{}
 		for _, s := range m.sessions {
@@ -354,7 +354,7 @@ func (m *Manager) reserve(e *entry, display string) (*session, error) {
 			if !s.stopping {
 				pub := s.pub
 				m.mu.Unlock()
-				return nil, &Error{Status: http.StatusConflict, Code: "already_running", Msg: e.Name + " sudah terbuka", Session: &pub}
+				return nil, &Error{Status: http.StatusConflict, Code: "already_running", Msg: e.Name + " is already open", Session: &pub}
 			}
 			gone = s.gone
 		}
@@ -366,13 +366,13 @@ func (m *Manager) reserve(e *entry, display string) (*session, error) {
 			case <-time.After(15 * time.Second):
 			}
 			if attempt > 0 {
-				return nil, newErr(http.StatusConflict, "still_stopping", "%s masih berhenti, coba lagi sebentar", e.Name)
+				return nil, newErr(http.StatusConflict, "still_stopping", "%s is still stopping, try again in a moment", e.Name)
 			}
 			continue
 		}
 		if len(m.sessions) >= maxSessions {
 			m.mu.Unlock()
-			return nil, newErr(http.StatusConflict, "too_many_sessions", "maksimal %d aplikasi terbuka bersamaan", maxSessions)
+			return nil, newErr(http.StatusConflict, "too_many_sessions", "at most %d apps open at once", maxSessions)
 		}
 		s := &session{
 			pub:  Session{ID: id, AppID: e.ID, Name: e.Name, Title: e.Name, State: StateStarting, Display: display, StartedAt: time.Now().UTC()},
@@ -402,7 +402,7 @@ func (m *Manager) checkAvailable() error {
 	}
 	msg := st.Hint
 	if len(st.Missing) > 0 {
-		msg = "paket belum terpasang: " + strings.Join(st.Missing, ", ") + ". Pasang dengan: " + st.Hint
+		msg = "packages not installed: " + strings.Join(st.Missing, ", ") + ". Install with: " + st.Hint
 	}
 	return newErr(http.StatusServiceUnavailable, "gui_unavailable", "%s", msg)
 }
@@ -413,7 +413,7 @@ func (m *Manager) launch(req LaunchRequest, pageURL string) (Session, error) {
 	}
 	e, ok := m.lookup(req.AppID)
 	if !ok {
-		return Session{}, newErr(http.StatusNotFound, "app_not_found", "aplikasi tidak ditemukan di This PC")
+		return Session{}, newErr(http.StatusNotFound, "app_not_found", "app not found on This PC")
 	}
 	target := ""
 	if req.Path != "" && e.acceptsFolder() {
@@ -425,7 +425,7 @@ func (m *Manager) launch(req LaunchRequest, pageURL string) (Session, error) {
 		// Only an absolute path: it lands on the app's command line.
 		fi, err := os.Stat(target)
 		if err != nil || !fi.IsDir() || !filepath.IsAbs(target) {
-			return Session{}, newErr(http.StatusBadRequest, "folder_not_found", "folder tidak ditemukan: %s", req.Path)
+			return Session{}, newErr(http.StatusBadRequest, "folder_not_found", "folder not found: %s", req.Path)
 		}
 	}
 	s, err := m.reserve(e, m.displayKind())
@@ -440,7 +440,7 @@ func (m *Manager) launch(req LaunchRequest, pageURL string) (Session, error) {
 		delete(m.sessions, s.pub.ID)
 		m.mu.Unlock()
 		close(s.gone)
-		return Session{}, newErr(http.StatusInternalServerError, "gui_start_failed", "gagal membuka %s: %v", e.Name, err)
+		return Session{}, newErr(http.StatusInternalServerError, "gui_start_failed", "failed to open %s: %v", e.Name, err)
 	}
 	m.mu.Lock()
 	closed := m.closed
@@ -452,7 +452,7 @@ func (m *Manager) launch(req LaunchRequest, pageURL string) (Session, error) {
 	if closed {
 		x.close()
 		m.end(s, ReasonStopped, "")
-		return Session{}, newErr(http.StatusServiceUnavailable, "gui_closed", "hub sedang berhenti")
+		return Session{}, newErr(http.StatusServiceUnavailable, "gui_closed", "hub is stopping")
 	}
 	go m.monitor(s, x)
 	m.publishSession(pub)
@@ -480,7 +480,7 @@ func (m *Manager) bootstrap(s *session, e *entry, target string, w, h int) (disp
 	}
 	// sun_path is 108 bytes on Linux.
 	if len(s.sock()) > 100 {
-		return nil, fmt.Errorf("path data hub terlalu panjang untuk socket: %s", s.sock())
+		return nil, fmt.Errorf("hub data path too long for a socket: %s", s.sock())
 	}
 	if s.pub.Display == DisplayWayland {
 		return m.bootstrapWayland(s, e, target, w, h)
@@ -501,7 +501,7 @@ func (m *Manager) bootstrap(s *session, e *entry, target string, w, h int) (disp
 	}
 	x, err := dialX(s.display, s.cookie)
 	if err != nil {
-		return nil, fmt.Errorf("display tidak bisa dihubungi: %w", err)
+		return nil, fmt.Errorf("cannot reach the display: %w", err)
 	}
 	ok := false
 	defer func() {
@@ -517,13 +517,13 @@ func (m *Manager) bootstrap(s *session, e *entry, target string, w, h int) (disp
 	for {
 		up, err := x.hasWM()
 		if err != nil {
-			return nil, fmt.Errorf("display berhenti: %w", err)
+			return nil, fmt.Errorf("display stopped: %w", err)
 		}
 		if up {
 			break
 		}
 		if time.Now().After(deadline) {
-			return nil, errors.New("openbox tidak siap: " + lastLine(filepath.Join(s.dir, "wm.log")))
+			return nil, errors.New("openbox not ready: " + lastLine(filepath.Join(s.dir, "wm.log")))
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -582,11 +582,11 @@ func (m *Manager) startDisplay(s *session, name, xauth string, w, h int) error {
 	_ = r.SetReadDeadline(time.Now().Add(10 * time.Second))
 	line, err := bufio.NewReader(r).ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("Xtigervnc tidak siap: %s", lastLine(filepath.Join(s.dir, "display.log")))
+		return fmt.Errorf("Xtigervnc not ready: %s", lastLine(filepath.Join(s.dir, "display.log")))
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(line))
 	if err != nil {
-		return fmt.Errorf("nomor display tidak valid: %q", line)
+		return fmt.Errorf("invalid display number: %q", line)
 	}
 	s.display = n
 	return nil
@@ -692,7 +692,7 @@ func (m *Manager) appCommand(s *session, e *entry, target, xauth, pageURL string
 	i := binaryIndex(argv)
 	bin, ok := lookIn(m.pathEnv(), argv[i])
 	if !ok {
-		return nil, nil, "", fmt.Errorf("program tidak ditemukan: %s", argv[i])
+		return nil, nil, "", fmt.Errorf("program not found: %s", argv[i])
 	}
 	argv[i] = bin
 	profile := filepath.Join(m.cfg.Dir, "profiles", e.ID)
@@ -856,7 +856,7 @@ func (m *Manager) monitor(s *session, x displayWatch) {
 		count, title, err := x.windows()
 		if err != nil {
 			s.stopMonitor()
-			m.end(s, ReasonFailed, "Display aplikasi berhenti.")
+			m.end(s, ReasonFailed, "The app's display stopped.")
 			return
 		}
 		if tick%40 == 39 {
@@ -916,14 +916,14 @@ func (m *Manager) noWindowReason(s *session, waited time.Duration, now time.Time
 			if detail == "" {
 				detail = ex.err.Error()
 			}
-			return "Aplikasi berhenti sebelum membuka jendela: " + detail
+			return "The app stopped before opening a window: " + detail
 		}
 		if ex.err == nil && now.Sub(ex.at) >= m.exitedWait {
-			return "Aplikasi keluar tanpa membuka jendela di sini. Mungkin aplikasi itu sudah berjalan di layar lain."
+			return "The app exited without opening a window here. It may already be running on another screen."
 		}
 	}
 	if waited >= m.windowTimeout {
-		return "Aplikasi tidak membuka jendela."
+		return "The app did not open a window."
 	}
 	return ""
 }

@@ -38,9 +38,9 @@ var (
 	headerRe = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 	envRe    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
-	ErrNotFound = errors.New("MCP server tidak ditemukan")
-	ErrExists   = errors.New("nama MCP server sudah dipakai")
-	ErrTooMany  = errors.New("MCP server sudah terlalu banyak (maksimal 32)")
+	ErrNotFound = errors.New("MCP server not found")
+	ErrExists   = errors.New("the MCP server name is already used")
+	ErrTooMany  = errors.New("there are already too many MCP servers (at most 32)")
 )
 
 // BadError is an invalid server: the message says what to fix.
@@ -160,28 +160,28 @@ func (s *Store) clean(in Server, old *Server) (Server, error) {
 		in.Description = string(r[:200])
 	}
 	if !idRe.MatchString(in.ID) {
-		return Server{}, bad("nama harus diawali huruf kecil, lalu huruf kecil, angka, - atau _, maksimal 32")
+		return Server{}, bad("the name must start with a lowercase letter, then lowercase letters, digits, - or _, at most 32")
 	}
 	if in.ID == "nextboard" {
-		return Server{}, bad(`nama "nextboard" dipakai hub sendiri`)
+		return Server{}, bad(`the name "nextboard" is used by the hub itself`)
 	}
 	sealVars := func(vars []Var, nameRe *regexp.Regexp, what string, prev []Var) ([]Var, error) {
 		if len(vars) > maxVars {
-			return nil, bad("%s terlalu banyak (maksimal %d)", what, maxVars)
+			return nil, bad("too many %ss (at most %d)", what, maxVars)
 		}
 		out := make([]Var, 0, len(vars))
 		seen := map[string]bool{}
 		for _, v := range vars {
 			v.Name = strings.TrimSpace(v.Name)
 			if !nameRe.MatchString(v.Name) {
-				return nil, bad("nama %s %q tidak valid", what, v.Name)
+				return nil, bad("invalid %s name %q", what, v.Name)
 			}
 			if seen[strings.ToLower(v.Name)] {
-				return nil, bad("%s %q tertulis dua kali", what, v.Name)
+				return nil, bad("%s %q is written twice", what, v.Name)
 			}
 			seen[strings.ToLower(v.Name)] = true
 			if len(v.Value) > maxValue {
-				return nil, bad("nilai %s %q terlalu panjang", what, v.Name)
+				return nil, bad("the value of %s %q is too long", what, v.Name)
 			}
 			sealed := ""
 			if v.Value != "" {
@@ -196,7 +196,7 @@ func (s *Store) clean(in Server, old *Server) (Server, error) {
 					}
 				}
 				if sealed == "" {
-					return nil, bad("%s %q belum punya nilai", what, v.Name)
+					return nil, bad("%s %q has no value yet", what, v.Name)
 				}
 			}
 			out = append(out, Var{Name: v.Name, Value: sealed})
@@ -212,10 +212,10 @@ func (s *Store) clean(in Server, old *Server) (Server, error) {
 	case TransportHTTP:
 		u, perr := url.Parse(strings.TrimSpace(in.URL))
 		if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return Server{}, bad("URL harus http:// atau https://")
+			return Server{}, bad("the URL must be http:// or https://")
 		}
 		if u.User != nil {
-			return Server{}, bad("jangan tulis kata sandi di URL; pakai header")
+			return Server{}, bad("do not put a password in the URL; use a header")
 		}
 		in.URL = u.String()
 		in.Command, in.Args, in.Env = "", []string{}, []Var{}
@@ -225,20 +225,20 @@ func (s *Store) clean(in Server, old *Server) (Server, error) {
 	case TransportStdio:
 		in.Command = strings.TrimSpace(in.Command)
 		if in.Command == "" {
-			return Server{}, bad("perintah kosong")
+			return Server{}, bad("empty command")
 		}
 		if len(in.Args) > maxArgs {
-			return Server{}, bad("argumen terlalu banyak (maksimal %d)", maxArgs)
+			return Server{}, bad("too many arguments (at most %d)", maxArgs)
 		}
 		if in.Args == nil {
 			in.Args = []string{}
 		}
 		in.URL, in.Headers = "", []Var{}
-		if in.Env, err = sealVars(in.Env, envRe, "variabel", prevEnv); err != nil {
+		if in.Env, err = sealVars(in.Env, envRe, "variable", prevEnv); err != nil {
 			return Server{}, err
 		}
 	default:
-		return Server{}, bad(`transport harus "http" atau "stdio"`)
+		return Server{}, bad(`transport must be "http" or "stdio"`)
 	}
 	if in.Projects == nil {
 		in.Projects = []string{}

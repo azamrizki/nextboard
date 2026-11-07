@@ -49,10 +49,10 @@ const (
 )
 
 var (
-	ErrNotFound  = errors.New("monitor tidak ditemukan")
-	ErrPaused    = errors.New("monitor sedang di-pause")
-	ErrLimit     = fmt.Errorf("maksimal %d monitor per project", MaxPerProject)
-	ErrPushCheck = errors.New("monitor push menunggu kiriman, tidak bisa dicek dari sini")
+	ErrNotFound  = errors.New("monitor not found")
+	ErrPaused    = errors.New("the monitor is paused")
+	ErrLimit     = fmt.Errorf("at most %d monitors per project", MaxPerProject)
+	ErrPushCheck = errors.New("a push monitor waits for pushes and cannot be checked from here")
 )
 
 // Status of a monitor, as the API says it.
@@ -867,7 +867,7 @@ func (s *Service) History(id, rangeName string) (Series, error) {
 		return Series{}, ErrNotFound
 	}
 	if _, ok := Ranges[rangeName]; !ok {
-		return Series{}, errors.New("range harus 1h, 24h, 7d, 30d atau 1y")
+		return Series{}, errors.New("range must be 1h, 24h, 7d, 30d or 1y")
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -904,7 +904,7 @@ func (s *Service) saveMonitors() {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	if err := s.st.Save(monitorsFile, out); err != nil {
-		log.Printf("uptime: simpan monitor: %v", err)
+		log.Printf("uptime: save monitors: %v", err)
 	}
 }
 
@@ -912,7 +912,7 @@ func (s *Service) saveSettings() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.st.Save(settingsFile, s.settings); err != nil {
-		log.Printf("uptime: simpan setelan: %v", err)
+		log.Printf("uptime: save settings: %v", err)
 	}
 }
 
@@ -928,7 +928,7 @@ func (s *Service) SetWebhook(projectID, webhook string) (ProjectSettings, error)
 	if webhook != "" {
 		u, err := url.Parse(webhook)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-			return ProjectSettings{}, errors.New("webhook harus URL http:// atau https://")
+			return ProjectSettings{}, errors.New("the webhook must be an http:// or https:// URL")
 		}
 	}
 	s.mu.Lock()
@@ -961,7 +961,7 @@ func webhookBody(m Monitor, a Alert, at time.Time) []byte {
 func (s *Service) postWebhook(ctx context.Context, webhook string, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhook, bytes.NewReader(body))
 	if err != nil {
-		return errors.New("URL webhook tidak valid")
+		return errors.New("invalid webhook URL")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := s.client.Do(req)
@@ -1025,7 +1025,7 @@ func (s *Service) noteWebhook(projectID, webhook string, err error) {
 func (s *Service) TestWebhook(ctx context.Context, projectID string) error {
 	c := s.Settings(projectID)
 	if c.Webhook == "" {
-		return errors.New("webhook belum diisi")
+		return errors.New("no webhook is set")
 	}
 	a := Alert{Kind: "test", Title: "NextBoard uptime alerts are on", Body: "This is a test message"}
 	err := s.postWebhook(ctx, c.Webhook, webhookBody(Monitor{Type: TypePush, Name: "test"}, a, s.Now()))

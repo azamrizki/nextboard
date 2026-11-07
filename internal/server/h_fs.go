@@ -38,11 +38,11 @@ func fsErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, machine.ErrFileTooLarge):
 		writeErr(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, fs.ErrNotExist):
-		writeErr(w, http.StatusNotFound, "file tidak ditemukan")
+		writeErr(w, http.StatusNotFound, "file not found")
 	case errors.Is(err, fs.ErrPermission):
-		writeErr(w, http.StatusForbidden, "akses ditolak")
+		writeErr(w, http.StatusForbidden, "access denied")
 	case errors.Is(err, context.DeadlineExceeded):
-		writeErr(w, http.StatusGatewayTimeout, "machine tidak merespons")
+		writeErr(w, http.StatusGatewayTimeout, "machine not responding")
 	default:
 		writeErr(w, http.StatusBadRequest, err.Error())
 	}
@@ -57,7 +57,7 @@ func (s *Server) fsHost(w http.ResponseWriter, r *http.Request) (machine.Host, s
 	}
 	p := r.URL.Query().Get("path")
 	if p == "" {
-		writeErr(w, http.StatusBadRequest, "path wajib diisi")
+		writeErr(w, http.StatusBadRequest, "path is required")
 		return nil, "", false
 	}
 	return h, p, true
@@ -74,7 +74,7 @@ func (s *Server) hubPrivate(w http.ResponseWriter, h machine.Host, p string) boo
 		return false // the machine layer reports the bad path
 	}
 	if inside(realPath(abs), realPath(s.st.Dir)) {
-		writeErr(w, http.StatusForbidden, "folder data hub tidak bisa diakses lewat file API")
+		writeErr(w, http.StatusForbidden, "the hub's data folder cannot be reached through the file API")
 		return true
 	}
 	return false
@@ -124,7 +124,7 @@ func (s *Server) handleFSRead(w http.ResponseWriter, r *http.Request, p *princip
 	if v := r.URL.Query().Get("max"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 1 {
-			writeErr(w, http.StatusBadRequest, "max tidak valid")
+			writeErr(w, http.StatusBadRequest, "invalid max")
 			return
 		}
 		max = min(n, machine.MaxFileBytes)
@@ -157,7 +157,7 @@ func (s *Server) fsReadRange(ctx context.Context, w http.ResponseWriter, h machi
 	off, ok1 := parse(offS)
 	tail, ok2 := parse(tailS)
 	if !ok1 || !ok2 || (off >= 0 && tail >= 0) {
-		writeErr(w, http.StatusBadRequest, "pakai salah satu dari offset atau tail (byte ≥ 0)")
+		writeErr(w, http.StatusBadRequest, "use one of offset or tail (bytes ≥ 0)")
 		return
 	}
 	st, err := h.Stat(ctx, fp)
@@ -277,7 +277,7 @@ func (s *Server) handleFSWrite(w http.ResponseWriter, r *http.Request, p *princi
 		return
 	}
 	if req.Path == "" {
-		writeErr(w, http.StatusBadRequest, "path wajib diisi")
+		writeErr(w, http.StatusBadRequest, "path is required")
 		return
 	}
 	if s.hubPrivate(w, h, req.Path) {
@@ -290,11 +290,11 @@ func (s *Server) handleFSWrite(w http.ResponseWriter, r *http.Request, p *princi
 	case "base64":
 		var err error
 		if data, err = base64.StdEncoding.DecodeString(req.Content); err != nil {
-			writeErr(w, http.StatusBadRequest, "content base64 tidak valid")
+			writeErr(w, http.StatusBadRequest, "content is not valid base64")
 			return
 		}
 	default:
-		writeErr(w, http.StatusBadRequest, `encoding harus "utf8" atau "base64"`)
+		writeErr(w, http.StatusBadRequest, `encoding must be "utf8" or "base64"`)
 		return
 	}
 	if len(data) > machine.MaxFileBytes {
@@ -305,7 +305,7 @@ func (s *Server) handleFSWrite(w http.ResponseWriter, r *http.Request, p *princi
 	if req.IfMtime != nil && *req.IfMtime != "" {
 		t, err := time.Parse(time.RFC3339Nano, *req.IfMtime)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "ifMtime harus RFC 3339")
+			writeErr(w, http.StatusBadRequest, "ifMtime must be RFC 3339")
 			return
 		}
 		opt.IfMtime = &t

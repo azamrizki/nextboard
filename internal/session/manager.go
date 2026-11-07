@@ -33,16 +33,16 @@ import (
 const sessionsFile = "sessions.json"
 
 var (
-	ErrNotFound        = errors.New("sesi tidak ditemukan")
-	ErrUnknownPreset   = errors.New("preset tidak dikenal")
-	ErrBadRequest      = errors.New("request tidak valid")
-	ErrBadHandle       = errors.New("handle tidak valid (huruf di awal, lalu huruf/angka/-, maks 20; bukan kata cadangan)")
-	ErrHandleTaken     = errors.New("handle sudah dipakai console lain")
-	ErrProfileNotFound = errors.New("profil tidak ditemukan")
-	ErrProfileMismatch = errors.New("profil bukan untuk machine/agen ini")
-	ErrAgentDisabled   = errors.New("agent ini dimatikan di Settings › Agents")
-	ErrAgentThisPC     = errors.New("agent selalu berjalan di This PC; di server hanya shell biasa")
-	ErrBadMode         = errors.New("mode peluncuran tidak dikenal")
+	ErrNotFound        = errors.New("session not found")
+	ErrUnknownPreset   = errors.New("unknown preset")
+	ErrBadRequest      = errors.New("invalid request")
+	ErrBadHandle       = errors.New("invalid handle (a letter first, then letters/digits/-, at most 20; not a reserved word)")
+	ErrHandleTaken     = errors.New("the handle is already used by another console")
+	ErrProfileNotFound = errors.New("profile not found")
+	ErrProfileMismatch = errors.New("the profile is not for this machine/agent")
+	ErrAgentDisabled   = errors.New("this agent is turned off in Settings › Agents")
+	ErrAgentThisPC     = errors.New("agents always run on This PC; a server runs only plain shells")
+	ErrBadMode         = errors.New("unknown launch mode")
 )
 
 // LaunchRequest selects how the agent starts (§3.1).
@@ -230,7 +230,7 @@ func (m *Manager) Load() error {
 		}
 		if b, err := os.ReadFile(m.scrollbackPath(sp.ID)); err == nil && len(b) > 0 {
 			s.ring.Write(b)
-			s.ring.Write([]byte("\r\n\x1b[90m── hub dimulai ulang ──\x1b[0m\r\n"))
+			s.ring.Write([]byte("\r\n\x1b[90m── hub restarted ──\x1b[0m\r\n"))
 			replay := s.ring.Bytes()
 			if len(replay) > screen.ReplayBytes {
 				replay = replay[len(replay)-screen.ReplayBytes:]
@@ -561,7 +561,7 @@ func (m *Manager) plan(s *Session, a agent.Agent, sp Spec, mode string) (agent.P
 		case sp.RemoteMachineID != "":
 			return agent.Plan{}, err
 		default:
-			log.Printf("konteks peluncuran %s: %v", sp.ID, err)
+			log.Printf("launch context %s: %v", sp.ID, err)
 		}
 	}
 	// Never launch without the tools: the agent would act on This PC.
@@ -584,7 +584,7 @@ func (m *Manager) plan(s *Session, a agent.Agent, sp Spec, mode string) (agent.P
 			cfg := transcript.ClaudeConfigDir(s.homeOf(h), firstNonEmpty(o.ProfileDir, localEnv(h, "CLAUDE_CONFIG_DIR")))
 			env, err := m.IDELink(sp, cfg)
 			if err != nil {
-				log.Printf("sambungan editor %s: %v", sp.ID, err)
+				log.Printf("editor link %s: %v", sp.ID, err)
 			}
 			p.Env = append(p.Env, env...)
 		}

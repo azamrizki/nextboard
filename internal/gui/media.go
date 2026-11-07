@@ -183,7 +183,7 @@ func (m *Manager) takeEncoder() (func(), error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.encoders >= maxEncoders {
-		return nil, newErr(http.StatusConflict, "too_many_encoders", "maksimal %d aliran video dan audio bersamaan", maxEncoders)
+		return nil, newErr(http.StatusConflict, "too_many_encoders", "at most %d video and audio streams at once", maxEncoders)
 	}
 	m.encoders++
 	return func() {
@@ -237,7 +237,7 @@ func (m *Manager) VideoStream(id string, w, h int, mbps float64, codec string) (
 	}
 	cand, node := m.encoderArgs()
 	if !m.encOK {
-		return nil, newErr(http.StatusServiceUnavailable, "video_unavailable", "encoder video hardware tidak tersedia")
+		return nil, newErr(http.StatusServiceUnavailable, "video_unavailable", "hardware video encoder not available")
 	}
 	if codec != CodecAV1 || !m.encAV1 {
 		codec = CodecH264
@@ -292,7 +292,7 @@ func (m *Manager) AudioStream(id string) (*Stream, error) {
 	has := s.pub.Audio
 	m.mu.Unlock()
 	if !has {
-		return nil, newErr(http.StatusServiceUnavailable, "audio_unavailable", "sesi ini tidak punya audio")
+		return nil, newErr(http.StatusServiceUnavailable, "audio_unavailable", "this session has no audio")
 	}
 	bin, _ := lookIn(m.pathEnv(), "pw-record")
 	argv := []string{bin, "--target", sourceName(id), "--raw", "--format", "s16", "--rate", "48000", "--channels", "2", "--latency", "20ms", "-"}
@@ -333,7 +333,7 @@ func SplitTemporalUnits(r io.Reader, emit func(tu []byte, key bool) error) error
 			return err
 		}
 		if h&obuHasSize == 0 {
-			return errors.New("av1: OBU tanpa ukuran")
+			return errors.New("av1: OBU without a size")
 		}
 		typ := h >> 3 & 0xf
 		head := []byte{h}
@@ -351,7 +351,7 @@ func SplitTemporalUnits(r io.Reader, emit func(tu []byte, key bool) error) error
 				return err
 			}
 			if i == obuMaxSizeBytes {
-				return errors.New("av1: ukuran OBU tidak valid")
+				return errors.New("av1: invalid OBU size")
 			}
 			head = append(head, b)
 			size |= int(b&0x7f) << (7 * i)
@@ -360,7 +360,7 @@ func SplitTemporalUnits(r io.Reader, emit func(tu []byte, key bool) error) error
 			}
 		}
 		if size < 0 || size > 64<<20 {
-			return errors.New("av1: ukuran OBU tidak valid")
+			return errors.New("av1: invalid OBU size")
 		}
 		if typ == obuTemporalDelimiter {
 			if pending {
