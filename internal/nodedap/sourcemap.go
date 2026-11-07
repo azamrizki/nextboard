@@ -266,17 +266,20 @@ type srcBP struct {
 }
 
 type setBP struct {
-	dapID int
-	line  int // 1-based, where it landed in the source
+	dapID    int
+	line     int // 1-based, where it landed in the source
+	verified bool
+	message  string
 }
 
 // loadMap reads the source map of a script the first time it is seen.
-func (a *adapter) loadMap(scriptID, scriptURL, ref string) {
+func (t *target) loadMap(scriptID, scriptURL, ref string) {
 	if scriptID == "" || ref == "" {
 		return
 	}
+	a := t.a
 	a.mu.Lock()
-	_, done := a.maps[scriptID]
+	_, done := t.maps[scriptID]
 	a.mu.Unlock()
 	path := pathOf(scriptURL)
 	if done || path == "" {
@@ -287,14 +290,15 @@ func (a *adapter) loadMap(scriptID, scriptURL, ref string) {
 		return
 	}
 	a.mu.Lock()
-	a.maps[scriptID] = sm
+	t.maps[scriptID] = sm
 	a.mu.Unlock()
 }
 
 // applyMapped sets the breakpoints of every source of a script's map.
-func (a *adapter) applyMapped(scriptID string) {
+func (t *target) applyMapped(scriptID string) {
+	a := t.a
 	a.mu.Lock()
-	sm := a.maps[scriptID]
+	sm := t.maps[scriptID]
 	type job struct {
 		source string
 		bps    []srcBP
@@ -309,16 +313,17 @@ func (a *adapter) applyMapped(scriptID string) {
 	}
 	a.mu.Unlock()
 	for _, j := range jobs {
-		for _, got := range a.setMapped(scriptID, j.source, j.bps) {
+		for _, got := range t.setMapped(scriptID, j.source, j.bps) {
 			a.event("breakpoint", map[string]any{"reason": "changed", "breakpoint": map[string]any{"id": got.dapID, "verified": true, "line": got.line}})
 		}
 	}
 }
 
 // setMapped sets breakpoints of a source in one script, where its map puts them.
-func (a *adapter) setMapped(scriptID, source string, bps []srcBP) []setBP {
+func (t *target) setMapped(scriptID, source string, bps []srcBP) []setBP {
+	a := t.a
 	a.mu.Lock()
-	sm := a.maps[scriptID]
+	sm := t.maps[scriptID]
 	a.mu.Unlock()
 	if sm == nil {
 		return nil
@@ -333,7 +338,7 @@ func (a *adapter) setMapped(scriptID, source string, bps []srcBP) []setBP {
 		if b.cond != "" {
 			params["condition"] = b.cond
 		}
-		res, err := a.cdp("Debugger.setBreakpoint", params)
+		res, err := t.cdp("Debugger.setBreakpoint", params)
 		if err != nil {
 			continue
 		}
@@ -344,24 +349,24 @@ func (a *adapter) setMapped(scriptID, source string, bps []srcBP) []setBP {
 			continue
 		}
 		a.mu.Lock()
-		a.cdpToDap[r.BreakpointID] = b.dapID
-		a.mappedBPs[source] = append(a.mappedBPs[source], r.BreakpointID)
+		t.cdpToDap[r.BreakpointID] = b.dapID
+		t.mappedBPs[source] = append(t.mappedBPs[source], r.BreakpointID)
 		a.mu.Unlock()
-		out = append(out, setBP{dapID: b.dapID, line: landed + 1})
+		out = append(out, setBP{dapID: b.dapID, line: landed + 1, verified: true})
 	}
 	return out
 }
 
 // applyAllMapped sets the breakpoints of every script with a map loaded so far.
-func (a *adapter) applyAllMapped() {
-	a.mu.Lock()
-	ids := make([]string, 0, len(a.maps))
-	for id := range a.maps {
+func (t *target) applyAllMapped() {
+	t.a.mu.Lock()
+	ids := make([]string, 0, len(t.maps))
+	for id := range t.maps {
 		ids = append(ids, id)
 	}
-	a.mu.Unlock()
+	t.a.mu.Unlock()
 	for _, id := range ids {
-		a.applyMapped(id)
+		t.applyMapped(id)
 	}
 }
 
@@ -482,7 +487,8 @@ func mapRef(p string) string {
 
 // setByOutFile sets a source's breakpoints in the compiled scripts that came from it, by their
 // URL, so that they are in place whenever those scripts load.
-func (a *adapter) setByOutFile(source string, bps []srcBP) []setBP {
+func (t *target) setByOutFile(source string, bps []srcBP) []setBP {
+	a := t.a
 	files := a.indexOutFiles()[source]
 	var out []setBP
 	for _, f := range files {
@@ -495,7 +501,7 @@ func (a *adapter) setByOutFile(source string, bps []srcBP) []setBP {
 			if b.cond != "" {
 				params["condition"] = b.cond
 			}
-			res, err := a.cdp("Debugger.setBreakpointByUrl", params)
+			res, err := t.cdp("Debugger.setBreakpointByUrl", params)
 			if err != nil {
 				continue
 			}
@@ -506,9 +512,9 @@ func (a *adapter) setByOutFile(source string, bps []srcBP) []setBP {
 				continue
 			}
 			a.mu.Lock()
-			a.cdpToDap[r.BreakpointID] = b.dapID
-			a.bpLine[r.BreakpointID] = landed + 1
-			a.mappedBPs[source] = append(a.mappedBPs[source], r.BreakpointID)
+			t.cdpToDap[r.BreakpointID] = b.dapID
+			t.bpLine[r.BreakpointID] = landed + 1
+			t.mappedBPs[source] = append(t.mappedBPs[source], r.BreakpointID)
 			a.mu.Unlock()
 			out = append(out, setBP{dapID: b.dapID, line: landed + 1})
 		}

@@ -447,3 +447,66 @@ func TestSourceMappedBreakpoints(t *testing.T) {
 	c2.req("continue", map[string]any{"threadId": 1})
 	c2.wait("exited")
 }
+
+// A node process the program forks is a thread of the session: a breakpoint in it stops that
+// thread, with its own stack and values, and the program runs on. Without the bootloader the
+// child inherited --inspect-brk and waited for a debugger forever.
+func TestForkedChildIsAThread(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("no node")
+	}
+	dir := t.TempDir()
+	main := filepath.Join(dir, "main.js")
+	child := filepath.Join(dir, "child.js")
+	if err := os.WriteFile(main, []byte("const { fork } = require('child_process');\nconst c = fork(__dirname + '/child.js', ['7']);\nc.on('exit', (code) => console.log('child exit ' + code));\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(child, []byte("const n = Number(process.argv[2]);\nconst twice = n * 2;\nconsole.log('child says ' + twice);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := start(t)
+	c.launch(main, nil, map[string][]map[string]any{child: {{"line": 3}}})
+	ev := c.wait("stopped")
+	tid := ev["threadId"].(float64)
+	if tid == 1 || ev["reason"] != "breakpoint" {
+		t.Fatalf("stopped %v", ev)
+	}
+	threads := c.req("threads", nil)["threads"].([]any)
+	if len(threads) != 2 {
+		t.Fatalf("threads %v", threads)
+	}
+	frames := c.req("stackTrace", map[string]any{"threadId": tid})["stackFrames"].([]any)
+	top := frames[0].(map[string]any)
+	if top["source"].(map[string]any)["path"] != child || top["line"].(float64) != 3 {
+		t.Fatalf("child frame %v", top)
+	}
+	if v := c.locals(top); v["twice"] == nil || v["twice"]["value"] != "14" {
+		t.Fatalf("child locals %v", v)
+	}
+	if r := c.req("evaluate", map[string]any{"expression": "n + 1", "frameId": top["id"], "context": "repl"}); r["result"] != "8" {
+		t.Fatalf("evaluate in the child: %v", r)
+	}
+	c.req("continue", map[string]any{"threadId": tid})
+	c.wait("exited")
+	out := c.outputText()
+	if !strings.Contains(out, "child says 14") || !strings.Contains(out, "child exit 0") {
+		t.Fatalf("output %q", out)
+	}
+
+	// spawned rather than forked: the environment carries the bootloader
+	if err := os.WriteFile(main, []byte("const { spawn } = require('child_process');\nspawn(process.execPath, [__dirname + '/child.js', '21'], { stdio: 'inherit' }).on('exit', (code) => console.log('child exit ' + code));\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c2 := start(t)
+	c2.launch(main, nil, map[string][]map[string]any{child: {{"line": 3}}})
+	ev = c2.wait("stopped")
+	frames = c2.req("stackTrace", map[string]any{"threadId": ev["threadId"]})["stackFrames"].([]any)
+	if v := c2.locals(frames[0].(map[string]any)); v["twice"] == nil || v["twice"]["value"] != "42" {
+		t.Fatalf("spawned child locals %v", v)
+	}
+	c2.req("continue", map[string]any{"threadId": ev["threadId"]})
+	c2.wait("exited")
+	if !strings.Contains(c2.outputText(), "child says 42") {
+		t.Fatalf("output %q", c2.outputText())
+	}
+}
