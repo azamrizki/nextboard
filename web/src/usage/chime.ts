@@ -8,8 +8,18 @@ import { toast } from '../components/Toast';
 
 export type ChimeSound = 'bell' | 'chime' | 'pop' | 'soft';
 
+/**
+ * Browsers keep audio off until the page gets a click or a key press, and warn about a context
+ * made before that. A touch's pointerdown is not one yet: the activation comes when it ends.
+ */
+function activated(): boolean {
+  const ua = (navigator as { userActivation?: { hasBeenActive: boolean } }).userActivation;
+  return !ua || ua.hasBeenActive;
+}
+
 let ctx: AudioContext | null = null;
 function audio(): AudioContext | null {
+  if (!ctx && !activated()) return null;
   try {
     ctx ??= new AudioContext();
     if (ctx.state === 'suspended') void ctx.resume();
@@ -67,8 +77,12 @@ let installed = false;
 export function installChime(): () => void {
   if (installed) return () => undefined;
   installed = true;
-  const unlock = () => audio();
-  window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+  const unlockOn = ['pointerdown', 'pointerup', 'keydown'] as const;
+  const unlock = () => {
+    if (!audio()) return;
+    for (const t of unlockOn) window.removeEventListener(t, unlock, true);
+  };
+  for (const t of unlockOn) window.addEventListener(t, unlock, { capture: true });
   const onReset = (e: { agent: string; window: string; sound?: string }) => {
     const chime = (store.getState().settings as { usage?: { chime?: { enabled?: boolean; sound?: string } } } | null)?.usage?.chime;
     if (chime?.enabled === false) return;
@@ -79,7 +93,7 @@ export function installChime(): () => void {
   studioStore.onReset.add(onReset);
   return () => {
     studioStore.onReset.delete(onReset);
-    window.removeEventListener('pointerdown', unlock, true);
+    for (const t of unlockOn) window.removeEventListener(t, unlock, true);
     installed = false;
   };
 }
