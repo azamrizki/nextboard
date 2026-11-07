@@ -869,7 +869,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 - `idelink` dengan Claude yang login dan model sungguhan.
 - Review agent dengan Codex, dan Codex melewati layar login di panel card.
 - Pull request ke GitHub sungguhan (tes memakai `gh` palsu).
-- Panel agent di project yang ada di server lewat SSH.
+- Panel agent di project yang ada di server lewat SSH dengan model sungguhan. Dengan agent palsu dan sshd sungguhan (MaxSessions bawaan), Code card di project server sudah diuji di `e2e/studio-ssh.spec.ts`: tree dengan file ignored, simpan, search, commit, terminal, dan agent di tab.
 - OpenCode sampai menjawab di server.
 - Log koneksi pada jaringan sungguhan (baru lewat proxy TCP lokal).
 - macOS, NVENC, iframe preview dengan sertifikat self-signed.
@@ -890,7 +890,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Agent di server | Preview. Skill dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git memakai kredensial server. OpenCode belum pernah diamati saat menjalankan giliran; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
 | Status dan delivery | Agent tanpa aturan layar dibaca secara generik: berpikir tanpa output di layar prompt masih bisa terbaca `ready` sesudah 3 detik, di layar lain sesudah 15 detik. Daftar CLI aman untuk `whileWorking:"type"` belum ada |
 | Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan. Parser hanya bahasa Inggris |
-| Multi-repo | Explorer tidak meredupkan file yang di-ignore di repo di bawah folder induk. Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
+| Multi-repo | Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
 | Git | Menulis ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup. Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
 | Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |
 | Aplikasi desktop | VA-API saja, baru teruji di Arc A380. Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N) tidak sampai. Tanpa mikrofon. `wayvnc` 0.9.1 sesekali segfault (hub menyalakannya ulang dalam sekitar 2 detik). Di mesin tanpa output suara asli, sink sesi bisa menjadi default |

@@ -4,6 +4,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { api, errorMessage } from '../../api';
+import { useEffectiveSettings } from '../../agents/settings';
 import { restartConsole } from '../../agents/actions';
 import { agentById, byPriority, useMachineAgents } from '../../agents/catalog';
 import { agentPill } from '../../agents/state';
@@ -15,6 +16,7 @@ import { Icon } from '../../components/Icon';
 import { Menu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
+import { navigate } from '../../lib/router';
 import type { Agent, Project, Session } from '../../lib/types';
 import { orchError, sendCommand } from '../../orch/actions';
 import { useStoreSessions } from '../../orch/hooks';
@@ -52,21 +54,31 @@ export interface PaneChoices {
   agents: Agent[];
   /** Agents of this board's editor with no pane here, as when started from another browser. */
   unplaced: Session[];
+  /** A project on a server while agents on servers are off: the menu says where to turn them on. */
+  serverOff: (() => void) | null;
 }
 
 export function usePaneChoices(ws: Workspace, workspaceId: string): PaneChoices {
   const { agents } = useMachineAgents(ws.mid);
   const sessions = useSessions();
+  const remote = !!useEffectiveSettings().agents?.remoteTools;
   const sorted = useMemo(() => agents.filter((a) => a.kind === 'agent' && a.available !== false).sort(byPriority), [agents]);
   const placed = ws.paneConsoles;
   const unplaced = sessions.filter((s) => s.panel && s.agentKind === 'agent' && s.workspaceId === workspaceId && s.status !== 'exited' && !placed.includes(s.id));
-  return { agents: sorted, unplaced };
+  const serverOff = ws.mid !== 'local' && !remote ? () => navigate('/settings/agents') : null;
+  return { agents: sorted, unplaced, serverOff };
 }
 
-export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced }: PaneChoices, where: Where): MenuEntry[] {
+export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced, serverOff }: PaneChoices, where: Where): MenuEntry[] {
   return [
     ...unplaced.map<MenuEntry>((s) => ({ label: `Show ${s.handle ? `@${s.handle}` : s.name}`, icon: 'terminal', title: 'Already running in this editor', onSelect: () => ws.placePane(s.id, where) })),
     ...(unplaced.length ? (['sep'] as MenuEntry[]) : []),
+    ...(serverOff
+      ? ([
+          { label: 'Turn on agents on servers…', icon: 'sliders', title: 'Agents stay on This PC and work on this server through the hub. Settings › Agents', onSelect: serverOff },
+          'sep',
+        ] as MenuEntry[])
+      : []),
     ...agents.map<MenuEntry>((a) => ({
       label: a.name,
       icon: 'bot',
