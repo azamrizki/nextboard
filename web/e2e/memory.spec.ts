@@ -49,7 +49,8 @@ test('a brick comes from another project and goes to who is connected', async ({
   await dialog.getByRole('button', { name: 'Add 1 and send' }).click();
 
   await expect(bricks(page).nth(1)).toContainText(`Deployment · ${other.name}`);
-  await expect(page.locator('.toast').first()).toContainText(/Sent to 1 console/);
+  // another test's uptime alert may be showing too: this one's toast, not the first
+  await expect(page.locator('.toast', { hasText: /Sent to 1 console/ })).toBeVisible();
   expect(await hub.blocks(p.wid)).toEqual([{ projectId: other.id, name: 'deploy' }]);
 });
 
@@ -116,7 +117,7 @@ test('send to agents: which memory, which agents, and nothing for who has it', a
   await expect(dialog.getByRole('button', { name: 'Send to 0 agents' })).toBeDisabled();
   await dialog.locator('.memory-targets input[type=checkbox]').first().check();
   await dialog.getByRole('button', { name: 'Send to 1 agent' }).click();
-  await expect(page.locator('.toast').first()).toContainText('1 agent');
+  await expect(page.locator('.toast', { hasText: '1 agent' })).toBeVisible();
   await expect(dialog).toHaveCount(0);
 });
 
