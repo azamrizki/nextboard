@@ -39,7 +39,7 @@ export class SSHD {
     writeFileSync(join(dir, 'sshd_config'), config.join('\n') + '\n', { mode: 0o600 });
     const s = new SSHD(dir, port, readFileSync(join(dir, 'user'), 'utf8'));
     // `timeout` so that a run killed halfway leaves no server behind on a shared machine
-    s.proc = spawn('timeout', ['600', '/usr/sbin/sshd', '-D', '-e', '-f', join(dir, 'sshd_config')], { stdio: 'ignore' });
+    s.proc = spawn('timeout', ['1800', '/usr/sbin/sshd', '-D', '-e', '-f', join(dir, 'sshd_config')], { stdio: 'ignore' });
     for (let i = 0; i < 50; i++) {
       if (await listening(port)) return s;
       await new Promise((r) => setTimeout(r, 100));

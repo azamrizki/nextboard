@@ -22,7 +22,7 @@ export default async function globalSetup() {
   const base = `http://127.0.0.1:${PORT}`;
 
   // `timeout` so that a run killed halfway leaves no hub behind on a shared machine.
-  const hub: ChildProcess = spawn('timeout', ['600', bin, 'serve', '--listen', `127.0.0.1:${PORT}`, '--data-dir', data], { env, stdio: ['ignore', log, log] });
+  const hub: ChildProcess = spawn('timeout', ['1800', bin, 'serve', '--listen', `127.0.0.1:${PORT}`, '--data-dir', data], { env, stdio: ['ignore', log, log] });
   // Only once it is gone: a hub still stopping writes the folder back.
   const stop = async () => {
     const gone = new Promise((done) => hub.once('exit', done));

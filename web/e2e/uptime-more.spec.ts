@@ -73,7 +73,7 @@ test('the monitor form asks what each newer check needs', async ({ page, hub }) 
   const card = page.locator('.react-flow__node[data-id="n_upt0000002"]');
   await card.getByRole('button', { name: 'Add monitor' }).first().click();
   const form = page.getByRole('dialog', { name: 'Add monitor' });
-  const kind = form.getByRole('combobox', { name: 'Check' });
+  const kind = form.getByRole('combobox', { name: 'Check', exact: true });
 
   await kind.selectOption('docker');
   await expect(form.getByRole('textbox', { name: 'Container' })).toBeVisible();
