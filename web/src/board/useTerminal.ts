@@ -74,8 +74,8 @@ function waitForMonoFont(): Promise<void> {
 
 /**
  * WebGL only pays off on a hardware GPU. Software rasterisers (SwiftShader, llvmpipe —
- * headless browsers, VMs, GPU-blocklisted machines) are slower than xterm's DOM renderer
- * and were observed to draw nothing at devicePixelRatio 2, so we skip WebGL there.
+ * headless browsers, VMs, GPU-blocklisted machines) are slower than xterm's DOM renderer,
+ * so we skip WebGL there.
  */
 let hardwareWebgl: boolean | null = null;
 function hasHardwareWebgl(): boolean {
@@ -96,23 +96,52 @@ function hasHardwareWebgl(): boolean {
   return hardwareWebgl;
 }
 
-/** Try the WebGL renderer; on failure or context loss xterm falls back to its DOM renderer. */
-function tryWebgl(term: Terminal) {
-  if (!hasHardwareWebgl()) return;
+/**
+ * Try the WebGL renderer; on failure or context loss xterm falls back to its DOM renderer, and
+ * `fellBack` runs (its cells differ in size). Gives back what stops watching it, for when the
+ * terminal goes.
+ */
+function tryWebgl(term: Terminal, fellBack: () => void): () => void {
+  if (!hasHardwareWebgl() || !term.element) return () => undefined;
+  let addon: WebglAddon | null = null;
+  // The renderer sizes its canvas by the device pixels the browser reports for it. Under an
+  // emulated pixel ratio (Chrome's device mode, test browsers) the browser reports CSS pixels,
+  // the text lands outside the canvas, and the console shows nothing.
+  const watch = new ResizeObserver(([e]) => {
+    const device = e?.devicePixelContentBoxSize?.[0]?.inlineSize;
+    const css = e?.contentRect.width ?? 0;
+    const ratio = window.devicePixelRatio || 1;
+    if (device && css > 0 && Math.abs(device - css * ratio) > Math.max(2, ratio)) drop();
+  });
+  function drop() {
+    watch.disconnect();
+    if (!addon) return;
+    try {
+      addon.dispose();
+    } catch {
+      /* ignore */
+    }
+    addon = null;
+    fellBack();
+  }
   try {
-    const addon = new WebglAddon();
-    addon.onContextLoss(() => {
-      // Browsers cap live WebGL contexts (~16); the oldest ones get dropped.
-      try {
-        addon.dispose();
-      } catch {
-        /* ignore */
-      }
-    });
+    addon = new WebglAddon();
+    // Browsers cap live WebGL contexts (~16); the oldest ones get dropped.
+    addon.onContextLoss(drop);
     term.loadAddon(addon);
   } catch {
-    /* WebGL unavailable → default renderer */
+    // WebGL unavailable → default renderer
+    addon = null;
+    watch.disconnect();
+    return () => undefined;
   }
+  try {
+    watch.observe(term.element, { box: 'device-pixel-content-box' });
+  } catch {
+    // not reported by this browser; the renderer keeps its own canvas size then
+    watch.disconnect();
+  }
+  return () => watch.disconnect();
 }
 
 interface PointerAt {
@@ -228,7 +257,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
       term.loadAddon(fit);
       term.open(el);
       followBoardZoom(term);
-      tryWebgl(term);
+      const unwatchWebgl = tryWebgl(term, () => fitAndSend());
 
       let awaitingSnapshot = true;
       let sent = { c: 0, r: 0 };
@@ -371,6 +400,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
 
       return () => {
         live.current = null;
+        unwatchWebgl();
         unregister();
         window.clearTimeout(resizeTimer);
         el.removeEventListener('paste', onPaste, true);
