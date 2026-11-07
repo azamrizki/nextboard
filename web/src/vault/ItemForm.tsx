@@ -65,7 +65,7 @@ export function ItemForm({ item, folders, startFolder, startType, onSaved, onClo
     const totp = draft.values.totp?.trim() ?? '';
     // A kind of key this cannot make codes from may come in with an import: it may stay as it was.
     if (totp && !parseTotp(totp) && totp !== item?.values.totp) {
-      setTotpError('Not an authenticator key. Paste the otpauth:// link or its Base32 key.');
+      setTotpError('Not an authenticator key. Paste the otpauth:// link, its Base32 key, or steam:// and the key for Steam Guard.');
       return;
     }
     if (draft.agents && !draft.agents.projects.length) {
@@ -117,7 +117,7 @@ export function ItemForm({ item, folders, startFolder, startType, onSaved, onClo
       );
     }
     if (secret) {
-      return <SecretInput key={f.key} label={f.label} value={value} onChange={set} error={f.kind === 'totp' ? totpError : undefined} hint={f.kind === 'totp' ? 'The otpauth:// link or Base32 key a site gives you for its authenticator.' : undefined} fieldClassName={f.kind === 'totp' ? 'vault-span' : undefined} />;
+      return <SecretInput key={f.key} label={f.label} value={value} onChange={set} error={f.kind === 'totp' ? totpError : undefined} hint={f.kind === 'totp' ? 'The otpauth:// link or Base32 key a site gives you for its authenticator. For Steam Guard: steam:// and the key.' : undefined} fieldClassName={f.kind === 'totp' ? 'vault-span' : undefined} />;
     }
     return <TextField key={f.key} label={f.label} mono={f.mono} value={value} fieldClassName={f.wide ? 'vault-span' : undefined} onChange={(e) => set(e.target.value)} {...NO_AUTOFILL} />;
   };

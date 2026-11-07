@@ -20,6 +20,28 @@ const VECTORS: [number, string, string, string][] = [
   [20000000000, '65353130', '77737706', '47863826'],
 ];
 
+describe('Steam Guard', () => {
+  // worked out apart, with Python's hmac
+  it.each([
+    [59, '2YXGV'],
+    [1111111109, 'CWDGV'],
+    [2000000000, 'HNCVQ'],
+  ])('at %i', async (time, want) => {
+    for (const key of ['steam://JBSWY3DPEHPK3PXP', 'otpauth://totp/Steam:me?secret=JBSWY3DPEHPK3PXP&issuer=Steam&encoder=steam']) {
+      const spec = parseTotp(key);
+      expect(spec?.steam).toBe(true);
+      await expect(totpCode(spec!, time * 1000)).resolves.toBe(want);
+    }
+  });
+  it('is shown whole', () => {
+    expect(formatCode('2YXGV')).toBe('2YXGV');
+    expect(formatCode('123456')).toBe('123 456');
+  });
+  it('refuses a key that is no Base32', () => {
+    expect(parseTotp('steam://not-base32!')).toBeNull();
+  });
+});
+
 describe('totpCode', () => {
   it.each(VECTORS)('matches RFC 6238 at %i', async (time, sha1, sha256, sha512) => {
     for (const [algo, want] of [['SHA1', sha1], ['SHA256', sha256], ['SHA512', sha512]] as const) {

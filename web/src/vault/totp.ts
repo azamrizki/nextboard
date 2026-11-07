@@ -1,11 +1,16 @@
 // Authenticator codes (RFC 6238): an otpauth:// URI or a bare Base32 key, as Bitwarden takes them.
+// Steam Guard keys too: steam://KEY (Bitwarden's way) or otpauth with encoder=steam (KeeWeb's).
 
 export interface TotpSpec {
   secret: Uint8Array<ArrayBuffer>;
   digits: number;
   period: number;
   algorithm: 'SHA-1' | 'SHA-256' | 'SHA-512';
+  /** Steam Guard: 5 characters of Steam's own alphabet. */
+  steam?: boolean;
 }
+
+const STEAM_ALPHABET = '23456789BCDFGHJKMNPQRTVWXY';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
@@ -37,6 +42,10 @@ export function parseTotp(raw: string): TotpSpec | null {
   let digits = 6;
   let period = 30;
   let algorithm: TotpSpec['algorithm'] = 'SHA-1';
+  if (/^steam:\/\//i.test(v)) {
+    const secret = base32(v.slice('steam://'.length));
+    return secret ? { secret, digits: 5, period: 30, algorithm: 'SHA-1', steam: true } : null;
+  }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) {
     let u: URL;
     try {
@@ -46,6 +55,10 @@ export function parseTotp(raw: string): TotpSpec | null {
     }
     if (u.protocol !== 'otpauth:' || u.hostname.toLowerCase() !== 'totp') return null;
     secretText = u.searchParams.get('secret') ?? '';
+    if ((u.searchParams.get('encoder') ?? '').toLowerCase() === 'steam') {
+      const secret = base32(secretText);
+      return secret ? { secret, digits: 5, period: 30, algorithm: 'SHA-1', steam: true } : null;
+    }
     const d = Number(u.searchParams.get('digits') ?? 6);
     const p = Number(u.searchParams.get('period') ?? 30);
     if (!Number.isInteger(d) || d < 6 || d > 10) return null;
@@ -72,11 +85,21 @@ export async function totpCode(spec: TotpSpec, nowMs: number): Promise<string> {
   const mac = hmac(hash, spec.secret, msg);
   const at = mac[mac.length - 1] & 0x0f;
   const bin = new DataView(mac.buffer, mac.byteOffset, mac.byteLength).getUint32(at) & 0x7fffffff;
+  if (spec.steam) {
+    let full = bin;
+    let code = '';
+    for (let i = 0; i < 5; i++) {
+      code += STEAM_ALPHABET[full % STEAM_ALPHABET.length];
+      full = Math.floor(full / STEAM_ALPHABET.length);
+    }
+    return code;
+  }
   return String(bin % 10 ** spec.digits).padStart(spec.digits, '0');
 }
 
-/** "123 456": easier to read across from a screen. */
+/** "123 456": easier to read across from a screen. A Steam code stays as Steam shows it. */
 export function formatCode(code: string): string {
+  if (/[A-Z]/.test(code)) return code;
   const mid = Math.ceil(code.length / 2);
   return `${code.slice(0, mid)} ${code.slice(mid)}`;
 }
