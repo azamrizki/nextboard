@@ -562,8 +562,14 @@ func replaceOne(ctx context.Context, h machine.Host, root, rel string, re *regex
 	return n, nil
 }
 
+// ignoredMaxDirs bounds the folders asked one by one in a project that is no
+// work tree. The editor asks for one folder's entries at a time.
+const ignoredMaxDirs = 16
+
 // Ignored returns the subset of rels (relative paths, folders too) that git
-// ignores. Outside a git work tree nothing is ignored.
+// ignores. A project that is a work tree asks its own git once. A project that
+// is no work tree may hold repositories (a parent folder of several): each
+// folder of rels then asks the git of the repository it lies in, if any.
 func Ignored(ctx context.Context, h machine.Host, root string, rels []string) ([]string, error) {
 	if len(rels) == 0 {
 		return []string{}, nil
@@ -571,19 +577,63 @@ func Ignored(ctx context.Context, h machine.Host, root string, rels []string) ([
 	if len(rels) > ignoredMaxPaths {
 		rels = rels[:ignoredMaxPaths]
 	}
-	stdin := []byte(strings.Join(rels, "\x00") + "\x00")
-	script := `export GIT_OPTIONAL_LOCKS=0; ` + gitSafe + `check-ignore --stdin -z 2>/dev/null; exit 0`
-	res, err := execScriptIn(ctx, h, root, script, stdin, ignoredTimeout, 8<<20)
+	// N: no work tree here, nothing asked
+	script := `export GIT_OPTIONAL_LOCKS=0; ` + gitSafe + `rev-parse --is-inside-work-tree >/dev/null 2>&1 || { printf N; exit 0; }; ` +
+		gitSafe + `check-ignore --stdin -z 2>/dev/null; exit 0`
+	res, err := execScriptIn(ctx, h, root, script, nulJoin(rels), ignoredTimeout, 8<<20)
 	if err != nil {
 		return nil, err
 	}
-	out := []string{}
-	for _, p := range bytes.Split(res.Stdout, []byte{0}) {
-		if len(p) > 0 {
-			out = append(out, string(p))
+	if string(res.Stdout) != "N" {
+		return nulSplit(res.Stdout, ""), nil
+	}
+
+	byDir := map[string][]string{}
+	var dirs []string
+	for _, rel := range rels {
+		d, name := path.Split(path.Clean(rel))
+		d = strings.TrimSuffix(d, "/")
+		if d == "" || name == "" {
+			continue // the project's own folder is no work tree
 		}
+		if _, ok := byDir[d]; !ok {
+			if len(dirs) == ignoredMaxDirs {
+				continue
+			}
+			dirs = append(dirs, d)
+		}
+		byDir[d] = append(byDir[d], name)
+	}
+	out := []string{}
+	for _, d := range dirs {
+		abs, ok := RelInside(root, d)
+		if !ok {
+			continue
+		}
+		// a folder that is gone or lies in no repository answers nothing
+		script := `export GIT_OPTIONAL_LOCKS=0; ` + gitSafe + `check-ignore --stdin -z 2>/dev/null; exit 0`
+		res, err := execScriptIn(ctx, h, abs, script, nulJoin(byDir[d]), ignoredTimeout, 8<<20)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, nulSplit(res.Stdout, d+"/")...)
 	}
 	return out, nil
+}
+
+func nulJoin(items []string) []byte {
+	return []byte(strings.Join(items, "\x00") + "\x00")
+}
+
+// nulSplit splits NUL-ended output, each item behind prefix.
+func nulSplit(b []byte, prefix string) []string {
+	out := []string{}
+	for _, p := range bytes.Split(b, []byte{0}) {
+		if len(p) > 0 {
+			out = append(out, prefix+string(p))
+		}
+	}
+	return out
 }
 
 // OnSaveRule is one "run a command when a file is saved" rule.

@@ -178,6 +178,21 @@ func TestIgnored(t *testing.T) {
 	if err != nil || len(got) != 0 {
 		t.Fatalf("%q %v", got, err)
 	}
+
+	// a parent folder of repositories: each asks its own git, the rest is not ignored
+	parent := t.TempDir()
+	writeTree(t, parent, map[string]string{"app/.gitignore": "*.log\ndist/\n", "app/dist/x": "x", "app/src/k.go": "k", "notes/x.log": "x", "web/.gitignore": "out/\n", "web/out/y": "y"})
+	gitInit(t, filepath.Join(parent, "app"))
+	gitInit(t, filepath.Join(parent, "web"))
+	got, err = Ignored(context.Background(), filesHost(t), parent, []string{
+		"top.log", "app", "app/a.log", "app/b.go", "app/dist", "app/src/c.log", "app/src/k.go", "notes/x.log", "web/out", "web/in", "gone/x.log", "app/.git/x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, " ") != "app/a.log app/dist app/src/c.log web/out" {
+		t.Fatalf("parent: %q", got)
+	}
 }
 
 func TestMatchGlob(t *testing.T) {

@@ -224,7 +224,7 @@ Folder project boleh berupa folder induk yang berisi beberapa repository, dengan
 - Folder yang tidak bisa dibaca hanya menghilangkan folder itu, bukan seluruh daftar atau pencarian.
 - Baris project di home screen menjumlahkan repository di bawah folder itu.
 
-**Belum:** Explorer tidak meredupkan file yang di-ignore di repository di bawah folder induk. Android dan desktop belum punya picker; tanpa `?repo=` perilakunya tetap.
+Explorer juga meredupkan file yang di-ignore di repository di bawah folder induk: di project yang bukan work tree, `files/ignored` bertanya ke git milik folder tiap path (≤ 16 folder per request). **Belum:** Android dan desktop belum punya picker; tanpa `?repo=` perilakunya tetap.
 
 **Verifikasi (This PC, 2026-11-03):** `go test -race ./internal/gitsvc` (`TestRepos*`, `TestSubRepo*`, `TestNestedInOuterRepo`, `TestInitRefusedAboveRepos`, `TestPick`), `internal/server TestGitMultiRepo`, `internal/orch TestGitSteps`. `NEXTBOARD_SSHD_TEST=1 go test ./internal/machine -run TestGitReposOverSSH` (sshd sementara, login shell zsh, nama folder dengan spasi). Chrome headless lewat Playwright terhadap hub dan Vite sementara: folder induk, repository + nested, satu repository, folder kosong (panel, pill, kartu Branches, Source Control, command bar).
 
@@ -489,7 +489,7 @@ Studio Code adalah workbench selebar jendela di atas board: activity bar, Explor
 | GET | `/api/projects/{id}/files` | | `{"items":[rel…],"truncated","source":"git"\|"walk"}` (≤ 200 000). Repo git: `ls-files -co --exclude-standard` tanpa file yang sudah terhapus. Bukan repo: `find` dengan aturan prune §7. |
 | POST | `/api/projects/{id}/files/search` | `{"query","matchCase","wholeWord","regex","include","exclude","limit"}` | `{"files":[{"rel","matches":[{"line","col","len","text","textCol"}]}],"count","truncated","engine"}`; `400 bad_pattern` |
 | POST | `/api/projects/{id}/files/replace` | field search + `{"replacement","paths":[rel…],"confirm"}` (≤ 2000 file) | `{"files":[{"rel","count","error"}],"count"}`; `403 outside_project` untuk path yang keluar project |
-| POST | `/api/projects/{id}/files/ignored` | `{"paths":[rel…]}` (≤ 5000) | `{"items":[rel…]}` dari `git check-ignore` |
+| POST | `/api/projects/{id}/files/ignored` | `{"paths":[rel…]}` (≤ 5000) | `{"items":[rel…]}` dari `git check-ignore`: sekali di project yang work tree, atau per folder path di project yang bukan (repository di bawah folder induk) |
 | POST | `/api/projects/{id}/files/on-save` | `{"path":rel}` | `{"runs":[{"pattern","command","exitCode","timedOut","output"}]}` |
 | GET | `/api/projects/{id}/git/show?path=&ref=HEAD` | `path` relatif ke repo | `{"path","ref","exists","binary","truncated","content"}`; file yang tidak ada di commit = `exists:false`; `400 bad_ref` |
 | POST | `/api/sessions` | `+ "panel": true` | sesi tanpa node board, untuk terminal panel bawah; tidak bisa dijangkau order orkestrasi dan tidak masuk live chip |
