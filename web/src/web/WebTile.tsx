@@ -201,7 +201,7 @@ function DevServerTile({ id, data, selected }: NodeProps<FlowNode>) {
           break;
         }
         case 'filled':
-          if (m.id) fillWaiting.current.get(m.id)?.({ username: m.username === true, password: m.password === true, code: m.code === true });
+          if (m.id) fillWaiting.current.get(m.id)?.({ username: m.username === true, password: m.password === true, code: m.code === true, fields: typeof m.fields === 'number' ? m.fields : 0 });
           break;
         case 'error':
           setErrors((n) => n + 1);

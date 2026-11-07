@@ -282,3 +282,60 @@ export function matchesTitle(it: VaultItem, title: string): boolean {
 }
 
 export const isFillable = (it: VaultItem) => it.type === 'login' && !it.deletedAt;
+
+/** What a card or an identity gives a page, by the page's autocomplete tokens. */
+export function fillFieldsOf(it: VaultItem): Record<string, string> {
+  const v = it.values;
+  if (it.type === 'card') {
+    const month = (v.expMonth ?? '').trim().padStart(2, '0').slice(-2);
+    const year = (v.expYear ?? '').trim();
+    const yy = year.slice(-2);
+    return pick({
+      'cc-name': v.cardholderName,
+      'cc-number': (v.number ?? '').replace(/[\s-]/g, ''),
+      'cc-csc': v.code,
+      'cc-exp-month': (v.expMonth ?? '').trim() ? month : '',
+      'cc-exp-year': year,
+      'cc-exp': (v.expMonth ?? '').trim() && yy ? `${month}/${yy}` : '',
+      'cc-type': v.brand,
+    });
+  }
+  if (it.type === 'identity') {
+    return pick({
+      'given-name': v.firstName,
+      'additional-name': v.middleName,
+      'family-name': v.lastName,
+      name: [v.firstName, v.middleName, v.lastName].map((x) => (x ?? '').trim()).filter(Boolean).join(' '),
+      organization: v.company,
+      email: v.email,
+      tel: v.phone,
+      'address-line1': v.address1,
+      'address-line2': v.address2,
+      'address-line3': v.address3,
+      'address-level2': v.city,
+      'address-level1': v.state,
+      'postal-code': v.postalCode,
+      'country-name': v.country,
+      username: v.username,
+    });
+  }
+  return {};
+}
+
+function pick(o: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(o)) if (v && v.trim()) out[k] = v.trim();
+  return out;
+}
+
+/** The values of a card or an identity a person may want to put into a field one at a time. */
+export function fillPiecesOf(it: VaultItem): { label: string; value: string }[] {
+  const f = fillFieldsOf(it);
+  const labels: Record<string, string> =
+    it.type === 'card'
+      ? { 'cc-number': 'Number', 'cc-exp': 'Expiry', 'cc-csc': 'Code', 'cc-name': 'Name' }
+      : { name: 'Name', email: 'Email', tel: 'Phone', 'address-line1': 'Address', 'address-level2': 'City', 'postal-code': 'Postal code', 'country-name': 'Country' };
+  return Object.entries(labels)
+    .filter(([k]) => f[k])
+    .map(([k, label]) => ({ label, value: f[k] }));
+}

@@ -3,23 +3,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test, type Hub } from './hub';
+import { openVault } from './vault';
 
-// An agent asks to run a command with a credential, and the owner answers in the browser. One
-// vault per hub, shared by every test: made by the first, opened by the rest.
-const MASTER = 'correct horse battery staple';
-
-async function openVault(page: Page) {
-  const create = page.getByRole('button', { name: 'Create vault' });
-  const unlock = page.getByRole('button', { name: 'Unlock', exact: true });
-  await expect(create.or(unlock)).toBeVisible();
-  await page.getByLabel('Master password', { exact: true }).fill(MASTER);
-  if (await create.isVisible()) {
-    await page.getByLabel('Type it again').fill(MASTER);
-    await page.getByLabel('I understand it cannot be recovered').check();
-    await create.click();
-  } else await unlock.click();
-  await expect(page.getByRole('button', { name: 'Lock the vault' })).toBeVisible();
-}
+// An agent asks to run a command with a credential, and the owner answers in the browser.
 
 /** A login with a password, shared with the agents of `project` when it is given. */
 async function addLogin(page: Page, hub: Hub, name: string, password: string, project?: string): Promise<string> {

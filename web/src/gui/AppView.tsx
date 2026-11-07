@@ -123,8 +123,9 @@ export function AppHeadControls({ viewer, session, name }: { viewer: AppViewer; 
     if (v.username && v.password) parts.push({ key: 'tab' });
     if (v.password) parts.push({ text: v.password });
     if (v.code) parts.push({ text: v.code });
+    if (v.text) parts.push({ text: v.text });
     await viewer.enterInto(parts);
-    return { username: !!v.username, password: !!v.password, code: !!v.code };
+    return { username: !!v.username, password: !!v.password, code: !!v.code, fields: v.text ? 1 : 0 };
   };
   return (
     <>

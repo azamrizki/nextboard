@@ -136,7 +136,7 @@ const bridgeJS = `(function () {
         } catch (e) {}
         break;
       case "fill":
-        post(Object.assign({ type: "filled", id: d.id }, fillForm(d)));
+        post(Object.assign({ type: "filled", id: d.id }, d.fields ? fillFields(d.fields) : fillForm(d)));
         break;
     }
   });
@@ -153,19 +153,22 @@ const bridgeJS = `(function () {
     }
     return true;
   }
-  function visibleInputs() {
+  function visibleInputs(selects) {
     var out = [];
     (function walk(root, depth) {
       var all = root.querySelectorAll("*");
       for (var i = 0; i < all.length && out.length < 200; i++) {
-        if (all[i].tagName === "INPUT" && shown(all[i])) out.push(all[i]);
+        if ((all[i].tagName === "INPUT" || (selects && all[i].tagName === "SELECT")) && shown(all[i])) out.push(all[i]);
         if (all[i].shadowRoot && depth < 8) walk(all[i].shadowRoot, depth + 1);
       }
     })(document, 0);
     return out;
   }
   var USER_HINT = /user|login|e-?mail|account|identifier|phone/i, CODE_HINT = /otp|2fa|mfa|one.?time|verif|code|token/i;
-  function hints(el) { return [el.name, el.id, el.autocomplete, el.placeholder, el.getAttribute("aria-label")].join(" "); }
+  function hints(el) {
+    var label = el.labels && el.labels[0] ? el.labels[0].textContent : "";
+    return [el.name, el.id, el.autocomplete, el.placeholder, el.getAttribute("aria-label"), label].join(" ");
+  }
   function isText(el) { return /^(text|email|tel|url|number|)$/.test(el.getAttribute("type") ? el.type : ""); }
   function setValue(el, v) {
     // Past whatever a framework wrapped around the value, so that it sees this as typing.
@@ -185,6 +188,73 @@ const bridgeJS = `(function () {
     one.focus();
     setValue(one, code);
     return true;
+  }
+  // A card or an identity: values by autocomplete token. A field says which it wants with
+  // autocomplete, or failing that by its name, id, placeholder or label.
+  var FIELD_HINTS = {
+    "cc-name": /card.?holder|name.?on.?card|cc.?name/i,
+    "cc-number": /card.?n(umber|o\b)|cc.?num|\bpan\b/i,
+    "cc-csc": /cvv|cvc|csc|security.?code|card.?code|\bcid\b/i,
+    "cc-exp-month": /exp\w*.?m(onth|m)\b|cc.?month/i,
+    "cc-exp-year": /exp\w*.?y(ear|y)\b|cc.?year/i,
+    "cc-exp": /expir|exp.?date|mm.?yy|cc.?exp/i,
+    "cc-type": /card.?(type|brand)|cc.?type/i,
+    "given-name": /first.?name|given.?name|\bfname\b/i,
+    "additional-name": /middle.?name|\bmname\b/i,
+    "family-name": /last.?name|family.?name|surname|\blname\b/i,
+    "name": /full.?name|your.?name|^\s*name\b/i,
+    "organization": /company|organi[sz]ation|business/i,
+    "email": /e-?mail/i,
+    "tel": /phone|\btel\b|mobile/i,
+    "address-line1": /address.?(line)?.?1|street|\baddr1\b|^\s*address\b/i,
+    "address-line2": /address.?(line)?.?2|\baddr2\b|apartment|suite/i,
+    "address-line3": /address.?(line)?.?3|\baddr3\b/i,
+    "address-level2": /city|town|locality/i,
+    "address-level1": /state|province|region|county/i,
+    "postal-code": /zip|postal|post.?code/i,
+    "country-name": /country/i,
+    "username": /user.?name|login/i
+  };
+  function tokens(el) { return String(el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/); }
+  function setField(el, v) {
+    if (el.tagName !== "SELECT") { el.focus(); setValue(el, v); return true; }
+    var want = String(v).toLowerCase(), n = Number(v), opts = el.options;
+    for (var i = 0; i < opts.length; i++) {
+      var o = opts[i], val = String(o.value).toLowerCase(), text = String(o.text).trim().toLowerCase();
+      if (val === want || text === want || (!isNaN(n) && n > 0 && (Number(o.value) === n || Number(o.text) === n)) ||
+        (want.length === 2 && !isNaN(n) && (val.slice(-2) === want || text.slice(-2) === want) && /^\d{4}$/.test(val || text))) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(el, o.value);
+        el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        return true;
+      }
+    }
+    return false;
+  }
+  function fillFields(values) {
+    var list = visibleInputs(true).filter(function (el) { return el.type !== "password" && el.type !== "hidden"; });
+    var used = [], got = {}, keys = Object.keys(values).filter(function (k) { return FIELD_HINTS[k] && values[k]; });
+    function take(k, el) { if (used.indexOf(el) < 0 && setField(el, String(values[k]))) { used.push(el); got[k] = true; } }
+    // first what the page says by autocomplete ("country" stands for its name too)
+    keys.forEach(function (k) {
+      list.forEach(function (el) {
+        var t = tokens(el);
+        if (!got[k] && (t.indexOf(k) >= 0 || (k === "country-name" && t.indexOf("country") >= 0))) take(k, el);
+      });
+    });
+    keys.forEach(function (k) {
+      if (got[k]) return;
+      // one expiry field only where there are no month and year ones; one name field only
+      // where there are no first and last ones
+      if (k === "cc-exp" && (got["cc-exp-month"] || got["cc-exp-year"])) return;
+      if (k === "name" && (got["given-name"] || got["family-name"])) return;
+      for (var i = 0; i < list.length && !got[k]; i++) {
+        var el = list[i];
+        if (used.indexOf(el) >= 0 || tokens(el).some(function (t) { return FIELD_HINTS[t]; })) continue;
+        if (FIELD_HINTS[k].test(hints(el))) take(k, el);
+      }
+    });
+    return { username: false, password: false, code: false, fields: Object.keys(got).length };
   }
   function fillForm(d) {
     var done = { username: false, password: false, code: false };
