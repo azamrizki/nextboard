@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -297,5 +299,39 @@ func TestVaultPinFlow(t *testing.T) {
 	}
 	if st, _ := h.do("DELETE", "/api/vault/pins", nil, nil); st != 200 {
 		t.Fatalf("clear %d", st)
+	}
+}
+
+// The breach check passes 5 hex characters on, and nothing else: no cookie, no other path.
+func TestVaultPwnedRelay(t *testing.T) {
+	var got []*http.Request
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r)
+		_, _ = w.Write([]byte("0018A45C4D1DEF81644B54AB7F969B88D65:3\r\n00000000000000000000000000000000000:0\r\n"))
+	}))
+	defer upstream.Close()
+	old := pwnedURL
+	pwnedURL = upstream.URL + "/range/"
+	defer func() { pwnedURL = old }()
+
+	h := newTestHub(t)
+	if st, _ := h.do("GET", "/api/vault/pwned/21BD1", nil, nil); st != 401 {
+		t.Fatalf("no login: %d", st)
+	}
+	h.setup()
+	st, out := h.do("GET", "/api/vault/pwned/21BD1", nil, nil)
+	if st != 200 || !strings.Contains(out["_raw"].(string), "0018A45C4D1DEF81644B54AB7F969B88D65:3") {
+		t.Fatalf("%d %v", st, out)
+	}
+	if len(got) != 1 || got[0].URL.Path != "/range/21BD1" || got[0].Header.Get("Add-Padding") != "true" || got[0].Header.Get("Cookie") != "" {
+		t.Fatalf("upstream got %+v", got)
+	}
+	for _, bad := range []string{"21bd1", "21BD", "21BD12", "..%2F..", "ZZZZZ"} {
+		if st, _ := h.do("GET", "/api/vault/pwned/"+bad, nil, nil); st != 400 && st != 404 {
+			t.Errorf("%q: %d", bad, st)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("bad prefixes reached upstream: %d", len(got))
 	}
 }

@@ -8,10 +8,11 @@ import { VaultBrowser } from './Browser';
 import { ChangePasswordDialog, ExportDialog, FolderDialog, GeneratorDialog, ImportDialog, PinDialog, ResetDialog, SettingsDialog } from './Dialogs';
 import { VaultGate } from './Gate';
 import { ItemForm } from './ItemForm';
+import { LeaksDialog } from './Leaks';
 import type { VaultItem } from './model';
 import { useVault, type VaultState } from './store';
 
-type DialogName = 'generator' | 'folder' | 'settings' | 'password' | 'pin' | 'import' | 'export' | 'reset';
+type DialogName = 'generator' | 'folder' | 'settings' | 'password' | 'pin' | 'import' | 'export' | 'reset' | 'leaks';
 
 export interface VaultPanel {
   v: VaultState;
@@ -46,6 +47,7 @@ export function useVaultPanel(): VaultPanel {
   const menu: MenuEntry[] = open
     ? [
         { label: 'Password generator…', icon: 'sparkle', onSelect: () => setDialog('generator') },
+        { label: 'Check passwords for leaks…', icon: 'shieldAlert', onSelect: () => setDialog('leaks') },
         { label: 'New folder…', icon: 'folder', onSelect: () => setDialog('folder') },
         { label: 'Import…', icon: 'upload', onSelect: () => setDialog('import') },
         { label: 'Export…', icon: 'download', onSelect: () => setDialog('export') },
@@ -75,6 +77,7 @@ export function useVaultPanel(): VaultPanel {
         />
       )}
       {open && dialog === 'generator' && <GeneratorDialog onClose={close} />}
+      {open && dialog === 'leaks' && <LeaksDialog items={v.items} onShow={setShowId} onClose={close} />}
       {open && dialog === 'folder' && <FolderDialog onClose={close} />}
       {open && dialog === 'settings' && <SettingsDialog onClose={close} />}
       {open && dialog === 'password' && <ChangePasswordDialog onClose={close} />}

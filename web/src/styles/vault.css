@@ -763,3 +763,22 @@ ul.vault-approve-uses li {
   color: var(--tint-danger-text);
   font-size: var(--fs-xs);
 }
+
+/* ---- leaks ---- */
+.vault-leak {
+  margin-top: var(--s-3);
+}
+.vault-leak-bad {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-danger);
+}
+.vault-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}

@@ -126,6 +126,7 @@ func (s *Server) routes() {
 	authed("POST /api/vault/pins", s.handleVaultPinCreate)
 	authed("POST /api/vault/pins/{id}/open", s.handleVaultPinOpen)
 	authed("DELETE /api/vault/pins/{id}", s.handleVaultPinDelete)
+	authed("GET /api/vault/pwned/{prefix}", s.handleVaultPwned)
 	admin("DELETE /api/vault/pins", s.handleVaultPinsClear)
 	// agents asking for a credential: names in the catalog, values only from the browser that approves
 	authed("GET /api/vault/agents", s.handleVaultAgents)

@@ -69,6 +69,7 @@ Semua lewat login biasa, ber-header `X-NextBoard: 1` untuk yang mengubah data. Y
 | `POST /api/vault/pins/{id}/open` | login | `{"proof"}` → `{"secret"}`. Salah: 403 `wrong_pin` + `left`. Habis: 410 `pin_gone` |
 | `DELETE /api/vault/pins/{id}` | login | Matikan PIN satu browser |
 | `DELETE /api/vault/pins` | admin | Matikan semua PIN, untuk browser yang hilang |
+| `GET /api/vault/pwned/{prefix}` | login | Prefix 5 heksadesimal huruf besar → teks jawaban range API HIBP apa adanya (sufiks:jumlah, berpadding). 400 bila bukan prefix; 502 `pwned_unreachable` / `pwned_failed` |
 
 Validasi di hub hanya bentuk: id `^[A-Za-z0-9_-]{8,64}$`, blob base64 ≥ 28 byte, parameter KDF di dalam batas (m 32 MiB–1 GiB, t 2–16, p 1–16). Blob yang bukan ciphertext ditolak sebagai base64, tapi hub tidak bisa memastikan isinya memang terenkripsi: itu tugas klien.
 
@@ -95,15 +96,16 @@ secret = HMAC-SHA256(kunci hub, proof)
 
 ## Mengisi form
 
-Tombol kunci di browser tile. **Selalu atas pilihan orangnya**, tidak pernah saat halaman dimuat: halaman yang terisi sendiri bisa mengumpulkan tanpa ada yang melihat. Hanya login; kartu dan identitas belum. Tidak pernah submit. Vault terkunci: dialognya meminta PIN atau password di tempat.
+Tombol kunci di browser tile ("Fill from Credentials"). **Selalu atas pilihan orangnya**, tidak pernah saat halaman dimuat: halaman yang terisi sendiri bisa mengumpulkan tanpa ada yang melihat. Login, kartu, dan identitas, masing-masing di tabnya sendiri. Tidak pernah submit. Vault terkunci: dialognya meminta PIN atau password di tempat.
 
 **Web tile (proxy hub).** Pesan `fill` ke bridge ([API-studio §4.5](API-studio.md)), yang mengisi field dengan setter asli lalu mengirim `input` dan `change`, jadi React dan sejenisnya melihatnya seperti ketikan.
 
 - Situsnya dari target preview, bukan dari yang dilaporkan halaman. Login yang disimpan untuk host lain butuh klik kedua, karena begitulah wujud phishing. Cocok berarti host sama atau subdomainnya, dan port sama kalau alamatnya menyebut port. `localhost`, `127.0.0.1`, `::1` dianggap sama.
 - Field yang tidak terlihat tidak diisi: `display:none`, `opacity` nyaris 0, di luar layar, ukuran di bawah 4 px.
 - Login dua langkah, kode TOTP (satu field atau kotak per digit), dan shadow DOM terbuka didukung.
+- **Kartu dan identitas:** pesan `fill` membawa `fields`, nilai per token `autocomplete` HTML (`cc-name`, `cc-number`, `cc-csc`, `cc-exp-month`, `cc-exp-year`, `cc-exp`, `cc-type`; `given-name`, `additional-name`, `family-name`, `name`, `organization`, `email`, `tel`, `address-line1`–`3`, `address-level2` kota, `address-level1` provinsi, `postal-code`, `country-name`, `username`). Bridge mengisi dulu field yang menyebut tokennya di `autocomplete` (`country` juga untuk nama negara), lalu sisanya dari name, id, placeholder, aria-label, dan label. Satu field hanya diisi sekali. `<select>` dipilih lewat value atau teksnya: bulan `7` cocok dengan `07`, tahun `28` dengan `2028`, `ID` dengan `Indonesia`. `cc-exp` hanya dipakai bila tidak ada field bulan dan tahun, `name` hanya bila tidak ada field nama depan dan belakang. Jawabannya hanya berapa field yang terisi. Kartu tidak memeriksa situs, seperti autofill kartu di browser: yang menentukan adalah klik orangnya.
 
-**Chrome di This PC, dan tile aplikasi lain.** Hub tidak bisa melihat ke dalamnya, jadi nilainya masuk ke field yang sedang fokus: username, Tab, password. Dialog menyebut judul jendela dan meminta memeriksa address bar, karena dari sini **situsnya tidak bisa dipastikan**; judul hanya dipakai untuk mengurutkan.
+**Chrome di This PC, dan tile aplikasi lain.** Hub tidak bisa melihat ke dalamnya, jadi nilainya masuk ke field yang sedang fokus: username, Tab, password. Kartu dan identitas di sana diisi sepotong demi sepotong: orangnya klik field, lalu tombol Number, Expiry, Code, Name, Email, Address, dan seterusnya. Dialog menyebut judul jendela dan meminta memeriksa address bar, karena dari sini **situsnya tidak bisa dipastikan**; judul hanya dipakai untuk mengurutkan.
 
 - Lewat clipboard display itu lalu Ctrl+V, bukan diketik: wayvnc diam-diam membuang karakter yang tidak ada di keymap-nya (`$`, `ä`, `я`), dan password yang kurang satu huruf salah tanpa terlihat. Tempel berhasil utuh atau gagal terlihat. Clipboard display ditimpa setelah sekitar 400 ms, dan tidak kembali ke clipboard browser pengguna.
 - CDP tidak dipakai. `--remote-debugging-port` membuka port lokal yang bisa dipakai user lain di host bersama untuk mengendalikan browser yang sudah login, dan `--remote-debugging-pipe` menutup Chrome saat hub restart. `--load-extension` sudah dicabut dari Chrome bermerek.
@@ -127,7 +129,9 @@ File API sudah menolak `<data>`. Cadangan hub cukup menyalin `vault.json`: isiny
 - **Clipboard:** rahasia dihapus dari clipboard 30 detik setelah disalin (bisa diatur, atau "Never"), dan saat vault terkunci. Browser tidak memberi izin membaca clipboard tanpa bertanya, jadi yang disalin dari aplikasi lain dalam waktu itu ikut terhapus; dialog pengaturannya menyebut ini. Username dan alamat tidak dihapus.
 - **Tertutup berarti tidak ada di DOM:** nilai yang dimask tidak dirender sama sekali, dan mask tidak mengikuti panjang aslinya.
 - **Master password** minimal 8 karakter (keputusan pemilik). Skor zxcvbn di bawah 3 hanya diberi peringatan, tidak ditolak, walau yang punya `vault.json` bisa menebak secara offline. Tombol di form mengusulkan 6 kata BIP-39 (66 bit).
-- **Tidak ada permintaan keluar:** tidak ada ikon situs (Bitwarden mengambilnya dari server ikon, yang membocorkan domain). Hanya `http` dan `https` yang menjadi tautan, jadi alamat `javascript:` dari file import tetap teks.
+- **Tidak ada permintaan keluar:** tidak ada ikon situs (Bitwarden mengambilnya dari server ikon, yang membocorkan domain). Hanya `http` dan `https` yang menjadi tautan, jadi alamat `javascript:` dari file import tetap teks. Satu-satunya pengecualian adalah cek kebocoran, dan itu hanya bila diminta (di bawah).
+- **Kode Steam Guard:** kunci `steam://KUNCI` (cara Bitwarden) atau `otpauth://…&encoder=steam` (cara KeeWeb) menghasilkan kode 5 karakter dari alfabet Steam `23456789BCDFGHJKMNPQRTVWXY`, per 30 detik. Kode itu ditampilkan utuh, tanpa spasi.
+- **Cek kebocoran password:** tombol "Check for leaks" di halaman login, atau "Check passwords for leaks…" di menu vault untuk semua login. Tidak pernah otomatis. Browser menghitung SHA-1 password (`@noble/hashes`, jadi jalan di HTTP biasa), lalu hanya 5 karakter pertamanya yang dikirim ke `GET /api/vault/pwned/{prefix}`. Hub meneruskannya ke Pwned Passwords milik Have I Been Pwned dengan `Add-Padding: true`, dan semua sufiks yang cocok dibandingkan di browser. Hub tidak pernah melihat password atau hash lengkapnya. Lewat hub supaya CSP halaman tetap `connect-src 'self'`. Password yang sama hanya ditanyakan sekali per pemeriksaan.
 
 ## Board dan agent
 
@@ -245,4 +249,4 @@ Export: format JSON Bitwarden tanpa enkripsi, setelah master password dimasukkan
 
 ## Belum ada
 
-Passkey, mengisi kartu dan identitas, kartu Android dan desktop, kode Steam (kuncinya tersimpan, tapi tidak menjadi kode), dan pemeriksaan kebocoran password.
+Passkey, dan kartu Credentials di Android dan desktop.

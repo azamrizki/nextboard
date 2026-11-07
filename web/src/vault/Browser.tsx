@@ -10,6 +10,7 @@ import { Menu, type MenuEntry } from '../components/Menu';
 import { toast } from '../components/Toast';
 import { formatDateTime } from '../lib/format';
 import { FolderDialog } from './Dialogs';
+import { LeakCheck } from './Leaks';
 import { copyValue, CopyButton } from './fields';
 import { byName, hostOf, inNav, isSecretField, itemSubtitle, ITEM_TYPES, matchesQuery, safeHref, TRASH_DAYS, TYPE_SCHEMA, type FieldDef, type NavKey, type VaultFolder, type VaultItem } from './model';
 import { deleteFolder, deleteRecord, emptyTrash, restoreItem, toggleFavorite, trashItem, type VaultState } from './store';
@@ -170,6 +171,7 @@ function Detail({ item, folders, onBack, onEdit, onDeleted }: DetailProps) {
         ))}
         {item.notes && <Value label="Notes" value={item.notes} multiline />}
       </div>
+      {item.type === 'login' && !item.deletedAt && item.values.password && <LeakCheck key={item.values.password} password={item.values.password} />}
 
       {item.history.length > 0 && (
         <details className="vault-history">
