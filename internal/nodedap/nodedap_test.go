@@ -394,3 +394,56 @@ func TestLogCondition(t *testing.T) {
 		t.Fatalf("%s", got)
 	}
 }
+
+// Compiled TypeScript with source maps: a breakpoint in the .ts stops the .js there, and the
+// stack shows the .ts. testdata/ts was compiled by tsc; it is copied, so that its paths are
+// this test's own.
+func TestSourceMappedBreakpoints(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("no node")
+	}
+	dir := t.TempDir()
+	for _, f := range []string{"src/greet.ts", "dist/greet.js", "dist/greet.js.map"} {
+		b, err := os.ReadFile(filepath.Join("testdata/ts", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, f), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := filepath.Join(dir, "src", "greet.ts")
+	c := start(t)
+	resp := c.launch(filepath.Join(dir, "dist", "greet.js"), nil, map[string][]map[string]any{src: {{"line": 7}}})
+	_ = resp
+	c.wait("stopped")
+	top := c.topFrame()
+	if top["source"].(map[string]any)["path"] != src || top["line"].(float64) != 7 || top["name"] != "greet" {
+		t.Fatalf("frame %v", top)
+	}
+	if v := c.locals(top); v["p"] == nil {
+		t.Fatalf("locals %v", v)
+	}
+	c.req("continue", map[string]any{"threadId": 1})
+	c.wait("exited")
+	if !strings.Contains(c.outputText(), "Hello, Ana!") {
+		t.Fatalf("output %q", c.outputText())
+	}
+
+	// required later by a script without a map: its breakpoints go in before it runs
+	main := filepath.Join(dir, "main.js")
+	if err := os.WriteFile(main, []byte("setTimeout(() => require('./dist/greet.js'), 100);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c2 := start(t)
+	c2.launch(main, nil, map[string][]map[string]any{src: {{"line": 8}}})
+	c2.wait("stopped")
+	if top := c2.topFrame(); top["source"].(map[string]any)["path"] != src || top["line"].(float64) != 8 {
+		t.Fatalf("later module: %v", top)
+	}
+	c2.req("continue", map[string]any{"threadId": 1})
+	c2.wait("exited")
+}

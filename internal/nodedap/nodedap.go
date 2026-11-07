@@ -41,7 +41,8 @@ type message struct {
 
 // Serve runs one debug session until the client disconnects or its input ends.
 func Serve(in io.Reader, out io.Writer) error {
-	a := &adapter{out: out, refs: map[int]string{}, pending: map[int]chan cdpReply{}, cdpToDap: map[string]int{}, bpIDs: map[string][]string{}, scripts: map[string]string{}}
+	a := &adapter{out: out, refs: map[int]string{}, pending: map[int]chan cdpReply{}, cdpToDap: map[string]int{}, bpIDs: map[string][]string{}, scripts: map[string]string{},
+		maps: map[string]*sourceMap{}, srcBPs: map[string][]srcBP{}, mappedBPs: map[string][]string{}, bpLine: map[string]int{}}
 	defer a.shutdown()
 	r := bufio.NewReader(in)
 	for {
@@ -133,7 +134,14 @@ type adapter struct {
 	nextRef     int
 	cdpToDap    map[string]int
 	bpIDs       map[string][]string
-	scripts     map[string]string // script id → its URL
+	scripts     map[string]string     // script id → its URL
+	maps        map[string]*sourceMap // script id → its source map
+	srcBPs      map[string][]srcBP    // a source's breakpoints, set through the maps of its scripts
+	mappedBPs   map[string][]string   // a source's CDP breakpoints set through maps
+	bpLine      map[string]int        // CDP breakpoint → the source line to report when it resolves
+	outRoots    []string              // where compiled scripts are looked for (outFiles, or cwd)
+	outIndex    map[string][]outFile  // source → the compiled scripts that came from it
+	indexed     bool
 	nextBP      int
 	stopOnEntry bool
 	started     bool
@@ -258,6 +266,7 @@ func (a *adapter) launch(raw json.RawMessage) error {
 		StopOnEntry       bool              `json:"stopOnEntry"`
 		NoDebug           bool              `json:"noDebug"`
 		SkipFiles         []string          `json:"skipFiles"`
+		OutFiles          []string          `json:"outFiles"`
 	}
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return err
@@ -300,6 +309,7 @@ func (a *adapter) launch(raw json.RawMessage) error {
 	}
 	a.cmd = cmd
 	a.stopOnEntry, a.noDebug = c.StopOnEntry, c.NoDebug
+	a.outRoots = outRoots(c.Cwd, c.OutFiles)
 	a.event("process", map[string]any{"name": c.Program, "startMethod": "launch", "systemProcessId": cmd.Process.Pid})
 
 	found := make(chan string, 1)
@@ -349,6 +359,9 @@ func (a *adapter) launch(raw json.RawMessage) error {
 		}
 	}
 	_, _ = a.cdp("Debugger.setBlackboxPatterns", map[string]any{"patterns": patterns})
+	// a script with a source map stops before it runs, so that the breakpoints of its
+	// sources are in place first (onInstrumentation)
+	_, _ = a.cdp("Debugger.setInstrumentationBreakpoint", map[string]any{"instrumentation": "beforeScriptWithSourceMapExecution"})
 	return nil
 }
 
@@ -496,13 +509,15 @@ func (a *adapter) readCDP() {
 		switch m.Method {
 		case "Debugger.scriptParsed":
 			var p struct {
-				ScriptID string `json:"scriptId"`
-				URL      string `json:"url"`
+				ScriptID     string `json:"scriptId"`
+				URL          string `json:"url"`
+				SourceMapURL string `json:"sourceMapURL"`
 			}
 			if json.Unmarshal(m.Params, &p) == nil {
 				a.mu.Lock()
 				a.scripts[p.ScriptID] = p.URL
 				a.mu.Unlock()
+				a.loadMap(p.ScriptID, p.URL, p.SourceMapURL)
 			}
 		case "Debugger.paused":
 			a.onPaused(m.Params)
@@ -531,34 +546,48 @@ func (a *adapter) onPaused(raw json.RawMessage) {
 		Reason         string      `json:"reason"`
 		HitBreakpoints []string    `json:"hitBreakpoints"`
 		Data           struct {
-			Description string `json:"description"`
+			Description  string `json:"description"`
+			ScriptID     string `json:"scriptId"`
+			URL          string `json:"url"`
+			SourceMapURL string `json:"sourceMapURL"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(raw, &p) != nil {
 		return
 	}
+	if p.Reason == "instrumentation" {
+		// not a stop the person sees: the breakpoints of its sources go in, and it runs on
+		go func() {
+			a.loadMap(p.Data.ScriptID, p.Data.URL, p.Data.SourceMapURL)
+			a.applyMapped(p.Data.ScriptID)
+			_, _ = a.cdp("Debugger.resume", nil)
+		}()
+		return
+	}
 	a.mu.Lock()
 	if a.waitEntry {
-		// the stop node makes before the first line, waiting for the debugger
+		// the stop node makes before the first line, waiting for the debugger. The main
+		// script is parsed by now, and its map loaded: its sources' breakpoints go in first.
 		a.waitEntry = false
 		stop := a.stopOnEntry
 		a.mu.Unlock()
 		if !stop {
-			go func() { _, _ = a.cdp("Debugger.resume", nil) }()
+			go func() {
+				a.applyAllMapped()
+				_, _ = a.cdp("Debugger.resume", nil)
+			}()
 			return
 		}
-		p.Reason = "entry"
-		a.mu.Lock()
+		go func() {
+			a.applyAllMapped()
+			p.Reason = "entry"
+			a.stoppedAt(p.CallFrames, "entry", "")
+		}()
+		return
 	}
-	a.frames = p.CallFrames
-	a.paused = true
-	a.refs = map[int]string{}
-	a.nextRef = 0
 	a.mu.Unlock()
 	reason := "pause"
 	switch {
-	case p.Reason == "entry":
-		reason = "entry"
 	case len(p.HitBreakpoints) > 0:
 		reason = "breakpoint"
 	case p.Reason == "exception" || p.Reason == "promiseRejection":
@@ -566,9 +595,20 @@ func (a *adapter) onPaused(raw json.RawMessage) {
 	case p.Reason == "other" || p.Reason == "ambiguous" || p.Reason == "step":
 		reason = "step"
 	}
+	a.stoppedAt(p.CallFrames, reason, p.Data.Description)
+}
+
+// stoppedAt tells the client where the program stopped.
+func (a *adapter) stoppedAt(frames []callFrame, reason, description string) {
+	a.mu.Lock()
+	a.frames = frames
+	a.paused = true
+	a.refs = map[int]string{}
+	a.nextRef = 0
+	a.mu.Unlock()
 	body := map[string]any{"reason": reason, "threadId": threadID, "allThreadsStopped": true}
 	if reason == "exception" {
-		body["text"] = firstLine(p.Data.Description)
+		body["text"] = firstLine(description)
 		body["description"] = "Paused on exception"
 	}
 	a.event("stopped", body)
@@ -615,9 +655,13 @@ func (a *adapter) onResolved(raw json.RawMessage) {
 	}
 	a.mu.Lock()
 	id, ok := a.cdpToDap[p.BreakpointID]
+	line, mapped := a.bpLine[p.BreakpointID]
 	a.mu.Unlock()
+	if !mapped {
+		line = p.Location.LineNumber + 1
+	}
 	if ok {
-		a.event("breakpoint", map[string]any{"reason": "changed", "breakpoint": map[string]any{"id": id, "verified": true, "line": p.Location.LineNumber + 1}})
+		a.event("breakpoint", map[string]any{"reason": "changed", "breakpoint": map[string]any{"id": id, "verified": true, "line": line}})
 	}
 }
 
@@ -651,8 +695,9 @@ func (a *adapter) setBreakpoints(raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	a.mu.Lock()
-	old := a.bpIDs[p.Source.Path]
+	old := append(a.bpIDs[p.Source.Path], a.mappedBPs[p.Source.Path]...)
 	delete(a.bpIDs, p.Source.Path)
+	delete(a.mappedBPs, p.Source.Path)
 	a.mu.Unlock()
 	for _, id := range old {
 		_, _ = a.cdp("Debugger.removeBreakpoint", map[string]any{"breakpointId": id})
@@ -661,6 +706,7 @@ func (a *adapter) setBreakpoints(raw json.RawMessage) (any, error) {
 		a.mu.Unlock()
 	}
 	out := make([]map[string]any, 0, len(p.Breakpoints))
+	wanted := make([]srcBP, 0, len(p.Breakpoints))
 	for _, b := range p.Breakpoints {
 		a.mu.Lock()
 		a.nextBP++
@@ -670,6 +716,7 @@ func (a *adapter) setBreakpoints(raw json.RawMessage) (any, error) {
 		if b.LogMessage != "" {
 			cond = logCondition(b.LogMessage)
 		}
+		wanted = append(wanted, srcBP{dapID: dapID, line: b.Line, cond: cond})
 		params := map[string]any{"lineNumber": b.Line - 1, "urlRegex": urlRegexFor(p.Source.Path)}
 		if cond != "" {
 			params["condition"] = cond
@@ -696,6 +743,35 @@ func (a *adapter) setBreakpoints(raw json.RawMessage) (any, error) {
 		}
 		// before the file is loaded V8 can't tell yet: a breakpoint event says so when it does
 		out = append(out, map[string]any{"id": dapID, "verified": len(r.Locations) > 0, "line": line})
+	}
+	// a source of scripts already loaded, such as a .ts file: through their maps
+	a.mu.Lock()
+	a.srcBPs[p.Source.Path] = wanted
+	var scripts []string
+	for id, sm := range a.maps {
+		if sm.has(p.Source.Path) {
+			scripts = append(scripts, id)
+		}
+	}
+	a.mu.Unlock()
+	for _, id := range scripts {
+		for _, got := range a.setMapped(id, p.Source.Path, wanted) {
+			for _, o := range out {
+				if o["id"] == got.dapID {
+					o["verified"], o["line"] = true, got.line
+				}
+			}
+		}
+	}
+	// scripts not loaded yet that came from it: by their URL, before they load
+	if len(scripts) == 0 {
+		for _, got := range a.setByOutFile(p.Source.Path, wanted) {
+			for _, o := range out {
+				if o["id"] == got.dapID {
+					o["line"] = got.line
+				}
+			}
+		}
 	}
 	return map[string]any{"breakpoints": out}, nil
 }
@@ -746,6 +822,12 @@ func (a *adapter) stackTrace() any {
 		where := f.URL
 		if s := a.scripts[f.Location.ScriptID]; s != "" {
 			where = s
+		}
+		if sm := a.maps[f.Location.ScriptID]; sm != nil {
+			if src, line, col, ok := sm.original(f.Location.LineNumber, f.Location.ColumnNumber); ok && filepath.IsAbs(src) {
+				where = src
+				fr["line"], fr["column"] = line+1, col+1
+			}
 		}
 		if p := pathOf(where); p != "" {
 			fr["source"] = map[string]any{"name": filepath.Base(p), "path": p}
