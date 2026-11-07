@@ -20,6 +20,10 @@ var ErrDisconnected = errors.New("koneksi terputus")
 // ErrNotConnected is returned by Start when the machine has no live link.
 var ErrNotConnected = errors.New("machine belum tersambung")
 
+// ErrSessionsFull: the SSH server kept refusing a new channel; its MaxSessions
+// were all in use for as long as the hub waited. The link itself is fine.
+var ErrSessionsFull = errors.New("server SSH menolak sesi baru (MaxSessions penuh)")
+
 // LinkLost says a call failed because of the connection, not because of what it
 // asked for. A dying link answers in many ways before the hub has noticed it.
 func LinkLost(err error) bool {

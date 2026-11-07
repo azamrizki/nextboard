@@ -235,8 +235,8 @@ func (l *Local) exec(ctx context.Context, spec ExecSpec) (*ExecResult, error) {
 	return res, nil
 }
 
-// sessionErr: opening a channel over a dying link fails with whatever transport
-// error is at hand. Only a refusal comes from the server itself.
+// sessionErr: a request on a channel over a dying link fails with whatever
+// transport error is at hand. Only a refusal comes from the server itself.
 func sessionErr(err error) error {
 	var refused *ssh.OpenChannelError
 	if errors.As(err, &refused) {
@@ -245,14 +245,48 @@ func sessionErr(err error) error {
 	return fmt.Errorf("%w: %v", ErrDisconnected, err)
 }
 
+// sessionWait bounds how long a refused channel is asked for again. A server
+// takes MaxSessions channels per connection (OpenSSH: 10) and refuses the next
+// one; commands end and give theirs back, so a burst (the code studio opening)
+// waits its turn instead of failing.
+var sessionWait = 15 * time.Second
+
+// openSession opens a channel on c, asking again after a refusal until ctx ends
+// or sessionWait is over.
+func openSession(ctx context.Context, c *ssh.Client) (*ssh.Session, error) {
+	stop := time.Now().Add(sessionWait)
+	delay := 20 * time.Millisecond
+	for {
+		s, err := c.NewSession()
+		if err == nil {
+			return s, nil
+		}
+		var refused *ssh.OpenChannelError
+		if !errors.As(err, &refused) || refused.Reason == ssh.UnknownChannelType {
+			return nil, sessionErr(err)
+		}
+		if time.Now().Add(delay).After(stop) {
+			return nil, fmt.Errorf("%w: %v", ErrSessionsFull, err)
+		}
+		t := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return nil, fmt.Errorf("%w: %v", ErrSessionsFull, err)
+		case <-t.C:
+		}
+		delay = min(delay*2, 250*time.Millisecond)
+	}
+}
+
 func (m *SSH) execSpec(ctx context.Context, spec ExecSpec) (*ExecResult, error) {
 	c := m.currentClient()
 	if c == nil {
 		return nil, ErrNotConnected
 	}
-	s, err := c.NewSession()
+	s, err := openSession(ctx, c)
 	if err != nil {
-		return nil, sessionErr(err)
+		return nil, err
 	}
 	defer s.Close()
 	w := newExecWatch(spec)

@@ -104,7 +104,7 @@ func (m *SSH) acquireSFTP(ctx context.Context) (*sftp.Client, string, error) {
 	}
 	ch := make(chan result, 1)
 	go func() {
-		sc, err := openSFTP(c)
+		sc, err := openSFTP(ctx, c)
 		if err != nil {
 			ch <- result{err: err}
 			return
@@ -202,10 +202,10 @@ func (d doneCloser) Close() error {
 
 // openSFTP starts the sftp subsystem on a new channel. A refused
 // subsystem or failed handshake is reported as ErrNoSFTP.
-func openSFTP(c *ssh.Client) (*sftp.Client, error) {
-	s, err := c.NewSession()
+func openSFTP(ctx context.Context, c *ssh.Client) (*sftp.Client, error) {
+	s, err := openSession(ctx, c)
 	if err != nil {
-		return nil, sessionErr(err)
+		return nil, err
 	}
 	w, err := s.StdinPipe()
 	if err != nil {
@@ -623,9 +623,9 @@ func (m *SSH) execStdout(ctx context.Context, cmd string, limit int64) ([]byte, 
 	if c == nil {
 		return nil, ErrNotConnected
 	}
-	s, err := c.NewSession()
+	s, err := openSession(ctx, c)
 	if err != nil {
-		return nil, sessionErr(err)
+		return nil, err
 	}
 	defer s.Close()
 	out := &limitBuffer{max: limit}

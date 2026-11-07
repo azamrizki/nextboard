@@ -2,6 +2,7 @@ package machine
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"sync"
@@ -102,9 +103,9 @@ func (m *SSH) startPipe(spec ExecSpec) (*PipeProc, error) {
 	if c == nil {
 		return nil, ErrNotConnected
 	}
-	s, err := c.NewSession()
+	s, err := openSession(context.Background(), c)
 	if err != nil {
-		return nil, sessionErr(err)
+		return nil, err
 	}
 	stdin, err := s.StdinPipe()
 	if err != nil {

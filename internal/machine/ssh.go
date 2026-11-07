@@ -927,9 +927,9 @@ func (m *SSH) Exec(ctx context.Context, cmd string) (string, error) {
 	if c == nil {
 		return "", ErrNotConnected
 	}
-	s, err := c.NewSession()
+	s, err := openSession(ctx, c)
 	if err != nil {
-		return "", sessionErr(err)
+		return "", err
 	}
 	defer s.Close()
 	// stdout and stderr are copied by separate goroutines.
@@ -1144,9 +1144,9 @@ func (m *SSH) Start(spec StartSpec) (Proc, error) {
 	if spec.TmuxName != "" && !tmuxNameRe.MatchString(spec.TmuxName) {
 		return nil, fmt.Errorf("nama tmux tidak valid")
 	}
-	s, err := c.NewSession()
+	s, err := openSession(context.Background(), c)
 	if err != nil {
-		return nil, sessionErr(err)
+		return nil, err
 	}
 	modes := ssh.TerminalModes{ssh.ECHO: 1, ssh.TTY_OP_ISPEED: 14400, ssh.TTY_OP_OSPEED: 14400}
 	if err := s.RequestPty("xterm-256color", int(spec.Rows), int(spec.Cols), modes); err != nil {

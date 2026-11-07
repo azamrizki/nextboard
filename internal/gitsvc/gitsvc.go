@@ -297,6 +297,8 @@ func (s *Service) exec(ctx context.Context, r Repo, script string, o execOpts) (
 	switch {
 	case errors.Is(err, machine.ErrNotConnected), errors.Is(err, machine.ErrDisconnected):
 		return nil, newErr(http.StatusServiceUnavailable, "machine_offline", "%v", err)
+	case errors.Is(err, machine.ErrSessionsFull):
+		return nil, newErr(http.StatusServiceUnavailable, "ssh_sessions_full", "%v", err)
 	case err != nil:
 		return nil, newErr(http.StatusBadGateway, "git_failed", "%v", err)
 	}

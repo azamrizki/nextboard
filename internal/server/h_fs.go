@@ -27,6 +27,8 @@ func fsErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, machine.ErrNotConnected):
 		writeErr(w, http.StatusBadGateway, err.Error())
+	case errors.Is(err, machine.ErrSessionsFull):
+		writeErrCode(w, http.StatusServiceUnavailable, "ssh_sessions_full", err.Error())
 	case errors.Is(err, machine.ErrRelativePath), errors.Is(err, machine.ErrIsDir):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, machine.ErrMtimeMismatch):
