@@ -342,9 +342,14 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
             </div>
           );
         })}
-        <PullSection ws={ws} />
-        <StashSection ws={ws} />
-        <HistorySection ws={ws} />
+        {/* each asks git for its list: only once the status says this is a repository */}
+        {st?.isRepo && (
+          <>
+            <PullSection ws={ws} />
+            <StashSection ws={ws} />
+            <HistorySection ws={ws} />
+          </>
+        )}
       </div>
       {discard && (
         <ConfirmDialog
