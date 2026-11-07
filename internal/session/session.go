@@ -230,6 +230,7 @@ type Session struct {
 	turnOut     int64 // outTotal when the current turn started
 	startWait   []chan struct{}
 	fgCheckAt   time.Time
+	io          ioSample  // what the agent's processes read, for agents without screen rules
 	codexFind   time.Time // agent-start of a Codex run still looking for its rollout
 	codexTry    time.Time
 	refreshing  bool

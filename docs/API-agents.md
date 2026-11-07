@@ -333,7 +333,7 @@ Field pendamping: `stateSource` (`hooks|notify|screen|activity|process|wrapper`;
 | T15 | pola needsYou cocok, stabil 300 ms | screen | `working`, `ready` | `needsYou` | baris yang cocok |
 | T16 | pola needsYou hilang | screen | `needsYou` | `working` | — |
 | T17 | pola ready cocok dan output diam ≥ 1,5 dtk | screen | `working`, `starting` | `ready` | — |
-| T18 | output tercetak dalam 2 dtk terakhir, atau layar memuat petunjuk kerja / diam ≥ 3 dtk di prompt input, ≥ 15 dtk di layar lain | activity | — | `working` / `ready` | — |
+| T18 | output tercetak dalam 2 dtk terakhir, atau layar memuat petunjuk kerja / diam ≥ 3 dtk di prompt input, ≥ 15 dtk di layar lain, dan proses CLI tidak sedang membaca stream (lihat di bawah) | activity | — | `working` / `ready` | — |
 | T19 | `starting` > 60 dtk tanpa sinyal ready | timer | `starting` | `ready` (`stateSource:"activity"`) | — |
 
 Bila hooks aktif tapi `Stop` terlewat, T8 menyelamatkan state. `session_id` dan `transcript_path` dari payload hook memperbarui `agentSessionId`/`transcriptPath` (sumber otoritatif, termasuk setelah resume yang membuat id baru).
@@ -345,6 +345,7 @@ Bila hooks aktif tapi `Stop` terlewat, T8 menyelamatkan state. `session_id` dan 
 - **T17h** (hooks aktif): `needsYou`, atau `working` yang di-set layar, + prompt kosong (pola ready) + output diam ≥ 1,5 dtk → `ready` (`screen`), karena izin yang ditolak dengan Esc tidak memicu hook apa pun (tanpa `PostToolUse`/`Stop`).
 - Pola **working** layar (tidak ada di tabel awal): stabil 300 ms saat `ready`/`starting` → `working` (`screen`); di mode notify hanya bila notify belum pernah datang atau `working` di-set layar. Penanda working stale sesaat setelah notify tidak membuka giliran lagi (penghitung stabil di-reset tiap transisi).
 - T15 juga berlaku dari `starting` (dialog trust/update saat start adalah needsYou).
+- **T18 dan bacaan proses:** agent tanpa aturan layar berjalan di This PC. Selama `working`, hub membaca `rchar` dari `/proc/<pid>/io` grup proses foreground PTY (CLI dan anak-anaknya, ≤ 64 proses) tiap 1 dtk. Bacaan ≥ 1 KB/dtk dianggap stream model, misalnya model yang berpikir tanpa menulis apa pun ke layar, dan menahan `working` agar tidak jatuh ke `ready`. Penahanan paling lama 5 menit sesudah output atau Return terakhir. Sinyal ini tidak pernah memulai `working`, jadi cek update saat `ready` tidak membuka giliran. Claude Code yang diam membaca sekitar 40 B/dtk. Batasnya: `rchar` menghitung `read()`, jadi socket Node, Go, dan Bun ikut terhitung, tetapi `recv()` (Python, Rust std) tidak. Di macOS tidak ada `/proc`, jadi perilakunya seperti sebelumnya.
 - T13: notify dari thread internal Codex (judul: `last-assistant-message` berupa objek JSON `{"title":…}`) dan notify dengan `thread-id` lain dari percakapan yang sudah dikenal (rollout ditemukan) **diabaikan**.
 
 ### 6.4 Aturan layar per CLI

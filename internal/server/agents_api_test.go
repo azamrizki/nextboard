@@ -461,6 +461,33 @@ func TestScreenFallbackNeedsYou(t *testing.T) {
 	h.waitInfo(id, "working after dialog", state("working"))
 }
 
+// TestSilentThinkingThatReadsStaysWorking: an agent without screen rules whose
+// prompt stays on the screen while it reads a stream (a model thinking) stays
+// working past the 3 s of quiet, and turns ready once the stream ends.
+func TestSilentThinkingThatReadsStaysWorking(t *testing.T) {
+	if _, err := os.Stat("/proc/self/io"); err != nil {
+		t.Skip("no /proc")
+	}
+	h := newTestHub(t)
+	h.setup()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "thinker")
+	os.WriteFile(bin, []byte("#!/bin/sh\nprintf '> '; while :; do read x; printf '> '; timeout 7 dd if=/dev/zero of=/dev/null bs=4k 2>/dev/null; done\n"), 0o755)
+	if st, a := h.do("POST", "/api/agents", map[string]any{"id": "thinker", "name": "Thinker", "command": bin}, nil); st != 201 {
+		t.Fatalf("%d %v", st, a)
+	}
+	_, in := h.do("POST", "/api/sessions", map[string]any{"agent": "thinker", "cwd": dir}, nil)
+	id := in["id"].(string)
+	h.waitInfo(id, "ready at the prompt", state("ready"))
+	h.do("POST", "/api/sessions/"+id+"/input", map[string]any{"data": "go\r"}, nil)
+	h.waitInfo(id, "working", state("working"))
+	time.Sleep(5 * time.Second)
+	if _, in := h.do("GET", "/api/sessions/"+id, nil, nil); in["agentState"] != "working" {
+		t.Fatalf("5 s into the stream: %v (%v)", in["agentState"], in["stateSource"])
+	}
+	h.waitInfo(id, "ready after the stream", state("ready"))
+}
+
 // TestRestartToConversationAndAttachedHandle covers restart with
 // agentSessionId (one-call switch) and attachedHandle in the picker list.
 func TestRestartToConversationAndAttachedHandle(t *testing.T) {

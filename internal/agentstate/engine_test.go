@@ -252,6 +252,38 @@ func TestGenericScreenSilentThinking(t *testing.T) {
 	e.mustBe(t, Ready, SrcActivity)
 }
 
+// A model thinking with nothing on the screen still streams to the CLI: what its
+// processes read keeps the turn going, but never starts one and never for ever.
+func TestReadingHoldsASilentTurn(t *testing.T) {
+	e, now := running(Config{}, LiveScreen)
+	e.GenericScreen(Screen{Ready: true}, adv(now, 10*time.Second))
+	e.Tick(*now)
+	e.mustBe(t, Ready, SrcActivity)
+	e.IO(*now) // an update check while ready
+	e.Tick(adv(now, time.Second))
+	e.mustBe(t, Ready, SrcActivity)
+
+	e.Input([]byte("\r"), *now)
+	e.Output(adv(now, 100*time.Millisecond))
+	// the prompt stays on the screen while it thinks: without reading, ready after 3 s
+	for i := 0; i < 30; i++ {
+		e.IO(adv(now, time.Second))
+		e.Tick(*now)
+		e.mustBe(t, Working, "")
+	}
+	// the stream ends: ready again after the quiet
+	e.Tick(adv(now, IdleAfter))
+	e.mustBe(t, Ready, SrcActivity)
+
+	// a CLI that reads all the time while idle is let go after IOHoldMax
+	e.Input([]byte("\r"), *now)
+	for d := time.Duration(0); d <= IOHoldMax; d += time.Second {
+		e.IO(adv(now, time.Second))
+		e.Tick(*now)
+	}
+	e.mustBe(t, Ready, SrcActivity)
+}
+
 func TestGenericScreenPromptEndsTheTurnAtOnce(t *testing.T) {
 	e, now := running(Config{}, LiveScreen)
 	e.Output(adv(now, time.Second))

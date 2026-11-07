@@ -34,6 +34,11 @@ const (
 	evalEvery    = 500 * time.Millisecond // screen rules ≤ 2×/s …
 	evalQuiet    = 150 * time.Millisecond // … or 150 ms after output stops
 	fgCheckEvery = 10 * time.Second
+	// ioEvery and ioBusy: an agent without screen rules that reads this much per
+	// second is taken to be streaming a reply (agentstate.Engine.IO). An idle
+	// Claude Code reads about 40 B/s; a model's stream, kilobytes.
+	ioEvery = time.Second
+	ioBusy  = 1024
 	// How often a shell console is asked what it runs. Locally it costs one ioctl. Over
 	// SSH it is a command on the server, so a console where nothing happens asks rarely.
 	jobCheckLocal  = 2 * time.Second
@@ -260,6 +265,11 @@ func (s *Session) tick(now time.Time) {
 	if checkFg {
 		s.fgCheckAt = now
 	}
+	checkIO := s.spec.MachineID == machine.LocalID && s.ag.Kind == agent.KindAgent && s.rules == nil &&
+		s.eng.Snapshot().AgentState == agentstate.Working && !s.io.busy && now.Sub(s.io.at) >= ioEvery
+	if checkIO {
+		s.io.busy = true
+	}
 	checkJob := s.eng.Snapshot().AgentState == agentstate.Shell && !s.jobBusy && s.jobDueLocked(now)
 	if checkJob {
 		s.jobBusy = true
@@ -276,6 +286,9 @@ func (s *Session) tick(now time.Time) {
 	s.finish(notify, ev)
 	if checkFg {
 		go s.checkForeground()
+	}
+	if checkIO {
+		go s.sampleIO(cur)
 	}
 	if checkJob {
 		go s.checkJob(cur)
@@ -309,6 +322,45 @@ func (s *Session) Foreground(ctx context.Context) (idle bool, comm string, err e
 		}
 	}
 	return pgid == pid, comm, nil
+}
+
+// ioSample is the last count of bytes read by the foreground process group.
+type ioSample struct {
+	busy bool
+	at   time.Time
+	pgid int
+	read uint64
+}
+
+// sampleIO counts what the foreground job of the terminal (the CLI and its
+// children) has read, and tells the engine when it reads like a stream.
+func (s *Session) sampleIO(r *run) {
+	var pgid int
+	var read uint64
+	ok := false
+	if fg, is := r.proc.(machine.Foregrounder); is {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		if p, _, err := fg.Foreground(ctx, 0); err == nil {
+			pgid = p
+			read, ok = machine.ReadBytes(p)
+		}
+		cancel()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	prev := s.io
+	s.io = ioSample{at: now}
+	if !ok || s.cur != r {
+		return
+	}
+	s.io.pgid, s.io.read = pgid, read
+	if prev.pgid != pgid || prev.at.IsZero() || read < prev.read {
+		return
+	}
+	if secs := now.Sub(prev.at).Seconds(); secs > 0 && secs < 5 && float64(read-prev.read)/secs >= ioBusy {
+		s.eng.IO(now)
+	}
 }
 
 // checkForeground detects an agent CLI the user typed into the shell

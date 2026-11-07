@@ -61,8 +61,11 @@ const (
 	// UnknownIdleAfter is T18 when the screen is not the agent's input prompt: it
 	// may be thinking in silence, and a false ready ends an order early.
 	UnknownIdleAfter = 15 * time.Second
-	StartingMax      = 60 * time.Second // T19
-	ActivityMaxLen   = 120
+	// IOHoldMax bounds how long reading alone (a model streaming its thinking, a
+	// tool reading files) keeps a silent agent without screen rules working.
+	IOHoldMax      = 5 * time.Minute
+	StartingMax    = 60 * time.Second // T19
+	ActivityMaxLen = 120
 )
 
 // Process statuses the engine receives (session.Status*).
@@ -158,6 +161,7 @@ type Engine struct {
 	startedAt  time.Time
 	lastOutput time.Time
 	lastSubmit time.Time // Return typed: the turn starts now, whatever was printed before
+	lastIO     time.Time // the agent's processes read a stream's worth of bytes
 
 	// generic is the last reading of the screen of an agent without rules.
 	generic     Screen
@@ -584,12 +588,31 @@ func (e *Engine) Tick(now time.Time) {
 		if e.layer == Ready || e.layer == Starting {
 			e.setLayer(Working, SrcActivity, "", now)
 		}
-	case now.Sub(e.lastOutput) >= idleAfter && now.Sub(e.lastSubmit) >= idleAfter && now.Sub(e.startedAt) >= IdleAfter:
+	case now.Sub(e.lastOutput) >= idleAfter && now.Sub(e.lastSubmit) >= idleAfter && now.Sub(e.startedAt) >= IdleAfter && !e.ioHolds(now, idleAfter):
 		if e.layer == Working || e.layer == Starting {
 			e.setLayer(Ready, SrcActivity, "", now)
 		}
 	}
 	e.refresh(now)
+}
+
+// IO says the agent's processes just read a stream's worth of bytes: a model
+// thinking with nothing on the screen yet. For an agent without screen rules it
+// keeps working from turning ready (T18), for at most IOHoldMax after the last
+// output or Return. It never makes a ready agent working: an update check would.
+func (e *Engine) IO(now time.Time) {
+	e.lastIO = now
+}
+
+func (e *Engine) ioHolds(now time.Time, quiet time.Duration) bool {
+	if e.lastIO.IsZero() || now.Sub(e.lastIO) >= quiet {
+		return false
+	}
+	busy := e.lastOutput
+	if e.lastSubmit.After(busy) {
+		busy = e.lastSubmit
+	}
+	return now.Sub(busy) < IOHoldMax
 }
 
 func (e *Engine) setNeedsYou(src, act string, now time.Time) {
