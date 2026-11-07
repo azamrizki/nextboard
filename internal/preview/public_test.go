@@ -168,7 +168,18 @@ func TestPublicSiteProbe(t *testing.T) {
 		case r.URL.Path == "/loop":
 			http.Redirect(w, r, "/loop", http.StatusFound)
 		case r.URL.Path == "/refused":
+			// the site's own refusal, or a deploy: the page says so, through the hub
 			w.WriteHeader(http.StatusForbidden)
+		case r.URL.Path == "/deploying":
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("<h1>Be right back.</h1>"))
+		case r.URL.Path == "/wall":
+			w.Header().Set("Server", "cloudflare")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte("<title>Just a moment...</title><script src=\"/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1\"></script>"))
+		case r.URL.Path == "/captcha":
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`<script src="https://ct.captcha-delivery.com/c.js"></script>`))
 		case r.URL.Path == "/challenge":
 			w.Header().Set("Cf-Mitigated", "challenge")
 			w.WriteHeader(http.StatusOK)
@@ -196,8 +207,17 @@ func TestPublicSiteProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	// what the proxy would only break
-	for _, path := range []string{"/sso", "/inside", "/loop", "/refused", "/challenge"} {
+	for _, path := range []string{"/sso", "/inside", "/loop", "/wall", "/captcha", "/challenge"} {
 		if _, _, _, err := s.m.Create(CreateRequest{URL: "http://" + publicSite + path}); codeOf(err) != "needs_browser" {
+			t.Errorf("%s: %v", path, err)
+		}
+	}
+	if _, _, _, err := s.m.Create(CreateRequest{URL: "http://" + publicSite + "/wall"}); err == nil || !strings.Contains(err.Error(), "bot check (403)") {
+		t.Errorf("wall says why: %v", err)
+	}
+	// a refusal or a deploy of the site itself is shown through the hub
+	for _, path := range []string{"/refused", "/deploying"} {
+		if _, _, _, err := s.m.Create(CreateRequest{URL: "http://" + publicSite + path}); err != nil {
 			t.Errorf("%s: %v", path, err)
 		}
 	}

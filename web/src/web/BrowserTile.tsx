@@ -59,7 +59,11 @@ export function BrowserTile({ id, data, selected, url }: NodeProps<FlowNode> & {
       if (!d.realBrowser && !prefersRealBrowser(host)) {
         // the light way first (docs/API-studio.md §4.9)
         const site = await previewApi.create({ url }).catch((err: unknown) => {
-          if (isCode(err, 'needs_browser')) toast.info(`${host} doesn’t load through the hub, so it opens in the real browser.`);
+          if (isCode(err, 'needs_browser')) {
+            // the hub says why: a bot check, a sign-in elsewhere, a redirect it cannot follow
+            const why = errorMessage(err).split('needs a real browser: ')[1];
+            toast.info(`${host} doesn’t load through the hub${why ? ` (${why})` : ''}, so it opens in the real browser.`);
+          }
           if (FOR_THE_BROWSER.some((code) => isCode(err, code))) return null;
           throw err;
         });
@@ -131,7 +135,10 @@ export function BrowserTile({ id, data, selected, url }: NodeProps<FlowNode> & {
 
   const icon = d.appId ? <AppIcon appId={d.appId} className="app-icon-lg" /> : <Icon name="globe" />;
   const title = session?.title || host;
-  const reason = failed || (ended?.reason === 'failed' && ended.message) || (ended ? `${name} was closed.` : `${host} opens in a real browser on This PC.`);
+  const reason =
+    failed ||
+    (ended?.reason === 'failed' && ended.message) ||
+    (ended ? `${name} was closed.` : prefersRealBrowser(host) ? `${host} opens in a real browser on This PC, as you chose for it before. Try the light view to load it through the hub again.` : `${host} opens in a real browser on This PC.`);
 
   return (
     <TileFrame id={id} kind="web" selected={!!selected} label={`Web tile ${title}`} minW={320} minH={240}>

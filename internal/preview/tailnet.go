@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -384,6 +385,32 @@ func sameSiteName(a, b string) bool {
 	return strings.TrimPrefix(a, "www.") == strings.TrimPrefix(b, "www.")
 }
 
+// botMarkers are in the pages of bot checks (Cloudflare, Imperva, Sucuri, DataDome, PerimeterX,
+// hCaptcha and reCAPTCHA walls): a page only a real browser gets past.
+var botMarkers = []string{"cf-chl", "challenge-platform", "cf_chl_opt", "just a moment...", "attention required! | cloudflare",
+	"_incapsula_resource", "sucuri website firewall", "captcha-delivery.com", "px-captcha", "hcaptcha.com/1/api.js", "www.google.com/recaptcha"}
+
+// botWall says whether an answer is a bot check rather than the site. A 403, 429 or 503 of the
+// site itself is not: a deploy, a rule or a busy server is for the page to say, through the hub.
+func botWall(resp *http.Response) bool {
+	if resp.Header.Get("Cf-Mitigated") != "" {
+		return true
+	}
+	switch resp.StatusCode {
+	case http.StatusForbidden, http.StatusTooManyRequests, http.StatusServiceUnavailable:
+	default:
+		return false
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	page := strings.ToLower(string(b))
+	for _, m := range botMarkers {
+		if strings.Contains(page, m) {
+			return true
+		}
+	}
+	return false
+}
+
 // needsBrowser is the answer for a site the proxy would only break.
 func needsBrowser(host, why string) *Error {
 	return newErr(http.StatusBadRequest, "needs_browser", "%s needs a real browser: %s", host, why)
@@ -434,11 +461,11 @@ func (m *Manager) probeSite(ua string, at siteAddr) (siteAddr, error) {
 			}
 			return at, needsBrowser(at.host, "it does not answer through the hub")
 		}
+		wall := botWall(resp)
 		resp.Body.Close()
 		switch {
-		case resp.Header.Get("Cf-Mitigated") != "", resp.StatusCode == http.StatusForbidden,
-			resp.StatusCode == http.StatusTooManyRequests, resp.StatusCode == http.StatusServiceUnavailable:
-			return at, needsBrowser(at.host, "it refuses requests from the hub")
+		case wall:
+			return at, needsBrowser(at.host, fmt.Sprintf("it answers the hub with a bot check (%d)", resp.StatusCode))
 		case resp.StatusCode < 300 || resp.StatusCode >= 400 || resp.Header.Get("Location") == "":
 			return at, nil
 		}
