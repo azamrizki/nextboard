@@ -270,7 +270,7 @@ Orchestrator adalah **lead agent**: asisten owner sekaligus pemimpin agent lain,
 
 ```jsonc
 // settings.lead (PATCH /api/settings menggabungkan per kolom)
-{ "name": "Nara",          // 1–24 karakter, satu baris
+{ "name": "Aruna",         // 1–24 karakter, satu baris; bawaan "Aruna" sejak 2026-11-08 (sebelumnya "Nara", yang tersimpan ikut pindah)
   "personality": "",       // ≤ 800 karakter; ditulis owner, aturan hub setelahnya tetap berlaku
   "talkFirst": true }
 ```
@@ -279,7 +279,7 @@ Orchestrator adalah **lead agent**: asisten owner sekaligus pemimpin agent lain,
 - **Talk first.** Planner boleh membalas tanpa step dan bertanya balik saat ada yang belum jelas. Step yang dikembalikannya langsung jalan, tanpa Go ahead (keputusan pemilik, 2026-11-04).
 - **Yang ditahan.** Hub menahan rencana bila salah satu ini kena: `policy` menemukan `risky` (§3.7), atau planner mengisi `danger` (penilaiannya sendiri untuk bahaya yang tidak terbaca dari pola, mis. "Clean up the staging environment"). Balasan tampil, semua step jadi konfirmasi `proposal` dengan `plan`, alasan di `prompt`, dan TTL **30 menit**. Pola berjalan di hub, jadi tetap menahan walau model tidak menandainya.
 - **Membicarakan rencana.** Selama proposal terbuka, kata setuju (`ya, gas, lanjut, oke, setuju, go ahead…`) = confirm tanpa giliran planner; kata tolak (`jangan dulu, batal, not now…`) = cancel, dengan catatan "Nothing was sent to the team."; pesan lain masuk planner bersama `pendingPlan`, dan rencana barunya menggantikan yang lama (rencana baru yang aman langsung jalan dan menutup yang lama).
-- **Yang tetap langsung:** order yang menyebut targetnya (`@Arkan …`, `tell Arkan …`, `@everyone …`) dan perintah parser (`pause everyone`, `status`, …). Kecuali order berisi pola berisiko: itu menunggu satu jawaban ya (§3.7). `@Nara …`, `@orchestrator`, `@lead` diarahkan ke lead, kecuali ada console bernama itu.
+- **Yang tetap langsung:** order yang menyebut targetnya (`@Arkan …`, `tell Arkan …`, `@everyone …`) dan perintah parser (`pause everyone`, `status`, …). Kecuali order berisi pola berisiko: itu menunggu satu jawaban ya (§3.7). `@Aruna …` (nama lead itu), `@orchestrator`, `@lead` diarahkan ke lead, kecuali ada console bernama itu.
 - **Satu pertanyaan per bahaya.** Kartu menyebut order mana dan bagian teks mana yang kena pola, jadi satu kali setuju cukup. Step yang punya konfirmasi sendiri (`kill`, `restart`, `node.delete`, `workspace.close`, `loop.create`, `spawn` > 6) tetap memakai kartunya sendiri, bukan `proposal`. Planner diminta tidak menyalin critical notes ke order (agent sudah menerimanya saat start), karena salinannya bisa kena pola `\.env\b`.
 - **Balasan lead ditulis Markdown** (Claude memakainya); klien merender tanpa HTML mentah, gambar jadi placeholder, tautan relatif tidak dibuka. Copy mengambil teks aslinya.
 - `talkFirst: false` = rencana langsung jalan seperti sebelumnya; planner hanya dipanggil untuk yang tidak dimengerti parser dengan batas 600 karakter.

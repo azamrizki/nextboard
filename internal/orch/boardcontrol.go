@@ -276,7 +276,7 @@ func (s *Service) translateBoardStep(sc *scope, ps plannerStep, st Step) (Step, 
 		if !isWireSource(src) && len(targets) == 1 && isWireSource(targets[0]) {
 			src, targets = targets[0], []*board.Node{src}
 		}
-		// "connect the kanban to Nara": the lead keeps the board, not the other way round
+		// "connect the kanban to Aruna": the lead keeps the board, not the other way round
 		if isTaskTile(src) && len(targets) == 1 && targets[0].Kind == KindOrchestrator {
 			src, targets = targets[0], []*board.Node{src}
 		}

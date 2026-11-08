@@ -75,7 +75,7 @@ func leadPrompt(p leadProfile) string {
 	return b.String()
 }
 
-// addressedToLead: "@Nara what do you think" is for the lead herself, unless a
+// addressedToLead: "@Aruna what do you think" is for the lead herself, unless a
 // console has that name.
 func addressedToLead(sc *scope, lead leadProfile, text string) (string, bool) {
 	if !strings.HasPrefix(text, "@") {

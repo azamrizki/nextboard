@@ -89,6 +89,7 @@ Kebijakan agentless untuk machine SSH diperhalus sebagai berikut. Semua tetap **
 | 42 | Runner headless (2026-11-08) | **Disahkan.** Pekerjaan AI di latar (studio, memory, planner lead, ringkasan, pesan commit) memakai mode headless CLI (`claude -p`, `codex exec`), bukan TUI tersembunyi seperti Symvibe | Sesuai arah *local-oriented*: sesedikit mungkin agent AI berjalan langsung di server. Akibatnya runner hanya Claude Code dan Codex (`runner_unsupported` untuk agen lain); console tidak terpengaruh. |
 | 43 | Order langsung yang berisiko (2026-11-08) | **Order yang diketik pemilik ke agent (`@Arkan …`) berisi pola berisiko menunggu satu jawaban ya**, seperti rencana lead | Salah ketik ke agent sama mahalnya dengan salah rencana. Order tanpa pola berisiko tetap langsung. |
 | 44 | Agents on servers (2026-11-08) | **Keluar dari preview setelah skill/commands server terbaca dan perintah panjang punya keluaran bertahap** | Pilihan A dari dua opsi. |
+| 45 | Nama bawaan lead (2026-11-08) | **Aruna** (sebelumnya Nara, yang belum pernah dibahas) | Pilihan pemilik dari Aruna, Kirana, Raka, Bima. Hub yang masih menyimpan "Nara" ikut pindah saat dibuka; nama lain yang dipilih sendiri tetap. |
 
 ### Verifikasi awal flag CLI (This PC, 2026-10-28)
 

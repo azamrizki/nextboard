@@ -46,7 +46,7 @@ func TestSimilarKeepsDifferentNamesApart(t *testing.T) {
 func TestDefaultHandlesFoldApart(t *testing.T) {
 	seen := map[string]string{}
 	for _, h := range []string{"Arkan", "Bintang", "Cantika", "Daffa", "Elvan", "Farel", "Gibran", "Haikal", "Ilham", "Jihan", "Kayla", "Luna",
-		"Maura", "Naufal", "Olivia", "Pandu", "Rafa", "Reyhan", "Salsa", "Tiara", "Vania", "Wildan", "Yasmin", "Zahra", "Nara"} {
+		"Maura", "Naufal", "Olivia", "Pandu", "Rafa", "Reyhan", "Salsa", "Tiara", "Vania", "Wildan", "Yasmin", "Zahra", "Aruna"} {
 		k := indonesianKey(Norm(h))
 		if other, ok := seen[k]; ok {
 			t.Errorf("%s and %s both fold to %q", h, other, k)

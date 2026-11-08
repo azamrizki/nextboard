@@ -152,7 +152,7 @@ func TestLeadHandsOutWorkAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt := h.lastRun(t, "planner").Prompt
-	if !strings.Contains(prompt, "You are Nara, the lead agent") || !strings.Contains(prompt, "Talk first:") || !strings.Contains(prompt, `set "danger"`) || !strings.Contains(prompt, "do not ask whether to go ahead") {
+	if !strings.Contains(prompt, "You are Aruna, the lead agent") || !strings.Contains(prompt, "Talk first:") || !strings.Contains(prompt, `set "danger"`) || !strings.Contains(prompt, "do not ask whether to go ahead") {
 		t.Fatalf("prompt: %.300s", prompt)
 	}
 	s.plannerDone(pid, doneJob("", map[string]any{"reply": "Halo! Lagi mikirin apa?", "steps": []any{}}))
@@ -400,7 +400,7 @@ func TestPlanExpires(t *testing.T) {
 func TestAddressingTheLead(t *testing.T) {
 	h, s, pid, wid, _, _ := leadHub(t)
 	before := len(h.runs)
-	r, err := s.Command(CommandRequest{Text: "@Nara menurutmu gimana?", WorkspaceID: wid})
+	r, err := s.Command(CommandRequest{Text: "@Aruna menurutmu gimana?", WorkspaceID: wid})
 	if err != nil || r.HandledBy != "pending" || len(h.runs) != before+1 {
 		t.Fatalf("%v %s, %d runs", err, r.HandledBy, len(h.runs)-before)
 	}
@@ -413,8 +413,8 @@ func TestAddressingTheLead(t *testing.T) {
 	}
 	// a console with that name wins: it was there to be addressed
 	p, _ := s.hub.Project(pid)
-	nara := h.console(p, wid, "Nara", "claude", agentstate.Ready)
-	s.Command(CommandRequest{Text: "@Nara run the tests", WorkspaceID: wid})
+	nara := h.console(p, wid, "Aruna", "claude", agentstate.Ready)
+	s.Command(CommandRequest{Text: "@Aruna run the tests", WorkspaceID: wid})
 	if len(h.deliveriesTo(nara.ID)) != 1 {
 		t.Fatal("a console named like the lead did not get its order")
 	}
@@ -444,7 +444,7 @@ func TestACardIsItsOwnPerson(t *testing.T) {
 	}
 	s.Command(CommandRequest{Text: "halo", WorkspaceID: wid, CardID: plain})
 	prompt = h.lastRun(t, "planner").Prompt
-	if !strings.Contains(prompt, "You are Nara,") || !strings.Contains(prompt, "Santai") {
+	if !strings.Contains(prompt, "You are Aruna,") || !strings.Contains(prompt, "Santai") {
 		t.Fatalf("prompt: %.400s", prompt)
 	}
 }

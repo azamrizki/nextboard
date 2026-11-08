@@ -190,7 +190,7 @@ Aturan tata letak:
     - Memory tile: brick dipindah dengan drag pointer (mouse di mana saja, jari lewat grip), bukan drag and drop HTML yang tidak ada di layar sentuh;
     - grafik (response time, heartbeat, token): tap atau geser jari menampilkan nilainya, dan nilai itu tetap sampai tap berikutnya;
     - Mission Map menulis petunjuk tap, bukan dobel klik dan Ctrl+G.
-- **Board di HP** (`board/PhoneBoard.tsx`): tab bar bawah **Board · Cards · Lead** (Lead memakai nama lead, mis. Nara); tab yang terakhir dipakai diingat per perangkat, bawaannya Cards.
+- **Board di HP** (`board/PhoneBoard.tsx`): tab bar bawah **Board · Cards · Lead** (Lead memakai nama lead, mis. Aruna); tab yang terakhir dipakai diingat per perangkat, bawaannya Cards.
   - Board: kanvas dengan rail pendek di kiri atas (Select, Hand, Spawn, Insert, Undo, Fit). Bentuk, catatan, teks, pen, eraser, gambar, Redo, dan New console ada di grid Insert, yang berhenti di atas tab bar. Command bar dan zoom tidak tampil: perintah di tab Lead, zoom dengan pinch.
   - Cards: daftar kartu dalam urutan baca, satu baris 64 px kaca (ikon, nama, agent dan status console, titik status, "Needs you"). Tap membuka Focus mode dengan tombol kembali "Cards"; swipe ke samping di bar Focus atau header kartu pindah ke kartu sebelum/sesudah; Back kembali ke daftar. Di atas daftar: New console dan Add a card (sheet berisi grid jenis kartu). Badge di tab Cards menghitung console yang butuh kamu.
   - Lead: thread lead mengisi layar di atas command bar, tanpa tombol tutup.

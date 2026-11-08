@@ -158,6 +158,12 @@ type Settings struct {
 }
 
 // Defaults returns the document with every default.
+// DefaultLeadName is the lead agent's name until the owner gives another (ROADMAP #45).
+const DefaultLeadName = "Aruna"
+
+// formerLeadName was the default before 2026-11-08; a hub that saved it moves to the new one.
+const formerLeadName = "Nara"
+
 func Defaults() Settings {
 	return Settings{
 		SchemaVersion: 1,
@@ -174,7 +180,7 @@ func Defaults() Settings {
 		Shortcuts: Shortcuts{Select: "v", Hand: "h", Spawn: "t", Pen: "p", Eraser: "e", Git: "g", Memory: "m",
 			Skills: "s", Loops: "l", Markdown: "d", NeedsYou: "n"},
 		Runner: Runner{DefaultAgent: "claude"},
-		Lead:   Lead{Name: "Nara", TalkFirst: true},
+		Lead:   Lead{Name: DefaultLeadName, TalkFirst: true},
 		Delivery: Delivery{WhileWorking: "queue", StartingTimeoutSec: 60, NeedsYouTimeoutSec: 900, WorkingTimeoutSec: 1800,
 			ReconnectTimeoutSec: 300, SubmitDelayMs: 200, HumanTypingGuardSec: 2, PromptTimeoutSec: 120},
 		Commands: Commands{Planner: "auto", ConfirmTTLSec: 60, ReportTimeoutMin: 30, RiskyPatterns: []string{}},
@@ -219,6 +225,10 @@ func Open(st *store.Store) (*Store, error) {
 		doc := Defaults()
 		if err := json.Unmarshal(raw, &doc); err == nil {
 			settleHandKey(&doc.Shortcuts)
+			// the first default name, never picked by anyone: the owner chose another (2026-11-08)
+			if doc.Lead.Name == formerLeadName {
+				doc.Lead.Name = DefaultLeadName
+			}
 			if validate(&doc) == nil {
 				s.cur = doc
 			}
