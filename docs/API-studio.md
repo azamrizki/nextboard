@@ -910,7 +910,7 @@ Preview dan listener-nya hanya di memori (node `web` di board yang persisten). *
 3. **Penulisan ulang `Host`/`Origin`** ke `localhost:<port>` bisa merusak app yang membangun URL absolut dari Host (OAuth callback); penambahan `'self'` ke CSP upstream untuk bridge; situs dengan CSP berbasis nonce.
 4. **`direct-tcpip`** butuh `AllowTcpForwarding` yes/local di remote.
 5. **Flag runner:** sebagian terverifikasi (§2): `--permission-mode dontAsk`, `--tools`, `--max-turns 1`, `--no-session-persistence`, `--model` bekerja di print mode; `--json-schema` tanpa tool dan `codex exec --output-schema` belum diuji nyata.
-6. **Runner headless vs layar:** menyimpang dari Symvibe; agen katalog tidak didukung untuk studio. Konfirmasi ke pemilik.
+6. **Runner headless vs layar:** menyimpang dari Symvibe; agen katalog tidak didukung untuk studio. **Disahkan pemilik 2026-11-08** (ROADMAP #42): sesuai arah local-oriented.
 7. **Usage best-effort:** format layar `/usage` (Claude), `/status` (Codex), `/stats` (Gemini) berubah antar versi. Akumulasi entri trust **diputuskan** (lead): path tetap `/tmp/nb-usage-<uid>` → satu entri `~/.claude.json` per user (terverifikasi, §10.4). Masih terbuka: `~/.claude/history.jsonl` mendapat 2 baris (`/usage`, `/exit`) per pemeriksaan Claude, dan Codex 0.165 menulis penanda screen-reader ke `config.toml` sekali (§10.4).
 8. **Path agent memory Claude** per project dan daftar key frontmatter skill yang valid; layout folder plugin.
 9. **PDF di browser:** dukungan margin box `@page` (Chrome ≥ 131), bookmark PDF tidak dijamin; Android `PrintManager`.

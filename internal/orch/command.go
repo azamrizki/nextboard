@@ -879,6 +879,8 @@ func (s *Service) fallback(c *execCtx, sc *scope, in Intent, text string, b buil
 func (s *Service) policy(c *execCtx, sc *scope, steps []Step) *Confirmation {
 	var kills, restarts []string
 	risky := ""
+	typed := true // what is risky was typed by the owner, not planned
+	yours := ""
 	for _, st := range steps {
 		switch st.Op {
 		case "kill":
@@ -928,18 +930,23 @@ func (s *Service) policy(c *execCtx, sc *scope, steps []Step) *Confirmation {
 					Options: []Option{{ID: "confirm", Label: fmt.Sprintf("Start %d consoles", st.Count)}, {ID: "cancel", Label: "Cancel"}}}
 			}
 		case "git", "node.add", "send":
-			if !st.Planned || risky != "" {
+			if risky != "" {
 				continue
 			}
 			switch {
-			case st.Op == "git":
-				risky = "a git step"
-			case st.Op == "node.add" && st.Kind == "web":
-				risky = "a web tile"
 			case st.Op == "send":
+				// the owner's own order to an agent too: a slip on the keyboard costs as
+				// much as a plan's mistake, and "@Ash delete …" is one word from it
 				if m := riskyMatch(st.Text, s.hub.Settings().Commands.RiskyPatterns); m != "" {
 					risky = fmt.Sprintf("an order for %s that says %q", sc.handles(st.Targets), m)
+					yours = fmt.Sprintf("Your order for %s says %q", sc.handles(st.Targets), m)
+					typed = typed && !st.Planned
 				}
+			case !st.Planned:
+			case st.Op == "git":
+				risky, typed = "a git step", false
+			case st.Op == "node.add" && st.Kind == "web":
+				risky, typed = "a web tile", false
 			}
 		}
 	}
@@ -953,6 +960,11 @@ func (s *Service) policy(c *execCtx, sc *scope, steps []Step) *Confirmation {
 			Options: []Option{{ID: "confirm", Label: fmt.Sprintf("%s %d console(s)", verb, len(ids))}, {ID: "cancel", Label: "Cancel"}}}
 	}
 	if risky != "" {
+		if typed {
+			// the owner's own words, not a plan: say it as such
+			return &Confirmation{Kind: ConfRisky, Steps: steps, Prompt: yours + ", which can be dangerous. Send it?",
+				Options: []Option{{ID: "confirm", Label: "Send"}, {ID: "cancel", Label: "Cancel"}}}
+		}
 		return &Confirmation{Kind: ConfRisky, Steps: steps, Prompt: "The plan has " + risky + ", which can be dangerous. Run it?",
 			Options: []Option{{ID: "confirm", Label: "Run"}, {ID: "cancel", Label: "Cancel"}}}
 	}

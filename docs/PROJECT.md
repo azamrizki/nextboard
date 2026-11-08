@@ -905,10 +905,9 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 ### Pertanyaan untuk pemilik
 
-- Kapan `remoteTools` keluar dari preview.
+- `remoteTools` keluar dari preview setelah skill/commands server terbaca dan perintah panjang punya keluaran bertahap (ROADMAP #44).
 - Android dan desktop: dilanjutkan hanya bila pemilik memintanya (keputusan 2026-11-05).
-- Runner headless yang menyimpang dari Symvibe (API-studio §19 butir 6): disahkan atau tidak.
-- Default lead yang belum dibahas: nama Nara, dan order `@Agent` yang langsung jalan.
+- Nama bawaan lead: pemilik minta diganti, menunggu pilihan dari opsi. Order `@Agent` berisiko kini minta konfirmasi (ROADMAP #43).
 - Urutan kerja berikutnya.
 
 ## 15. Peta dokumen

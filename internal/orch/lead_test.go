@@ -350,10 +350,16 @@ func TestDirectOrdersSkipTheTalk(t *testing.T) {
 	if _, pending := s.Confirms.Pending(pid, t0); pending {
 		t.Fatal("named agents became a proposal")
 	}
-	// the owner's own words to an agent are not the lead's plan
+	// the owner's own words with a risky word in them wait for one more yes (a slip of the
+	// keyboard costs as much as a plan's mistake), as a question, not as the lead's proposal
 	s.Command(CommandRequest{Text: "@Ash delete the old logs", WorkspaceID: wid})
+	cf, pending := s.Confirms.Pending(pid, t0)
+	if !pending || cf.Kind != ConfRisky || !strings.HasPrefix(cf.Prompt, "Your order for @Ash") || len(h.deliveriesTo(ash)) != 1 {
+		t.Fatalf("risky direct order: %+v, %d deliveries", cf, len(h.deliveriesTo(ash)))
+	}
+	s.Command(CommandRequest{Text: "yes", WorkspaceID: wid})
 	if d := h.deliveriesTo(ash); len(d) != 2 || d[1].Text != "delete the old logs" {
-		t.Fatalf("direct order: %+v", d)
+		t.Fatalf("confirmed order: %+v", d)
 	}
 }
 
