@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -155,9 +156,28 @@ func TestAgentWorksOnServer(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(srv, "notes.txt"), []byte("alpha\nbeta\nbeta\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// the project's own commands and skills, and instructions of subfolders
+	for p, body := range map[string]string{
+		".claude/commands/deploy.md":     "Deploy with DEPLOY-STEPS.\n",
+		".claude/skills/review/SKILL.md": "---\nname: review\n---\nReview with REVIEW-RULES.\n",
+		"api/CLAUDE.md":                  "API rules.\n",
+		"web/AGENTS.md":                  "Web rules.\n",
+		"web/CLAUDE.md":                  "Web rules for Claude.\n",
+		"node_modules/pkg/CLAUDE.md":     "not ours\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(srv, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(srv, p), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	create := map[string]any{"agent": "spy", "machineId": mid, "cwd": srv}
 
-	// Off by default: the server only gets shells.
+	// Turned off, the server only gets shells.
+	if st, r := h.do("PATCH", "/api/settings", map[string]any{"agents": map[string]any{"remoteTools": false}}, nil); st != 200 {
+		t.Fatalf("settings %d %v", st, r)
+	}
 	if st, r := h.do("POST", "/api/sessions", create, nil); st != 422 || r["code"] != "agent_this_pc_only" {
 		t.Fatalf("setting off %d %v", st, r)
 	}
@@ -210,7 +230,20 @@ func TestAgentWorksOnServer(t *testing.T) {
 			if err != nil || !strings.Contains(string(p), srv) || !strings.Contains(string(p), "Always say BANANA.") || !strings.Contains(string(p), `"srv"`) {
 				t.Fatalf("prompt %q %v", p, err)
 			}
+			// subfolders with instructions of their own, Claude's own file first; not node_modules
+			if !strings.Contains(string(p), "- api/CLAUDE.md\n") || !strings.Contains(string(p), "- web/CLAUDE.md\n") || strings.Contains(string(p), "web/AGENTS.md") ||
+				strings.Contains(string(p), "node_modules") || !strings.Contains(string(p), "copied next to you") || !strings.Contains(string(p), "run_in_background") {
+				t.Fatalf("prompt extras %q", p)
+			}
 		}
+	}
+	// the commands and skills are next to the CLI, where Claude Code loads them
+	local := in["cwd"].(string)
+	if b, err := os.ReadFile(filepath.Join(local, ".claude", "commands", "deploy.md")); err != nil || !strings.Contains(string(b), "DEPLOY-STEPS") {
+		t.Fatalf("command copy %q %v", b, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(local, ".claude", "skills", "review", "SKILL.md")); err != nil || !strings.Contains(string(b), "REVIEW-RULES") {
+		t.Fatalf("skill copy %q %v", b, err)
 	}
 	var cfg struct {
 		MCPServers map[string]struct {
@@ -264,7 +297,7 @@ func TestAgentWorksOnServer(t *testing.T) {
 	for _, x := range out["result"].(map[string]any)["tools"].([]any) {
 		names = append(names, x.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "read_file,write_file,edit_file,grep,glob,bash,memory_search,memory_read,memory_save" {
+	if strings.Join(names, ",") != "read_file,write_file,edit_file,grep,glob,bash,bash_output,bash_kill,memory_search,memory_read,memory_save" {
 		t.Fatalf("tools %v", names)
 	}
 	if _, out := rpc(token, "no/such", nil); out["error"] == nil {
@@ -309,6 +342,37 @@ func TestAgentWorksOnServer(t *testing.T) {
 	}
 	if text, bad := call("read_file", map[string]any{"path": "missing.txt"}); !bad {
 		t.Fatalf("missing file %q", text)
+	}
+
+	// a long command in the background: its output as it comes, then how it ended
+	text, bad := call("bash", map[string]any{"command": "for i in 1 2 3; do echo tick $i; sleep 1; done; echo oops >&2; exit 4", "run_in_background": true})
+	id := regexp.MustCompile(`bg_[0-9a-f]+`).FindString(text)
+	if bad || id == "" {
+		t.Fatalf("background start %q", text)
+	}
+	if text, bad := call("bash_output", map[string]any{"id": id, "wait_ms": 5000}); bad || !strings.Contains(text, "tick 1") || !strings.Contains(text, "still running") {
+		t.Fatalf("first output %q", text)
+	}
+	all := ""
+	waitTrue(t, "the background command ends", 15*time.Second, func() bool {
+		text, _ := call("bash_output", map[string]any{"id": id, "wait_ms": 2000})
+		all += text
+		return strings.Contains(text, "[exited with code 4")
+	})
+	if !strings.Contains(all, "tick 3") || !strings.Contains(all, "oops") {
+		t.Fatalf("later output %q", all)
+	}
+	text, _ = call("bash", map[string]any{"command": "sleep 100", "run_in_background": true})
+	long := regexp.MustCompile(`bg_[0-9a-f]+`).FindString(text)
+	if text, bad := call("bash_kill", map[string]any{"id": long}); bad {
+		t.Fatalf("kill %q", text)
+	}
+	waitTrue(t, "the killed command ends", 10*time.Second, func() bool {
+		text, _ := call("bash_output", map[string]any{"id": long, "wait_ms": 1000})
+		return strings.Contains(text, "stopped with bash_kill")
+	})
+	if text, bad := call("bash_output", map[string]any{"id": "bg_00000000"}); !bad || !strings.Contains(text, "No background command") {
+		t.Fatalf("unknown id %q", text)
 	}
 
 	// A CLI whose local tools cannot be turned off stays off servers.

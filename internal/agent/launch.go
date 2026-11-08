@@ -86,7 +86,7 @@ type MCPServer struct {
 }
 
 // RemoteToolNames are the tools the hub offers on a server.
-var RemoteToolNames = []string{"read_file", "write_file", "edit_file", "grep", "glob", "bash"}
+var RemoteToolNames = []string{"read_file", "write_file", "edit_file", "grep", "glob", "bash", "bash_output", "bash_kill"}
 
 // MemoryReadTools are the hub's tools that only read, approved without asking.
 var MemoryReadTools = []string{"memory_search", "memory_read"}

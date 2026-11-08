@@ -677,7 +677,7 @@ Claude Code **2.1.312**, Codex **0.163.0** (lihat catatan update di bawah), tmux
 
 CLI agen selalu berjalan di This PC. Tanpa `settings.agents.remoteTools`, server hanya mendapat shell biasa: `POST /api/sessions` dan `restart {agent}` dengan agen berkind `agent` di machine SSH → `422 agent_this_pc_only`, dan `GET /api/machines/{id}/presets` menandainya tidak tersedia.
 
-**Status: preview, `settings.agents.remoteTools` default `false`** (Settings › Agents, "Agents on servers"). Bila aktif, CLI berikut (dan agen custom ber-`base` CLI itu) bisa bekerja di server; yang lain tetap `422`. Sebuah CLI hanya masuk daftar ini setelah terbukti tool lokalnya bisa dimatikan, karena tanpa itu agen akan mengerjakan file This PC.
+**Status: stabil sejak 2026-11-08 (ROADMAP #44), `settings.agents.remoteTools` default `true`** (Settings › Agents, "Agents on servers"). Hub yang pernah menyimpan `false` tetap mati sampai diubah. Bila aktif, CLI berikut (dan agen custom ber-`base` CLI itu) bisa bekerja di server; yang lain tetap `422`. Sebuah CLI hanya masuk daftar ini setelah terbukti tool lokalnya bisa dimatikan, karena tanpa itu agen akan mengerjakan file This PC.
 
 | CLI | Tool hub | Tool lokal | Yolo di server | Terverifikasi |
 |---|---|---|---|---|
@@ -706,7 +706,13 @@ Yolo di server tidak pernah memakai flag lewati-semua milik CLI, sehingga tidak 
 
 Codex 0.165.0 di server yang sama: order lewat command bar sampai, tiga prompt izin MCP terbaca `needsYou`, edit dan `pwd` terjadi di server, `AGENTS.md` server dipatuhi, folder lokal tetap kosong; percobaan langsung lewat `codex exec` menunjukkan shell lokal tidak tersedia dan `apply_patch` lokal ditolak sandbox. Membuka Codex menaikkan penghitung pemberitahuan model di `config.toml` folder config yang dipakai.
 
-**Batas yang diketahui:** skills dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git di server memakai kredensial server; OpenCode belum pernah diamati saat menjalankan giliran, dan login-nya masih di folder OpenCode sendiri karena config-nya tersebar di beberapa variabel XDG. Agen katalog lain belum didukung karena belum terpasang di mesin uji.
+**Skill, commands, dan instruksi subfolder (2026-11-08).** Saat diluncurkan, hub mencari di folder project di server, dengan satu perintah dan batas 20 detik:
+- `CLAUDE.md`/`AGENTS.md` di subfolder (kedalaman ≤ 6, tanpa `node_modules`, `vendor`, `.git`, `storage`, `dist`, `build`, `.next`, `target`, `.venv`; ≤ 40 folder, nama milik CLI itu didahulukan). Daftarnya masuk prompt sistem, dengan perintah membacanya lewat `read_file` sebelum bekerja di folder itu.
+- Untuk Claude Code: file biasa di `.claude/commands` dan `.claude/skills` (≤ 300 file, masing-masing ≤ 256 KB, total ≤ 4 MB, teks saja, symlink tidak diikuti) disalin lewat SFTP ke `.claude/` di folder kerja lokal console, menggantikan salinan peluncuran sebelumnya. Claude Code memuatnya sebagai commands dan skills project. Prompt menjelaskan bahwa file itu dibaca dengan Read lokal, sedangkan file dan skrip yang disebutnya ada di server.
+
+**Perintah panjang (2026-11-08).** `bash{command, run_in_background:true}` langsung menjawab dengan id `bg_…`. Perintahnya jalan sampai 1 jam di server (stdout dan stderr digabung). `bash_output{id, wait_ms?}` memberi keluaran sejak panggilan terakhir (≤ 30.000 karakter, menunggu sampai 30 detik bila belum ada yang baru) dan statusnya: masih jalan, exit code, atau alasan berhenti. `bash_kill{id}` menghentikannya. Paling banyak 4 perintah latar per console; keluaran yang belum dibaca disimpan ≤ 1 MB, dan bagian terlama dibuang dengan catatan. Yang selesai dilupakan 30 menit kemudian. Daftar perintah terblokir berlaku sama seperti `bash` biasa.
+
+**Batas yang diketahui:** commands dan skills hanya untuk Claude Code (Codex tidak memuat commands project); git di server memakai kredensial server; OpenCode belum pernah diamati saat menjalankan giliran, dan login-nya masih di folder OpenCode sendiri karena config-nya tersebar di beberapa variabel XDG. Agen katalog lain belum didukung karena belum terpasang di mesin uji.
 
 ## 22. Konteks peluncuran
 

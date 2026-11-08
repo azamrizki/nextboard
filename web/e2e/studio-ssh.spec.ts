@@ -40,6 +40,8 @@ test('the code card works on a project over SSH', async ({ page, hub }, info) =>
   const wid = p.workspaces[0].id;
   await hub.ops(wid, [{ op: 'put', node: { id: 'n_edit000001', kind: 'editor', x: 0, y: 0, w: 1200, h: 760, data: {} } }]);
 
+  // first with agents on servers turned off (on by default since they left preview)
+  await hub.call('PATCH', '/api/settings', { agents: { remoteTools: false } });
   const failed: string[] = [];
   page.on('response', (r) => {
     const u = new URL(r.url());
@@ -100,7 +102,7 @@ test('the code card works on a project over SSH', async ({ page, hub }, info) =>
     await page.getByRole('menuitem', { name: 'Fake CLI' }).click();
     await expect(page.locator('.wb-pane-tab .xterm-rows')).toContainText('>', { timeout: 20_000 });
   } finally {
-    await hub.call('PATCH', '/api/settings', { agents: { remoteTools: false } });
+    await hub.call('PATCH', '/api/settings', { agents: { remoteTools: true } });
   }
 
   expect(failed).toEqual([]);

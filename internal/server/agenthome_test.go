@@ -67,10 +67,13 @@ func TestAgentHomeDefaults(t *testing.T) {
 	}
 }
 
-// TestAgentsStayOnThisPC: a server only gets plain shells.
+// TestAgentsStayOnThisPC: with agents on servers turned off, a server only gets plain shells.
 func TestAgentsStayOnThisPC(t *testing.T) {
 	h := newTestHub(t)
 	h.setup()
+	if st, r := h.do("PATCH", "/api/settings", map[string]any{"agents": map[string]any{"remoteTools": false}}, nil); st != 200 {
+		t.Fatalf("settings %d %v", st, r)
+	}
 	m, err := h.srv.machines.Add(machine.AddRequest{Name: "srv", Host: "127.0.0.1", Port: 1, User: "u", AuthMethod: "agent"})
 	if err != nil {
 		t.Fatal(err)

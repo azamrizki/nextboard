@@ -97,6 +97,7 @@ type Server struct {
 	stopBeat chan struct{}
 	// remoteJobs: token of a running job → the server it may read (§21).
 	remoteJobs sync.Map
+	bg         bgCommands // background commands of consoles on servers (remotebg.go)
 	mux        *http.ServeMux
 	spa        http.Handler
 

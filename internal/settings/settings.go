@@ -167,6 +167,8 @@ func Defaults() Settings {
 			RoleAgents: map[string]string{"frontend": "claude", "backend": "codex", "testers": "gemini", "reviewers": "claude",
 				"design": "claude", "docs": "claude", "security": "codex", "general": ""},
 			LiveStatus: true, IDELink: true, HookChannel: "auto", ResumeOnRestart: "auto",
+			// out of preview on 2026-11-08 (ROADMAP #44): a hub that saved false keeps it
+			RemoteTools: true,
 		},
 		Notifications: Notifications{NeedsYou: true, Finished: true, Error: true, FinishedMinSec: 30},
 		Shortcuts: Shortcuts{Select: "v", Hand: "h", Spawn: "t", Pen: "p", Eraser: "e", Git: "g", Memory: "m",

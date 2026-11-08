@@ -81,7 +81,7 @@ export function AgentsPane() {
           onChange={(v) => (v ? setYoloAsk(true) : void save({ agents: { yoloDefault: false } }, 'the Yolo default').catch(() => undefined))}
         />
         <SwitchRow
-          title="Agents on servers (preview)"
+          title="Agents on servers"
           hint="Claude Code, Codex and OpenCode stay on This PC, with their login there, and work on a server through tools the hub provides over SSH. Their local tools are turned off, and the server needs nothing installed."
           checked={!!ag.remoteTools}
           onChange={(v) => void save({ agents: { remoteTools: v } }, 'agents on servers').then(() => refreshAgents()).catch(() => undefined)}

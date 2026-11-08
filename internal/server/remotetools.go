@@ -96,7 +96,8 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		if claude {
 			docs = []string{"CLAUDE.md", "AGENTS.md"}
 		}
-		prompt.WriteString(remotePrompt(host.Info().Name, sp.RemoteCwd, s.remoteProjectRules(host, sp.RemoteCwd, docs), claude))
+		extras := s.remoteExtras(host, sp.RemoteCwd, sp.Cwd, docs, claude)
+		prompt.WriteString(remotePrompt(host.Info().Name, sp.RemoteCwd, s.remoteProjectRules(host, sp.RemoteCwd, docs), claude, extras))
 	}
 	if sp.ProjectID != "" && s.orch != nil {
 		dir, err := s.orch.Memory.Dir(sp.ProjectID)
@@ -158,15 +159,24 @@ func (s *Server) remoteProjectRules(host machine.Host, cwd string, names []strin
 	return ""
 }
 
-func remotePrompt(machineName, cwd, rules string, localMemory bool) string {
+func remotePrompt(machineName, cwd, rules string, localMemory bool, x serverExtras) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are working on the server %q, in the folder %s. This CLI runs on another computer, so its local tools cannot see the project.\n", machineName, cwd)
-	b.WriteString("For everything in the project use the tools of the nextboard MCP server: read_file, write_file, edit_file, grep, glob and bash. Relative paths start in that folder. Each bash call starts there in a new shell, so `cd` does not carry over.\n")
+	b.WriteString("For everything in the project use the tools of the nextboard MCP server: read_file, write_file, edit_file, grep, glob and bash. Relative paths start in that folder. Each bash call starts there in a new shell, so `cd` does not carry over. A command that takes more than a minute runs with bash run_in_background, and bash_output shows what it prints as it goes.\n")
 	if localMemory {
 		b.WriteString("Your local Read, Write and Edit tools are only for your memory folder. Never use them for project files.\n")
 	}
+	if x.mirrored > 0 {
+		b.WriteString("The project's commands and skills from the server (.claude/commands, .claude/skills) are copied next to you, so they work as usual; read their own files with your local Read tool. What they say about project files or scripts means the server: use the nextboard tools there.\n")
+	}
 	if strings.TrimSpace(rules) != "" {
 		b.WriteString("\nProject instructions from the server:\n\n" + rules + "\n")
+	}
+	if len(x.nested) > 0 {
+		b.WriteString("\nThese subfolders have instructions of their own. Before you work in one, read its file with read_file and follow it there:\n")
+		for _, p := range x.nested {
+			b.WriteString("- " + p + "\n")
+		}
 	}
 	return b.String()
 }
@@ -324,6 +334,13 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 					return remoteAnswer(answer, true), nil
 				}
 			}
+		}
+		var bg struct {
+			Background bool `json:"run_in_background"`
+		}
+		_ = json.Unmarshal(p.Arguments, &bg)
+		if (p.Name == "bash" && bg.Background) || p.Name == "bash_output" || p.Name == "bash_kill" {
+			return remoteAnswer(s.bgTool(ctx, host, t, p.Name, p.Arguments)), nil
 		}
 		start := time.Now()
 		text, err := runRemoteTool(ctx, host, t.cwd, p.Name, p.Arguments)
@@ -490,10 +507,18 @@ var remoteToolList = []map[string]any{
 		"inputSchema": toolSchema([]string{"pattern"}, map[string]any{
 			"pattern": map[string]any{"type": "string"},
 			"path":    map[string]any{"type": "string", "description": "Folder to look in, the project folder by default."}})},
-	{"name": "bash", "description": "Run a shell command on the server, in the project folder, in a new login shell. Use it to build, test and run git.",
+	{"name": "bash", "description": "Run a shell command on the server, in the project folder, in a new login shell. Use it to build, test and run git. For anything that takes more than a minute (installs, builds, test suites, dev servers), set run_in_background and follow it with bash_output.",
 		"inputSchema": toolSchema([]string{"command"}, map[string]any{
-			"command":    map[string]any{"type": "string"},
-			"timeout_ms": map[string]any{"type": "integer", "description": "2 minutes by default, 10 at most."}})},
+			"command":           map[string]any{"type": "string"},
+			"timeout_ms":        map[string]any{"type": "integer", "description": "2 minutes by default, 10 at most. Not for run_in_background."},
+			"run_in_background": map[string]any{"type": "boolean", "description": "Start it and answer at once with an id; it may run up to an hour. Read its output as it comes with bash_output."}})},
+	{"name": "bash_output", "description": "What a background command started with bash run_in_background has printed since the last call (stdout and stderr together), and whether it still runs or how it ended.",
+		"inputSchema": toolSchema([]string{"id"}, map[string]any{
+			"id":      map[string]any{"type": "string", "description": "The id bash gave, e.g. bg_1a2b3c4d."},
+			"wait_ms": map[string]any{"type": "integer", "description": "Wait up to this long for new output or the end, 30000 at most. 0 answers at once."}})},
+	{"name": "bash_kill", "description": "Stop a background command started with bash run_in_background.",
+		"inputSchema": toolSchema([]string{"id"}, map[string]any{
+			"id": map[string]any{"type": "string"}})},
 }
 
 // memoryToolList gives every CLI the project's one memory, to look things up in

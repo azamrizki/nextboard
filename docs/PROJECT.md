@@ -100,7 +100,7 @@ Sejak 2026-11-02 fokusnya **core backend** (keputusan 8). Android dan desktop di
 | **Planner** | Claude Code lokal yang menerjemahkan kalimat menjadi langkah. |
 | **Group** | Tim console di dalam bingkai, dengan nama, peran, dan warna. |
 | **Orchestrator card** | Command bar kecil di board, lingkupnya console yang di-wire ke kartu itu. |
-| **Lead agent** | Orchestrator sebagai orang: asisten owner dan pemimpin agent, punya nama (default Nara) dan kepribadian. Berbincang dulu; kerja untuk tim menunggu persetujuan. |
+| **Lead agent** | Orchestrator sebagai orang: asisten owner dan pemimpin agent, punya nama (default Aruna, pilihan pemilik 2026-11-08) dan kepribadian. Berbincang dulu; kerja untuk tim menunggu persetujuan. |
 | **Runner / job** | CLI headless tersembunyi untuk pekerjaan latar: dokumen, diagram, scan memory, planner. |
 | **Preview** | Proxy dev server di machine, satu listener per port. |
 | **Critical notes** | Aturan pemilik yang tidak boleh dilanggar agent mana pun. |
@@ -247,7 +247,7 @@ Tambah dari `~/.ssh/config` (cukup pilih `Host`) atau manual. Tidak ada yang dip
 - **Persistensi:** `tmux` (proses hidup walau SSH putus atau hub restart, lalu di-attach ulang) atau `direct` (diluncurkan ulang). Default `auto`. *Clean up* membersihkan sesi `nb-*` yatim.
 - **File:** SFTP di koneksi yang ada, dengan fallback exec read-only bila SFTP dimatikan.
 
-Setelah keputusan 10, server hanya mendapat console shell biasa, kecuali preview pada §5.7.
+Setelah keputusan 10, CLI agent tetap di This PC; di server ia bekerja lewat tool hub (§5.7).
 
 ### 5.4 Project dan workspace
 
@@ -329,9 +329,9 @@ Sumber status berurutan: status proses → foreground → hooks (Claude) atau no
 - **Konteks peluncuran:** tiap launch mendapat instruksi sistem di `<data>/agents/prompts/<sid>.md`, memory project, critical notes, MCP server, dan tool hub.
 - **Terminal panel:** `POST /api/sessions` dengan `panel: true` membuat sesi tanpa node untuk panel bawah workbench. Sesi ini tidak bisa dijangkau order.
 
-### 5.7 Agent yang bekerja di server (preview)
+### 5.7 Agent yang bekerja di server
 
-CLI tetap berjalan di This PC, sedangkan tool file dan shell-nya bertindak di server lewat MCP hub. Status **preview**: `settings.agents.remoteTools` default `false`. Tanpa itu, agent di machine SSH ditolak dengan `422 agent_this_pc_only`.
+CLI tetap berjalan di This PC, sedangkan tool file dan shell-nya bertindak di server lewat MCP hub. Status: stabil sejak 2026-11-08, `settings.agents.remoteTools` default `true`. Tanpa itu, agent di machine SSH ditolak dengan `422 agent_this_pc_only`.
 
 | CLI | Tool lokal dimatikan lewat | Terverifikasi |
 |---|---|---|
@@ -814,7 +814,7 @@ Sumber: [ROADMAP.md](ROADMAP.md).
 | 7 | Web, Git, studio, usage, suara | Selesai: hub, web, Android, desktop |
 | 8 | Aplikasi desktop di board | Selesai: hub, web |
 
-Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil default, agent di server (preview), MCP, switch agent di tile yang sama, memory galaxy dengan critical notes dan Init, multi-repo, browser sungguhan, Code workbench sebagai card dengan LSP, DAP, extension, AI, review agent dan Local History, kontrol board oleh planner, lead agent dan papan tugas, Credentials, uptime, tema terang dan gelap, group project, log koneksi, batas memori hub.
+Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil default, agent di server, MCP, switch agent di tile yang sama, memory galaxy dengan critical notes dan Init, multi-repo, browser sungguhan, Code workbench sebagai card dengan LSP, DAP, extension, AI, review agent dan Local History, kontrol board oleh planner, lead agent dan papan tugas, Credentials, uptime, tema terang dan gelap, group project, log koneksi, batas memori hub.
 
 **Belum ada rencana tertulis sesudah ini.** Kandidat pekerjaan berikutnya adalah §14, dan urutannya keputusan pemilik.
 
@@ -887,7 +887,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Area | Celah |
 |---|---|
 | Workbench | Debug Node belum bisa attach ke proses yang sudah berjalan. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History hanya untuk project di This PC |
-| Agent di server | Preview. Skill dan `.claude/commands` di server tidak dimuat; instruksi subfolder tidak dimuat; perintah panjang tanpa keluaran bertahap; git memakai kredensial server. OpenCode belum pernah diamati saat menjalankan giliran; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
+| Agent di server | Commands dan skills server hanya untuk Claude Code; git memakai kredensial server. OpenCode belum pernah diamati saat menjalankan giliran; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
 | Status dan delivery | Agent tanpa aturan layar dibaca secara generik. Bacaan proses CLI (`rchar`) menahan `working` selama model mengirim stream, tetapi CLI yang membaca socket lewat `recv()` (Python, Rust) masih bisa terbaca `ready` saat berpikir tanpa output: sesudah 3 detik di layar prompt, sesudah 15 detik di layar lain. Daftar CLI aman untuk `whileWorking:"type"` belum ada |
 | Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan. Parser hanya bahasa Inggris |
 | Multi-repo | Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
@@ -905,9 +905,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 ### Pertanyaan untuk pemilik
 
-- `remoteTools` keluar dari preview setelah skill/commands server terbaca dan perintah panjang punya keluaran bertahap (ROADMAP #44).
 - Android dan desktop: dilanjutkan hanya bila pemilik memintanya (keputusan 2026-11-05).
-- Nama bawaan lead: pemilik minta diganti, menunggu pilihan dari opsi. Order `@Agent` berisiko kini minta konfirmasi (ROADMAP #43).
 - Urutan kerja berikutnya.
 
 ## 15. Peta dokumen
