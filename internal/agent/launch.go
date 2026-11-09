@@ -67,6 +67,8 @@ type LaunchContext struct {
 	// secret values, for the process environment only.
 	MCP    []MCPServer
 	MCPEnv []string
+	// Commands are the project's own commands, for a CLI that takes them at launch.
+	Commands []ProjectCommand
 	// Blocked are the commands that need the owner's approval (guard.go).
 	Blocked []string
 }
@@ -117,6 +119,9 @@ func (a Agent) WorksOnServers() bool {
 	return false
 }
 
+// ProjectCommand is one command of the project on a server, already disarmed.
+type ProjectCommand struct{ Name, Description, Template string }
+
 // contextPlan is how one CLI takes a LaunchContext. yolo, for a server, only
 // approves the hub's tools: no CLI gets its skip-everything flag there, since
 // that would open This PC again.
@@ -141,9 +146,10 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		}
 		if c.Remote {
 			// The memory folder is local, so Read, Write and Edit stay; there
-			// is no local Bash, so no command can run on the wrong machine.
-			p.args = append(p.args, "--tools", "Read,Write,Edit,TodoWrite", "--mcp-config", "$NB_MCP", "--strict-mcp-config")
-			p.yolo = []string{"--allowedTools", mcpTool(RemoteToolNames)}
+			// is no local Bash, so no command can run on the wrong machine. Skill
+			// lets the model use the project's skills, not only the owner's /name.
+			p.args = append(p.args, "--tools", "Read,Write,Edit,TodoWrite,Skill", "--mcp-config", "$NB_MCP", "--strict-mcp-config")
+			p.yolo = []string{"--allowedTools", "Skill," + mcpTool(RemoteToolNames)}
 			p.env = append(p.env, "NB_MCP="+ClaudeMCPConfig(c.MCPURL, c.MCP))
 		} else if c.MemoryDir != "" || len(c.MCP) > 0 {
 			// Adds to the user's own MCP servers.
@@ -186,9 +192,10 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			perm["nextboard_"+tool] = "allow"
 		}
 		if c.Remote {
-			for _, tool := range []string{"bash", "edit", "read", "glob", "grep", "list", "webfetch", "websearch", "task", "todowrite", "skill", "lsp", "external_directory"} {
+			for _, tool := range []string{"bash", "edit", "read", "glob", "grep", "list", "webfetch", "websearch", "task", "todowrite", "lsp", "external_directory"} {
 				perm[tool] = "deny"
 			}
+			perm["skill"] = "allow" // loads the project's skills, which the hub copied next to it
 		}
 		servers := map[string]any{"nextboard": map[string]any{"type": "remote", "url": c.MCPURL, "oauth": false,
 			"headers": map[string]string{"Authorization": "Bearer {env:NB_TOKEN}"}}}
@@ -203,6 +210,13 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		cfg := map[string]any{"mcp": servers, "permission": perm}
 		if c.Prompt != "" {
 			cfg["instructions"] = []string{c.PromptFile}
+		}
+		if len(c.Commands) > 0 {
+			cmds := map[string]any{}
+			for _, x := range c.Commands {
+				cmds[x.Name] = map[string]string{"description": x.Description, "template": x.Template}
+			}
+			cfg["command"] = cmds
 		}
 		b, _ := json.Marshal(cfg)
 		p.env = append(p.env, "OPENCODE_CONFIG_CONTENT="+string(b))

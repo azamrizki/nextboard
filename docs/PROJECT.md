@@ -335,9 +335,9 @@ CLI tetap berjalan di This PC, sedangkan tool file dan shell-nya bertindak di se
 
 | CLI | Tool lokal dimatikan lewat | Terverifikasi |
 |---|---|---|
-| Claude Code | `--tools Read,Write,Edit,TodoWrite`, tanpa Bash; lokal hanya untuk folder memory | Console nyata, dengan dan tanpa yolo |
+| Claude Code | `--tools Read,Write,Edit,TodoWrite,Skill`, tanpa Bash; lokal hanya untuk folder memory | Console nyata, dengan dan tanpa yolo |
 | Codex | `--disable shell_tool --disable unified_exec --sandbox read-only` | Console nyata tanpa yolo |
-| OpenCode | `permission` semua tool lokal `deny` | MCP terhubung; belum sampai menjawab karena provider di mesin uji gagal |
+| OpenCode | `permission` semua tool lokal `deny` kecuali `skill` | MCP terhubung; giliran penuh hanya terhadap model palsu |
 
 - **Tool hub:** `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`, ditambah `memory_search`, `memory_read`, `memory_save`, dan untuk project yang punya credential tertanda `credential_list`, `credential_run`, `credential_result` (API-vault.md).
 - **Kalau tool tidak bisa disiapkan, peluncuran gagal**, bukan jatuh ke tool lokal, karena agent akan mengerjakan file This PC.
@@ -887,7 +887,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Area | Celah |
 |---|---|
 | Workbench | Debug Node belum bisa attach ke proses yang sudah berjalan. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History hanya untuk project di This PC |
-| Agent di server | Commands dan skills server hanya untuk Claude Code; git memakai kredensial server. OpenCode belum pernah diamati saat menjalankan giliran; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
+| Agent di server | Skill dan command server sampai ke ketiga CLI dalam bentuk dilucuti, tapi hanya teruji terhadap model palsu; model sungguhan belum diuji memilih skill-nya sendiri. Git memakai kredensial server. OpenCode belum pernah diamati menjawab dengan provider sungguhan; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
 | Status dan delivery | Agent tanpa aturan layar dibaca secara generik. Bacaan proses CLI (`rchar`) menahan `working` selama model mengirim stream, tetapi CLI yang membaca socket lewat `recv()` (Python, Rust) masih bisa terbaca `ready` saat berpikir tanpa output: sesudah 3 detik di layar prompt, sesudah 15 detik di layar lain. Daftar CLI aman untuk `whileWorking:"type"` belum ada |
 | Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan |
 | Multi-repo | Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |

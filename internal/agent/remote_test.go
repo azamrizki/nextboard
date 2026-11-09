@@ -54,7 +54,7 @@ func TestRemotePlans(t *testing.T) {
 		return env(p, "NB_WRAP")
 	}
 	claude := wrap("claude")
-	for _, want := range []string{"Read,Write,Edit,TodoWrite", `"$NB_MCP"`, "--strict-mcp-config", "mcp__nextboard__bash"} {
+	for _, want := range []string{"Read,Write,Edit,TodoWrite,Skill", `"$NB_MCP"`, "--strict-mcp-config", "mcp__nextboard__bash", "Skill,mcp__nextboard__"} {
 		if !strings.Contains(claude, want) {
 			t.Fatalf("claude lacks %q:\n%s", want, claude)
 		}
@@ -64,6 +64,27 @@ func TestRemotePlans(t *testing.T) {
 		if !strings.Contains(codex, want) {
 			t.Fatalf("codex lacks %q:\n%s", want, codex)
 		}
+	}
+	// OpenCode: the skill tool stays for the copies, every local tool that reaches This PC goes,
+	// and the project's commands come in its config rather than a .opencode folder.
+	withCommands := *r
+	withCommands.Commands = []ProjectCommand{{Name: "team/ship", Description: "Ship it", Template: "SHIP $ARGUMENTS"}}
+	oc, err := Build(catalogAgent(t, "opencode"), Options{Mode: ModeFresh, Token: "sekrit-777", SessionID: "s_1", Context: &withCommands})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ocCfg struct {
+		Permission map[string]any               `json:"permission"`
+		Command    map[string]map[string]string `json:"command"`
+	}
+	if err := json.Unmarshal([]byte(env(oc, "OPENCODE_CONFIG_CONTENT")), &ocCfg); err != nil {
+		t.Fatal(err)
+	}
+	if ocCfg.Permission["skill"] != "allow" || ocCfg.Permission["bash"] != "deny" || ocCfg.Permission["read"] != "deny" || ocCfg.Permission["edit"] != "deny" {
+		t.Fatalf("opencode permissions %v", ocCfg.Permission)
+	}
+	if c := ocCfg.Command["team/ship"]; c["template"] != "SHIP $ARGUMENTS" || c["description"] != "Ship it" {
+		t.Fatalf("opencode commands %v", ocCfg.Command)
 	}
 	p, err := Build(catalogAgent(t, "codex"), Options{Mode: ModeFresh, Token: "sekrit-777", SessionID: "s_1", Context: r})
 	if err != nil {

@@ -681,9 +681,9 @@ CLI agen selalu berjalan di This PC. Tanpa `settings.agents.remoteTools`, server
 
 | CLI | Tool hub | Tool lokal | Yolo di server | Terverifikasi |
 |---|---|---|---|---|
-| Claude Code | `--mcp-config "$NB_MCP" --strict-mcp-config` | `--tools Read,Write,Edit,TodoWrite`, tanpa Bash | `--allowedTools` tool hub saja | Console nyata, dengan dan tanpa yolo |
+| Claude Code | `--mcp-config "$NB_MCP" --strict-mcp-config` | `--tools Read,Write,Edit,TodoWrite,Skill`, tanpa Bash | `--allowedTools` tool hub dan `Skill` saja | Console nyata, dengan dan tanpa yolo |
 | Codex | `-c mcp_servers.nextboard.*` | `--disable shell_tool --disable unified_exec --sandbox read-only` | `default_tools_approval_mode="approve"` | Console nyata 0.165.0 tanpa yolo; argumen yolo lewat test |
-| OpenCode | `OPENCODE_CONFIG_CONTENT` (`mcp`) | `permission` semua tool lokal `deny`, tool hub `ask` | tidak ada | MCP terhubung dan tool lokal terbukti mati (1.17.15); belum sampai menjawab karena provider di mesin uji gagal |
+| OpenCode | `OPENCODE_CONFIG_CONTENT` (`mcp`) | `permission` semua tool lokal `deny` kecuali `skill`, tool hub `ask` | tidak ada | MCP terhubung dan tool lokal terbukti mati (1.17.15); giliran penuh hanya terhadap model palsu, belum dengan provider sungguhan |
 
 Yolo di server tidak pernah memakai flag lewati-semua milik CLI, sehingga tidak membuka akses ke This PC. Memory project tetap satu (API-orchestration §12): Claude Code lewat folder memory lokal, Codex dan OpenCode lewat `memory_read`/`memory_save`; `read-only` Codex dan `deny` OpenCode menutup tulis lokal lainnya. Instruksi project: `CLAUDE.md` lalu `AGENTS.md` untuk Claude Code, `AGENTS.md` lalu `CLAUDE.md` untuk yang lain.
 
@@ -708,11 +708,21 @@ Codex 0.165.0 di server yang sama: order lewat command bar sampai, tiga prompt i
 
 **Skill, commands, dan instruksi subfolder (2026-11-08).** Saat diluncurkan, hub mencari di folder project di server, dengan satu perintah dan batas 20 detik:
 - `CLAUDE.md`/`AGENTS.md` di subfolder (kedalaman ≤ 6, tanpa `node_modules`, `vendor`, `.git`, `storage`, `dist`, `build`, `.next`, `target`, `.venv`; ≤ 40 folder, nama milik CLI itu didahulukan). Daftarnya masuk prompt sistem, dengan perintah membacanya lewat `read_file` sebelum bekerja di folder itu.
-- Untuk Claude Code: file biasa di `.claude/commands` dan `.claude/skills` (≤ 300 file, masing-masing ≤ 256 KB, total ≤ 4 MB, teks saja, symlink tidak diikuti) disalin lewat SFTP ke `.claude/` di folder kerja lokal console, menggantikan salinan peluncuran sebelumnya. Claude Code memuatnya sebagai commands dan skills project. Prompt menjelaskan bahwa file itu dibaca dengan Read lokal, sedangkan file dan skrip yang disebutnya ada di server.
+- Skill dan command project, dari folder mana pun yang dipakai project: skill di `.claude/skills`, `.agents/skills`, `.opencode/skills`, `.opencode/skill`, `.codex/skills`; command di `.claude/commands`, `.opencode/commands`, `.opencode/command`. Formatnya sama, dan Skills manager NextBoard menulis ke `.claude`, jadi skill itu sampai ke Codex juga. Kalau namanya sama, folder milik CLI itu menang. Hanya file utama yang disalin lewat SFTP (≤ 300 file, masing-masing ≤ 256 KB, total ≤ 4 MB, teks saja, symlink tidak diikuti), menggantikan salinan peluncuran sebelumnya, juga milik CLI lain di tile yang sama. File lain milik skill dan skripnya tetap di server, dan bagian atas salinan menyebut foldernya.
+
+| CLI | Skill | Command | Cara model memakai skill |
+|---|---|---|---|
+| Claude Code | `.claude/skills` | `.claude/commands` | `/nama`, atau tool `Skill` (ditambahkan ke `--tools`) |
+| Codex | `.agents/skills` | Jadi skill bernama sama (`team/ship.md` → `team-ship`), karena Codex tidak punya command project | `$nama` menyuntikkan isinya. Tanpa disebut, model hanya melihat daftar dan tidak punya tool lokal untuk membaca, jadi prompt menyebut path tiap skill di server untuk `read_file` (≤ 40) |
+| OpenCode | `.agents/skills` | Lewat `command` di `OPENCODE_CONFIG_CONTENT` (≤ 64 KB), karena folder `.opencode` membuatnya memasang 63 MB paket di tiap console | `/nama`, atau tool `skill` (`permission.skill: allow`) |
+
+**Isi file itu dari komputer lain, tapi CLI-nya bertindak di This PC.** Tanpa perlakuan khusus: OpenCode 1.17.15 menjalankan ``!`cmd` `` di This PC walau `bash: deny`, dan Claude Code 2.1.319 membaca `@/path` milik This PC ke prompt tanpa bertanya (shell-nya sendiri ditolak karena tidak ada Bash, yang menggagalkan seluruh skill). Jadi yang disalin dilucuti (`disarm`, `internal/server/remotemirror.go`): blok ``!`cmd` `` dan ` ```! ` menjadi teks dengan perintah menjalankannya lewat `bash`; `!` sebelum placeholder ikut dibuang karena OpenCode mengisi placeholder lebih dulu; `@` yang bisa keluar dari folder CLI dibuang (awalan `/ ~ . $`, kutip, atau berisi `..`), sedangkan `@types/node` dan `@src/app.php` tetap. Frontmatter ditulis ulang dari daftar izin (`name`, `description`, `when_to_use`, `argument-hint`, `disable-model-invocation`, `user-invocable`), jadi `hooks`, `allowed-tools`, `model`, dan kunci baru apa pun tidak ikut. `.claude/settings.json`, plugin dan tool `.opencode`, `opencode.json`, serta `.codex/config.toml` tidak pernah disalin. Skill tanpa `description` memakai baris pertamanya, karena Codex menolak skill tanpa itu dan OpenCode tidak memberitahukannya ke model.
+
+Diuji dengan CLI sungguhan terhadap model palsu di loopback, HOME kosong, tanpa akun: `NEXTBOARD_REAL_SKILLS_TEST=1 go test ./internal/server -run TestRealCLIsTakeServerSkills`. Tiap CLI punya kontrol memakai file aslinya, yang harus tetap berbahaya, supaya tesnya terbukti bisa mendeteksi. `FuzzDisarm` menjaga sisanya. Batas: model sungguhan belum diuji memilih dan mengikuti skill-nya sendiri.
 
 **Perintah panjang (2026-11-08).** `bash{command, run_in_background:true}` langsung menjawab dengan id `bg_…`. Perintahnya jalan sampai 1 jam di server (stdout dan stderr digabung). `bash_output{id, wait_ms?}` memberi keluaran sejak panggilan terakhir (≤ 30.000 karakter, menunggu sampai 30 detik bila belum ada yang baru) dan statusnya: masih jalan, exit code, atau alasan berhenti. `bash_kill{id}` menghentikannya. Paling banyak 4 perintah latar per console; keluaran yang belum dibaca disimpan ≤ 1 MB, dan bagian terlama dibuang dengan catatan. Yang selesai dilupakan 30 menit kemudian. Daftar perintah terblokir berlaku sama seperti `bash` biasa.
 
-**Batas yang diketahui:** commands dan skills hanya untuk Claude Code (Codex tidak memuat commands project); git di server memakai kredensial server; OpenCode belum pernah diamati saat menjalankan giliran, dan login-nya masih di folder OpenCode sendiri karena config-nya tersebar di beberapa variabel XDG. Agen katalog lain belum didukung karena belum terpasang di mesin uji.
+**Batas yang diketahui:** git di server memakai kredensial server; OpenCode belum pernah diamati menjawab dengan provider sungguhan, dan login-nya masih di folder OpenCode sendiri karena config-nya tersebar di beberapa variabel XDG. Agen katalog lain belum didukung karena belum terpasang di mesin uji.
 
 ## 22. Konteks peluncuran
 

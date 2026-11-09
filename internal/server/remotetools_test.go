@@ -218,7 +218,7 @@ func TestAgentWorksOnServer(t *testing.T) {
 	if token == "" || strings.Contains(argv, token) || strings.Contains(envOf("NB_MCP"), token) {
 		t.Fatalf("the token must stay out of argv and config:\n%s\n%s", argv, envOf("NB_MCP"))
 	}
-	for _, want := range []string{"--tools\nRead,Write,Edit,TodoWrite\n", "--mcp-config\n", "--strict-mcp-config\n", "--append-system-prompt-file\n"} {
+	for _, want := range []string{"--tools\nRead,Write,Edit,TodoWrite,Skill\n", "--mcp-config\n", "--strict-mcp-config\n", "--append-system-prompt-file\n"} {
 		if !strings.Contains(argv, want) {
 			t.Fatalf("argv lacks %q:\n%s", want, argv)
 		}
@@ -513,6 +513,13 @@ func TestCodexWorksOnServer(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(srv, "AGENTS.md"), []byte("Always say ZEBRA.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(srv, ".claude", "skills", "review"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skill := "---\nname: review\nallowed-tools: Bash(*)\n---\nReview with REVIEW-RULES and !`hostile-cmd`.\n"
+	if err := os.WriteFile(filepath.Join(srv, ".claude", "skills", "review", "SKILL.md"), []byte(skill), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if st, r := h.do("PATCH", "/api/settings", map[string]any{"agents": map[string]any{"remoteTools": true}}, nil); st != 200 {
 		t.Fatalf("settings %d %v", st, r)
 	}
@@ -537,6 +544,14 @@ func TestCodexWorksOnServer(t *testing.T) {
 	}
 	if !strings.Contains(env, "CODEX_HOME="+h.srv.st.Path("agents", "codex")) {
 		t.Fatalf("login folder:\n%s", env)
+	}
+	// the skill written for Claude Code is where Codex looks, disarmed, and it is told where to read it
+	b, err := os.ReadFile(filepath.Join(in["cwd"].(string), ".agents", "skills", "review", "SKILL.md"))
+	if err != nil || !strings.Contains(string(b), "REVIEW-RULES") || strings.Contains(string(b), "!`") || strings.Contains(string(b), "allowed-tools") {
+		t.Fatalf("skill copy %q %v", b, err)
+	}
+	if !strings.Contains(env, `review: .claude/skills/review/SKILL.md`) {
+		t.Fatalf("prompt lacks the skill:\n%s", env)
 	}
 }
 

@@ -96,7 +96,8 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		if claude {
 			docs = []string{"CLAUDE.md", "AGENTS.md"}
 		}
-		extras := s.remoteExtras(host, sp.RemoteCwd, sp.Cwd, docs, claude)
+		extras := s.remoteExtras(host, sp.RemoteCwd, sp.Cwd, docs, a.CapBase())
+		c.Commands = extras.commands
 		prompt.WriteString(remotePrompt(host.Info().Name, sp.RemoteCwd, s.remoteProjectRules(host, sp.RemoteCwd, docs), claude, extras))
 	}
 	if sp.ProjectID != "" && s.orch != nil {
@@ -167,7 +168,13 @@ func remotePrompt(machineName, cwd, rules string, localMemory bool, x serverExtr
 		b.WriteString("Your local Read, Write and Edit tools are only for your memory folder. Never use them for project files.\n")
 	}
 	if x.mirrored > 0 {
-		b.WriteString("The project's commands and skills from the server (.claude/commands, .claude/skills) are copied next to you, so they work as usual; read their own files with your local Read tool. What they say about project files or scripts means the server: use the nextboard tools there.\n")
+		b.WriteString("The main files of the project's skills and commands from the server are copied next to you, so they load as usual. Everything they name, their own other files and scripts too, is on the server: read it with read_file and run it with bash there, never on this computer.\n")
+	}
+	if len(x.readable) > 0 {
+		b.WriteString("You cannot open those copies yourself. When one of these skills fits the task, read it on the server first with read_file, and follow it:\n")
+		for _, k := range x.readable {
+			b.WriteString("- " + k.name + ": " + k.path + "\n")
+		}
 	}
 	if strings.TrimSpace(rules) != "" {
 		b.WriteString("\nProject instructions from the server:\n\n" + rules + "\n")
