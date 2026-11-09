@@ -161,6 +161,12 @@ func TestSplitWhoAndNumbers(t *testing.T) {
 	if got := SplitWho("@Ash, Bea and the reviewers"); !reflect.DeepEqual(got, []string{"Ash", "Bea", "reviewers"}) {
 		t.Fatal(got)
 	}
+	if got := SplitWho("Ash dan Bea, tim Backend"); !reflect.DeepEqual(got, []string{"Ash", "Bea", "Backend"}) {
+		t.Fatal(got)
+	}
+	if got := SplitWho("dan"); !reflect.DeepEqual(got, []string{"dan"}) {
+		t.Fatal(got) // a console called Dan
+	}
 	for w, n := range map[string]int{"a": 1, "an": 1, "twelve": 12, "7": 7, "x": 0, "0": 0} {
 		if Number(w) != n {
 			t.Errorf("%s → %d", w, Number(w))
@@ -195,6 +201,134 @@ func TestNameMatching(t *testing.T) {
 	for w, k := range map[string]string{"Philip": "FLP", "Filip": "FLP", "Thomas": "TMS", "Knight": "NT", "Xavier": "SF", "Ash": "AX", "Schmidt": "XMT"} {
 		if got := Metaphone(w); got != k {
 			t.Errorf("Metaphone(%s) = %q, want %q", w, got, k)
+		}
+	}
+}
+
+// TestParserIndonesian: the Indonesian frames of §3.2 give the same intents as the English ones,
+// names and the text for agents kept as typed; remarks to the lead stay with the planner.
+func TestParserIndonesian(t *testing.T) {
+	ctx := ParseContext{Agents: []string{"claude", "codex", "gemini", "shell", "my-bot"}}
+	ui := func(a string) Intent { return Intent{Kind: IntentUI, UI: &UIAction{Action: a}} }
+	panel := func(p string) Intent { return Intent{Kind: IntentUI, UI: &UIAction{Action: "openPanel", Panel: p}} }
+	for _, c := range []struct {
+		text string
+		want Intent
+	}{
+		// smalltalk and cancel
+		{"makasih", Intent{Kind: IntentSmalltalk, Reply: "Sama-sama."}},
+		{"terima kasih banyak!", Intent{Kind: IntentSmalltalk, Reply: "Sama-sama."}},
+		{"oke", Intent{Kind: IntentSmalltalk, Reply: "👍"}},
+		{"sip", Intent{Kind: IntentSmalltalk, Reply: "👍"}},
+		{"batal", Intent{Kind: IntentCancel}},
+		{"gak jadi", Intent{Kind: IntentCancel}},
+		// camera and panels
+		{"perbesar", ui("zoomIn")},
+		{"perkecil", ui("zoomOut")},
+		{"tampilkan semua", ui("fit")},
+		{"fokus ke Backend", Intent{Kind: IntentUI, UI: &UIAction{Action: "focus"}, Focus: "Backend"}},
+		{"buka memori", panel("memory")},
+		{"buka panel loop", panel("loops")},
+		{"buka skills", panel("skills")},
+		{"tutup panel", ui("closePanel")},
+		// workspaces
+		{"pindah ke workspace 2", Intent{Kind: IntentWsGo, Name: "2"}},
+		{"buat workspace baru", Intent{Kind: IntentWsCreate}},
+		{"buat workspace baru bernama Infra", Intent{Kind: IntentWsCreate, Name: "Infra"}},
+		{"ganti nama workspace ini jadi API", Intent{Kind: IntentWsRename, Name: "API"}},
+		{"tutup workspace 3", Intent{Kind: IntentWsClose, Name: "3"}},
+		// tiles
+		{"tambah catatan", Intent{Kind: IntentNodeAdd, NodeKind: "note"}},
+		{"tambahkan catatan berisi rilis hari Jumat", Intent{Kind: IntentNodeAdd, NodeKind: "note", NodeText: "rilis hari Jumat"}},
+		{"tambah kanban", Intent{Kind: IntentNodeAdd, NodeKind: "kanban"}},
+		{"tambah kalender", Intent{Kind: IntentNodeAdd, NodeKind: "calendar"}},
+		{"buka localhost 5173", Intent{Kind: IntentNodeAdd, NodeKind: "web", Port: 5173}},
+		// loops, git, memory
+		{"setiap 15 menit jalankan tes", Intent{Kind: IntentLoop, EverySec: 900, Text: "jalankan tes"}},
+		{"tiap 2 jam rangkum progres", Intent{Kind: IntentLoop, EverySec: 7200, Text: "rangkum progres"}},
+		{"commit dan push", Intent{Kind: IntentGit, Git: "commitPush"}},
+		{"commit dengan pesan perbaiki login", Intent{Kind: IntentGit, Git: "commit", Message: "perbaiki login"}},
+		{"kirim memori ke Ash", Intent{Kind: IntentMemPush, Who: []string{"Ash"}}},
+		{"pindai memori", Intent{Kind: IntentMemScan}},
+		// questions
+		{"gimana progresnya?", Intent{Kind: IntentAsk, Query: "status"}},
+		{"siapa yang sudah selesai?", Intent{Kind: IntentAsk, Query: "finished"}},
+		{"siapa yang butuh aku", Intent{Kind: IntentAsk, Query: "needsYou"}},
+		{"ringkasan", Intent{Kind: IntentAsk, Query: "summary"}},
+		{"bantuan", Intent{Kind: IntentAsk, Query: "help"}},
+		// spawn and groups
+		{"buat 2 claude", Intent{Kind: IntentSpawn, Count: 2, Agent: "claude"}},
+		{"jalankan tiga codex penguji", Intent{Kind: IntentSpawn, Count: 3, Agent: "codex", Role: "testers"}},
+		{"tambah satu agen baru", Intent{Kind: IntentSpawn, Count: 1}},
+		{"terminal baru", Intent{Kind: IntentSpawn, Count: 1, Agent: "shell"}},
+		{"konsol baru", Intent{Kind: IntentSpawn, Count: 1}},
+		{"kelompokkan Ash dan Bea", Intent{Kind: IntentGroupCreate, Who: []string{"Ash", "Bea"}}},
+		{"kelompokkan ini", Intent{Kind: IntentGroupCreate, Select: true}},
+		{"bubarkan grup Backend", Intent{Kind: IntentDissolve, Who: []string{"Backend"}}},
+		{"buat 2 penguji", Intent{Kind: IntentSpawn, Count: 2, Role: "testers"}},
+		{"buat agen penguji", Intent{Kind: IntentSpawn, Count: 1, Role: "testers"}},
+		{"tambah satu lagi", Intent{Kind: IntentSpawn, Count: 1}},
+		{"jalankan claude", Intent{Kind: IntentSpawn, Count: 1, Agent: "claude"}},
+		{"buat tim 3 codex penguji bernama Review", Intent{Kind: IntentGroupCreate, Count: 3, Agent: "codex", Role: "testers", Name: "Review"}},
+		{"buat grup empat", Intent{Kind: IntentGroupCreate, Count: 4}},
+		{"tambah 2 codex ke Backend", Intent{Kind: IntentGroupAdd, Count: 2, Agent: "codex", Name: "Backend"}},
+		{"tambah satu penguji ke tim backend", Intent{Kind: IntentGroupAdd, Count: 1, Role: "testers", Name: "backend"}},
+		// wire, the rest of the tiles and panels, drawing, layouts
+		{"tambah orkestrator", Intent{Kind: IntentNodeAdd, NodeKind: "orchestrator"}},
+		{"tambahkan orkestrator untuk Backend", Intent{Kind: IntentNodeAdd, NodeKind: "orchestrator", Who: []string{"Backend"}}},
+		{"hubungkan Ash ke orkestrator", Intent{Kind: IntentWire, Who: []string{"Ash"}}},
+		{"sambungkan Backend ke orkestrator Planning", Intent{Kind: IntentWire, Who: []string{"Backend"}, Name: "Planning"}},
+		{"buka peta misi", panel("mission")},
+		{"urungkan", ui("undo")},
+		{"saya mau gambar", Intent{Kind: IntentUI, UI: &UIAction{Action: "tool", Tool: "pen"}}},
+		{"penghapus", Intent{Kind: IntentUI, UI: &UIAction{Action: "tool", Tool: "eraser"}}},
+		{"terapkan layout Trio", Intent{Kind: IntentDeploy, Name: "Trio"}},
+		// pause, resume, restart, kill
+		{"jeda", Intent{Kind: IntentPause, All: true}},
+		{"jeda semua", Intent{Kind: IntentPause, All: true}},
+		{"jeda Ash", Intent{Kind: IntentPause, Who: []string{"Ash"}}},
+		{"tunggu dulu", Intent{Kind: IntentPause, All: true}},
+		{"lanjutkan semua", Intent{Kind: IntentResume, All: true}},
+		{"lanjutkan Bea", Intent{Kind: IntentResume, Who: []string{"Bea"}}},
+		{"mulai ulang Ash", Intent{Kind: IntentRestart, Who: []string{"Ash"}}},
+		{"matikan semua", Intent{Kind: IntentKill, All: true}},
+		{"matikan Ash dan Bea", Intent{Kind: IntentKill, Who: []string{"Ash", "Bea"}}},
+		{"tutup Cass", Intent{Kind: IntentKill, Who: []string{"Cass"}}},
+		// orders
+		{"suruh Arkan untuk perbaiki tes", Intent{Kind: IntentTell, Who: []string{"Arkan"}, Text: "perbaiki tes"}},
+		{"minta Bea dan Cass agar review PR-nya", Intent{Kind: IntentTell, Who: []string{"Bea", "Cass"}, Text: "review PR-nya"}},
+		{"suruh Ash jalankan tes", Intent{Kind: IntentTell, Who: []string{"Ash"}, Text: "jalankan tes", Name: "address"}},
+		{"kasih semua prompt yang sama: review main.go", Intent{Kind: IntentSame, Text: "review main.go"}},
+		{"bilang ke semua: commit kerjaan kalian", Intent{Kind: IntentSame, Text: "commit kerjaan kalian"}},
+		{"serahkan ke codex", Intent{Kind: IntentHandoff, Agent: "codex"}},
+		{"oper tugas ini ke claude dari Ash", Intent{Kind: IntentHandoff, Agent: "claude", From: "Ash"}},
+		{"kalau Ash selesai, teruskan ke Bea", Intent{Kind: IntentForward, Who: []string{"Ash"}, To: []string{"Bea"}}},
+		{"setelah tim review selesai kirim hasilnya ke Cass", Intent{Kind: IntentForward, Who: []string{"review"}, To: []string{"Cass"}}},
+		// remarks and requests for the lead: the planner reads them
+		{"lanjut", Intent{}},
+		{"tunggu", Intent{}},
+		{"jalankan tes", Intent{}},
+		{"buat fitur login", Intent{}},
+		{"buatkan halaman login yang responsif", Intent{}},
+		{"tolong cek halaman login, error terus", Intent{}},
+		{"hapus file ini", Intent{}},
+		{"lihat log server", Intent{}},
+		{"jalankan lagi", Intent{}},
+		{"buat baru", Intent{}},
+		{"tambah lagi", Intent{}},
+		{"buat dokumentasi", Intent{}},
+		{"jalankan backend", Intent{}},
+		{"jalankan frontend", Intent{}},
+		{"tambah keamanan", Intent{}},
+		{"buat desain", Intent{}},
+		{"buat cli", Intent{}},
+		{"jalankan code", Intent{}},
+		{"buat tim marketing", Intent{}},
+		{"tambah catatan ke board", Intent{}},
+		{"tambah test ke file login", Intent{}},
+	} {
+		if got := Parse(c.text, ctx); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%q:\n got  %+v (ui %+v)\n want %+v (ui %+v)", c.text, got, got.UI, c.want, c.want.UI)
 		}
 	}
 }

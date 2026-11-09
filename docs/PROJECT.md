@@ -353,7 +353,7 @@ Rahasia disegel di `mcp-servers.json`, tidak pernah kembali ke klien, dan keluar
 
 **Command bar.** Di bawah board (`Ctrl/⌘K`), riwayat ↑/↓, menu `@`. Mencakup semua board dalam project; project lain hanya tercapai lewat handle eksplisit.
 
-**Parser lokal.** Bahasa Inggris, tanpa AI, selalu tersedia:
+**Parser lokal.** Bahasa Inggris dan bahasa Indonesia (`jeda semua`, `suruh Ash untuk …`, `buat 2 claude`; daftar di API-orchestration §3.2), tanpa AI, selalu tersedia:
 
 | Area | Contoh |
 |---|---|
@@ -889,7 +889,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Workbench | Debug Node belum bisa attach ke proses yang sudah berjalan. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History hanya untuk project di This PC |
 | Agent di server | Commands dan skills server hanya untuk Claude Code; git memakai kredensial server. OpenCode belum pernah diamati saat menjalankan giliran; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
 | Status dan delivery | Agent tanpa aturan layar dibaca secara generik. Bacaan proses CLI (`rchar`) menahan `working` selama model mengirim stream, tetapi CLI yang membaca socket lewat `recv()` (Python, Rust) masih bisa terbaca `ready` saat berpikir tanpa output: sesudah 3 detik di layar prompt, sesudah 15 detik di layar lain. Daftar CLI aman untuk `whileWorking:"type"` belum ada |
-| Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan. Parser hanya bahasa Inggris |
+| Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan |
 | Multi-repo | Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
 | Git | Menulis ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup. Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
 | Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |

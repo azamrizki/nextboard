@@ -568,3 +568,83 @@ func targetOf(o Order, handle string) OrderTarget {
 	}
 	return OrderTarget{}
 }
+
+// TestIndonesianCommands: an Indonesian command runs through the same pipeline as its English
+// twin, with the same confirmations; a remark the parser does not know goes to the planner.
+func TestIndonesianCommands(t *testing.T) {
+	h, s := newFakeHub(t)
+	p, wid := h.project("app")
+	ash := h.console(p, wid, "Ash", "claude", agentstate.Ready)
+	bea := h.console(p, wid, "Bea", "claude", agentstate.Ready)
+	if r := cmd(t, s, wid, "jeda Bea"); strings.Join(h.calls, " ") != "pause:"+bea.ID || r.HandledBy != "parser" {
+		t.Fatalf("jeda %v %s", h.calls, r.HandledBy)
+	}
+	h.calls = nil
+	r := cmd(t, s, wid, "matikan semua")
+	if r.Confirmation == nil || r.Confirmation.Kind != ConfDestructive || len(h.calls) != 0 {
+		t.Fatalf("matikan semua %+v %v", r.Confirmation, h.calls)
+	}
+	cmd(t, s, wid, "gak jadi")
+	if c, _ := s.Confirms.Get(r.Confirmation.ID); c.State != ConfCancelled || len(h.calls) != 0 {
+		t.Fatalf("gak jadi %+v %v", c, h.calls)
+	}
+	cmd(t, s, wid, "suruh Ash untuk perbaiki tes login")
+	if d := h.deliveriesTo(ash.ID); len(d) != 1 || d[0].Text != "perbaiki tes login" {
+		t.Fatalf("suruh %+v", d)
+	}
+	if r := cmd(t, s, wid, "suruh Bea untuk jalankan rm -rf build"); r.Confirmation == nil || r.Confirmation.Kind != ConfRisky ||
+		len(h.deliveriesTo(bea.ID)) != 0 {
+		t.Fatalf("risky %+v", r.Confirmation)
+	}
+	if r := cmd(t, s, wid, "makasih"); !strings.Contains(texts(r), "Sama-sama.") {
+		t.Fatalf("makasih %s", texts(r))
+	}
+	if r, err := s.Command(CommandRequest{Text: "lanjutkan perbaikan halaman login", WorkspaceID: wid}); err != nil || r.HandledBy != "pending" {
+		t.Fatalf("planner %v %s", err, r.HandledBy)
+	}
+}
+
+// TestNamesNobodyHasGoToThePlanner: a command whose names all belong to nothing may not be about
+// consoles at all; the planner reads it. Without one, the hub says what it does not know.
+func TestNamesNobodyHasGoToThePlanner(t *testing.T) {
+	for _, text := range []string{
+		"stop the dev server", "restart the database", "tell him to look at the login page", "go to the login page",
+		"matikan server dev", "muat ulang halaman", "gabungkan branch ini ke main", "pisahkan fungsi login dari controller",
+		"minta tolong cek login", "suruh dia perbaiki tes", "minta dia untuk perbaiki tes", "fokus ke perbaikan login",
+	} {
+		h, s := newFakeHub(t)
+		p, wid := h.project("app")
+		h.console(p, wid, "Arkan", "claude", agentstate.Ready)
+		h.console(p, wid, "Bintang", "claude", agentstate.Ready)
+		if r, err := s.Command(CommandRequest{Text: text, WorkspaceID: wid}); err != nil || r.HandledBy != "pending" || r.Confirmation != nil {
+			t.Errorf("%q: %v %s %+v", text, err, r.HandledBy, r.Confirmation)
+		}
+		if len(h.calls) != 0 {
+			t.Errorf("%q ran %v", text, h.calls)
+		}
+	}
+	h, s := newFakeHub(t)
+	p, wid := h.project("app")
+	ash := h.console(p, wid, "Ash", "claude", agentstate.Ready)
+	h.console(p, wid, "Bea", "claude", agentstate.Ready)
+	for text, want := range map[string]string{
+		"stop the dev server":          "I don't know",
+		"tell Zedekiah to fix it":      "I don't know",
+		"gabungkan Zedekiah dan Yosef": "I don't know",
+		"bubarkan Zedekiah":            "There is no group",
+		"fokus ke Zedekiah":            "I can't find",
+	} {
+		if r := cmd(t, s, wid, text); !strings.Contains(texts(r), want) {
+			t.Errorf("no planner, %q: %s", text, texts(r))
+		}
+	}
+	// one known name among strangers is about consoles: the hub says which one it does not know
+	r, err := s.Command(CommandRequest{Text: "kill Ash and Zedekiah", WorkspaceID: wid})
+	if err != nil || r.HandledBy == "pending" || !strings.Contains(texts(r), "I don't know") {
+		t.Fatalf("%v %s %s", err, r.HandledBy, texts(r))
+	}
+	// a known name still goes straight through, with its confirmation
+	if r, _ := s.Command(CommandRequest{Text: "matikan Ash", WorkspaceID: wid}); r.Confirmation == nil || !strings.Contains(r.Confirmation.Prompt, "@"+ash.Handle) {
+		t.Fatalf("%+v", r.Confirmation)
+	}
+}

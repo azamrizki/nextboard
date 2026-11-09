@@ -135,7 +135,7 @@ Error: `400 empty_text`, `413 text_too_long` (> 4000 karakter), `404 workspace_n
 
 ### 3.2 Parser lokal (D4)
 
-Normalisasi: trim, spasi tunggal, pencocokan case-insensitive (teks asli dipakai untuk isi order), kata bilangan `one`…`twelve`, `a`/`an` = 1. `<who>` diselesaikan oleh §3.3. Fase 6: bahasa Inggris; alias bahasa Indonesia boleh ditambah kemudian di tabel yang sama.
+Normalisasi: trim, spasi tunggal, pencocokan case-insensitive (teks asli dipakai untuk isi order), kata bilangan `one`…`twelve` dan `satu`…`sebelas`, `a`/`an`/`sebuah` = 1. `<who>` diselesaikan oleh §3.3. Bahasa Inggris dan bahasa Indonesia (tabel kedua di bawah).
 
 | Area | Pola (contoh) | Step | Konfirmasi |
 |---|---|---|---|
@@ -168,6 +168,27 @@ Normalisasi: trim, spasi tunggal, pencocokan case-insensitive (teks asli dipakai
 | Basa-basi | `thanks`, `ok`, `nice`, `cool` | balasan pendek hub, tidak dikirim ke agen | — |
 
 Teks yang tidak cocok dan tanpa addressee → planner bila tersedia; tanpa planner → §3.11.
+
+**Bahasa Indonesia** (`internal/orch/parse_id.go`). Tiap bingkai diubah ke kalimat Inggris di atas lalu diurai dengan aturan yang sama, jadi step dan konfirmasinya sama persis; nama dan teks untuk agen tetap seperti diketik. `<who>` juga mengenal `dan`, `semua`/`semuanya`/`semua agen` (= semua), awalan `tim`/`grup`/`kelompok`; peran `penguji`, `pengulas`, `desainer`, `dokumentasi`, `keamanan`, `umum`.
+
+| Area | Pola (contoh) |
+|---|---|
+| Spawn | `buat\|buatkan\|jalankan\|nyalakan\|tambah(kan) [<n>] [<agent>] [<peran>]` (peran saja tidak cukup: harus ada bilangan, CLI, atau kata `agen`/`konsol`), `terminal baru`, `buka shell`, `konsol baru` |
+| Grup / bubar | `buat grup\|tim\|kelompok <n> [<agent>] [<peran>] [bernama <nama>]`, `tambah <n> [<agent>\|<peran>] ke [grup\|tim] <grup>`, `kelompokkan\|gabungkan <who…>`, `kelompokkan ini`, `bubarkan\|pisahkan <grup>` |
+| Pause | `jeda\|tahan\|hentikan sementara [<who>]`, `tunggu dulu`, `tahan dulu`, `stop dulu` / `lanjutkan\|teruskan <who>` |
+| Restart / kill | `mulai ulang\|muat ulang <who>` / `matikan\|hentikan\|tutup <who>`, `matikan semua` |
+| Tell / sama | `suruh\|minta\|perintahkan <who> untuk\|agar\|supaya <teks>`, `suruh <handle> <teks>` / `kasih semua prompt yang sama: <teks>`, `bilang ke semua: <teks>` |
+| Handoff / forward | `serahkan\|oper [tugas ini] ke <agent> [dari <handle>]` / `kalau\|setelah <who> selesai, teruskan\|kirim [hasilnya] ke <who>` |
+| Batal / tanya | `batal`, `gak jadi` / `status`, `gimana progresnya`, `siapa yang selesai`, `siapa yang butuh aku`, `ringkasan`, `bantuan` |
+| Kamera / panel | `perbesar`, `perkecil`, `tampilkan semua`, `fokus ke <who>` / `buka memori\|pengaturan\|git\|kode\|skills\|loop\|peta misi…`, `tutup panel` |
+| Gambar / undo / layout | `saya mau gambar`, `penghapus` / `urungkan` / `terapkan layout <nama>` |
+| Node / wire / workspace | `tambah catatan [berisi <teks>]`, `tambah checklist\|kanban\|kalender\|uptime`, `tambah orkestrator [untuk <grup>]`, `buka localhost <port>` / `hubungkan <who> ke orkestrator [<judul>]` / `pindah ke workspace <n>`, `buat workspace baru [bernama <nama>]`, `ganti nama workspace jadi <nama>`, `tutup workspace <n>` |
+| Loop / git / memori | `setiap\|tiap <n> menit\|jam <teks>` / `commit dan push`, `commit dengan pesan <msg>` / `kirim memori [ke <who>]`, `pindai memori` |
+| Basa-basi | `makasih`, `terima kasih` (balasan "Sama-sama."), `oke`, `sip`, `mantap` |
+
+Sengaja tidak dipetakan: `lanjut`, `tunggu`, `lihat`, `hapus` sendirian, dan `jalankan`/`buat` + sesuatu yang bukan konsol (`jalankan tes`, `jalankan lagi`, `jalankan backend`, `buat dokumentasi`, `buat fitur login`); kata itu sama seringnya ucapan ke lead seperti perintah, jadi planner yang membacanya. Diuji di `TestParserIndonesian` dan `TestIndonesianCommands`.
+
+**Nama yang tidak dikenal** (kedua bahasa). Bila tidak satu pun nama dalam `<who>` milik konsol atau grup yang ada, dan tidak ada yang mirip, kalimat itu mungkin bukan soal konsol ("stop the dev server", "gabungkan branch ini ke main"): planner yang membacanya. Tanpa planner hub menjawab apa yang tidak ia kenal. Satu nama dikenal di antara yang tidak dikenal tetap dianggap soal konsol, dan hub menyebut yang tidak ia kenal. Diuji di `TestNamesNobodyHasGoToThePlanner`.
 
 ### 3.3 @mention dan resolusi nama (D2)
 

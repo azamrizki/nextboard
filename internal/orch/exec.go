@@ -475,7 +475,8 @@ func (s *Service) ask(c *execCtx, q string) {
 	switch q {
 	case "help":
 		s.say(c, ThreadMessage{Kind: "reply", Text: "Try: \"@Arkan run the tests\", \"spawn 3 codex reviewers\", \"group Arkan and Bintang\", \"pause everyone\", " +
-			"\"when Arkan finishes, pass it to Bintang\", \"hand off to codex\", \"every 15 minutes run the tests\", \"push memory\", \"deploy Trio\", \"status\"."})
+			"\"when Arkan finishes, pass it to Bintang\", \"hand off to codex\", \"every 15 minutes run the tests\", \"push memory\", \"deploy Trio\", \"status\". " +
+			"Bahasa Indonesia juga bisa: \"suruh Arkan untuk cek tes\", \"buat 2 claude\", \"jeda semua\", \"matikan Bintang\", \"siapa yang selesai\"."})
 	case "status", "needsYou":
 		counts := map[string]int{}
 		var needs []string

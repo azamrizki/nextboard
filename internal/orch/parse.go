@@ -60,6 +60,8 @@ var roleAliases = map[string]string{
 	"design": "design", "designer": "design", "designers": "design",
 	"docs": "docs", "doc": "docs", "documentation": "docs", "writer": "docs", "writers": "docs",
 	"security": "security",
+	"penguji":  "testers", "pengulas": "reviewers", "desain": "design", "desainer": "design",
+	"dokumentasi": "docs", "penulis": "docs", "keamanan": "security", "umum": "general",
 }
 
 // RoleOf maps a word to a role ("" = not a role).
@@ -110,7 +112,9 @@ type ParseContext struct {
 }
 
 var numberWords = map[string]int{"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
-	"seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "another": 1}
+	"seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "another": 1,
+	"satu": 1, "sebuah": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5, "enam": 6, "tujuh": 7, "delapan": 8, "sembilan": 9,
+	"sepuluh": 10, "sebelas": 11}
 
 // Number parses a count word or digits (0 = not a number).
 func Number(w string) int {
@@ -203,17 +207,18 @@ var askQueries = []struct {
 
 // SplitWho splits a <who> list: "Ash, Bea and the reviewers" → [Ash Bea reviewers].
 func SplitWho(s string) []string {
-	s = strings.NewReplacer(" and ", ",", " & ", ",", " + ", ",").Replace(" " + s + " ")
+	typed := strings.TrimPrefix(strings.TrimSpace(s), "@")
+	s = strings.NewReplacer(" and ", ",", " dan ", ",", " & ", ",", " + ", ",").Replace(" " + s + " ")
 	var out []string
 	for _, p := range strings.Split(s, ",") {
 		p = strings.TrimSpace(p)
 		p = strings.TrimPrefix(p, "@")
-		for _, pre := range []string{"the ", "all ", "all the ", "my "} {
+		for _, pre := range []string{"the ", "all ", "all the ", "my ", "semua ", "tim ", "grup ", "kelompok "} {
 			if strings.HasPrefix(strings.ToLower(p), pre) {
 				p = p[len(pre):]
 			}
 		}
-		for _, suf := range []string{" group", " team", " consoles", " console", " agents"} {
+		for _, suf := range []string{" group", " team", " consoles", " console", " agents", " grup", " tim"} {
 			if strings.HasSuffix(strings.ToLower(p), suf) && len(p) > len(suf) {
 				p = p[:len(p)-len(suf)]
 			}
@@ -222,13 +227,16 @@ func SplitWho(s string) []string {
 			out = append(out, p)
 		}
 	}
+	if len(out) == 0 && typed != "" {
+		return []string{typed} // a console may be called Dan
+	}
 	return out
 }
 
 // isEveryone reports whether a name addresses everyone in scope.
 func isEveryone(n string) bool {
 	switch strings.ToLower(n) {
-	case "everyone", "all", "everybody", "everything":
+	case "everyone", "all", "everybody", "everything", "semua", "semuanya", "semua orang", "semua agen", "semua console", "semua konsol":
 		return true
 	}
 	return false
@@ -252,7 +260,8 @@ func spawnTokens(rest string, ctx ParseContext) (n int, agentID, role string, ok
 		case RoleOf(w) != "" && role == "":
 			role = RoleOf(w)
 		case w == "agents", w == "agent", w == "consoles", w == "console", w == "instances", w == "instance",
-			w == "new", w == "more", w == "of", w == "code", w == "cli", w == "sessions", w == "session":
+			w == "new", w == "more", w == "of", w == "code", w == "cli", w == "sessions", w == "session",
+			w == "agen", w == "konsol", w == "baru", w == "lagi", w == "buah":
 		default:
 			return 0, "", "", false
 		}
@@ -263,8 +272,12 @@ func spawnTokens(rest string, ctx ParseContext) (n int, agentID, role string, ok
 	return n, agentID, role, true
 }
 
-// Parse runs the grammar of §3.2 on one command.
+// Parse runs the grammar of §3.2 on one command, in English or Indonesian.
 func Parse(text string, ctx ParseContext) Intent {
+	return parse(text, ctx, true)
+}
+
+func parse(text string, ctx ParseContext, tryIndonesian bool) Intent {
 	t := normalize(text)
 	if t == "" {
 		return Intent{}
@@ -289,6 +302,16 @@ func Parse(text string, ctx ParseContext) Intent {
 			return Intent{Kind: IntentMentionOnly, Mentions: names}
 		}
 		return Intent{Kind: IntentSend, Mentions: names, Text: body}
+	}
+	if tryIndonesian {
+		if en := indonesian(t); en != "" {
+			if in := parse(en, ctx, false); in.Kind != IntentNone {
+				if in.Kind == IntentSmalltalk && idThanks.MatchString(t) {
+					in.Reply = "Sama-sama."
+				}
+				return in
+			}
+		}
 	}
 	if reSmalltalk.MatchString(t) {
 		return Intent{Kind: IntentSmalltalk, Reply: smalltalkReply(t)}
@@ -391,7 +414,7 @@ func Parse(text string, ctx ParseContext) Intent {
 		return Intent{Kind: IntentLoop, EverySec: n * unit, Text: m[3]}
 	}
 	if m := reRepoGit.FindStringSubmatch(t); m != nil {
-		if in := Parse(m[2], ctx); in.Kind == IntentGit {
+		if in := parse(m[2], ctx, tryIndonesian); in.Kind == IntentGit {
 			in.Repo = strings.Trim(strings.TrimRight(m[1], ":"), `"`)
 			return in
 		}

@@ -333,6 +333,17 @@ type built struct {
 }
 
 // resolveOrNote resolves names; problems become notes.
+// noneKnown: no name of a command belongs to anything here, so it may not be about consoles at
+// all ("stop the dev server", "gabungkan branch ini ke main"). The planner reads it when there
+// is one; without one the hub says what it does not know.
+func (s *Service) noneKnown(c *execCtx, r resolution) bool {
+	if len(r.unknown) == 0 || len(r.targets) > 0 || len(r.fuzzy) > 0 || len(r.notWired) > 0 {
+		return false
+	}
+	ok, _ := s.PlannerAvailable(c.plannerMode)
+	return ok
+}
+
 func (s *Service) resolveOrNote(sc *scope, names []string, b *built) (resolution, bool) {
 	r := sc.resolve(names)
 	for _, h := range r.notWired {
@@ -454,6 +465,10 @@ func (s *Service) build(c *execCtx, sc *scope, in Intent, text string) built {
 			b.confirm = s.fuzzyConfirm(sc, r, Step{Op: "send", Text: in.Text, Mode: "verbatim"})
 			break
 		}
+		if s.noneKnown(c, r) {
+			b.planner = true
+			break
+		}
 		if _, ok := s.resolveOrNote(sc, in.Who, &b); !ok {
 			break
 		}
@@ -500,6 +515,10 @@ func (s *Service) build(c *execCtx, sc *scope, in Intent, text string) built {
 			}
 			b.steps = append(b.steps, Step{Op: "group.create", Members: members})
 		default:
+			if s.noneKnown(c, sc.resolve(in.Who)) {
+				b.planner = true
+				break
+			}
 			r, ok := s.resolveOrNote(sc, in.Who, &b)
 			if !ok {
 				if len(r.fuzzy) > 0 {
@@ -525,7 +544,7 @@ func (s *Service) build(c *execCtx, sc *scope, in Intent, text string) built {
 			}
 		}
 		if len(gs) == 0 {
-			if in.Name == "delete" {
+			if in.Name == "delete" || s.noneKnown(c, resolution{unknown: in.Who}) {
 				b.planner = true
 				break
 			}
@@ -562,6 +581,10 @@ func (s *Service) build(c *execCtx, sc *scope, in Intent, text string) built {
 			}
 			if len(r.unknown) > 0 && (in.Kind == IntentResume || in.Kind == IntentPause) {
 				b.planner = true // "continue with the refactor"
+				break
+			}
+			if s.noneKnown(c, r) {
+				b.planner = true // "stop the dev server"
 				break
 			}
 			var ok bool
@@ -629,6 +652,10 @@ func (s *Service) build(c *execCtx, sc *scope, in Intent, text string) built {
 				}
 			}
 			if u.Target == "" {
+				if s.noneKnown(c, resolution{unknown: []string{in.Focus}}) {
+					b.planner = true
+					break
+				}
 				b.notes = append(b.notes, "I can't find \""+in.Focus+"\" on any board.")
 				break
 			}
