@@ -301,6 +301,24 @@ test('the workbench views, tile controls and passkey dialogs fit the screen', as
     }
   }
 
+  // the layout library with its group sizes, on a template with many groups
+  await page.goto(`/p/${p.id}/w/${p.wid}`);
+  // a phone has no toolbar for it: it is in what the board's own Insert offers
+  const toolbar = page.getByRole('button', { name: 'Layouts' }).first();
+  if (await toolbar.isVisible().catch(() => false)) await toolbar.click();
+  else {
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
+    await page.locator('.rail-left').getByRole('button', { name: 'Insert' }).click();
+    await page.locator('.rail-flyout-insert').getByRole('button', { name: 'Layouts' }).click();
+  }
+  const layouts = page.getByRole('dialog', { name: 'Layouts' });
+  await layouts.getByRole('listbox', { name: 'Layouts' }).getByRole('option', { name: /Full stack/ }).click();
+  await expect(layouts.getByRole('button', { name: 'More consoles in Frontend' })).toBeVisible({ timeout: 10_000 });
+  await layouts.getByRole('button', { name: 'More consoles in Frontend' }).click();
+  await expect(layouts.getByTestId('layout-sizes')).toContainText('9 consoles');
+  await check('layout-sizes', '[role="dialog"]');
+  await page.keyboard.press('Escape');
+
   // the passkey dialogs
   await page.goto('/');
   await page.locator('.vault-button').click();

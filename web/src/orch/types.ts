@@ -517,6 +517,8 @@ export interface LayoutNode {
 export interface Layout {
   id: string;
   name: string;
+  /** One line on what a built-in is for. */
+  description?: string;
   builtin: boolean;
   createdAt?: string;
   lanes: LayoutLane[] | null;
@@ -535,6 +537,8 @@ export interface DeployRequest {
   at?: { x: number; y: number };
   fill?: { agent: string };
   laneOverrides?: Record<string, LaneOverride>;
+  /** How many consoles a group has, by group key, where it differs from the template. */
+  groupSizes?: Record<string, number>;
 }
 
 // ---- §14 events ---------------------------------------------------------------------------

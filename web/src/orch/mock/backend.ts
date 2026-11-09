@@ -1357,6 +1357,8 @@ export function createMockTransport(hub: Transport): Transport {
       return { ok: true };
     }],
     ['POST', /^\/api\/workspaces\/([^/]+)\/deploy$/, (m, b) => deployLayout(m[1], b as DeployRequest)],
+    // the geometry lives in the hub: the mock shows the template as it is
+    ['POST', /^\/api\/layouts\/([^/]+)\/sized$/, (m) => [...BUILTIN, ...saved].find((l) => l.id === decodeURIComponent(m[1])) ?? BUILTIN[0]],
   ];
 
   // eslint-disable-next-line no-console

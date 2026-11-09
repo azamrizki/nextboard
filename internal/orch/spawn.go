@@ -359,6 +359,10 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 	if !ok {
 		return DeployResult{}, ErrLayoutNotFound
 	}
+	l, err := l.Sized(req.GroupSizes)
+	if err != nil {
+		return DeployResult{}, err
+	}
 	if len(l.Lanes) > maxSpawn {
 		return DeployResult{}, ErrTooMany
 	}

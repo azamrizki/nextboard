@@ -170,6 +170,8 @@ export const orchApi = {
   saveLayout: (body: { name?: string; workspaceId: string; nodeIds?: string[] }) => call<Layout>('POST', '/api/layouts', body),
   renameLayout: (id: string, name: string) => call<Layout>('PATCH', `/api/layouts/${enc(id)}`, { name }),
   deleteLayout: (id: string) => call<Ok>('DELETE', `/api/layouts/${enc(id)}`),
+  /** What a layout looks like with these group sizes: the hub does the geometry. Deploys nothing. */
+  sizedLayout: (id: string, groupSizes: Record<string, number>) => call<Layout>('POST', `/api/layouts/${enc(id)}/sized`, { groupSizes }),
   deploy: (workspaceId: string, body: DeployRequest) =>
     call<{ sessions: Session[] | null; nodeIds: string[] | null }>('POST', `/api/workspaces/${enc(workspaceId)}/deploy`, body),
 };

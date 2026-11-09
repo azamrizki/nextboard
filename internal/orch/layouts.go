@@ -69,14 +69,16 @@ type LayoutWire struct {
 
 // Layout is a template.
 type Layout struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Builtin   bool          `json:"builtin"`
-	CreatedAt *time.Time    `json:"createdAt,omitempty"`
-	Lanes     []Lane        `json:"lanes"`
-	Groups    []LayoutGroup `json:"groups"`
-	Nodes     []LayoutNode  `json:"nodes"`
-	Wires     []LayoutWire  `json:"wires"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Description says in one line what a built-in is for. Search finds it too.
+	Description string        `json:"description,omitempty"`
+	Builtin     bool          `json:"builtin"`
+	CreatedAt   *time.Time    `json:"createdAt,omitempty"`
+	Lanes       []Lane        `json:"lanes"`
+	Groups      []LayoutGroup `json:"groups"`
+	Nodes       []LayoutNode  `json:"nodes"`
+	Wires       []LayoutWire  `json:"wires"`
 }
 
 var layoutNodeKinds = map[string]bool{"orchestrator": true, "kanban": true, "note": true, "text": true, "checklist": true, "memory": true, "web": true, KindEditor: true}
@@ -212,11 +214,167 @@ func BuiltinLayouts() []Layout {
 			Nodes: []LayoutNode{{Key: "m1", Kind: KindMemory, X: x2, Y: y, W: 320, H: 300, Data: map[string]any{"blocks": []any{}}},
 				{Key: "n1", Kind: "note", X: x2, Y: y + 340, W: 420, H: 300, Data: map[string]any{"text": "Findings", "color": "yellow"}}}},
 	}
+	ls = append(ls, moreLayouts(g, y, col, x1, x2, x3, row2, def4, orchAt, wired, editorW, editorH)...)
 	for i := range ls {
 		ls[i].Builtin = true
+		if d, ok := layoutDescriptions[ls[i].ID]; ok {
+			ls[i].Description = d
+		}
 		fill(&ls[i])
 	}
 	return ls
+}
+
+// layoutDescriptions say what each built-in is for, in the library and in its search.
+var layoutDescriptions = map[string]string{
+	"builtin:duo":               "Two agents side by side.",
+	"builtin:trio":              "Three agents in a row.",
+	"builtin:quartet":           "Four agents in two rows.",
+	"builtin:two-quartets":      "Two separate teams of four.",
+	"builtin:build-review":      "Builders and a reviewer, led by an orchestrator, with a task board.",
+	"builtin:front-back":        "A frontend team and a backend team under one orchestrator.",
+	"builtin:review-trio":       "Three reviewers, for a second, third and fourth opinion.",
+	"builtin:triage":            "Testers and a reviewer sort bugs on a board.",
+	"builtin:preview-lab":       "Three agents above a live preview of a dev server.",
+	"builtin:docs-crew":         "Two writers with a list of docs to write.",
+	"builtin:solo":              "One agent and a to-do list.",
+	"builtin:sextet":            "Six agents in two rows.",
+	"builtin:three-trios":       "Three teams of three under one orchestrator.",
+	"builtin:lead-crew":         "A crew of four, an orchestrator and a task board.",
+	"builtin:full-stack":        "Frontend, backend, testers and reviewers, with an orchestrator and a board.",
+	"builtin:code-pair":         "The code editor and two agents beside it.",
+	"builtin:web-builder":       "Frontend and backend above the editor and a live preview.",
+	"builtin:bug-hunt":          "Testers find bugs, fixers fix them, a board keeps track.",
+	"builtin:security-audit":    "Security agents and a reviewer, with an audit checklist.",
+	"builtin:design-studio":     "Designers with a live preview and notes.",
+	"builtin:release-crew":      "Builders, a tester and a writer, with a release board.",
+	"builtin:research-desk":     "Two researchers, shared memory and a note for findings.",
+	"builtin:two-duos":          "Two pairs working apart.",
+	"builtin:octet":             "Eight agents in two rows.",
+	"builtin:writer-checker":    "One writes, one checks.",
+	"builtin:relay":             "Builder to tester to reviewer: each turn's result goes on to the next by itself, and uses their turns.",
+	"builtin:editor-agent":      "The code editor and one agent.",
+	"builtin:code-crew":         "The code editor, a crew of four and an orchestrator.",
+	"builtin:laravel-crew":      "Backend, Blade and tests, with the code editor and a board for a Laravel app.",
+	"builtin:api-crew":          "Backend, a tester and a writer, with a board per endpoint.",
+	"builtin:app-team":          "Frontend, backend and a tester above a live preview.",
+	"builtin:ui-lab":            "Frontend and a designer above a live preview.",
+	"builtin:refactor-squad":    "Three to change the code, one to review, with the steps on a list.",
+	"builtin:migration-desk":    "Backend and a tester, with a checklist for moving data safely.",
+	"builtin:incident-room":     "Responders and a fixer, with a timeline and a runbook.",
+	"builtin:review-board":      "Reviewers and a security agent, with a review board.",
+	"builtin:planning-desk":     "One agent, an orchestrator, a board and a list, for planning work.",
+	"builtin:content-studio":    "Writers and a designer, with a preview and notes.",
+	"builtin:onboarding":        "Two agents learn a codebase and write down what they find.",
+	"builtin:quality-gate":      "Testers, a reviewer and a security agent, with a checklist before release.",
+	"builtin:performance-lab":   "Backend and a tester chase slow spots, with a board and benchmark notes.",
+	"builtin:hackathon":         "Two teams of three, an orchestrator and a board.",
+	"builtin:dependency-update": "One agent updates, one tester checks, with the steps on a list.",
+	"builtin:data-crew":         "Two on the data, a reviewer, shared memory and notes.",
+}
+
+// moreLayouts are the later built-ins, as they do not fit on one screen with the first ones.
+func moreLayouts(g func(key, name, role string) LayoutGroup, y, col, x1, x2, x3, row2 float64, def4 []string, orchAt func(x, yy float64) LayoutNode, wired func(groups ...string) []LayoutWire, editorW, editorH float64) []Layout {
+	web := func(key string, x, yy float64) LayoutNode {
+		return LayoutNode{Key: key, Kind: "web", X: x, Y: yy, W: 1280, H: 800, Data: map[string]any{"url": "http://localhost:5173/"}}
+	}
+	note := func(key, text string, x, yy float64) LayoutNode {
+		return LayoutNode{Key: key, Kind: "note", X: x, Y: yy, W: 420, H: 300, Data: map[string]any{"text": text, "color": "yellow"}}
+	}
+	list := func(key, title string, x, yy float64, items ...string) LayoutNode {
+		return LayoutNode{Key: key, Kind: "checklist", X: x, Y: yy, W: 420, H: 440, Data: checklistData(title, items...)}
+	}
+	board := func(key, title string, x, yy float64, cols ...string) LayoutNode {
+		return LayoutNode{Key: key, Kind: "kanban", X: x, Y: yy, W: 900, H: 420, Data: kanbanData(title, cols...)}
+	}
+	editor := func(x, yy float64) LayoutNode {
+		return LayoutNode{Key: "e1", Kind: KindEditor, X: x, Y: yy, W: editorW, H: editorH, Data: map[string]any{}}
+	}
+	return []Layout{
+		{ID: "builtin:two-duos", Name: "Two duos",
+			Lanes:  slices.Concat(gridLanes("a", 2, 2, 24, y, "", "", "g1"), gridLanes("b", 2, 2, 24+x2, y, "", "", "g2")),
+			Groups: []LayoutGroup{g("g1", "Pair A", "general"), g("g2", "Pair B", "general")}},
+		{ID: "builtin:octet", Name: "Octet", Lanes: gridLanes("a", 8, 4, 24, y, "", "", "g1"), Groups: []LayoutGroup{g("g1", "Octet", "general")}},
+		{ID: "builtin:writer-checker", Name: "Writer & checker",
+			Lanes:  slices.Concat(gridLanes("w", 1, 1, 24, y, "", "general", "g1"), gridLanes("c", 1, 1, 24+x1, y, "", "reviewers", "g2")),
+			Groups: []LayoutGroup{g("g1", "Writer", "general"), g("g2", "Checker", "reviewers")}},
+		{ID: "builtin:relay", Name: "Relay",
+			Lanes:  slices.Concat(gridLanes("b", 1, 1, 24, y, "", "general", "g1"), gridLanes("t", 1, 1, 24+x1, y, "", "testers", "g2"), gridLanes("r", 1, 1, 24+2*x1, y, "", "reviewers", "g3")),
+			Groups: []LayoutGroup{g("g1", "Builder", "general"), g("g2", "Tester", "testers"), g("g3", "Reviewer", "reviewers")},
+			Wires:  []LayoutWire{{From: "g1", To: "g2", Kind: "forward"}, {From: "g2", To: "g3", Kind: "forward"}}},
+		{ID: "builtin:editor-agent", Name: "Editor & agent", Lanes: gridLanes("a", 1, 1, 24+editorW+120, y, "", "", "g1"), Groups: []LayoutGroup{g("g1", "Agent", "general")},
+			Nodes: []LayoutNode{editor(24, y)}},
+		{ID: "builtin:code-crew", Name: "Code & crew", Lanes: gridLanes("a", 4, 2, 24+editorW+120, y, "", "", "g1"), Groups: []LayoutGroup{g("g1", "Crew", "general")},
+			Nodes: []LayoutNode{editor(24, y), orchAt(24+editorW+120+x2, y)},
+			Wires: wired("g1")},
+		{ID: "builtin:laravel-crew", Name: "Laravel crew",
+			Lanes:  slices.Concat(gridLanes("b", 2, 2, 24, y, "", "backend", "g1"), gridLanes("f", 1, 1, 24+x2, y, "", "frontend", "g2"), gridLanes("t", 1, 1, 24+x2+x1, y, "", "testers", "g3")),
+			Groups: []LayoutGroup{g("g1", "Backend", "backend"), g("g2", "Blade", "frontend"), g("g3", "Tests", "testers")},
+			Nodes:  []LayoutNode{editor(24, row2), board("k1", "Tasks", 24+editorW+120, row2, def4...)}},
+		{ID: "builtin:api-crew", Name: "API crew",
+			Lanes:  slices.Concat(gridLanes("b", 2, 2, 24, y, "", "backend", "g1"), gridLanes("t", 1, 1, 24, row2, "", "testers", "g2"), gridLanes("d", 1, 1, 24+x1, row2, "", "docs", "g3")),
+			Groups: []LayoutGroup{g("g1", "Backend", "backend"), g("g2", "Testers", "testers"), g("g3", "Docs", "docs")},
+			Nodes:  []LayoutNode{orchAt(x2+x1-col, y), {Key: "k1", Kind: "kanban", X: x2 + x1 - col, Y: y + 560, W: 900, H: 420, Data: kanbanData("Endpoints", "Design", "Build", "Test", "Documented")}},
+			Wires:  wired("g1", "g2", "g3")},
+		{ID: "builtin:app-team", Name: "App team",
+			Lanes:  slices.Concat(gridLanes("f", 2, 2, 24, y, "", "frontend", "g1"), gridLanes("b", 1, 1, 24+x2, y, "", "backend", "g2"), gridLanes("t", 1, 1, 24+x2+x1, y, "", "testers", "g3")),
+			Groups: []LayoutGroup{g("g1", "Frontend", "frontend"), g("g2", "Backend", "backend"), g("g3", "Testers", "testers")},
+			Nodes:  []LayoutNode{web("w1", 24, row2)}},
+		{ID: "builtin:ui-lab", Name: "UI lab",
+			Lanes:  slices.Concat(gridLanes("f", 2, 2, 24, y, "", "frontend", "g1"), gridLanes("d", 1, 1, 24+x2, y, "", "design", "g2")),
+			Groups: []LayoutGroup{g("g1", "Frontend", "frontend"), g("g2", "Design", "design")},
+			Nodes:  []LayoutNode{web("w1", 24, row2)}},
+		{ID: "builtin:refactor-squad", Name: "Refactor squad",
+			Lanes:  slices.Concat(gridLanes("a", 3, 3, 24, y, "", "general", "g1"), gridLanes("r", 1, 1, 24, row2, "", "reviewers", "g2")),
+			Groups: []LayoutGroup{g("g1", "Refactor", "general"), g("g2", "Review", "reviewers")},
+			Nodes:  []LayoutNode{orchAt(x3, y), list("c1", "Refactor", x3, y+560, "Tests pass before starting", "Small steps, one change each", "Tests pass after each step", "Nothing else changed by accident")},
+			Wires:  wired("g1", "g2")},
+		{ID: "builtin:migration-desk", Name: "Migration desk",
+			Lanes:  slices.Concat(gridLanes("b", 2, 2, 24, y, "", "backend", "g1"), gridLanes("t", 1, 1, 24, row2, "", "testers", "g2")),
+			Groups: []LayoutGroup{g("g1", "Backend", "backend"), g("g2", "Testers", "testers")},
+			Nodes:  []LayoutNode{list("c1", "Migration", x2, y, "Backup first", "Try it on a copy", "Rollback ready", "Run it", "Check the data")}},
+		{ID: "builtin:incident-room", Name: "Incident room",
+			Lanes:  slices.Concat(gridLanes("a", 2, 2, 24, y, "", "general", "g1"), gridLanes("x", 1, 1, 24, row2, "", "backend", "g2")),
+			Groups: []LayoutGroup{g("g1", "Responders", "general"), g("g2", "Fix", "backend")},
+			Nodes:  []LayoutNode{note("n1", "Timeline", x2, y), list("c1", "Runbook", x2, y+340, "Confirm the impact", "Find the last change", "Stop the damage", "Fix it", "Write down what happened")}},
+		{ID: "builtin:review-board", Name: "Review board",
+			Lanes:  slices.Concat(gridLanes("r", 2, 2, 24, y, "", "reviewers", "g1"), gridLanes("s", 1, 1, 24, row2, "", "security", "g2")),
+			Groups: []LayoutGroup{g("g1", "Reviewers", "reviewers"), g("g2", "Security", "security")},
+			Nodes:  []LayoutNode{board("k1", "Reviews", x2, y, "To review", "In review", "Changes asked", "Approved")}},
+		{ID: "builtin:planning-desk", Name: "Planning desk", Lanes: gridLanes("a", 1, 1, 24, y, "", "", "g1"), Groups: []LayoutGroup{g("g1", "Planner", "general")},
+			Nodes: []LayoutNode{orchAt(x1, y), board("k1", "Plan", x1+460, y, "Ideas", "Next", "Doing", "Done"), list("c1", "Decisions", x1+460, y+460)},
+			Wires: wired("g1")},
+		{ID: "builtin:content-studio", Name: "Content studio",
+			Lanes:  slices.Concat(gridLanes("d", 2, 2, 24, y, "", "docs", "g1"), gridLanes("v", 1, 1, 24+x2, y, "", "design", "g2")),
+			Groups: []LayoutGroup{g("g1", "Writers", "docs"), g("g2", "Design", "design")},
+			Nodes:  []LayoutNode{web("w1", 24, row2), note("n1", "Outline", 24+1280+120, row2)}},
+		{ID: "builtin:onboarding", Name: "Onboarding", Lanes: gridLanes("a", 2, 2, 24, y, "", "", "g1"), Groups: []LayoutGroup{g("g1", "Explorers", "general")},
+			Nodes: []LayoutNode{{Key: "m1", Kind: KindMemory, X: x2, Y: y, W: 320, H: 300, Data: map[string]any{"blocks": []any{}}},
+				list("c1", "Learn this project", x2, y+340, "Run it", "Follow the main flow", "Find the tests", "Note the conventions")}},
+		{ID: "builtin:quality-gate", Name: "Quality gate",
+			Lanes:  slices.Concat(gridLanes("t", 2, 2, 24, y, "", "testers", "g1"), gridLanes("r", 1, 1, 24, row2, "", "reviewers", "g2"), gridLanes("s", 1, 1, 24+x1, row2, "", "security", "g3")),
+			Groups: []LayoutGroup{g("g1", "Testers", "testers"), g("g2", "Review", "reviewers"), g("g3", "Security", "security")},
+			Nodes:  []LayoutNode{orchAt(x2+x1-col, y), list("c1", "Before release", x2+x1-col, y+560, "Tests pass", "Code reviewed", "No secrets in the diff", "Docs updated")},
+			Wires:  wired("g1", "g2", "g3")},
+		{ID: "builtin:performance-lab", Name: "Performance lab",
+			Lanes:  slices.Concat(gridLanes("b", 2, 2, 24, y, "", "backend", "g1"), gridLanes("t", 1, 1, 24, row2, "", "testers", "g2")),
+			Groups: []LayoutGroup{g("g1", "Backend", "backend"), g("g2", "Benchmarks", "testers")},
+			Nodes:  []LayoutNode{board("k1", "Slow spots", x2, y, "Suspected", "Measured", "Fixing", "Faster"), note("n1", "Benchmarks", x2, y+460)}},
+		{ID: "builtin:hackathon", Name: "Hackathon",
+			Lanes:  slices.Concat(gridLanes("a", 3, 3, 24, y, "", "", "g1"), gridLanes("b", 3, 3, 24, row2, "", "", "g2")),
+			Groups: []LayoutGroup{g("g1", "Team A", "general"), g("g2", "Team B", "general")},
+			Nodes:  []LayoutNode{orchAt(x3, y), board("k1", "Tasks", x3, y+560, def4...)},
+			Wires:  wired("g1", "g2")},
+		{ID: "builtin:dependency-update", Name: "Dependency update",
+			Lanes:  slices.Concat(gridLanes("a", 1, 1, 24, y, "", "general", "g1"), gridLanes("t", 1, 1, 24+x1, y, "", "testers", "g2")),
+			Groups: []LayoutGroup{g("g1", "Update", "general"), g("g2", "Test", "testers")},
+			Nodes:  []LayoutNode{list("c1", "Update", 24+2*x1, y, "Read the changelogs", "One update at a time", "Tests pass after each", "Lock file committed")}},
+		{ID: "builtin:data-crew", Name: "Data crew",
+			Lanes:  slices.Concat(gridLanes("b", 2, 2, 24, y, "", "backend", "g1"), gridLanes("r", 1, 1, 24, row2, "", "reviewers", "g2")),
+			Groups: []LayoutGroup{g("g1", "Data", "backend"), g("g2", "Review", "reviewers")},
+			Nodes: []LayoutNode{{Key: "m1", Kind: KindMemory, X: x2, Y: y, W: 320, H: 300, Data: map[string]any{"blocks": []any{}}},
+				note("n1", "Findings", x2, y+340)}},
+	}
 }
 
 func fill(l *Layout) {
@@ -502,6 +660,8 @@ type DeployRequest struct {
 	At            *board.Rect             `json:"at"`
 	Fill          *struct{ Agent string } `json:"fill"`
 	LaneOverrides map[string]LaneOverride `json:"laneOverrides"`
+	// GroupSizes sets how many consoles a group has, by group key (Layout.Sized).
+	GroupSizes map[string]int `json:"groupSizes"`
 }
 
 // DeployResult is the 201 body.

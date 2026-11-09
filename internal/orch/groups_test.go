@@ -261,7 +261,7 @@ func TestBuiltinLayoutsLandCleanly(t *testing.T) {
 		}
 		ids[l.ID], names[l.Name] = true, true
 
-		_, wid := h.project(l.ID)
+		_, wid := h.project(strings.TrimPrefix(l.ID, "builtin:"))
 		res, err := s.Deploy(wid, DeployRequest{LayoutID: l.ID})
 		if err != nil || len(res.Sessions) != len(l.Lanes) {
 			t.Fatalf("%s: %v, %d sessions of %d lanes", l.ID, err, len(res.Sessions), len(l.Lanes))
@@ -304,8 +304,8 @@ func TestLayoutsAndDeploy(t *testing.T) {
 			t.Fatalf("%s: %v", l.ID, err)
 		}
 	}
-	if len(BuiltinLayouts()) != 22 {
-		t.Fatal("22 built-ins")
+	if len(BuiltinLayouts()) != 44 {
+		t.Fatalf("%d built-ins", len(BuiltinLayouts()))
 	}
 	var batches int
 	h.boards.OnOps = func(string, int64, string, []board.Op) { batches++ }

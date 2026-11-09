@@ -1,8 +1,8 @@
 // Layout templates (docs/API-orchestration.md §13, B8), a popup over the board: a library of
-// team layouts (built-in first), a preview, a lane inspector (agent, machine, profile per
-// lane, or fill every lane with one agent) and Deploy at the centre of the view, which
-// closes the popup. "Save current layout" keeps the board's structure (or the selection)
-// as a new template.
+// team layouts (built-in first), a preview, how many consoles each group gets, a lane inspector
+// (agent, machine, profile per lane, or fill every lane with one agent) and Deploy at the centre
+// of the view, which closes the popup. "Save current layout" keeps the board's structure (or the
+// selection) as a new template.
 
 import { orchError } from '../actions';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
@@ -66,7 +66,7 @@ export default function LayoutsPanel({
   const sel = list?.find((l) => l.id === selId) ?? null;
   // by name, team or role ("security", "testers")
   const q = query.trim().toLowerCase();
-  const shown = (list ?? []).filter((l) => !q || [l.name, ...(l.groups ?? []).flatMap((g) => [g.name, g.role])].join(' ').toLowerCase().includes(q));
+  const shown = (list ?? []).filter((l) => !q || [l.name, l.description ?? '', ...(l.groups ?? []).flatMap((g) => [g.name, g.role])].join(' ').toLowerCase().includes(q));
   const selection = [...ctl.selection];
 
   const save = async () => {
@@ -133,7 +133,9 @@ export default function LayoutsPanel({
                   onDoubleClick={() => setSelId(l.id)}
                 >
                   <LayoutPreview layout={l} />
-                  <span className="layout-name truncate">{l.name}</span>
+                  <span className="layout-name truncate" title={l.description}>
+                    {l.name}
+                  </span>
                   <span className="layout-meta">
                     {(l.lanes?.length ?? 0) === 1 ? '1 console' : `${l.lanes?.length ?? 0} consoles`}
                     {l.builtin ? '' : ' · yours'}
@@ -164,6 +166,10 @@ export default function LayoutsPanel({
 }
 
 const lanePalette = ['sky', 'violet', 'teal', 'amber', 'rose', 'sage'];
+
+/** The hub's limits (internal/orch): it refuses more with too_many, whatever this says. */
+const MAX_PER_GROUP = 12;
+const MAX_CONSOLES = 12;
 
 export function LayoutPreview({ layout }: { layout: Layout }) {
   const items = [...(layout.lanes ?? []).map((l) => ({ ...l, lane: true as const })), ...(layout.nodes ?? []).map((n) => ({ ...n, lane: false as const }))];
@@ -228,8 +234,46 @@ function LaneInspector({
   const [over, setOver] = useState<Record<string, LaneOverride>>({});
   const [fill, setFill] = useState('');
   const [rename, setRename] = useState<string | null>(null);
-  const lanes = layout.lanes ?? [];
-  const groupName = new Map((layout.groups ?? []).map((g) => [g.key, g.name]));
+  /** Group sizes that differ from the template, and the layout the hub made of them. */
+  const [sizes, setSizes] = useState<Record<string, number>>({});
+  const [sized, setSized] = useState<Layout | null>(null);
+  const shown = sized ?? layout;
+  const lanes = shown.lanes ?? [];
+  const groups = layout.groups ?? [];
+  const groupName = new Map(groups.map((g) => [g.key, g.name]));
+  const baseCount = (key: string) => (layout.lanes ?? []).filter((l) => l.group === key).length;
+  const countOf = (key: string) => sizes[key] ?? baseCount(key);
+  const total = groups.reduce((n, g) => n + countOf(g.key), 0) + (layout.lanes ?? []).filter((l) => !l.group || !groupName.has(l.group)).length;
+  const sizesKey = JSON.stringify(sizes);
+
+  useEffect(() => {
+    if (sizesKey === '{}') {
+      setSized(null);
+      return;
+    }
+    let alive = true;
+    orchApi
+      .sizedLayout(layout.id, JSON.parse(sizesKey) as Record<string, number>)
+      .then((l) => {
+        if (alive) setSized(l);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        toast.error(orchError(err));
+        setSizes({});
+      });
+    return () => {
+      alive = false;
+    };
+  }, [layout.id, sizesKey]);
+
+  const setSize = (key: string, n: number) =>
+    setSizes((cur) => {
+      const next = { ...cur };
+      if (n === baseCount(key)) delete next[key];
+      else next[key] = n;
+      return next;
+    });
 
   const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? ma.agents.find((a) => a.id === id)?.name ?? id;
   const defaultFor = (role?: string, laneAgent?: string) => {
@@ -263,6 +307,7 @@ function LaneInspector({
         layoutId: layout.id,
         ...(fill ? { fill: { agent: fill } } : {}),
         ...(Object.keys(overrides).length ? { laneOverrides: overrides } : {}),
+        ...(Object.keys(sizes).length ? { groupSizes: sizes } : {}),
       });
       const n = r.sessions?.length ?? 0;
       toast.success(`Deployed ${layout.name}: ${n === 1 ? '1 console' : `${n} consoles`}.`);
@@ -332,6 +377,42 @@ function LaneInspector({
           </>
         )}
       </div>
+      {layout.description && <p className="fs-xs text-3 lane-desc">{layout.description}</p>}
+      <div className="lane-preview" data-testid="layout-preview">
+        <LayoutPreview layout={shown} />
+      </div>
+      {groups.length > 0 && (
+        <div className="lane-sizes" role="group" aria-label="Consoles per group" data-testid="layout-sizes">
+          <div className="lane-sizes-head">
+            <span className="field-label">Consoles per group</span>
+            <span className="text-3 fs-xs tabular">{total === 1 ? '1 console' : `${total} consoles`}</span>
+          </div>
+          {groups.map((g) => {
+            const n = countOf(g.key);
+            // a layout with one group keeps it; with more, one can be left out
+            const least = groups.length > 1 && total > 1 ? 0 : 1;
+            return (
+              <div key={g.key} className={`lane-size ${n === 0 ? 'is-off' : ''}`}>
+                <span className="grow truncate" title={g.role && g.role !== 'general' ? (ROLE_LABEL[g.role as Role] ?? g.role) : undefined}>
+                  {g.name}
+                </span>
+                <Button size="sm" variant="ghost" iconOnly icon="minus" aria-label={`Fewer consoles in ${g.name}`} disabled={n <= least} onClick={() => setSize(g.key, n - 1)} />
+                <span className="lane-size-n tabular" aria-label={`${g.name}: ${n}`}>
+                  {n}
+                </span>
+                <Button size="sm" variant="ghost" iconOnly icon="plus" aria-label={`More consoles in ${g.name}`} disabled={n >= MAX_PER_GROUP || total >= MAX_CONSOLES} onClick={() => setSize(g.key, n + 1)} />
+              </div>
+            );
+          })}
+          {Object.keys(sizes).length > 0 && (
+            <div>
+              <Button size="sm" variant="ghost" onClick={() => setSizes({})}>
+                Back to the template’s sizes
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="lane-fill">
         <label className="field-label" htmlFor={`fill-${layout.id}`}>
           Fill every lane with

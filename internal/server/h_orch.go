@@ -81,6 +81,7 @@ func (s *Server) orchRoutes(authed func(string, handler)) {
 	authed("DELETE /api/memory/docs/{name}", s.handleMemoryDocDelete)
 
 	authed("GET /api/layouts", s.handleLayouts)
+	authed("POST /api/layouts/{id}/sized", s.handleLayoutSized)
 	authed("POST /api/layouts", s.handleLayoutCreate)
 	authed("PATCH /api/layouts/{id}", s.handleLayoutPatch)
 	authed("DELETE /api/layouts/{id}", s.handleLayoutDelete)
@@ -1006,6 +1007,27 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request, p *princip
 		return
 	}
 	writeJSON(w, http.StatusCreated, res)
+}
+
+// handleLayoutSized shows what a layout looks like with these group sizes, without deploying it.
+func (s *Server) handleLayoutSized(w http.ResponseWriter, r *http.Request, p *principal) {
+	l, ok := s.orch.Layouts.Get(r.PathValue("id"))
+	if !ok {
+		s.orchErr(w, orch.ErrLayoutNotFound)
+		return
+	}
+	var req struct {
+		GroupSizes map[string]int `json:"groupSizes"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	sized, err := l.Sized(req.GroupSizes)
+	if err != nil {
+		s.orchErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sized)
 }
 
 func (s *Server) handleMemoryInit(w http.ResponseWriter, r *http.Request, p *principal) {

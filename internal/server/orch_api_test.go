@@ -621,3 +621,35 @@ func TestOrderResendRoute(t *testing.T) {
 		t.Fatalf("not interrupted: %d %v", st, b)
 	}
 }
+
+// Trying group sizes makes nothing, and the deploy takes the same sizes.
+func TestLayoutGroupSizes(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	st, res := h.do("POST", "/api/layouts/builtin:duo/sized", map[string]any{"groupSizes": map[string]int{"g1": 3}}, nil)
+	if st != 200 || len(res["lanes"].([]any)) != 3 {
+		t.Fatalf("sized: %d %v", st, res)
+	}
+	for name, tc := range map[string]struct {
+		path string
+		body map[string]any
+		st   int
+		code string
+	}{
+		"no layout":    {"/api/layouts/builtin:nope/sized", map[string]any{"groupSizes": map[string]int{"g1": 1}}, 404, "layout_not_found"},
+		"no group":     {"/api/layouts/builtin:duo/sized", map[string]any{"groupSizes": map[string]int{"g9": 1}}, 400, "bad_layout"},
+		"too many":     {"/api/layouts/builtin:duo/sized", map[string]any{"groupSizes": map[string]int{"g1": 13}}, 400, "too_many"},
+		"nothing left": {"/api/layouts/builtin:duo/sized", map[string]any{"groupSizes": map[string]int{"g1": 0}}, 400, "bad_layout"},
+	} {
+		if st, res := h.do("POST", tc.path, tc.body, nil); st != tc.st || res["code"] != tc.code {
+			t.Errorf("%s: %d %v", name, st, res)
+		}
+	}
+	var list []map[string]any
+	h.getJSON("/api/layouts", &list)
+	for _, l := range list {
+		if l["id"] == "builtin:duo" && len(l["lanes"].([]any)) != 2 {
+			t.Fatalf("the template changed: %v", l)
+		}
+	}
+}
