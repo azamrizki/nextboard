@@ -126,6 +126,8 @@ Web memuat noVNC di halaman terpisah `/gui-viewer.html?session=<id>&display=<way
 - Viewer → tile: `{ "type": "ready" }` saat listener-nya siap. noVNC memakai top-level await, jadi event `load` iframe bisa datang lebih dulu dan tidak bisa dipakai sebagai tanda.
 - Viewer → tile: `{ "type": "state", "state": "connected" | "disconnected", "video": bool }`. `video` false berarti browser tidak punya WebCodecs.
 - Tile → viewer: `{ "type": "audio", "on": bool }`.
+- Tile → viewer: `{ "type": "mic", "on": bool }`; viewer → tile: `{ "type": "mic", "state": "on" | "off" | "insecure" | "denied" | "missing" | "failed" }`.
+- Tile → viewer: `{ "type": "keys", "keys": [{ "keysym", "code" }] }`: modifier turun, tombol ditekan, modifier naik. Dipakai menu keyboard di header tile: Ctrl+T, Ctrl+W, Ctrl+Shift+T, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+N, Ctrl+Shift+N, Ctrl+Shift+W.
 
 Clipboard:
 
@@ -150,12 +152,13 @@ Environment aplikasi dibersihkan dari penanda sesi lain (`VSCODE_*`, `ELECTRON_*
 
 ## 6. Batasan
 
-- Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N di browser biasa) tidak sampai ke aplikasi.
+- Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N, Ctrl+Tab, dan sejenisnya) tidak sampai ke aplikasi dari keyboard. Halaman tidak bisa menangkapnya di HTTP biasa, jadi tile punya menu keyboard yang mengirimnya (§4). `navigator.keyboard.lock()` hanya jalan di HTTPS dan fullscreen, dan tidak dipakai.
 - Di Wayland, jendela kedua memunculkan baris tab di atas tile untuk berpindah; dialog mengambang. Di X11 tidak ada pengalih selain Alt+\`.
 - Video hardware baru mendukung VA-API (Intel dan AMD), dan hanya teruji di Intel Arc A380. NVENC belum.
 - `wayvnc` masih menyalin gambar ke CPU selama layar bergerak, walau hanya satu piksel yang diminta viewer (sekitar 5–14 % satu core): ia tidak bisa dijeda.
 - Di mesin tanpa output suara asli, seperti This PC yang hanya punya Dummy Output, sink sesi bisa menjadi default selama sesi itu hidup. Aplikasi di luar tile lalu berbunyi di tile itu.
-- Suara hanya dari aplikasi ke browser, belum ada mikrofon. Aplikasi yang mengabaikan `PULSE_SINK` dan `PIPEWIRE_NODE` tidak terdengar di tile.
+- Aplikasi yang mengabaikan `PULSE_SINK` dan `PIPEWIRE_NODE` tidak terdengar di tile. Yang mengabaikan `PULSE_SOURCE` tidak mendengar mikrofon tile. Aplikasi di luar tile bisa memilih sumber mikrofon sesi sendiri selama tile itu mengirim suara.
+- Mikrofon butuh HTTPS atau localhost, karena browser tidak memberikannya pada HTTP biasa (§7).
 - Path `<data>` harus cukup pendek untuk Unix socket: `<data>/gui/sessions/<id>/rfb` maksimal 100 byte. Default `~/.nextboard` aman.
 
 ## 7. Video dan suara
@@ -190,6 +193,8 @@ WebCodecs hanya ada di HTTPS dan localhost. Di HTTP biasa viewer tetap memakai R
 - Socket ditutup kalau encoder berhenti, misalnya karena display mengecil. Klien tersambung lagi dengan ukuran baru.
 
 Encoder: `av1_vaapi` atau `h264_vaapi`, tanpa B-frame. Di display X11 warna ditandai BT.709 dan konversinya sengaja di CPU, karena mengunggah RGB lalu `scale_vaapi` di Arc membuat gambar miring pada lebar seperti 992 dan menggeser warna. Di Wayland buffer GPU dikonversi langsung (§8).
+
+**Mikrofon.** `GET /api/gui/sessions/{id}/mic`, WebSocket: frame biner PCM 48 kHz mono s16le dari viewer ke aplikasi, 20 ms per frame. Sesi yang punya suara juga punya sumber sendiri (`Session.mic`), lewat `pw-loopback` kedua, dan aplikasinya dimulai dengan `PULSE_SOURCE`. Tombol mikrofon di header tile mati sampai diklik, tidak diingat, dan header menulis "microphone on" selama aktif. Hanya satu viewer sekaligus (`409 mic_busy`); `503 mic_unavailable` bila sesi tidak punya, misalnya sesi lama yang diambil lagi sesudah hub restart. Pada HTTP biasa `getUserMedia` tidak ada, jadi tombolnya memberi tahu itu, bukan diam.
 
 **Protokol suara.** Frame biner PCM 48 kHz stereo s16le, 20 ms per frame. Keheningan tidak dikirim, jadi aplikasi yang diam tidak memakan bandwidth; saat ada suara sekitar 1,5 Mbps. Di link lambat hub membuang frame, karena suara yang telat lebih buruk daripada jeda pendek. Tile menahan suara sampai ada klik di board, sesuai kebijakan autoplay browser; tombol suara di header tile menutup socket-nya.
 

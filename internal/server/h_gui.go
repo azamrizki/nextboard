@@ -71,6 +71,7 @@ func (s *Server) routesGUI(authed func(string, handler)) {
 	authed("GET /api/gui/sessions/{id}/ws", s.handleGUIWS)
 	authed("GET /api/gui/sessions/{id}/video", s.handleGUIVideo)
 	authed("GET /api/gui/sessions/{id}/audio", s.handleGUIAudio)
+	authed("GET /api/gui/sessions/{id}/mic", s.handleGUIMic)
 }
 
 // guiErr writes a manager error as {"error","code"[,"session"]}.
@@ -471,6 +472,47 @@ func (p *videoPacer) wait(done <-chan struct{}) bool {
 	}
 	p.windowStart, p.waited = now, 0
 	return slow
+}
+
+// guiMicLimit is far more than one frame of mono PCM: the viewer sends 20 ms at a time.
+const guiMicLimit = 64 << 10
+
+// handleGUIMic takes the viewer's microphone as raw 48 kHz mono PCM, for the app in the session.
+// A session's app hears it only while this socket is open, which takes a person's click.
+func (s *Server) handleGUIMic(w http.ResponseWriter, r *http.Request, p *principal) {
+	if !s.checkOrigin(r, p) {
+		writeErr(w, http.StatusForbidden, "origin not allowed")
+		return
+	}
+	mic, err := s.gui.MicStream(r.PathValue("id"))
+	if err != nil {
+		guiErr(w, err)
+		return
+	}
+	defer mic.Stop()
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	conn := newWSConn(c)
+	unregister := s.conns.add(p.connKey(), conn.revoke)
+	defer unregister()
+
+	done := make(chan struct{})
+	go conn.pipeBinary(guiMicLimit, mic.In, done)
+	ping := time.NewTicker(wsPingEvery)
+	defer ping.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ping.C:
+			if conn.c.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteWait)) != nil {
+				return
+			}
+		}
+	}
 }
 
 // handleGUIAudio streams the session's sound as raw PCM, one binary frame per

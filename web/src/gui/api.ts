@@ -36,6 +36,8 @@ export interface GuiSession {
   display: 'wayland' | 'x11';
   /** Has its own sound output. */
   audio: boolean;
+  /** Has its own microphone source. */
+  mic?: boolean;
   /** Which browser of this kind, each with its own profile. Absent on the first. */
   instance?: number;
   startedAt: string;

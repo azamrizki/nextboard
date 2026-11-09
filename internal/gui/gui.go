@@ -78,8 +78,9 @@ type Session struct {
 	Name    string `json:"name"`
 	Title   string `json:"title"`
 	State   string `json:"state"`
-	Display string `json:"display"` // DisplayWayland or DisplayX11
-	Audio   bool   `json:"audio"`   // has its own sink
+	Display string `json:"display"`       // DisplayWayland or DisplayX11
+	Audio   bool   `json:"audio"`         // has its own sink
+	Mic     bool   `json:"mic,omitempty"` // has its own microphone source
 	// Instance tells apart the browsers of one kind, each with its own profile. 0 or 1 is the
 	// only one there used to be.
 	Instance  int       `json:"instance,omitempty"`
@@ -145,7 +146,7 @@ type Manager struct {
 	forceX11 bool // tests: the X11 display whatever is installed
 	// tests: the socket where a snap can reach it, without a snap at hand
 	forceSharedRun bool
-	wg       sync.WaitGroup
+	wg             sync.WaitGroup
 
 	// Result of encoderArgs.
 	probeOnce sync.Once
@@ -169,6 +170,7 @@ type session struct {
 	// may reach it (wayland.go).
 	sharedRun bool
 
+	micBusy  atomic.Bool
 	launcher atomic.Pointer[launcherExit]
 	rfbPid   atomic.Int64 // wayvnc, on a Wayland display
 	rfbBytes atomic.Int64
@@ -799,6 +801,9 @@ func (m *Manager) appCommandFor(s *session, e *entry, target, xauth, pageURL str
 	if s.pub.Audio {
 		env = append(env, "PULSE_SINK="+sinkName(s.pub.ID), "PIPEWIRE_NODE="+sinkName(s.pub.ID))
 	}
+	if s.pub.Mic {
+		env = append(env, "PULSE_SOURCE="+micSource(s.pub.ID))
+	}
 	switch {
 	case pk.kind == pkgSnap:
 		// A snap may only reach the user's own bus. Firefox finds itself there by its profile,
@@ -873,7 +878,7 @@ func strippedEnv(kv string) bool {
 	switch k {
 	case "CLAUDECODE", "TERM", "COLORTERM", "PATH", "DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET",
 		"DBUS_SESSION_BUS_ADDRESS", "SESSION_MANAGER", "XDG_CURRENT_DESKTOP", "XDG_SEAT", "XDG_VTNR", "DESKTOP_SESSION",
-		"DESKTOP_STARTUP_ID", "XDG_ACTIVATION_TOKEN", "GDK_BACKEND", "QT_QPA_PLATFORM", "PULSE_SINK", "PIPEWIRE_NODE",
+		"DESKTOP_STARTUP_ID", "XDG_ACTIVATION_TOKEN", "GDK_BACKEND", "QT_QPA_PLATFORM", "PULSE_SINK", "PULSE_SOURCE", "PIPEWIRE_NODE",
 		"INVOCATION_ID", "JOURNAL_STREAM", "NOTIFY_SOCKET", "SYSTEMD_EXEC_PID":
 		return true
 	}

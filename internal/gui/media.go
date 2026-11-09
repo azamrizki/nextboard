@@ -136,6 +136,16 @@ func (m *Manager) audioAvailable() bool {
 func sinkName(id string) string   { return "nextboard_" + id }
 func sourceName(id string) string { return sinkName(id) + "_out" }
 
+// The microphone runs the other way: what the viewer sends goes into micSink, and the app records
+// from micSource.
+func micSink(id string) string   { return sinkName(id) + "_mic_in" }
+func micSource(id string) string { return sinkName(id) + "_mic" }
+
+// loopbackProps keeps a node of a session away from the machine's own defaults.
+func loopbackProps(class, name string) string {
+	return fmt.Sprintf("{ media.class=%s node.name=%s node.description=%s priority.session=0 node.dont-fallback=true }", class, name, name)
+}
+
 // startAudio gives the session a sink of its own, which lives exactly as long
 // as this process. The priority keeps it from ever becoming the machine's
 // default output.
@@ -152,9 +162,79 @@ func (m *Manager) startAudio(s *session) {
 	if _, err := m.spawn(s, argv, s.dir, m.baseEnv(), "audio.log", nil); err != nil {
 		return // the app still runs, silently
 	}
+	mic := []string{bin, "--channels", "1",
+		"--capture-props", loopbackProps("Audio/Sink", micSink(id)),
+		"--playback-props", loopbackProps("Audio/Source", micSource(id)),
+	}
+	_, micErr := m.spawn(s, mic, s.dir, m.baseEnv(), "audio.log", nil)
 	m.mu.Lock()
 	s.pub.Audio = true
+	s.pub.Mic = micErr == nil
 	m.mu.Unlock()
+}
+
+// MicInput is the way into a session's microphone: PCM written to In is what the app hears.
+type MicInput struct {
+	In   io.WriteCloser
+	cmd  *exec.Cmd
+	once sync.Once
+	done func()
+}
+
+// Stop ends it. The app then records silence from a source that stays there.
+func (mi *MicInput) Stop() {
+	mi.once.Do(func() {
+		_ = mi.In.Close()
+		if mi.cmd.Process != nil {
+			_ = mi.cmd.Process.Kill()
+		}
+		_ = mi.cmd.Wait()
+		mi.done()
+	})
+}
+
+// MicStream opens the microphone for one viewer. Only one at a time: two people talking into one
+// source would mix without either knowing.
+func (m *Manager) MicStream(id string) (*MicInput, error) {
+	s, err := m.liveSession(id)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	has := s.pub.Mic
+	m.mu.Unlock()
+	if !has {
+		return nil, newErr(http.StatusServiceUnavailable, "mic_unavailable", "this session has no microphone")
+	}
+	if !s.micBusy.CompareAndSwap(false, true) {
+		return nil, newErr(http.StatusConflict, "mic_busy", "another viewer is using this app's microphone")
+	}
+	bin, ok := lookIn(m.pathEnv(), "pw-cat")
+	if !ok {
+		s.micBusy.Store(false)
+		return nil, newErr(http.StatusServiceUnavailable, "mic_unavailable", "this session has no microphone")
+	}
+	release, err := m.takeEncoder()
+	if err != nil {
+		s.micBusy.Store(false)
+		return nil, err
+	}
+	free := func() {
+		release()
+		s.micBusy.Store(false)
+	}
+	cmd := exec.Command(bin, "--playback", "--target", micSink(id), "--raw", "--format", "s16", "--rate", "48000", "--channels", "1", "--latency", "20ms", "-")
+	cmd.Dir = s.dir
+	cmd.Env = append(m.baseEnv(), markerEnv+"="+s.pub.ID)
+	in, err := cmd.StdinPipe()
+	if err == nil {
+		err = cmd.Start()
+	}
+	if err != nil {
+		free()
+		return nil, newErr(http.StatusInternalServerError, "mic_failed", "could not open the microphone: %v", err)
+	}
+	return &MicInput{In: in, cmd: cmd, done: free}, nil
 }
 
 // RFBCounter returns the running count of bytes the session's displays sent

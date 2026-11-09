@@ -84,7 +84,7 @@ export const test = base.extend<{ hub: Hub; problems: string[] }>({
       const problems: string[] = [];
       page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
       page.on('console', (m) => {
-        if (m.type() === 'error' && !/favicon|WebSocket|Failed to load resource/.test(m.text())) problems.push(`console: ${m.text()}`);
+        if (m.type() === 'error' && !/favicon|WebSocket|Failed to load resource|noVNC requires a secure context/.test(m.text())) problems.push(`console: ${m.text()}`);
       });
       page.on('response', (r) => {
         if (r.status() >= 500) problems.push(`${r.status()} ${r.url()}`);

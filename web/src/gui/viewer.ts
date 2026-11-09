@@ -10,6 +10,7 @@
 
 import RFB from '@novnc/novnc';
 import { AudioOutput } from './audio';
+import { MicInput, type MicState } from './mic';
 import { prefs } from '../lib/format';
 import { av1Decoding, VideoStream, type VideoCodec } from './video';
 
@@ -20,6 +21,7 @@ const overlay = document.getElementById('video') as HTMLCanvasElement;
 const copyButton = document.getElementById('copy') as HTMLButtonElement;
 
 const audio = new AudioOutput(session);
+const mic = new MicInput(session, (state: MicState, message?: string) => window.parent.postMessage({ nb: 'gui', type: 'mic', state, message }, location.origin));
 
 const XK_v = 0x76;
 const XK_V = 0x56;
@@ -278,10 +280,25 @@ for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, () 
 
 window.addEventListener('message', (e) => {
   if (e.origin !== location.origin || e.source !== window.parent) return;
-  const m = e.data as { nb?: string; type?: string; on?: boolean; id?: string; parts?: EnterPart[] } | null;
+  const m = e.data as { nb?: string; type?: string; on?: boolean; id?: string; parts?: EnterPart[]; keys?: SentKey[] } | null;
   if (m?.nb === 'gui' && m.type === 'audio') audio.setWanted(m.on === true);
+  if (m?.nb === 'gui' && m.type === 'mic') void (m.on === true ? mic.start() : mic.stop());
+  if (m?.nb === 'gui' && m.type === 'keys') pressKeys(m.keys ?? []);
   if (m?.nb === 'gui' && m.type === 'enter') void enterParts(m.id ?? '', m.parts ?? []);
 });
+
+// ---- keys the browser keeps for itself ----
+// Ctrl+T and its like never reach this page, so they come from the tile's menu: the modifiers go
+// down, the key is pressed, and the modifiers come up again in reverse order.
+
+type SentKey = { keysym: number; code: string };
+
+function pressKeys(keys: SentKey[]) {
+  if (!rfb || !keys.length) return;
+  for (const k of keys) rfb.sendKey(k.keysym, k.code, true);
+  for (const k of [...keys].reverse()) rfb.sendKey(k.keysym, k.code, false);
+  rfb.focus();
+}
 
 // ---- a login from Credentials ----
 // Pasted and not typed: wayvnc silently drops whatever its keymap lacks ($, ä, я, ...), and a

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { errorMessage } from '../api';
 import { Button } from '../components/Button';
+import { Menu } from '../components/Menu';
 import { toast } from '../components/Toast';
 import { prefs } from '../lib/format';
 import { FillButton, type FillResult, type FillValues } from '../vault/FillDialog';
@@ -33,7 +34,41 @@ export interface AppViewer {
   toggleSound: () => void;
   /** Into whatever has focus in the app: text, a Tab, more text. */
   enterInto: (parts: EnterPart[]) => Promise<void>;
+  /** The microphone goes to the app. Off until clicked, and never remembered. */
+  micOn: boolean;
+  toggleMic: () => void;
+  /** A key the browser would keep for itself. */
+  sendKeys: (keys: SentKey[]) => void;
 }
+
+interface SentKey {
+  keysym: number;
+  code: string;
+}
+
+const CTRL: SentKey = { keysym: 0xffe3, code: 'ControlLeft' };
+const SHIFT: SentKey = { keysym: 0xffe1, code: 'ShiftLeft' };
+const letter = (l: string): SentKey => ({ keysym: l.charCodeAt(0), code: `Key${l.toUpperCase()}` });
+const TAB: SentKey = { keysym: 0xff09, code: 'Tab' };
+
+/** What a browser never lets a page see. They reach the app only from here. */
+const HELD_KEYS: { label: string; keys: SentKey[] }[] = [
+  { label: 'New tab (Ctrl+T)', keys: [CTRL, letter('t')] },
+  { label: 'Close tab (Ctrl+W)', keys: [CTRL, letter('w')] },
+  { label: 'Reopen closed tab (Ctrl+Shift+T)', keys: [CTRL, SHIFT, letter('T')] },
+  { label: 'Next tab (Ctrl+Tab)', keys: [CTRL, TAB] },
+  { label: 'Previous tab (Ctrl+Shift+Tab)', keys: [CTRL, SHIFT, TAB] },
+  { label: 'New window (Ctrl+N)', keys: [CTRL, letter('n')] },
+  { label: 'New private window (Ctrl+Shift+N)', keys: [CTRL, SHIFT, letter('N')] },
+  { label: 'Close window (Ctrl+Shift+W)', keys: [CTRL, SHIFT, letter('W')] },
+];
+
+const MIC_ERRORS: Record<string, string> = {
+  insecure: 'Browsers only give the microphone to pages on HTTPS or localhost, and this one is on plain HTTP. Open the hub over HTTPS to talk to the app.',
+  denied: 'The browser refused the microphone. Allow it for this site, then try again.',
+  missing: 'This device has no microphone.',
+  failed: 'The microphone could not be opened.',
+};
 
 export type EnterPart = { text: string } | { key: 'tab' };
 
@@ -47,17 +82,23 @@ export function useAppViewer(appId: string, session: GuiSession | undefined): Ap
   const frameRef = useRef<HTMLIFrameElement>(null);
   const hasSound = !!session?.audio;
   const entering = useRef(new Map<string, (ok: boolean) => void>());
+  const [micOn, setMicOn] = useState(false);
 
   useEffect(installPressGuard, []);
 
   useEffect(() => {
     setConnected(false);
+    setMicOn(false);
   }, [session?.id]);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== location.origin || e.source !== frameRef.current?.contentWindow) return;
-      const m = e.data as { nb?: string; type?: string; state?: string; video?: boolean; id?: string; ok?: boolean } | null;
+      const m = e.data as { nb?: string; type?: string; state?: string; video?: boolean; id?: string; ok?: boolean; message?: string } | null;
+      if (m?.nb === 'gui' && m.type === 'mic') {
+        setMicOn(m.state === 'on');
+        if (m.state && MIC_ERRORS[m.state]) toast.error(m.message || MIC_ERRORS[m.state]);
+      }
       if (m?.nb === 'gui' && m.type === 'entered' && m.id) entering.current.get(m.id)?.(m.ok === true);
       if (m?.nb === 'gui' && m.type === 'ready') setViewerReady((n) => n + 1);
       if (m?.nb === 'gui' && m.type === 'state') {
@@ -94,7 +135,10 @@ export function useAppViewer(appId: string, session: GuiSession | undefined): Ap
       frameRef.current?.contentWindow?.postMessage({ nb: 'gui', type: 'enter', id, parts }, location.origin);
     });
 
-  return { frameRef, connected, noVideo, soundOn, toggleSound, enterInto };
+  const toggleMic = () => frameRef.current?.contentWindow?.postMessage({ nb: 'gui', type: 'mic', on: !micOn }, location.origin);
+  const sendKeys = (keys: SentKey[]) => frameRef.current?.contentWindow?.postMessage({ nb: 'gui', type: 'keys', keys }, location.origin);
+
+  return { frameRef, connected, noVideo, soundOn, toggleSound, enterInto, micOn, toggleMic, sendKeys };
 }
 
 /** The session is there to show: not gone and not on its way out. */
@@ -105,6 +149,7 @@ export function AppWhere({ viewer }: { viewer: AppViewer }) {
   return (
     <span className="tile-meta" title={viewer.noVideo ? 'Smooth video needs HTTPS or localhost. This page is on plain HTTP, so big motion is slower.' : undefined}>
       {viewer.noVideo ? 'This PC · slower without HTTPS' : 'This PC'}
+      {viewer.micOn ? ' · microphone on' : ''}
     </span>
   );
 }
@@ -139,6 +184,27 @@ export function AppHeadControls({ viewer, session, name }: { viewer: AppViewer; 
           }}
         />
       )}
+      {live && viewer.connected && (
+        <Menu
+          className="nodrag"
+          label={`Keys for ${name}`}
+          icon="keyboard"
+          items={HELD_KEYS.map((k) => ({ label: k.label, onSelect: () => viewer.sendKeys(k.keys) }))}
+        />
+      )}
+      {live && session.mic && (
+        <Button
+          size="sm"
+          variant="ghost"
+          iconOnly
+          icon={viewer.micOn ? 'mic' : 'micOff'}
+          className="nodrag"
+          aria-pressed={viewer.micOn}
+          aria-label={viewer.micOn ? 'Turn the microphone off' : 'Turn the microphone on'}
+          title={viewer.micOn ? 'The app hears your microphone. Click to stop.' : 'Let the app hear your microphone'}
+          onClick={viewer.toggleMic}
+        />
+      )}
       {live && session.audio && (
         <Button size="sm" variant="ghost" iconOnly icon={viewer.soundOn ? 'volume' : 'volumeOff'} className="nodrag" aria-label={viewer.soundOn ? 'Mute' : 'Unmute'} title={viewer.soundOn ? 'Mute' : 'Unmute'} onClick={viewer.toggleSound} />
       )}
@@ -156,7 +222,7 @@ export function AppDisplay({ viewer, session, title, name, selected, icon }: { v
   else if (session && !viewer.connected) wait = 'Connecting…';
   return (
     <>
-      {live && <iframe key={session.id} ref={viewer.frameRef} className="app-frame" src={guiViewerUrl(session)} title={title} allow="autoplay; clipboard-read; clipboard-write" />}
+      {live && <iframe key={session.id} ref={viewer.frameRef} className="app-frame" src={guiViewerUrl(session)} title={title} allow="autoplay; clipboard-read; clipboard-write; microphone" />}
       {live && !selected && <div className="web-shield" aria-hidden="true" />}
       {wait && (
         <div className="web-msg app-wait">

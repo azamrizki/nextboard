@@ -519,3 +519,117 @@ func TestSocketWhereASnapCanReachIt(t *testing.T) {
 		t.Fatal("the lock stayed in the runtime folder")
 	}
 }
+
+// A session's microphone, through real PipeWire: what goes in comes out of the source the app
+// records from, nothing else reaches it, and a second viewer is told no.
+func TestMicReachesTheApp(t *testing.T) {
+	t.Setenv(helperEnv, "Mic window")
+	m, ev := newTestManager(t, map[string]string{"app": ""})
+	if !m.audioAvailable() {
+		t.Skip("no PipeWire")
+	}
+	if _, ok := lookIn(m.pathEnv(), "pw-cat"); !ok {
+		t.Skip("no pw-cat")
+	}
+	s, err := m.Launch(LaunchRequest{AppID: "app", Width: 400, Height: 300})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSession(t, m, ev, "first window", func(x Session) bool { return x.State == StateRunning })
+	if !s.Mic {
+		t.Fatalf("no microphone on %+v", s)
+	}
+
+	// record from what the app would record from
+	rec, _ := lookIn(m.pathEnv(), "pw-record")
+	cmd := exec.Command(rec, "--target", micSource(s.ID), "--raw", "--format", "s16", "--rate", "48000", "--channels", "1", "-")
+	cmd.Env = m.baseEnv()
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	mic, err := m.MicStream(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mic.Stop()
+	if _, err := m.MicStream(s.ID); errCode(err) != "mic_busy" {
+		t.Fatalf("second viewer: %v", err)
+	}
+
+	// a square wave, for a while, while reading the other side
+	heard := make(chan bool, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			n, err := out.Read(buf)
+			if err != nil {
+				heard <- false
+				return
+			}
+			for i := 0; i+1 < n; i += 2 {
+				if v := int16(uint16(buf[i]) | uint16(buf[i+1])<<8); v > 8000 || v < -8000 {
+					heard <- true
+					return
+				}
+			}
+		}
+		heard <- false
+	}()
+	frame := make([]byte, 1920)
+	for i := 0; i < len(frame); i += 2 {
+		v := int16(16000)
+		if (i/2)%48 < 24 {
+			v = -16000
+		}
+		frame[i], frame[i+1] = byte(uint16(v)), byte(uint16(v)>>8)
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(20 * time.Millisecond):
+				if _, err := mic.In.Write(frame); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	select {
+	case ok := <-heard:
+		if !ok {
+			t.Fatal("what went into the microphone never came out")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("nothing heard")
+	}
+
+	// let go, and the next viewer may have it
+	mic.Stop()
+	again, err := m.MicStream(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again.Stop()
+}
+
+func TestAppIsToldWhichMicrophone(t *testing.T) {
+	if !strippedEnv("PULSE_SOURCE=x") {
+		t.Fatal("the desktop's own microphone choice must not reach a session's app")
+	}
+	if micSource("g_1") == sinkName("g_1") || micSink("g_1") == sourceName("g_1") {
+		t.Fatal("names collide")
+	}
+}

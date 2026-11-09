@@ -893,7 +893,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Multi-repo | Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
 | Git | File > 100 MB hanya bisa dibuang dari commit yang belum di-push (API-studio §3.7). Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
 | Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |
-| Aplikasi desktop | VA-API saja, baru teruji di Arc A380. Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N) tidak sampai. Tanpa mikrofon. `wayvnc` 0.9.1 sesekali segfault (hub menyalakannya ulang dalam sekitar 2 detik). Di mesin tanpa output suara asli, sink sesi bisa menjadi default |
+| Aplikasi desktop | VA-API saja, baru teruji di Arc A380. Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N) hanya lewat menu keyboard di tile. Mikrofon butuh HTTPS atau localhost. `wayvnc` 0.9.1 sesekali segfault (hub menyalakannya ulang dalam sekitar 2 detik). Di mesin tanpa output suara asli, sink sesi bisa menjadi default |
 | Browser di tile | Firefox, snap, dan flatpak belum pernah dicoba dengan browser sungguhan ([API-gui §8](API-gui.md)). Tile kedua punya profil dan login sendiri |
 | Usage | Tiap pemeriksaan Claude menambah 2 baris ke `history.jsonl` pada config yang dipakai. Codex 0.165 menulis `[tui]` ke `config.toml` sekali, dan hub tidak bisa mencegahnya tanpa menulis config. Format layar bisa berubah kapan saja |
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
