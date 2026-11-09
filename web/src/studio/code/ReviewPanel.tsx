@@ -45,7 +45,12 @@ export function ReviewPanel({ ws }: { ws: Workspace }) {
       </header>
       <div className="wb-tree nowheel">
         {!s && <div className="wb-row-msg">Loading…</div>}
-        {s && !s.supported && <div className="wb-row-msg">Review works for projects on This PC.</div>}
+        {s && !s.supported && <div className="wb-row-msg">A project on a whole home folder takes no part in review: it would copy every login and other project.</div>}
+        {s?.problem && (
+          <div className="wb-dbg-notice" role="alert">
+            <p>{s.problem}</p>
+          </div>
+        )}
         {s?.supported && !s.agents.length && <div className="wb-row-msg">Nothing to review. What agents change shows up here, by agent.</div>}
         {s?.agents.map((a) => (
           <section key={a.sessionId} className="wb-rv-agent" aria-label={`Changes by ${a.name}`}>

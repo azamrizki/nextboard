@@ -355,9 +355,31 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 		if err != nil {
 			return remoteAnswer(err.Error(), true), nil
 		}
+		s.noteRemoteChange(t, p.Name, p.Arguments)
 		return remoteAnswer(text, false), nil
 	}
 	return nil, map[string]any{"code": -32601, "message": "method not found"}
+}
+
+// noteRemoteChange tells review what an agent's tool just did on the server: whose file it is,
+// and that a look is due. Never in the way of the call itself: a look can take a while.
+func (s *Server) noteRemoteChange(t remoteTarget, tool string, args json.RawMessage) {
+	if t.projectID == "" || t.sessionID == "" || s.review == nil {
+		return
+	}
+	switch tool {
+	case "write_file", "edit_file":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal(args, &a) == nil && a.Path != "" {
+			s.review.Hint(t.projectID, t.sessionID, path.Clean(remotePath(t.cwd, a.Path)))
+		}
+	case "bash":
+	default:
+		return
+	}
+	go s.review.Soon(t.projectID)
 }
 
 // remoteSlowCall: a file call this long says something about the link. Commands

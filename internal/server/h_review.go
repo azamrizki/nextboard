@@ -2,14 +2,18 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
+	"path"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/azamrizki/nextboard/internal/agentstate"
+	"github.com/azamrizki/nextboard/internal/gitsvc"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/review"
@@ -28,12 +32,13 @@ type reviewRoots struct {
 
 // reviewState caches the work trees of a project, since a scan reads every repository.
 type reviewState struct {
-	mu    sync.Mutex
-	cache map[string]reviewRoots
+	mu      sync.Mutex
+	cache   map[string]reviewRoots
+	mirrors map[string]*review.Mirror
 }
 
 func (s *Server) setupReview() {
-	rs := &reviewState{cache: map[string]reviewRoots{}}
+	rs := &reviewState{cache: map[string]reviewRoots{}, mirrors: map[string]*review.Mirror{}}
 	s.review = review.New(review.Config{
 		Dir:     s.st.Path("review"),
 		Roots:   func(pid string) []review.Root { return s.reviewRootsOf(rs, pid) },
@@ -68,7 +73,7 @@ func (s *Server) setupReview() {
 
 func (s *Server) reviewRootsOf(rs *reviewState, pid string) []review.Root {
 	rp, ok := s.gitRepo(pid)
-	if !ok || rp.MachineID != machine.LocalID {
+	if !ok {
 		return nil
 	}
 	rs.mu.Lock()
@@ -76,6 +81,9 @@ func (s *Server) reviewRootsOf(rs *reviewState, pid string) []review.Root {
 	rs.mu.Unlock()
 	if ok && time.Since(c.at) < reviewRootsFor {
 		return c.roots
+	}
+	if rp.MachineID != machine.LocalID {
+		return s.reviewServerRoots(rs, pid, rp)
 	}
 	root := filepath.Clean(rp.Path)
 	// The default Home project is the whole home folder: ~/.ssh, every login, other projects.
@@ -93,6 +101,38 @@ func (s *Server) reviewRootsOf(rs *reviewState, pid string) []review.Root {
 			}
 		}
 	}
+	rs.mu.Lock()
+	rs.cache[pid] = reviewRoots{at: time.Now(), roots: roots}
+	rs.mu.Unlock()
+	return roots
+}
+
+// reviewServerRoots gives a project on a server its copy on This PC. The folder on the server
+// is the name of the copy, so a project pointed at another folder starts over.
+func (s *Server) reviewServerRoots(rs *reviewState, pid string, rp gitsvc.Repo) []review.Root {
+	sum := sha256.Sum256([]byte(rp.MachineID + "\x00" + rp.Path))
+	rs.mu.Lock()
+	m := rs.mirrors[pid]
+	dir := filepath.Join(s.st.Path("review"), pid, "mirror", hex.EncodeToString(sum[:6]))
+	if m == nil || m.Dir != dir {
+		id := rp.MachineID
+		m = &review.Mirror{Remote: rp.Path, Dir: dir, Host: func() (machine.Host, bool) { return s.machines.Host(id) }}
+		rs.mirrors[pid] = m
+	}
+	rs.mu.Unlock()
+	roots := []review.Root{{Path: dir, Mirror: m, Origin: rp.Path}}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var nested []string
+	if list, err := s.gitPrev.git.Repos(ctx, rp); err == nil {
+		for _, it := range list.Items {
+			if it.Path != "" {
+				nested = append(nested, it.Path)
+				roots = append(roots, review.Root{Rel: it.Path, Path: filepath.Join(dir, filepath.FromSlash(it.Path)), Mirror: m, Origin: path.Join(rp.Path, it.Path)})
+			}
+		}
+	}
+	m.SetNested(nested)
 	rs.mu.Lock()
 	rs.cache[pid] = reviewRoots{at: time.Now(), roots: roots}
 	rs.mu.Unlock()
@@ -129,6 +169,7 @@ func (s *Server) reviewProject(w http.ResponseWriter, r *http.Request) (string, 
 func (s *Server) handleReview(w http.ResponseWriter, r *http.Request, p *principal) {
 	if id, ok := s.reviewProject(w, r); ok {
 		writeJSON(w, http.StatusOK, s.review.List(id))
+		go s.review.Prepare(id)
 	}
 }
 

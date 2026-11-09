@@ -237,6 +237,8 @@ export interface ReviewAgent {
 
 export interface ReviewSummary {
   supported: boolean;
+  /** Why the last look at the server failed: what is listed may be behind. */
+  problem?: string;
   agents: ReviewAgent[];
 }
 

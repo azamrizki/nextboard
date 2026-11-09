@@ -512,7 +512,7 @@ Keamanan dan batasan: §6 dan §14.
 | AI | Edit terpilih dengan diff dan Accept; ghost text (mati secara default, karena tiap saran menjalankan CLI); panel Ask yang mengikuti wire card |
 | On save | `editor.onSave` menjalankan perintah per pola, 60 detik per perintah |
 
-**Bantuan kerja di editor.** Panel **Review** menampilkan file yang diubah tiap agent, dengan keep dan undo per perubahan; **Local History** menyimpan semua versi file. Keduanya memakai repo bayangan di folder data hub, hanya untuk project di This PC (keputusan 24). Source Control punya graph commit, tab detail commit, stage per perubahan, stash, penyelesaian konflik, dan pull request lewat `gh`. Panel bawah punya **Tasks** (skrip project, lokasi error, kirim kegagalan ke agent) dan **Ports**. Debugger Node.js jalan tanpa unduhan lewat adapter bawaan hub (keputusan 25). Detail: [API-studio §3.2, §3.3, §7.2, §7.5, §7.10–§7.13](API-studio.md).
+**Bantuan kerja di editor.** Panel **Review** menampilkan file yang diubah tiap agent, dengan keep dan undo per perubahan; **Local History** menyimpan semua versi file. Keduanya memakai repo bayangan di folder data hub (keputusan 24); project di server ikut lewat salinan di This PC. Source Control punya graph commit, tab detail commit, stage per perubahan, stash, penyelesaian konflik, dan pull request lewat `gh`. Panel bawah punya **Tasks** (skrip project, lokasi error, kirim kegagalan ke agent) dan **Ports**. Debugger Node.js jalan tanpa unduhan lewat adapter bawaan hub (keputusan 25). Detail: [API-studio §3.2, §3.3, §7.2, §7.5, §7.10–§7.13](API-studio.md).
 
 **Documents.** Tipe `overview`, `onboarding`, `architecture`, `readme`, `api`, `dataModel`, `security`, `testing`, `releaseNotes`, `custom`. Effort `quick`, `balanced`, `thorough` (400–1500 kata, 6–25 menit), dengan median durasi. Streaming, versi, Stop menyimpan versi `incomplete`. Ekspor PDF A4/Letter dan Markdown, atau tambah ke board.
 
@@ -886,7 +886,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 | Area | Celah |
 |---|---|
-| Workbench | Debug Node di server hanya attach, tanpa source map dan proses anak. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History hanya untuk project di This PC |
+| Workbench | Debug Node di server hanya attach, tanpa source map dan proses anak. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History di server bekerja dari salinan di This PC, tanpa file kredensial dan link |
 | Agent di server | Skill dan command server sampai ke ketiga CLI dalam bentuk dilucuti, tapi hanya teruji terhadap model palsu; model sungguhan belum diuji memilih skill-nya sendiri. Git memakai kredensial server. OpenCode belum pernah diamati menjawab dengan provider sungguhan; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
 | Status dan delivery | Agent tanpa aturan layar dibaca secara generik. Bacaan proses CLI (`rchar`) menahan `working` selama model mengirim stream, tetapi CLI yang membaca socket lewat `recv()` (Python, Rust) masih bisa terbaca `ready` saat berpikir tanpa output: sesudah 3 detik di layar prompt, sesudah 15 detik di layar lain. Daftar CLI aman untuk `whileWorking:"type"` belum ada |
 | Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan |

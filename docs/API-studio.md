@@ -649,7 +649,7 @@ Berlaku untuk console (tile dan panel terminal workbench), input order (kartu or
 
 ### 7.10 Review perubahan agent
 
-Panel **Review** menampilkan file yang diubah tiap agent dan belum ditinjau. Mekanismenya repo bayangan per work tree di `<data>/review/<projectId>/`: repo asli tidak disentuh, folder tanpa git ikut, dan edit yang tidak dilaporkan hook (misalnya `sed` dari tool shell) tetap terlihat. Hanya project di This PC; selain itu `supported:false`.
+Panel **Review** menampilkan file yang diubah tiap agent dan belum ditinjau. Mekanismenya repo bayangan per work tree di `<data>/review/<projectId>/`: repo asli tidak disentuh, folder tanpa git ikut, dan edit yang tidak dilaporkan hook (misalnya `sed` dari tool shell) tetap terlihat. Project di server ikut lewat salinan di This PC (di bawah).
 
 - **Snapshot:** saat agent mulai dan selesai bekerja, tiap 3 dtk selama bekerja, dan setelah tiap simpan dari editor. Mengikuti `.gitignore` work tree, melewati `node_modules` dan sejenisnya, file di atas 10 MB, dan maksimal 20000 path per snapshot.
 - **Atribusi:** hook `Edit`, `Write`, `MultiEdit`, dan `NotebookEdit` menentukan pemiliknya. Tanpa hook, perubahan diberikan ke agent yang bekerja tanpa hook (Codex), lalu ke yang punya hook. Lebih dari satu kandidat ditandai `unsure`. Yang disimpan pemilik dari editor bukan milik agent, dan perubahan saat tidak ada agent bekerja juga bukan.
@@ -662,9 +662,19 @@ Panel **Review** menampilkan file yang diubah tiap agent dan belum ditinjau. Mek
 | POST | `/api/projects/{id}/review/accept` | `{"session","path"?,"base"?}` | Tanpa `path` semua file agent itu. Dengan `base`, hanya sebagian yang diterima dan review berlanjut dari teks itu |
 | POST | `/api/projects/{id}/review/reject` | `{"session","path"?,"text"?}` | File kembali ke isi yang ditemukan agent; isi sekarang masuk Local History dulu. Dengan `text`, hanya sebagian yang dibatalkan |
 
-Event `review` memberi tahu klien untuk memuat ulang. Pending bertahan saat hub restart. Batasan: file besar dan folder yang di-exclude tidak ditinjau; perubahan Bash oleh dua agent sekaligus hanya bisa ditebak (`unsure`); project di server SSH belum didukung.
+Event `review` memberi tahu klien untuk memuat ulang. Pending bertahan saat hub restart. Batasan: file besar dan folder yang di-exclude tidak ditinjau; perubahan Bash oleh dua agent sekaligus hanya bisa ditebak (`unsure`).
 
-**Folder home tidak ikut:** project yang menunjuk folder home atau induknya (termasuk project bawaan "Home") tidak punya review dan Local History (`supported:false`). Kalau ikut, snapshot menyalin `~/.ssh`, semua login, dan project lain ke repo bayangan.
+**Project di server.** Tidak ada yang ditinggalkan di server, yang bisa jadi server produksi. Hub menyimpan salinan di `<data>/review/<projectId>/mirror/`, dan repo bayangan bekerja di atas salinan itu seperti di folder lokal.
+
+- **Salinan:** daftar file dari `git ls-files -c -o --exclude-standard`, atau `find` yang melewati `vendor`, `node_modules`, dan sejenisnya bila folder itu bukan repo; hanya file yang berubah menurut waktu, ukuran, dan mode yang diambil, lewat `tar` per paling banyak 1000 file atau 32 MB, dengan `nice -n 19`. Mulai saat Code card dibuka, karena yang diubah agent sebelum salinan pertama lengkap tidak punya pembanding.
+- **Saat melihat:** saat agent mulai dan selesai, tiap 10 dtk selama bekerja (bukan 3 dtk), dan sesudah tool `write_file`, `edit_file`, atau `bash` milik agent. Tool itu sekaligus menentukan pemilik file, seperti hook.
+- **Semua atau tidak sama sekali:** snapshot hanya jalan sesudah salinan lengkap. Daftar yang terpotong atau server yang putus tidak mengubah apa pun, supaya file tidak terlihat terhapus. Alasannya tampil sebagai `problem` di `GET /review`.
+- **Yang tidak pernah dibawa:** file yang namanya menandakan kredensial, walau ter-track di git: `.env`, `.env.*` (kecuali `.env.example`, `.sample`, `.dist`, `.template`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `*.jks`, `*.kdbx`, `id_rsa`, `id_ed25519`, `auth.json`, `credentials.json`, `.npmrc`, `.netrc`, `.pgpass`, `wp-config.php`, dan sejenisnya. Agent di This PC bisa membaca folder data hub. Perubahan pada file ini tidak ditinjau dan tidak punya Local History.
+- **Server dianggap bisa diambil alih:** nama, jenis, dan ukuran dari server dicek di hub. `..`, path absolut, `.git`, link, dan file yang tidak diminta ditolak. Salinan tidak pernah berisi link, jadi tulisan ke dalamnya tidak bisa keluar.
+- **Tolak (reject):** menulis di server lewat file sementara lalu `mv`. Berhenti kalau ada link di folder induk yang keluar dari project, dan link di target diganti, bukan diikuti.
+- **Batas:** 20000 file atau 1 GB (`review_too_big`). Butuh GNU `tar` dan `stat` di server. Folder home server atau induknya tidak ikut, sama seperti di This PC. Link tidak ditinjau. Salinan kode server tersimpan di This PC selama project ada.
+
+**Folder home tidak ikut:** project yang menunjuk folder home atau induknya (termasuk project bawaan "Home") tidak punya review dan Local History (`supported:false`; di server, `problem`). Kalau ikut, snapshot menyalin `~/.ssh`, semua login, dan project lain ke repo bayangan.
 
 ### 7.11 Local History
 

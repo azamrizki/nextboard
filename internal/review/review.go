@@ -2,7 +2,8 @@
 // (docs/API-studio.md §7.10), and a local history of every file (§7.11). A shadow repository in the
 // hub's data folder holds snapshots of each work tree. It does not touch the project's own
 // repository, works for every CLI and for folders without git, and sees edits that no hook reports,
-// such as a sed from a shell tool. Only projects on This PC take part.
+// such as a sed from a shell tool. A project on a server takes part through a copy on This PC
+// (mirror.go).
 package review
 
 import (
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -57,7 +59,7 @@ type Error struct {
 func (e *Error) Error() string { return e.Msg }
 
 var (
-	errUnsupported = &Error{http.StatusConflict, "review_unsupported", "review only works for projects on This PC"}
+	errUnsupported = &Error{http.StatusConflict, "review_unsupported", "this project takes no part in review"}
 	errNoChange    = &Error{http.StatusNotFound, "no_change", "this agent has no pending change there"}
 	errNoVersion   = &Error{http.StatusNotFound, "no_version", "that version is not in the local history"}
 	errBadPath     = &Error{http.StatusBadRequest, "bad_path", "the path is not inside the project"}
@@ -67,12 +69,24 @@ var (
 type Root struct {
 	Rel  string // relative to the project folder; "" = the folder itself
 	Path string // absolute, on This PC
+	// For a project on a server: Path is in this copy, and Origin is the folder on the server,
+	// the name hooks and the editor know a file by.
+	Mirror *Mirror
+	Origin string
+}
+
+// known is the name other parts of the hub use for a file of this root.
+func (r Root) known(inRoot string) string {
+	if r.Mirror != nil {
+		return path.Join(r.Origin, inRoot)
+	}
+	return filepath.Join(r.Path, inRoot)
 }
 
 // Config wires the manager to the hub.
 type Config struct {
 	Dir string
-	// Roots lists the work trees of a project; nothing when it is not on This PC.
+	// Roots lists the work trees of a project; nothing when it takes no part.
 	Roots   func(projectID string) []Root
 	Publish func(v any)
 	Now     func() time.Time
@@ -107,8 +121,10 @@ type Agent struct {
 
 // Summary is GET …/review.
 type Summary struct {
-	Supported bool         `json:"supported"`
-	Agents    []AgentFiles `json:"agents"`
+	Supported bool `json:"supported"`
+	// Problem says why the last look at the server failed: what is listed may be behind.
+	Problem string       `json:"problem,omitempty"`
+	Agents  []AgentFiles `json:"agents"`
 }
 
 // AgentFiles is an Agent as the API shows it.
@@ -187,6 +203,7 @@ type project struct {
 	ignored map[string]bool            // absolute paths the user or the review just wrote
 	overlap map[string]bool
 	ticking bool
+	problem string // why the last look at a server failed
 	soon    *time.Timer
 	stopped chan struct{}
 	pruned  map[string]time.Time
@@ -519,10 +536,32 @@ func (m *Manager) SessionChanged(projectID, sessionID, name, kind string, workin
 	}()
 }
 
+func isRemote(roots []Root) bool {
+	for _, r := range roots {
+		if r.Mirror != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// Prepare starts the copy of a server's project before anyone needs it. What an agent changes
+// before the first copy is complete has nothing to be compared with.
+func (m *Manager) Prepare(projectID string) {
+	if isRemote(m.cfg.Roots(projectID)) {
+		m.Soon(projectID)
+	}
+}
+
 // Soon takes a snapshot shortly, once for a burst of saves.
 func (m *Manager) Soon(projectID string) {
-	if len(m.cfg.Roots(projectID)) == 0 {
+	roots := m.cfg.Roots(projectID)
+	if len(roots) == 0 {
 		return
+	}
+	after := soonAfter
+	if isRemote(roots) {
+		after = remoteSoonAfter
 	}
 	p := m.project(projectID)
 	p.mu.Lock()
@@ -530,7 +569,7 @@ func (m *Manager) Soon(projectID string) {
 	if p.soon != nil {
 		return
 	}
-	p.soon = time.AfterFunc(soonAfter, func() {
+	p.soon = time.AfterFunc(after, func() {
 		p.mu.Lock()
 		p.soon = nil
 		p.mu.Unlock()
@@ -573,7 +612,11 @@ func (m *Manager) UserWrote(absPath string) {
 
 func (p *project) tick() {
 	defer p.m.wg.Done()
-	t := time.NewTicker(tickEvery)
+	every := tickEvery
+	if isRemote(p.m.cfg.Roots(p.id)) {
+		every = remoteTickEvery
+	}
+	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
 		select {
@@ -641,7 +684,22 @@ func (p *project) snapshot() error {
 
 	changed := false
 	var firstErr error
+	pulled := map[*Mirror]error{}
 	for _, r := range roots {
+		if r.Mirror != nil {
+			err, done := pulled[r.Mirror]
+			if !done {
+				err = r.Mirror.Pull(ctx)
+				pulled[r.Mirror] = err
+			}
+			if err != nil {
+				// No snapshot of a copy that may be behind: what it lacks would look deleted.
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+		}
 		sh := p.shadowOf(r.Path)
 		_, list, had, err := sh.take(ctx, label, p.nestedIn(roots, r))
 		if err != nil {
@@ -658,11 +716,17 @@ func (p *project) snapshot() error {
 	p.mu.Lock()
 	p.hints = map[string]map[string]bool{}
 	p.ignored = map[string]bool{}
+	problem := ""
+	if isRemote(roots) && firstErr != nil {
+		problem = firstErr.Error()
+	}
+	told := problem != p.problem
+	p.problem = problem
 	if changed {
 		p.saveLocked()
 	}
 	p.mu.Unlock()
-	if changed {
+	if changed || told {
 		p.publish()
 	}
 	return firstErr
@@ -697,7 +761,7 @@ func relPath(r Root, inRoot string) string {
 func (p *project) attribute(ctx context.Context, sh shadow, r Root, list []rawChange) bool {
 	changed := false
 	for _, c := range list {
-		abs := filepath.Join(r.Path, c.path)
+		abs := r.known(c.path)
 		rel := relPath(r, c.path)
 
 		p.mu.Lock()
@@ -859,7 +923,7 @@ func (m *Manager) List(projectID string) Summary {
 			byPath[rel] = append(byPath[rel], a.Name)
 		}
 	}
-	out := Summary{Supported: true, Agents: []AgentFiles{}}
+	out := Summary{Supported: true, Problem: p.problem, Agents: []AgentFiles{}}
 	for id, a := range p.state.Agents {
 		if len(a.Files) == 0 {
 			continue
@@ -910,6 +974,9 @@ func (m *Manager) File(projectID, sessionID, rel string) (*FileView, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), readLimit)
 	defer cancel()
 	v := &FileView{Path: rel}
+	if r, ok := p.rootOf(c); ok && r.Mirror != nil {
+		_ = r.Mirror.Pull(ctx) // a look at the last known state is better than no look
+	}
 	sh := p.shadowOf(c.Root)
 	if c.Base != "" {
 		b, err := sh.git(ctx, nil, "cat-file", "blob", c.Base)
@@ -947,6 +1014,16 @@ func (m *Manager) File(projectID, sessionID, rel string) (*FileView, error) {
 		v.Base, v.Current = "", ""
 	}
 	return v, nil
+}
+
+// rootOf finds the root a change belongs to.
+func (p *project) rootOf(c Change) (Root, bool) {
+	for _, r := range p.m.cfg.Roots(p.id) {
+		if r.Path == c.Root {
+			return r, true
+		}
+	}
+	return Root{}, false
 }
 
 // relInRoot turns a project-relative path into one inside its root.
@@ -1093,20 +1170,30 @@ func (m *Manager) Reject(projectID, sessionID, rel string, text *string) error {
 		return err
 	}
 	for _, ch := range list {
-		abs, err := insideRoot(ch.Root, p.relInRoot(*ch, ch.Path))
+		inRoot := p.relInRoot(*ch, ch.Path)
+		abs, err := insideRoot(ch.Root, inRoot)
 		if err != nil {
 			return err
 		}
+		root, _ := p.rootOf(*ch)
 		p.mu.Lock()
 		p.ignored[abs] = true
+		if root.Mirror != nil {
+			p.ignored[root.known(inRoot)] = true
+		}
 		p.mu.Unlock()
 		if text != nil && rel != "" {
-			if err := writeFile(abs, []byte(*text), ""); err != nil {
+			if root.Mirror != nil {
+				err = root.Mirror.WriteFile(ctx, path.Join(root.Rel, inRoot), []byte(*text), "")
+			} else {
+				err = writeFile(abs, []byte(*text), "")
+			}
+			if err != nil {
 				return err
 			}
 			continue
 		}
-		if err := p.restore(ctx, *ch, abs); err != nil {
+		if err := p.restore(ctx, *ch, abs, root, inRoot); err != nil {
 			return err
 		}
 		p.mu.Lock()
@@ -1131,8 +1218,11 @@ func (m *Manager) Reject(projectID, sessionID, rel string, text *string) error {
 	return nil
 }
 
-func (p *project) restore(ctx context.Context, ch Change, abs string) error {
+func (p *project) restore(ctx context.Context, ch Change, abs string, root Root, inRoot string) error {
 	if ch.Base == "" {
+		if root.Mirror != nil {
+			return root.Mirror.RemoveFile(ctx, path.Join(root.Rel, inRoot))
+		}
 		err := os.Remove(abs)
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -1142,6 +1232,9 @@ func (p *project) restore(ctx context.Context, ch Change, abs string) error {
 	b, err := p.shadowOf(ch.Root).git(ctx, nil, "cat-file", "blob", ch.Base)
 	if err != nil {
 		return err
+	}
+	if root.Mirror != nil {
+		return root.Mirror.WriteFile(ctx, path.Join(root.Rel, inRoot), b, ch.BaseMode)
 	}
 	if ch.BaseMode == "120000" {
 		_ = os.Remove(abs)

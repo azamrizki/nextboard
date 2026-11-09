@@ -107,3 +107,56 @@ test('the code card works on a project over SSH', async ({ page, hub }, info) =>
 
   expect(failed).toEqual([]);
 });
+
+// Review and Local History of a project on a server, as the owner uses them. The copy on This PC
+// takes what the file held, the save goes through the editor, and an older state comes back.
+test('local history works on a project over SSH', async ({ page, hub }, info) => {
+  test.slow();
+  const mid = await sshd.machine(hub, `history-${info.project.name}`);
+  const dir = mkdtempSync(join(process.env.NEXTBOARD_E2E_ROOT!, 'remote-'));
+  writeFileSync(join(dir, 'app.php'), '<?php // first version\n');
+  writeFileSync(join(dir, '.env'), 'APP_KEY=CANARY-in-browser-test\n');
+  const p = await hub.call('POST', '/api/projects', { machineId: mid, path: dir, name: `History ${info.project.name}` });
+  const wid = p.workspaces[0].id;
+  await hub.ops(wid, [{ op: 'put', node: { id: 'n_edit000002', kind: 'editor', x: 0, y: 0, w: 1200, h: 760, data: {} } }]);
+
+  const failed: string[] = [];
+  page.on('response', (r) => {
+    const u = new URL(r.url());
+    if (u.pathname.startsWith('/api/') && r.status() >= 400) failed.push(`${r.status()} ${r.request().method()} ${u.pathname}`);
+  });
+
+  await page.goto(`/p/${p.id}/w/${wid}?card=n_edit000002`);
+  const side = page.locator('.wb-side');
+  await side.getByRole('treeitem', { name: 'app.php' }).click({ timeout: 20_000 });
+  await expect(page.locator('.wb-tab', { hasText: 'app.php' })).toBeVisible();
+
+  // before: "Review works for projects on This PC."
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(side.getByText('Nothing to review.', { exact: false })).toBeVisible({ timeout: 20_000 });
+
+  // the file as it was goes in before the first save changes it
+  await expect.poll(async () => (await hub.call('GET', `/api/projects/${p.id}/history?path=app.php`)).items.length, { timeout: 30_000 }).toBeGreaterThan(0);
+  await page.locator('.monaco-editor .view-line', { hasText: 'first version' }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' edited');
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => readFileSync(join(dir, 'app.php'), 'utf8')).toContain('edited');
+
+  await page.keyboard.press('Control+Shift+P');
+  const palette = page.locator('.wb-palette').getByRole('combobox');
+  await expect(palette).toBeFocused();
+  await palette.fill('>File: Local History');
+  await expect(page.getByRole('option', { name: /File: Local History/ })).toBeVisible();
+  await page.keyboard.press('Enter');
+  const versions = page.getByRole('list', { name: 'Versions of app.php' });
+  await expect(versions.locator('.wb-lh-row').first()).toContainText('Now', { timeout: 30_000 });
+  await expect(versions.locator('.wb-lh-row')).toHaveCount(2, { timeout: 30_000 });
+  await page.getByRole('button', { name: 'Restore this version' }).click();
+  await expect(page.locator('.wb-tab', { hasText: 'app.php' }).first()).toBeVisible();
+  await page.locator('.wb-tab', { hasText: /^app\.php/ }).first().click();
+  await expect(page.locator('.monaco-editor .view-line', { hasText: 'first version' }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.monaco-editor .view-line', { hasText: 'edited' })).toHaveCount(0);
+
+  expect(failed).toEqual([]);
+});
