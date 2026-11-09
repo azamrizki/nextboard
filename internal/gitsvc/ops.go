@@ -1035,12 +1035,7 @@ func (s *Service) UntrackLarge(ctx context.Context, r Repo, paths []string) (*St
 	defer unlock()
 	script := prelude(true, false) +
 		`git rm -q -r --cached --ignore-unmatch -- ` + machine.Join(paths...) + ` >/dev/null || exit 5; ` +
-		`if [ -s .gitignore ] && [ -n "$(tail -c 1 .gitignore)" ]; then echo >> .gitignore; fi; `
-	for _, p := range paths {
-		l := machine.Quote(gitignoreLine(p))
-		script += `grep -qxF -- ` + l + ` .gitignore 2>/dev/null || printf '%s\n' ` + l + ` >> .gitignore || exit 5; `
-	}
-	script += `:`
+		ignoreLines(paths) + `:`
 	res, err := s.exec(ctx, r, script, execOpts{timeout: CommitTimeout})
 	if err != nil {
 		return nil, err

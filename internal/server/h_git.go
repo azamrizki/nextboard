@@ -51,6 +51,9 @@ func (s *Server) routesGitPreview(authed func(string, handler)) {
 	authed("POST /api/projects/{id}/git/trash/restore", s.handleGitTrashRestore)
 	authed("POST /api/projects/{id}/git/init", s.handleGitInit)
 	authed("POST /api/projects/{id}/git/untrack-large", s.handleGitUntrackLarge)
+	authed("GET /api/projects/{id}/git/large-history", s.handleGitLargeHistory)
+	authed("POST /api/projects/{id}/git/large-history/remove", s.handleGitLargeRemove)
+	authed("POST /api/projects/{id}/git/large-history/undo", s.handleGitLargeUndo)
 	authed("GET /api/projects/{id}/git/branches", s.handleGitBranches)
 	authed("POST /api/projects/{id}/git/branches", s.handleGitBranchCreate)
 	authed("DELETE /api/projects/{id}/git/branches/{name...}", s.handleGitBranchDelete)
@@ -619,6 +622,60 @@ func (s *Server) handleGitUntrackLarge(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	st, err := s.gitPrev.git.UntrackLarge(r.Context(), rp, req.Paths)
+	if err != nil {
+		gitErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleGitLargeHistory(w http.ResponseWriter, r *http.Request, p *principal) {
+	rp, ok := s.repo(w, r)
+	if !ok {
+		return
+	}
+	h, err := s.gitPrev.git.ScanLargeHistory(r.Context(), rp)
+	if err != nil {
+		gitErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, h)
+}
+
+func (s *Server) handleGitLargeRemove(w http.ResponseWriter, r *http.Request, p *principal) {
+	rp, ok := s.repo(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Head  string   `json:"head"`
+		Paths []string `json:"paths"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	res, err := s.gitPrev.git.RemoveLargeFromHistory(r.Context(), rp, req.Head, req.Paths)
+	if err != nil {
+		gitErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleGitLargeUndo(w http.ResponseWriter, r *http.Request, p *principal) {
+	rp, ok := s.repo(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Backup string   `json:"backup"`
+		Head   string   `json:"head"`
+		Paths  []string `json:"paths"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	st, err := s.gitPrev.git.UndoLargeRemoval(r.Context(), rp, req.Backup, req.Head, req.Paths)
 	if err != nil {
 		gitErr(w, err)
 		return

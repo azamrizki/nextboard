@@ -891,7 +891,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Status dan delivery | Agent tanpa aturan layar dibaca secara generik. Bacaan proses CLI (`rchar`) menahan `working` selama model mengirim stream, tetapi CLI yang membaca socket lewat `recv()` (Python, Rust) masih bisa terbaca `ready` saat berpikir tanpa output: sesudah 3 detik di layar prompt, sesudah 15 detik di layar lain. Daftar CLI aman untuk `whileWorking:"type"` belum ada |
 | Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan |
 | Multi-repo | Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
-| Git | Menulis ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup. Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
+| Git | File > 100 MB hanya bisa dibuang dari commit yang belum di-push (API-studio §3.7). Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
 | Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |
 | Aplikasi desktop | VA-API saja, baru teruji di Arc A380. Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N) tidak sampai. Tanpa mikrofon. `wayvnc` 0.9.1 sesekali segfault (hub menyalakannya ulang dalam sekitar 2 detik). Di mesin tanpa output suara asli, sink sesi bisa menjadi default |
 | Browser di tile | Firefox dan snap/flatpak belum. Satu tile per board |

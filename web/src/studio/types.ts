@@ -47,6 +47,31 @@ export interface GitStatus {
   largeFiles: GitLargeFile[] | null;
 }
 
+/** A path over 100 MB in commits no remote has yet. */
+export interface GitLargeCommitted {
+  path: string;
+  sizeBytes: number;
+  commits: number;
+  /** A pushed commit holds this path too: removing it deletes it on the remote at the next push. */
+  inPushed: boolean;
+}
+
+export interface GitLargeHistory {
+  head: string;
+  detached: boolean;
+  unpushed: number;
+  tooMany?: boolean;
+  files: GitLargeCommitted[];
+}
+
+export interface GitLargeRemoved {
+  backup: string;
+  head: string;
+  rewritten: number;
+  dropped: number;
+  status: GitStatus;
+}
+
 /** Compact status of the {"type":"git"} and {"type":"gitRepo"} events. */
 export interface GitSummary {
   branch: string;

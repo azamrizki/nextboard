@@ -115,6 +115,9 @@ Keputusan: built-in memakai **mode headless** (lebih andal daripada membaca TUI)
 | POST | `/trash/restore` | `{"id","paths"?}` | `{"restored":[…]}`; `409 exists` (tidak menimpa) |
 | POST | `/init` | `{"branch"?: "main"}` | `GitStatus` (`init -b main`; git lama: `init` + `symbolic-ref HEAD refs/heads/main`) |
 | POST | `/untrack-large` | `{"paths":[…]}` | `GitStatus` (`rm --cached --` + tambah baris ke `.gitignore`) |
+| GET | `/large-history` | — | `LargeHistory`: path > 100 MiB di commit yang belum ada di remote mana pun (§3.7) |
+| POST | `/large-history/remove` | `{"head","paths":[…]}` | `{"backup","head","rewritten","dropped","status"}`. `409 head_moved`, `409 not_large` (+`paths`), `409 detached`, `409 operation_running`, `409 too_many_commits` |
+| POST | `/large-history/undo` | `{"backup","head","paths":[…]}` | `GitStatus`. `409 head_moved` bila sudah ada commit baru, `404 no_backup` |
 | GET | `/branches` | — | `{"current","items":[Branch…]}` (≤ 200) |
 | POST | `/branches` | `{"name","from"?,"switch"?: true}` | `GitStatus`; `400 bad_ref` (`check-ref-format --branch`), `409 exists` |
 | POST | `/switch` | `{"name"}` | `GitStatus`; tanpa konfirmasi; git menolak bila menimpa pekerjaan → `409 git_refused` + pesan git |
@@ -227,6 +230,25 @@ Folder project boleh berupa folder induk yang berisi beberapa repository, dengan
 Explorer juga meredupkan file yang di-ignore di repository di bawah folder induk: di project yang bukan work tree, `files/ignored` bertanya ke git milik folder tiap path (≤ 16 folder per request). **Belum:** Android dan desktop belum punya picker; tanpa `?repo=` perilakunya tetap.
 
 **Verifikasi (This PC, 2026-11-03):** `go test -race ./internal/gitsvc` (`TestRepos*`, `TestSubRepo*`, `TestNestedInOuterRepo`, `TestInitRefusedAboveRepos`, `TestPick`), `internal/server TestGitMultiRepo`, `internal/orch TestGitSteps`. `NEXTBOARD_SSHD_TEST=1 go test ./internal/machine -run TestGitReposOverSSH` (sshd sementara, login shell zsh, nama folder dengan spasi). Chrome headless lewat Playwright terhadap hub dan Vite sementara: folder induk, repository + nested, satu repository, folder kosong (panel, pill, kartu Branches, Source Control, command bar).
+
+### 3.7 File besar yang sudah ter-commit
+
+`untrack-large` hanya menolong file yang belum masuk commit. Kalau sudah masuk, push tetap gagal karena commit itu masih memegang blob-nya, jadi obatnya commit baru tanpa file itu.
+
+```jsonc
+// LargeHistory
+{ "head": "…", "detached": false, "unpushed": 3, "tooMany": false,
+  "files": [{ "path": "data/dump.bin", "sizeBytes": 160000000, "commits": 2, "inPushed": false }] }
+```
+
+- **Yang disentuh hanya commit yang belum ada di remote:** `HEAD --not --remotes`, paling banyak 2000 commit. Commit yang sudah di-push tidak berubah, jadi tidak pernah butuh force push.
+- **Pemindaian:** membaca `ls-tree` tiap commit, bukan tiap blob sekali, karena satu blob dengan dua nama harus hilang di keduanya. `inPushed` berarti commit di remote juga punya path itu dengan ukuran yang diterima, jadi menghapusnya berarti push berikutnya menghapus file itu di sana.
+- **Cara menulis ulang:** plumbing dengan index sementara (`read-tree`, `update-index --force-remove`, `write-tree`, `commit-tree`), bukan `filter-branch` yang menolak work tree kotor. Author, committer, tanggal, pesan, dan merge tetap. Commit yang isinya hanya file itu dibuang. Tanda tangan GPG hilang karena isinya berubah.
+- **Atomik:** cabang baru pindah di langkah terakhir dengan nilai lama yang dicek (`update-ref <ref> <new> <old>`), jadi kegagalan atau timeout di tengah tidak mengubah apa pun.
+- **Penjagaan:** `head` harus sama dengan yang dilihat pemilik. Path harus ditemukan di atas batas oleh pindaian baru, jadi panggilan keliru tidak bisa mencabut file biasa dari riwayat. Ditolak saat detached dan saat merge, rebase, cherry-pick, revert, atau bisect berjalan.
+- **Yang tetap:** file di disk, edit yang terbuka, dan isi index selain path itu. Path masuk `.gitignore`.
+- **Cadangan:** `refs/nextboard/backup/<id>` menunjuk riwayat lama dan tidak ikut push. Isi `.git` belum mengecil sampai ref itu dihapus (`git update-ref -d`) dan `git gc` jalan. Undo membatalkan selama belum ada commit baru.
+- **UI:** peringatan muncul di panel Git dan Source Control saat `ahead` 1–200, atau sesudah push gagal dengan kode `large_files`.
 
 ## 4. Preview web (B17–B19)
 
@@ -915,7 +937,7 @@ Preview dan listener-nya hanya di memori (node `web` di board yang persisten). *
 8. **Path agent memory Claude** per project dan daftar key frontmatter skill yang valid; layout folder plugin.
 9. **PDF di browser:** dukungan margin box `@page` (Chrome ≥ 131), bookmark PDF tidak dijamin; Android `PrintManager`.
 10. **Web Speech** di webview Tauri (WebKitGTK/WKWebView) dan `getUserMedia` di origin self-signed.
-11. **Git:** prioritas `core.sshCommand` user vs `BatchMode`; credential helper HTTPS di remote; penulisan ulang riwayat untuk file > 100 MB yang sudah ter-commit belum dicakup.
+11. **Git:** prioritas `core.sshCommand` user vs `BatchMode`; credential helper HTTPS di remote.
 12. **`gh repo create --source . --push`**: verifikasi flag dan perilaku saat remote `origin` sudah ada.
 13. **Pustaka layout diagram:** selesai, tidak dipakai. Tata letak ditulis sendiri (`internal/studio`, `web/src/studio/diagrams/layout.ts`).
 14. **Indeks token lewat SFTP** pada folder transcript sangat besar (ribuan file) — perlu uji performa.

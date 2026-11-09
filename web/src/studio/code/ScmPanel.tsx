@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Icon } from '../../components/Icon';
 import { toast } from '../../components/Toast';
 import { gitError, gitSideChanged, jobSummary, splitPath, STATUS_LABEL, STATUS_LETTER, STATUS_TONE } from '../../git/common';
+import { LargeInCommits } from '../../git/LargeInCommits';
 import { RepoPicker } from '../../git/RepoPicker';
 import { SUGGEST_LABEL, SUGGEST_LABEL_OFFLINE, suggestCommitMessage } from '../../git/suggest';
 import { gitApi } from '../api';
@@ -32,6 +33,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState('');
   const [discard, setDiscard] = useState<GitFile | null>(null);
+  const [largeRescan, setLargeRescan] = useState(0);
 
   const files = useMemo(() => st?.files ?? [], [st]);
   const conflicts = files.filter((f) => f.status === 'conflict');
@@ -71,6 +73,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
       const { ok, text } = jobSummary(j);
       if (ok) toast.success(text);
       else toast.error(text);
+      if (j.code === 'large_files') setLargeRescan((n) => n + 1);
     });
 
   const commit = (thenPush: boolean) =>
@@ -84,6 +87,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
         const { ok, text } = jobSummary(j);
         if (ok) toast.success(text);
         else toast.error(text);
+        if (j.code === 'large_files') setLargeRescan((n) => n + 1);
       } else {
         toast.success('Committed.');
       }
@@ -136,6 +140,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
         <Button size="sm" variant="ghost" iconOnly icon="download" aria-label="Fetch" title="Fetch" loading={busy === 'fetch'} disabled={!!busy || !st?.hasRemote} onClick={() => void job('fetch', () => gitApi.fetch(target))} />
       </header>
       <RepoPicker pid={ws.pid} className="wb-repo-picker" disabled={!!busy} />
+      <LargeInCommits key={target.repo ?? ''} target={target} unpushed={st?.ahead ?? 0} rescan={largeRescan} disabled={!!busy} onStatus={() => void ws.refreshGit()} />
       <div className="wb-commit">
         <textarea
           className="control prose"

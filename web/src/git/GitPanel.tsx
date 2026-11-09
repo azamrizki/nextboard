@@ -22,6 +22,7 @@ import { gitApi, jobApi } from '../studio/api';
 import { jobActive, studioStore, useJob, useStudio } from '../studio/store';
 import type { GitCommit, GitDiff, GitFile, GitRepoInfo, GitStatus, GitTarget, GitTrashItem } from '../studio/types';
 import { formatBytes, gitError, jobSummary, lineCounts, splitPath, STATUS_LABEL, STATUS_LETTER } from './common';
+import { LargeInCommits } from './LargeInCommits';
 import { RepoPicker } from './RepoPicker';
 import { SUGGEST_LABEL, SUGGEST_LABEL_OFFLINE, suggestCommitMessage } from './suggest';
 
@@ -75,6 +76,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
   const [committing, setCommitting] = useState<'' | 'commit' | 'push'>('');
   const [large, setLarge] = useState<string[] | null>(null);
   const [discard, setDiscard] = useState<string[] | null>(null);
+  const [largeRescan, setLargeRescan] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useJob(jobId);
   const [section, setSection] = useState<'' | 'history' | 'trash'>('');
@@ -143,6 +145,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
       toast.success(url ? `Published to ${url}.` : 'Published to GitHub.');
     } else if (s.ok) toast.success(s.text);
     else toast.error(s.text);
+    if (job.code === 'large_files') setLargeRescan((n) => n + 1);
     void load();
   }, [job, load]);
 
@@ -356,6 +359,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
           )}
 
           {!!st.largeFiles?.length && <LargeFiles files={st.largeFiles} onKeepOff={(p) => void keepOff(p)} />}
+          <LargeInCommits target={target} unpushed={st.ahead} rescan={largeRescan} disabled={running} onStatus={apply} />
 
           {!st.hasRemote && <PublishCard project={project} target={target} workspaceId={workspaceId} status={st} running={running} onJob={startJob} />}
 
