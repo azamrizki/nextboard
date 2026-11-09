@@ -422,6 +422,10 @@ func (s *Server) handleDAPSocket(w http.ResponseWriter, r *http.Request, p *prin
 	if !ok {
 		return
 	}
+	if q := r.URL.Query().Get("inspect"); q != "" && r.PathValue("adapter") == "node" {
+		s.bridgeNodeInspector(w, r, p, h, q)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), filesTimeout)
 	defer cancel()
 	ad, err := studio.ResolveDebugAdapter(ctx, h, pr.Path, r.PathValue("adapter"))

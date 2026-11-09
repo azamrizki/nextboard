@@ -297,6 +297,8 @@ export const filesApi = {
   aiAsk: (pid: string, body: { question: string; path: string; language: string; selection: string; startLine: number; endLine: number }) => post<Job>(`${pr(pid)}/code/ask`, body),
   aiComplete: (pid: string, body: { path: string; language: string; before: string; after: string }) => post<Job>(`${pr(pid)}/code/complete`, body),
   dapStatus: (pid: string) => get<{ items: DebugAdapterInfo[] | null }>(`${pr(pid)}/dap`),
+  nodeProcesses: (pid: string) => get<{ items: NodeProcessInfo[] | null }>(`${pr(pid)}/dap/node/processes`),
+  nodeInspect: (pid: string, body: { pid: number } | { port: number }) => post<{ port: number; opened: boolean }>(`${pr(pid)}/dap/node/inspect`, body),
 };
 
 export interface DebugAdapterInfo {
@@ -305,8 +307,16 @@ export interface DebugAdapterInfo {
   types: string[];
   languages: string[];
   available: boolean;
+  /** A program that already runs on the project's machine can be debugged. */
+  attach?: boolean;
   command: string;
   install: string;
+}
+
+export interface NodeProcessInfo {
+  pid: number;
+  command: string;
+  cwd: string;
 }
 
 export interface ExtensionHit {

@@ -5,7 +5,7 @@
 import { api, errorMessage, wsUrl } from '../../api';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
-import { filesApi, type DebugAdapterInfo } from '../api';
+import { filesApi, type DebugAdapterInfo, type NodeProcessInfo } from '../api';
 import { parseJsonc } from './jsonc';
 import { dirOf, extOf, nameOf, type Workspace } from './workspace';
 
@@ -164,6 +164,10 @@ export class Debugger {
   current: { path: string; line: number } | null = null;
   /** The breakpoint being edited in the dialog. */
   editing: Breakpoint | null = null;
+  /** The session's program was already running: stopping lets go of it. */
+  attached = false;
+  /** Choosing the node process to attach to. */
+  picker: { config: LaunchConfig; adapter: DebugAdapterInfo; items: NodeProcessInfo[] | null; opening: number; error: string } | null = null;
 
   private client: DapClient | null = null;
   private lastConfig: LaunchConfig | null = null;
@@ -213,6 +217,7 @@ export class Debugger {
   /** .vscode/launch.json first, then what fits the active file. */
   async configurations(): Promise<LaunchConfig[]> {
     const out: LaunchConfig[] = [];
+    if (!this.adapters.length) await this.refreshAdapters();
     try {
       const file = this.ws.abs('.vscode/launch.json');
       const st = await api.fsStat(this.ws.mid, file);
@@ -228,11 +233,10 @@ export class Debugger {
 
   private autoConfigs(existing: LaunchConfig[]): LaunchConfig[] {
     const path = this.ws.activeDoc?.path;
-    if (!path) return [];
-    const ext = extOf(path);
+    const ext = path ? extOf(path) : '';
     const add: LaunchConfig[] = [];
     if (ext === 'go') {
-      const test = path.endsWith('_test.go');
+      const test = !!path?.endsWith('_test.go');
       add.push({ name: test ? 'Debug tests in this package' : 'Debug this package', type: 'go', request: 'launch', mode: test ? 'test' : 'debug', program: '${fileDirname}', cwd: '${workspaceFolder}' });
     } else if (ext === 'py') {
       add.push({ name: 'Debug this Python file', type: 'python', request: 'launch', program: '${file}', cwd: '${workspaceFolder}', console: 'internalConsole', justMyCode: true });
@@ -240,6 +244,7 @@ export class Debugger {
     if (['js', 'mjs', 'cjs', 'ts', 'mts', 'cts'].includes(ext)) {
       add.push({ name: 'Debug this file with Node.js', type: 'node', request: 'launch', program: '${file}', cwd: '${workspaceFolder}' });
     }
+    if (this.adapterFor('node')?.attach) add.push({ name: 'Attach to a running Node.js process', type: 'node', request: 'attach', cwd: '${workspaceFolder}' });
     return add.filter((a) => !existing.some((e) => e.name === a.name));
   }
 
@@ -300,15 +305,71 @@ export class Debugger {
       this.ws.changed();
       return;
     }
+    if (config.request === 'attach' && adapter.attach) {
+      await this.startAttach(config, adapter);
+      return;
+    }
     if (!adapter.available) {
-      this.notice = { text: `${adapter.name} is not installed on this machine.`, install: adapter.install };
+      this.notice = adapter.attach
+        ? { text: `The debugger stays on This PC, so it can’t start a program on this server. Start it in a console, then choose “Attach to a running Node.js process”.` }
+        : { text: `${adapter.name} is not installed on this machine.`, install: adapter.install };
       this.ws.changed();
       return;
     }
+    await this.session(config, adapter, noDebug);
+  }
+
+  /** A port in launch.json is checked and used. Otherwise a person chooses the process. */
+  private async startAttach(config: LaunchConfig, adapter: DebugAdapterInfo) {
+    const port = this.substitute(config.port);
+    if (typeof port === 'number') {
+      try {
+        const r = await filesApi.nodeInspect(this.ws.pid, { port });
+        await this.session(config, adapter, false, { port: r.port, closeInspector: false });
+      } catch (err) {
+        this.notice = { text: `Nothing to attach to on port ${port}: ${errorMessage(err)}` };
+        this.ws.changed();
+      }
+      return;
+    }
+    this.picker = { config, adapter, items: null, opening: 0, error: '' };
+    this.ws.changed();
+    try {
+      const r = await filesApi.nodeProcesses(this.ws.pid);
+      if (this.picker) this.picker = { ...this.picker, items: r.items ?? [] };
+    } catch (err) {
+      if (this.picker) this.picker = { ...this.picker, items: [], error: errorMessage(err) };
+    }
+    this.ws.changed();
+  }
+
+  closePicker() {
+    this.picker = null;
+    this.ws.changed();
+  }
+
+  /** Find the process's inspector, or open it with a signal, and attach. */
+  async attachTo(pid: number) {
+    const p = this.picker;
+    if (!p || p.opening) return;
+    this.picker = { ...p, opening: pid, error: '' };
+    this.ws.changed();
+    try {
+      const r = await filesApi.nodeInspect(this.ws.pid, { pid });
+      this.picker = null;
+      await this.session(p.config, p.adapter, false, { port: r.port, closeInspector: r.opened });
+    } catch (err) {
+      if (this.picker) this.picker = { ...this.picker, opening: 0, error: errorMessage(err) };
+      this.ws.changed();
+    }
+  }
+
+  private async session(config: LaunchConfig, adapter: DebugAdapterInfo, noDebug: boolean, inspect?: { port: number; closeInspector: boolean }) {
     await this.ws.saveAll();
     this.lastConfig = config;
     this.lastNoDebug = noDebug;
     this.configName = config.name;
+    this.attached = !!inspect;
     this.state = 'starting';
     this.console = [];
     this.configured = false;
@@ -319,15 +380,16 @@ export class Debugger {
     this.ws.panelOpen = true;
     this.ws.panelView = 'debug';
     this.changed();
-    const url = wsUrl(`/api/projects/${encodeURIComponent(this.ws.pid)}/dap/${encodeURIComponent(adapter.id)}/ws`);
+    const query = inspect ? `?inspect=${inspect.port}` : '';
+    const url = wsUrl(`/api/projects/${encodeURIComponent(this.ws.pid)}/dap/${encodeURIComponent(adapter.id)}/ws${query}`);
     this.client = new DapClient(url, {
-      open: () => void this.handshake(config, adapter, noDebug),
+      open: () => void this.handshake(config, adapter, noDebug, inspect),
       event: (e) => this.onEvent(e),
       close: (reason) => this.onClose(reason),
     });
   }
 
-  private async handshake(config: LaunchConfig, adapter: DebugAdapterInfo, noDebug: boolean) {
+  private async handshake(config: LaunchConfig, adapter: DebugAdapterInfo, noDebug: boolean, inspect?: { port: number; closeInspector: boolean }) {
     const c = this.client;
     if (!c) return;
     try {
@@ -348,6 +410,11 @@ export class Debugger {
       for (const f of this.filters) if (f.default && !this.enabledFilters.has(f.filter)) this.enabledFilters.add(f.filter);
       const args = this.substitute({ ...config }) as Json;
       if (noDebug) args.noDebug = true;
+      if (inspect) {
+        args.port = inspect.port;
+        args.closeInspector = inspect.closeInspector;
+        delete args.processId;
+      }
       // Delve would otherwise print to its own stdout, out of the console's reach.
       if (config.type === 'go' && args.outputMode === undefined) args.outputMode = 'remote';
       // Not awaited: some adapters answer only after configurationDone.
@@ -739,6 +806,8 @@ export class Debugger {
 const LAUNCH_TEMPLATE = `{
   // Debug configurations, in the format of VS Code.
   // Types here: go (Delve), python (debugpy), node, lldb or gdb (C, C++, Rust), php.
+  // A node program that already runs: "request": "attach", with "port" if it has an inspector.
+  // Without a port you choose the process, on This PC or on the server.
   "version": "0.2.0",
   "configurations": [
     {

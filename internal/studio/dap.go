@@ -38,6 +38,8 @@ type DebugAdapter struct {
 	Languages []string // Monaco language ids
 	commands  []adapterCommand
 	Install   string
+	// attach: it can also take a program that already runs, on any machine (nodeinspect.go).
+	attach bool
 }
 
 func onPath(name string) string { return `command -v ` + name + ` >/dev/null 2>&1` }
@@ -63,7 +65,7 @@ var DebugAdapters = []DebugAdapter{
 			{check: onPath("gdb"), argv: []string{"gdb", "--interpreter=dap"}},
 		}},
 	// no download: the hub itself speaks to Node's inspector
-	{ID: "node", Name: "Node.js", Types: []string{"node", "pwa-node"}, Languages: []string{"javascript", "typescript"}, Install: "Install Node.js on This PC; on a server, debug from a console there.",
+	{ID: "node", Name: "Node.js", Types: []string{"node", "pwa-node"}, Languages: []string{"javascript", "typescript"}, Install: "Install Node.js on This PC. On a server, attach to a program that runs there.", attach: true,
 		commands: []adapterCommand{{check: onPath("node"), argv: []string{selfPath(), "dap-node"}, hub: true}}},
 	{ID: "php", Name: "PHP Debug (Xdebug)", Types: []string{"php"}, Languages: []string{"php"}, Install: "Put php-debug-adapter from vscode-php-debug on the PATH, with Xdebug enabled",
 		commands: []adapterCommand{{check: onPath("php-debug-adapter"), argv: []string{"php-debug-adapter"}}}},
@@ -79,8 +81,12 @@ type DebugAdapterStatus struct {
 	Types     []string `json:"types"`
 	Languages []string `json:"languages"`
 	Available bool     `json:"available"`
-	Command   string   `json:"command"`
-	Install   string   `json:"install"`
+	// Attach: a program that already runs on this machine can be debugged. The adapter stays on
+	// This PC, so a server needs nothing on its PATH for it, not even node: a program started
+	// through nvm runs fine where a plain login finds no node at all.
+	Attach  bool   `json:"attach,omitempty"`
+	Command string `json:"command"`
+	Install string `json:"install"`
 }
 
 // probeAdapters returns which commands exist, as "adapter/index".
@@ -122,6 +128,7 @@ func DebugAdapterList(ctx context.Context, h machine.Host, root string) ([]Debug
 				break
 			}
 		}
+		st.Attach = a.attach
 		out = append(out, st)
 	}
 	return out, nil

@@ -118,8 +118,9 @@ type adapter struct {
 	outMu sync.Mutex
 	seq   int
 
-	cmd      *exec.Cmd
-	exitOnce sync.Once
+	cmd        *exec.Cmd
+	exitOnce   sync.Once
+	detachOnce sync.Once
 
 	mu          sync.Mutex
 	main        *target         // the program started
@@ -139,6 +140,10 @@ type adapter struct {
 	blackbox    []string // patterns for steps to skip
 	exceptions  string   // "none", "uncaught" or "all"
 	childDir    string   // where child processes say where their inspector is (children.go)
+	// attach.go: the program was already running.
+	attached       bool
+	attachedAt     float64
+	closeInspector bool
 }
 
 // varRef is what a variablesReference stands for: an object of one target.
@@ -284,7 +289,12 @@ func (a *adapter) handle(m message) bool {
 			return false
 		}
 	case "attach":
-		err = errors.New("attach is not supported: start the program from here")
+		err = a.attach(m.Arguments)
+		if err == nil {
+			a.reply(m, nil)
+			a.event("initialized", map[string]any{})
+			return false
+		}
 	case "configurationDone":
 		err = a.configured()
 	case "setBreakpoints":
@@ -324,10 +334,12 @@ func (a *adapter) handle(m message) bool {
 		}
 	case "terminate":
 		a.reply(m, nil)
+		a.detach()
 		a.kill(syscall.SIGTERM)
 		return false
 	case "disconnect":
 		a.reply(m, nil)
+		a.detach()
 		a.kill(syscall.SIGKILL)
 		return true
 	default:
@@ -442,15 +454,8 @@ func (a *adapter) launch(raw json.RawMessage) error {
 		a.kill(syscall.SIGKILL)
 		return fmt.Errorf("could not reach the inspector: %w", err)
 	}
-	// steps stay out of Node's own code, the bootloader, and what launch.json lists
-	patterns := []string{"^node:", regexp.QuoteMeta(bootFile) + "$"}
-	for _, s := range c.SkipFiles {
-		if s != "<node_internals>/**" {
-			patterns = append(patterns, globRegex(s))
-		}
-	}
 	a.mu.Lock()
-	a.blackbox = patterns
+	a.blackbox = skipPatterns(c.SkipFiles)
 	a.mu.Unlock()
 	t := a.newTarget("main", ws)
 	go t.readCDP()
@@ -558,6 +563,7 @@ func (a *adapter) kill(sig syscall.Signal) {
 }
 
 func (a *adapter) shutdown() {
+	a.detach()
 	a.kill(syscall.SIGKILL)
 	a.closeCDP()
 	a.mu.Lock()
@@ -611,6 +617,12 @@ func (t *target) cdp(method string, params map[string]any) (json.RawMessage, err
 }
 
 // main is the thread of the program the session started.
+func (a *adapter) isAttached() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.attached
+}
+
 func (a *adapter) mainTarget() *target {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -662,8 +674,13 @@ func (t *target) readCDP() {
 			t.resumed()
 		case "Debugger.breakpointResolved":
 			t.onResolved(m.Params)
+		case "Runtime.consoleAPICalled":
+			t.onConsole(m.Params)
 		case "Runtime.executionContextDestroyed":
 			// the program is done, and node waits for the debugger to let go
+			if t.a.isAttached() {
+				continue
+			}
 			go func() {
 				time.Sleep(50 * time.Millisecond)
 				t.wsMu.Lock()
@@ -682,6 +699,7 @@ func (t *target) gone() {
 	a := t.a
 	a.mu.Lock()
 	child := a.targets[t.id] == t && t != a.main
+	ended := a.attached && t == a.main
 	if child {
 		delete(a.targets, t.id)
 		for ref, v := range a.refs {
@@ -699,6 +717,9 @@ func (t *target) gone() {
 	t.cdpMu.Unlock()
 	if child {
 		a.event("thread", map[string]any{"reason": "exited", "threadId": t.id})
+	}
+	if ended {
+		a.attachEnded()
 	}
 }
 
@@ -798,7 +819,8 @@ func (a *adapter) configured() error {
 		return nil
 	}
 	a.mu.Lock()
-	t.waitEntry = true
+	// An attached program is past its first line, and no stop is coming to swallow.
+	t.waitEntry = !a.attached
 	a.started = true
 	a.mu.Unlock()
 	_, err := t.cdp("Runtime.runIfWaitingForDebugger", nil)

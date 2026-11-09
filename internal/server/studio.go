@@ -129,6 +129,8 @@ func (s *Server) routesStudio(authed func(string, handler)) {
 	authed("POST /api/projects/{id}/code/ask", s.handleCodeAsk)
 	authed("GET /api/projects/{id}/dap", s.handleDAPStatus)
 	authed("GET /api/projects/{id}/dap/{adapter}/ws", s.handleDAPSocket)
+	authed("GET /api/projects/{id}/dap/node/processes", s.handleNodeProcesses)
+	authed("POST /api/projects/{id}/dap/node/inspect", s.handleNodeInspect)
 	authed("GET /api/extensions", s.handleExtensions)
 	authed("GET /api/extensions/search", s.handleExtensionSearch)
 	authed("POST /api/extensions", s.handleExtensionInstall)

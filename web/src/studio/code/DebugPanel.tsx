@@ -94,6 +94,43 @@ function BreakpointDialog({ dbg, b }: { dbg: Debugger; b: Breakpoint }) {
   );
 }
 
+// Choosing the process to attach to. It says what opening an inspector means: on a server
+// other people log in to, that is a way into the program for as long as it stays open.
+function AttachPicker({ dbg }: { dbg: Debugger }) {
+  const p = dbg.picker;
+  if (!p) return null;
+  return (
+    <Modal title="Attach to a Node.js process" size="md" onClose={() => dbg.closePicker()}>
+      <p className="text-2 fs-sm">If the process has no inspector yet, NextBoard opens one with a signal and closes it when you stop. Until then, anyone with a login on that machine could run code in that process.</p>
+      {p.error && (
+        <div className="alert" role="alert">
+          <Icon name="alertCircle" />
+          <span>{p.error}</span>
+        </div>
+      )}
+      {!p.items && (
+        <div className="list-msg" role="status">
+          <span className="spinner" aria-hidden="true" /> Looking for node processes…
+        </div>
+      )}
+      {p.items && !p.items.length && !p.error && <div className="list-msg">No node process of yours is running on this machine.</div>}
+      <ul className="plain wb-attach-list">
+        {p.items?.map((x) => (
+          <li key={x.pid}>
+            <button type="button" className="wb-attach-row" disabled={!!p.opening} aria-busy={p.opening === x.pid} onClick={() => void dbg.attachTo(x.pid)}>
+              <span className="mono fs-xs truncate">{x.command || 'node'}</span>
+              <span className="text-3 fs-xs truncate">
+                pid {x.pid}
+                {x.cwd ? ` · ${x.cwd}` : ''}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Modal>
+  );
+}
+
 export function DebugView({ ws, onInstall }: { ws: Workspace; onInstall: (command: string) => void }) {
   useWs(ws);
   const dbg = ws.debug;
@@ -153,6 +190,7 @@ export function DebugView({ ws, onInstall }: { ws: Workspace; onInstall: (comman
           )}
         </div>
       )}
+      <AttachPicker dbg={dbg} />
       <div className="wb-dbg-body nowheel">
         <Section title="Variables">
           {dbg.state !== 'stopped' && <div className="wb-row-msg">{dbg.state === 'running' ? 'Running…' : 'Not paused.'}</div>}
@@ -263,7 +301,15 @@ export function DebugToolbar({ ws }: { ws: Workspace }) {
       <Button size="sm" variant="ghost" iconOnly icon="arrowDown" aria-label="Step into (F11)" title="Step into · F11" disabled={!stopped} onClick={() => dbg.stepIn()} />
       <Button size="sm" variant="ghost" iconOnly icon="arrowUp" aria-label="Step out (Shift+F11)" title="Step out · Shift+F11" disabled={!stopped} onClick={() => dbg.stepOut()} />
       <Button size="sm" variant="ghost" iconOnly icon="restart" aria-label="Restart (Ctrl+Shift+F5)" title="Restart · Ctrl+Shift+F5" onClick={() => void dbg.restart()} />
-      <Button size="sm" variant="ghost" iconOnly icon="stop" aria-label="Stop (Shift+F5)" title="Stop · Shift+F5" onClick={() => void dbg.stop()} />
+      <Button
+        size="sm"
+        variant="ghost"
+        iconOnly
+        icon="stop"
+        aria-label={dbg.attached ? 'Detach (Shift+F5)' : 'Stop (Shift+F5)'}
+        title={dbg.attached ? 'Detach, the program keeps running · Shift+F5' : 'Stop · Shift+F5'}
+        onClick={() => void dbg.stop()}
+      />
     </div>
   );
 }
