@@ -36,6 +36,8 @@ export interface GuiSession {
   display: 'wayland' | 'x11';
   /** Has its own sound output. */
   audio: boolean;
+  /** Which browser of this kind, each with its own profile. Absent on the first. */
+  instance?: number;
   startedAt: string;
 }
 
@@ -49,7 +51,7 @@ export const guiApi = {
   catalog: () => apiRequest<GuiCatalog>('GET', '/api/gui/apps'),
   sessions: () => apiRequest<GuiSession[] | null>('GET', '/api/gui/sessions').then((r) => r ?? []),
   launch: (body: { appId: string; path?: string; width?: number; height?: number }) => apiRequest<GuiSession>('POST', '/api/gui/sessions', body),
-  openUrl: (body: { url: string; width?: number; height?: number }) => apiRequest<{ session: GuiSession; url: string; newTab: boolean }>('POST', '/api/gui/browser/open', body),
+  openUrl: (body: { url: string; width?: number; height?: number; here?: boolean; instance?: number }) => apiRequest<{ session: GuiSession; url: string; newTab: boolean }>('POST', '/api/gui/browser/open', body),
   stop: (id: string) => apiRequest<{ ok: boolean }>('DELETE', `/api/gui/sessions/${enc(id)}`),
 };
 

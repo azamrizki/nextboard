@@ -91,6 +91,7 @@ Kebijakan agentless untuk machine SSH diperhalus sebagai berikut. Semua tetap **
 | 44 | Agents on servers (2026-11-08) | **Keluar dari preview setelah skill/commands server terbaca dan perintah panjang punya keluaran bertahap** | Pilihan A dari dua opsi. |
 | 45 | Nama bawaan lead (2026-11-08) | **Aruna** (sebelumnya Nara, yang belum pernah dibahas) | Pilihan pemilik dari Aruna, Kirana, Raka, Bima. Hub yang masih menyimpan "Nara" ikut pindah saat dibuka; nama lain yang dipilih sendiri tetap. |
 | 46 | Skill dan command server (2026-11-09) | **Sampai ke Claude Code, Codex, dan OpenCode, dari folder mana pun di project; hanya file utama, dan selalu dilucuti** | Agent di This PC bertindak atas file dari komputer lain: OpenCode menjalankan ``!`cmd` `` di This PC walau `bash: deny`, dan Claude Code membaca `@/path` milik This PC tanpa bertanya. Celah `@` sudah ada sejak salinan untuk Claude Code ([API-agents §21](API-agents.md)). |
+| 47 | Tile browser kedua (2026-11-09) | **Sesi dan profil sendiri, jadi login tidak dibagi antar-tile** | Satu Chrome di dua output berbagi login dan hemat sekitar 200 MB, tapi butuh RFB dan video per output, dan tidak jalan di display X11. Keputusan #13 tetap untuk tile pertama. |
 
 ### Verifikasi awal flag CLI (This PC, 2026-10-28)
 

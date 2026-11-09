@@ -9,7 +9,7 @@ let unique = 0;
 export class Hub {
   constructor(private readonly request: APIRequestContext) {}
 
-  async call<T = any>(method: 'GET' | 'POST' | 'PUT' | 'PATCH', url: string, data?: unknown): Promise<T> {
+  async call<T = any>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, data?: unknown): Promise<T> {
     const r = await this.request.fetch(url, { method, headers, data });
     expect(r.ok(), `${method} ${url}: ${r.status()} ${await r.text()}`).toBeTruthy();
     return r.json();

@@ -476,7 +476,7 @@ Dua jalur dalam satu tile:
 - **Kartu log:** konsol, error, dan jaringan dari bridge, ring 500 entri per preview.
 - **Kontrol tile:** address bar, back/forward/reload, tab, ukuran device, zoom 50–250 %.
 
-**Situs luar lain lewat browser sungguhan** (keputusan 13). Chrome asli di This PC dengan jalur yang sama seperti tile aplikasi, sehingga situs yang melarang iframe, login, unduhan, dan DevTools semuanya jalan. Satu browser dan satu profil; alamat berikutnya jadi tab baru; dua situs berdampingan lewat Split View bawaan Chrome. Mendukung Chrome, Chromium, Brave, Edge, Vivaldi, Opera. Firefox dan paket snap/flatpak belum.
+**Situs luar lain lewat browser sungguhan** (keputusan 13). Chrome asli di This PC dengan jalur yang sama seperti tile aplikasi, sehingga situs yang melarang iframe, login, unduhan, dan DevTools semuanya jalan. Alamat berikutnya jadi tab baru, atau browser sendiri untuk tile itu dengan profil dan login terpisah; dua situs dengan satu login berdampingan lewat Split View bawaan Chrome. Mendukung Chrome, Chromium, Brave, Edge, Vivaldi, Opera, dan Firefox, termasuk paket snap dan flatpak (API-gui §8).
 
 ### 5.13 Aplikasi desktop di tile
 
@@ -894,7 +894,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Git | File > 100 MB hanya bisa dibuang dari commit yang belum di-push (API-studio §3.7). Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
 | Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |
 | Aplikasi desktop | VA-API saja, baru teruji di Arc A380. Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N) tidak sampai. Tanpa mikrofon. `wayvnc` 0.9.1 sesekali segfault (hub menyalakannya ulang dalam sekitar 2 detik). Di mesin tanpa output suara asli, sink sesi bisa menjadi default |
-| Browser di tile | Firefox dan snap/flatpak belum. Satu tile per board |
+| Browser di tile | Firefox, snap, dan flatpak belum pernah dicoba dengan browser sungguhan ([API-gui §8](API-gui.md)). Tile kedua punya profil dan login sendiri |
 | Usage | Tiap pemeriksaan Claude menambah 2 baris ke `history.jsonl` pada config yang dipakai. Codex 0.165 menulis `[tui]` ke `config.toml` sekali, dan hub tidak bisa mencegahnya tanpa menulis config. Format layar bisa berubah kapan saja |
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey situs lain tidak bisa disimpan (passkey hanya untuk membuka vault, dan butuh HTTPS). Kartu Android dan desktop belum ada. Agent memakai credential hanya teruji dengan agent palsu dan Claude Code; Codex dan OpenCode belum ([API-vault.md](API-vault.md)) |

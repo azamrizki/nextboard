@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -344,11 +345,20 @@ const (
 )
 
 func familyOf(bin string) string {
-	// Sandboxed packages can't reach a profile in the hub's data folder.
-	if strings.HasPrefix(bin, "/snap/") || strings.HasPrefix(bin, "/var/lib/flatpak/") {
+	if strings.HasPrefix(bin, "/snap/") || isFlatpakExport(bin) {
+		// A sandboxed package reaches a profile only inside its own folder, which packageOf
+		// knows how to find for a browser. Anything else keeps the redirected XDG folders.
+		switch f := nameFamily(sandboxedName(bin)); f {
+		case familyChromium, familyFirefox:
+			return f
+		}
 		return ""
 	}
-	switch filepath.Base(bin) {
+	return nameFamily(filepath.Base(bin))
+}
+
+func nameFamily(name string) string {
+	switch name {
 	case "google-chrome", "google-chrome-stable", "google-chrome-beta", "google-chrome-unstable",
 		"chromium", "chromium-browser", "brave", "brave-browser", "brave-browser-stable",
 		"microsoft-edge", "microsoft-edge-stable", "vivaldi", "vivaldi-stable", "opera":
@@ -361,12 +371,126 @@ func familyOf(bin string) string {
 	return ""
 }
 
+// flatpakBrowsers names the browsers by their flatpak id.
+var flatpakBrowsers = map[string]string{
+	"org.mozilla.firefox":   "firefox",
+	"org.chromium.Chromium": "chromium",
+	"com.google.Chrome":     "google-chrome",
+	"com.brave.Browser":     "brave-browser",
+	"com.microsoft.Edge":    "microsoft-edge",
+	"com.vivaldi.Vivaldi":   "vivaldi",
+	"com.opera.Opera":       "opera",
+}
+
+func isFlatpakExport(bin string) bool { return strings.Contains(bin, "/flatpak/exports/bin/") }
+
+// sandboxedName is the program a /snap/bin or flatpak export path stands for.
+func sandboxedName(bin string) string {
+	base := filepath.Base(bin)
+	if isFlatpakExport(bin) {
+		return flatpakBrowsers[base]
+	}
+	name, _, _ := strings.Cut(base, ".") // /snap/bin/<snap>.<app>
+	return name
+}
+
+// Kinds of package.
+const (
+	pkgNative  = ""
+	pkgSnap    = "snap"
+	pkgFlatpak = "flatpak"
+)
+
+// appPackage says how a program is installed. A browser in a snap or a flatpak can only write
+// to its own folder, and in a snap it can only reach a compositor socket at the fixed place.
+type appPackage struct {
+	kind   string // pkgNative, pkgSnap or pkgFlatpak
+	name   string // the snap's name or the flatpak's id
+	family string
+	at     int // index in argv of what the app's own flags follow
+}
+
+// packageOf looks at the command line, since flatpak's lives past `flatpak run`.
+func packageOf(argv []string, bin string) appPackage {
+	i := binaryIndex(argv)
+	pk := appPackage{family: familyOf(bin), at: i}
+	switch {
+	case strings.HasPrefix(bin, "/snap/"):
+		if pk.family != "" {
+			pk.kind, pk.name = pkgSnap, sandboxedName(bin)
+		}
+	case isFlatpakExport(bin):
+		if pk.family != "" {
+			pk.kind, pk.name = pkgFlatpak, filepath.Base(bin)
+		}
+	case filepath.Base(bin) == "flatpak":
+		if at := flatpakAppAt(argv, i); at >= 0 {
+			if browser, ok := flatpakBrowsers[argv[at]]; ok {
+				pk.kind, pk.name, pk.family, pk.at = pkgFlatpak, argv[at], nameFamily(browser), at
+			}
+		}
+	}
+	return pk
+}
+
+// flatpakAppAt finds the id in `flatpak run [options] <id> [args]`.
+func flatpakAppAt(argv []string, i int) int {
+	if i+1 >= len(argv) || argv[i+1] != "run" {
+		return -1
+	}
+	for j := i + 2; j < len(argv); j++ {
+		if !strings.HasPrefix(argv[j], "-") {
+			return j
+		}
+	}
+	return -1
+}
+
+// dropFileForwarding removes what `flatpak run` uses to pass files: a page is no file, and the
+// markers would reach the browser as arguments.
+func dropFileForwarding(argv []string) []string {
+	return slices.DeleteFunc(argv, func(a string) bool {
+		return a == "--file-forwarding" || a == "@@" || a == "@@u"
+	})
+}
+
+// sandboxedProfile is the folder a packaged browser may use: its own. Empty for one that can use
+// the hub's. The profile of a snap outlives snap refreshes in common, which does not change with
+// the revision, and a flatpak keeps its data under ~/.var/app.
+func sandboxedProfile(pk appPackage, instance int) (string, error) {
+	if pk.kind == pkgNative {
+		return "", nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	name := "nextboard"
+	if instance > 1 {
+		name += "-" + strconv.Itoa(instance)
+	}
+	if pk.kind == pkgSnap {
+		return filepath.Join(home, "snap", pk.name, "common", name), nil
+	}
+	return filepath.Join(home, ".var", "app", pk.name, name), nil
+}
+
+// firefoxPrefs keeps a first start from asking what a private display has nobody to answer.
+const firefoxPrefs = `user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.aboutwelcome.enabled", false);
+user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
+user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+`
+
 // profileFor returns the extra flags and environment that keep the app on
 // its NextBoard profile instead of the one used on the physical display.
 // The password store is "basic" because a private display has no keyring;
 // a real keyring would prompt on the physical screen, where nobody sees it.
-func profileFor(bin, dir string) (flags, env []string) {
-	switch familyOf(bin) {
+func profileFor(bin, dir string) (flags, env []string) { return familyProfile(familyOf(bin), dir) }
+
+func familyProfile(family, dir string) (flags, env []string) {
+	switch family {
 	case familyChromium:
 		return []string{"--user-data-dir=" + filepath.Join(dir, "data"), "--no-first-run", "--no-default-browser-check", "--password-store=basic"}, nil
 	case familyVSCode:

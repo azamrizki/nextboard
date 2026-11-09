@@ -66,8 +66,26 @@ func runDirFor(sessionDir, id string) string {
 func (s *session) runDir() string   { return runDirFor(s.dir, s.pub.ID) }
 func (s *session) swaySock() string { return filepath.Join(s.runDir(), "sway.sock") }
 
+// A snap's AppArmor profile allows connecting to /run/user/<uid>/wayland-<digit>… and to nothing
+// else, and it judges the path a socket was bound at: a link to it from there is refused, as
+// tried against a real snap. So for a snap the compositor binds in the real runtime folder, under
+// a name libwayland picks, and says through sway which it got. Everything else stays private.
+func (s *session) waylandNameFile() string { return filepath.Join(s.dir, "wayland-name") }
+
 // waylandSocket finds the compositor's socket; "" until it exists.
 func (s *session) waylandSocket() string {
+	if s.sharedRun {
+		b, err := os.ReadFile(s.waylandNameFile())
+		name := strings.TrimSpace(string(b))
+		if err != nil || name == "" || strings.Contains(name, "/") {
+			return ""
+		}
+		p := filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), name)
+		if _, err := os.Stat(p); err != nil {
+			return ""
+		}
+		return p
+	}
 	m, _ := filepath.Glob(filepath.Join(s.runDir(), "wayland-*"))
 	for _, p := range m {
 		if !strings.HasSuffix(p, ".lock") {
@@ -89,7 +107,11 @@ func (s *session) compositorEnv(base []string) []string {
 // command line, as systemd-run needs the real one to find the user's manager,
 // and the app needs the real one to find PipeWire. env execs, keeping the pid.
 func (s *session) inRunDir(argv []string) []string {
-	return append([]string{"/usr/bin/env", "XDG_RUNTIME_DIR=" + s.runDir()}, argv...)
+	dir := s.runDir()
+	if s.sharedRun {
+		dir = os.Getenv("XDG_RUNTIME_DIR")
+	}
+	return append([]string{"/usr/bin/env", "XDG_RUNTIME_DIR=" + dir}, argv...)
 }
 
 // swayConfig: tabs appear only with more than one window, where they are the
@@ -108,7 +130,10 @@ output %s mode %dx%d max_render_time 4
 }
 
 // waylandNative reports whether an app is known to run without any X server.
-func waylandNative(bin string) bool { return familyOf(bin) != "" }
+func waylandNative(family string) bool { return family != "" }
+
+// shellQuoted is a word for /bin/sh, which sway hands its exec lines to.
+func shellQuoted(p string) string { return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'" }
 
 func (m *Manager) bootstrapWayland(s *session, e *entry, target string, w, h int) (displayWatch, error) {
 	raw, err := parseExec(e.Exec)
@@ -116,15 +141,24 @@ func (m *Manager) bootstrapWayland(s *session, e *entry, target string, w, h int
 		return nil, err
 	}
 	bin, _ := lookIn(m.pathEnv(), raw[binaryIndex(raw)])
+	pk := packageOf(raw, bin)
 	xwayland := "force"
-	if waylandNative(bin) {
+	if waylandNative(pk.family) {
 		xwayland = "disable"
 	}
 	if err := os.MkdirAll(s.runDir(), 0o700); err != nil {
 		return nil, err
 	}
+	config := swayConfig(w, h, xwayland)
+	if pk.kind == pkgSnap || m.forceSharedRun {
+		if os.Getenv("XDG_RUNTIME_DIR") == "" {
+			return nil, errors.New("a browser from a snap needs XDG_RUNTIME_DIR")
+		}
+		s.sharedRun = true
+		config += `exec /bin/sh -c "printf %s \"$WAYLAND_DISPLAY\" > ` + shellQuoted(s.waylandNameFile()) + `"` + "\n"
+	}
 	conf := filepath.Join(s.dir, "sway.conf")
-	if err := os.WriteFile(conf, []byte(swayConfig(w, h, xwayland)), 0o600); err != nil {
+	if err := os.WriteFile(conf, []byte(config), 0o600); err != nil {
 		return nil, err
 	}
 	sway, _ := lookIn(m.pathEnv(), "sway")

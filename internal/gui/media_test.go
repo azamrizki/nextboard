@@ -7,6 +7,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"syscall"
@@ -462,5 +465,57 @@ func TestSwayConfig(t *testing.T) {
 		if !strings.Contains(c, want) {
 			t.Errorf("config lacks %q:\n%s", want, c)
 		}
+	}
+}
+
+// A browser from a snap reaches the compositor only at /run/user/<uid>/wayland-<digit>…: its
+// AppArmor profile judges the path a socket was bound at, so a link to it would not do. The real
+// compositor, a real window, the same RFB and video path, and nothing left behind.
+func TestSocketWhereASnapCanReachIt(t *testing.T) {
+	t.Setenv(helperEnv, "animate:Snap window")
+	m, ev := newTestManager(t, map[string]string{"app": ""})
+	m.forceX11 = false
+	m.forceSharedRun = true
+	if !m.waylandAvailable() {
+		t.Skip("sway / wayvnc / wf-recorder belum terpasang, atau tidak ada GPU")
+	}
+	rt := os.Getenv("XDG_RUNTIME_DIR")
+	if rt == "" {
+		t.Skip("no XDG_RUNTIME_DIR")
+	}
+	s, err := m.Launch(LaunchRequest{AppID: "app", Width: 640, Height: 400})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSession(t, m, ev, "first window", func(x Session) bool { return x.State == StateRunning && strings.Contains(x.Title, "Snap window") })
+	m.mu.Lock()
+	sess := m.sessions[s.ID]
+	m.mu.Unlock()
+	sock := sess.waylandSocket()
+	if filepath.Dir(sock) != rt || !regexp.MustCompile(`^wayland-[0-9]+$`).MatchString(filepath.Base(sock)) {
+		t.Fatalf("socket %q is not where a snap may connect", sock)
+	}
+	if v := os.Getenv("NEXTBOARD_TEST_IN_SNAP"); v != "" {
+		// Only by hand: runs a Wayland handshake from inside a real snap's confinement.
+		out, err := exec.Command("/bin/sh", "-c", v+" "+filepath.Base(sock)).CombinedOutput()
+		t.Logf("from inside the snap: %s", out)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	conn, err := m.Dial(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if err := m.Stop(s.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitGone(t, m, ev, s.ID)
+	if _, err := os.Stat(sock); err == nil {
+		t.Fatal("the socket stayed in the runtime folder")
+	}
+	if _, err := os.Stat(sock + ".lock"); err == nil {
+		t.Fatal("the lock stayed in the runtime folder")
 	}
 }

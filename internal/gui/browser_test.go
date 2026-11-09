@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"os"
@@ -22,17 +23,31 @@ func fakeBrowserForwards() bool {
 	if p == "" {
 		return false
 	}
-	_, err := os.Stat(p)
-	first := os.IsNotExist(err)
+	// A profile holds one running instance: a later run on the same one hands over and exits.
+	profile := profileArg(os.Args[1:])
+	before, err := os.ReadFile(p)
+	first := os.IsNotExist(err) || !bytes.Contains(before, []byte(profile))
 	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		os.Exit(6)
 	}
 	defer f.Close()
-	if _, err := f.WriteString(strings.Join(os.Args[1:], "\x1f") + "\n"); err != nil {
+	if _, err := f.WriteString(strings.Join(append([]string{"bus=" + os.Getenv("DBUS_SESSION_BUS_ADDRESS")}, os.Args[1:]...), "\x1f") + "\n"); err != nil {
 		os.Exit(7)
 	}
 	return !first
+}
+
+func profileArg(args []string) string {
+	for i, a := range args {
+		if strings.HasPrefix(a, "--user-data-dir=") {
+			return a
+		}
+		if a == "--profile" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return "no profile"
 }
 
 // fakeBrowser installs a desktop entry for the test binary under a program
@@ -122,13 +137,16 @@ func TestBrowserChoice(t *testing.T) {
 	}
 	fakeBrowser(t, "chrome-webapp", "google-chrome", "Network")
 	fakeBrowser(t, "a-editor", "code", "WebBrowser")
-	fakeBrowser(t, "a-firefox", "firefox", "Network;WebBrowser")
 	if e := m.browser(); e != nil {
 		t.Fatalf("not browsers we support, got %s", e.ID)
 	}
+	fakeBrowser(t, "a-firefox", "firefox", "Network;WebBrowser")
+	if e := m.browser(); e == nil || e.ID != "a-firefox" {
+		t.Fatalf("firefox is supported, got %+v", e)
+	}
 	fakeBrowser(t, "a-brave", "brave-browser", "Network;WebBrowser")
 	if e := m.browser(); e == nil || e.ID != "a-brave" {
-		t.Fatalf("got %+v", e)
+		t.Fatalf("a Chromium goes before firefox, got %+v", e)
 	}
 	fakeBrowser(t, "z-chrome", "google-chrome", "Network;WebBrowser;")
 	if e := m.browser(); e == nil || e.ID != "z-chrome" {
@@ -219,5 +237,142 @@ func TestOpenURLOtherAppsUntouched(t *testing.T) {
 	waitSession(t, m, ev, "window", func(s Session) bool { return s.ID == pub.ID && s.State == StateRunning })
 	if _, err := m.OpenURL(OpenURLRequest{URL: "https://github.com"}); errCode(err) != "browser_not_found" {
 		t.Fatalf("%v", err)
+	}
+}
+
+// Two tiles, two browsers: each on a profile of its own, or the second would only add a window
+// to the display of the first. Tabs still go to the first. A tile that comes back gets its own
+// profile again, so its logins are there.
+func TestOpenURLHere(t *testing.T) {
+	m, ev := newTestManager(t, map[string]string{"notes": ""})
+	log := fakeBrowser(t, "fake-chrome", "google-chrome", "Network;WebBrowser;")
+
+	first, err := m.OpenURL(OpenURLRequest{URL: "https://a.example/", Here: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSession(t, m, ev, "first window", func(s Session) bool { return s.ID == first.Session.ID && s.State == StateRunning })
+	second, err := m.OpenURL(OpenURLRequest{URL: "https://b.example/", Here: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Session.ID == first.Session.ID || second.Session.Instance != 2 || second.Session.Name != "fake-chrome 2" {
+		t.Fatalf("second %+v", second.Session)
+	}
+	waitSession(t, m, ev, "second window", func(s Session) bool { return s.ID == second.Session.ID && s.State == StateRunning })
+	runs := browserRuns(t, log)
+	if len(runs) != 2 || profileArg(runs[0]) == profileArg(runs[1]) {
+		t.Fatalf("runs %q", runs)
+	}
+	if want := "--user-data-dir=" + filepath.Join(m.cfg.Dir, "profiles", "fake-chrome~2", "data"); profileArg(runs[1]) != want {
+		t.Fatalf("profile %q, want %q", profileArg(runs[1]), want)
+	}
+
+	// no tile asked for its own: a tab of the first
+	tab, err := m.OpenURL(OpenURLRequest{URL: "https://c.example/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tab.NewTab || tab.Session.ID != first.Session.ID {
+		t.Fatalf("tab %+v", tab)
+	}
+
+	// the second tile closes and comes back: the same profile
+	if err := m.Stop(second.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitGone(t, m, ev, second.Session.ID)
+	back, err := m.OpenURL(OpenURLRequest{URL: "https://b.example/", Here: true, Instance: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Session.Instance != 2 {
+		t.Fatalf("back %+v", back.Session)
+	}
+	// its number is taken: the next free one, never the same profile twice
+	third, err := m.OpenURL(OpenURLRequest{URL: "https://d.example/", Here: true, Instance: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.Session.Instance != 3 {
+		t.Fatalf("third %+v", third.Session)
+	}
+	if _, err := m.OpenURL(OpenURLRequest{URL: "https://e.example/", Here: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.OpenURL(OpenURLRequest{URL: "https://f.example/", Here: true}); errCode(err) != "too_many_sessions" {
+		t.Fatalf("fifth: %v", err)
+	}
+	// a desktop app tile of the same app still finds the one session, not a new one
+	if _, err := m.Launch(LaunchRequest{AppID: "fake-chrome"}); errCode(err) != "already_running" {
+		t.Fatalf("launch: %v", err)
+	}
+}
+
+// Firefox hands a page over on a session bus, so every run of a session has to find the same one.
+func TestFirefoxOpensTabsOverItsBus(t *testing.T) {
+	m, ev := newTestManager(t, map[string]string{"notes": ""})
+	if _, ok := lookIn(m.pathEnv(), "dbus-daemon"); !ok {
+		t.Skip("no dbus-daemon")
+	}
+	log := fakeBrowser(t, "fake-firefox", "firefox", "Network;WebBrowser;")
+	opened, err := m.OpenURL(OpenURLRequest{URL: "https://a.example/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSession(t, m, ev, "window", func(s Session) bool { return s.ID == opened.Session.ID && s.State == StateRunning })
+	if _, err := m.OpenURL(OpenURLRequest{URL: "https://b.example/"}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "second run", func() bool { return len(browserRuns(t, log)) == 2 })
+	runs := browserRuns(t, log)
+	profile := filepath.Join(m.cfg.Dir, "profiles", "fake-firefox", "data")
+	if !slices.Contains(runs[0], "--new-instance") || slices.Contains(runs[0], "--new-tab") || !slices.Contains(runs[0], profile) {
+		t.Fatalf("first run %q", runs[0])
+	}
+	if slices.Contains(runs[1], "--new-instance") || !slices.Contains(runs[1], "--new-tab") || !slices.Contains(runs[1], profile) {
+		t.Fatalf("second run %q", runs[1])
+	}
+	bus := func(run []string) string { return run[0] }
+	sess := filepath.Join(m.cfg.Dir, "sessions", opened.Session.ID, "bus")
+	if bus(runs[0]) != "bus=unix:path="+sess || bus(runs[1]) != bus(runs[0]) {
+		t.Fatalf("buses %q %q", bus(runs[0]), bus(runs[1]))
+	}
+	if _, err := os.Stat(sess); err != nil {
+		t.Fatalf("no bus: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(profile, "user.js"))
+	if err != nil || !strings.Contains(string(b), "checkDefaultBrowser") {
+		t.Fatalf("prefs: %q %v", b, err)
+	}
+}
+
+// A flatpak's flags go after its id, and its profile in its own folder.
+func TestFlatpakBrowserCommand(t *testing.T) {
+	m, ev := newTestManager(t, map[string]string{"notes": ""})
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "flatpak")
+	if err := os.Symlink(self, bin); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(t.TempDir(), "runs")
+	t.Setenv(browserArgsEnv, log)
+	writeDesktop(t, os.Getenv("XDG_DATA_HOME"), "org.mozilla.firefox.desktop",
+		"[Desktop Entry]\nType=Application\nName=Firefox\nExec="+bin+" run --branch=stable --command=firefox --file-forwarding org.mozilla.firefox @@u %u @@\nCategories=Network;WebBrowser;\n")
+	t.Setenv(helperEnv, "Fake Browser")
+	opened, err := m.OpenURL(OpenURLRequest{URL: "https://a.example/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSession(t, m, ev, "window", func(s Session) bool { return s.ID == opened.Session.ID && s.State == StateRunning })
+	runs := browserRuns(t, log)
+	want := []string{"run", "--branch=stable", "--command=firefox", "org.mozilla.firefox", "--new-instance", "--profile", filepath.Join(home, ".var", "app", "org.mozilla.firefox", "nextboard", "data"), "https://a.example/"}
+	if len(runs) != 1 || !slices.Equal(runs[0][1:len(want)+1], want) {
+		t.Fatalf("got %q\nwant %q", runs, want)
 	}
 }

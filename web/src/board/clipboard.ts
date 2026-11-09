@@ -97,7 +97,10 @@ export function pastePayload(ctl: BoardController, p: ClipPayload, at?: { x: num
     if (n.kind === 'memory') delete data.lastPush;
     if (n.kind === 'editor') delete data.fill;
     // each app has one session: the copy offers to open it instead of sharing the display
-    if (n.kind === 'app' || n.kind === 'web') delete data.sessionId;
+    if (n.kind === 'app' || n.kind === 'web') {
+      delete data.sessionId;
+      delete data.instance;
+    }
     const id = newId('n');
     ids.set(n.id, id);
     fresh.push({ ...n, id, x: n.x + dx, y: n.y + dy, data });

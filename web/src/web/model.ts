@@ -46,6 +46,8 @@ export interface WebData {
   sessionId: string;
   appId: string;
   name: string;
+  /** Which browser of that kind: each has its own profile, and this tile comes back to its own. */
+  instance: number;
   /** `url` is a site shown through the proxy, on the tailnet or the internet (docs/API-studio.md §4.9). */
   tailnet: boolean;
   /** The tile was asked to use the real browser, even for a site that loads through the proxy. */
@@ -78,6 +80,7 @@ export function readWeb(n: BoardNode): WebData {
     sessionId: str(d.sessionId),
     appId: str(d.appId),
     name: str(d.name),
+    instance: typeof d.instance === 'number' && d.instance > 0 ? d.instance : 0,
     tailnet: d.tailnet === true,
     realBrowser: d.realBrowser === true,
   };

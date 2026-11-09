@@ -73,13 +73,16 @@ type App struct {
 
 // Session is the public state of a running app.
 type Session struct {
-	ID        string    `json:"id"`
-	AppID     string    `json:"appId"`
-	Name      string    `json:"name"`
-	Title     string    `json:"title"`
-	State     string    `json:"state"`
-	Display   string    `json:"display"` // DisplayWayland or DisplayX11
-	Audio     bool      `json:"audio"`   // has its own sink
+	ID      string `json:"id"`
+	AppID   string `json:"appId"`
+	Name    string `json:"name"`
+	Title   string `json:"title"`
+	State   string `json:"state"`
+	Display string `json:"display"` // DisplayWayland or DisplayX11
+	Audio   bool   `json:"audio"`   // has its own sink
+	// Instance tells apart the browsers of one kind, each with its own profile. 0 or 1 is the
+	// only one there used to be.
+	Instance  int       `json:"instance,omitempty"`
 	StartedAt time.Time `json:"startedAt"`
 }
 
@@ -122,6 +125,8 @@ type LaunchRequest struct {
 	Path   string `json:"path"` // folder to open, for apps that accept one
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
+	// Instance: a further browser, set by OpenURL only (browser.go).
+	Instance int `json:"-"`
 }
 
 // Manager owns the sessions.
@@ -138,6 +143,8 @@ type Manager struct {
 	encoders int
 	closed   bool
 	forceX11 bool // tests: the X11 display whatever is installed
+	// tests: the socket where a snap can reach it, without a snap at hand
+	forceSharedRun bool
 	wg       sync.WaitGroup
 
 	// Result of encoderArgs.
@@ -158,6 +165,9 @@ type session struct {
 
 	hadWindow bool // the app reached its first window (saved in state.json)
 	stopping  bool // guarded by Manager.mu
+	// sharedRun: the compositor's socket is in the real runtime folder, the one place a snap
+	// may reach it (wayland.go).
+	sharedRun bool
 
 	launcher atomic.Pointer[launcherExit]
 	rfbPid   atomic.Int64 // wayvnc, on a Wayland display
@@ -182,6 +192,7 @@ type savedState struct {
 	XPid      int     `json:"xpid"`
 	RFBPid    int     `json:"rfbPid,omitempty"`
 	HadWindow bool    `json:"hadWindow"`
+	SharedRun bool    `json:"sharedRun,omitempty"`
 }
 
 // New creates the manager; call Start to adopt surviving sessions.
@@ -335,7 +346,7 @@ func randID() (string, error) {
 // reserve claims the single session of an app. Each app has one profile, and
 // profile-locked apps would open their window on the display that already
 // holds the profile, so a second session could only ever stay empty.
-func (m *Manager) reserve(e *entry, display string) (*session, error) {
+func (m *Manager) reserve(e *entry, display string, instance int) (*session, error) {
 	id, err := randID()
 	if err != nil {
 		return nil, err
@@ -348,7 +359,7 @@ func (m *Manager) reserve(e *entry, display string) (*session, error) {
 		}
 		var gone chan struct{}
 		for _, s := range m.sessions {
-			if s.pub.AppID != e.ID {
+			if s.pub.AppID != e.ID || instanceOf(s.pub) != max(instance, 1) {
 				continue
 			}
 			if !s.stopping {
@@ -374,8 +385,12 @@ func (m *Manager) reserve(e *entry, display string) (*session, error) {
 			m.mu.Unlock()
 			return nil, newErr(http.StatusConflict, "too_many_sessions", "at most %d apps open at once", maxSessions)
 		}
+		name := e.Name
+		if instance > 1 {
+			name = fmt.Sprintf("%s %d", e.Name, instance)
+		}
 		s := &session{
-			pub:  Session{ID: id, AppID: e.ID, Name: e.Name, Title: e.Name, State: StateStarting, Display: display, StartedAt: time.Now().UTC()},
+			pub:  Session{ID: id, AppID: e.ID, Name: name, Title: name, State: StateStarting, Display: display, Instance: instance, StartedAt: time.Now().UTC()},
 			dir:  filepath.Join(m.sessionsRoot(), id),
 			quit: make(chan struct{}),
 			gone: make(chan struct{}),
@@ -428,7 +443,7 @@ func (m *Manager) launch(req LaunchRequest, pageURL string) (Session, error) {
 			return Session{}, newErr(http.StatusBadRequest, "folder_not_found", "folder not found: %s", req.Path)
 		}
 	}
-	s, err := m.reserve(e, m.displayKind())
+	s, err := m.reserve(e, m.displayKind(), req.Instance)
 	if err != nil {
 		return Session{}, err
 	}
@@ -669,6 +684,11 @@ func (m *Manager) startApp(s *session, e *entry, target, xauth string) error {
 	if err != nil {
 		return err
 	}
+	if m.usesOwnBus(e) {
+		if err := m.startBus(s); err != nil {
+			return err
+		}
+	}
 	cmd, err := m.spawnNoWait(s, argv, cwd, env, "app.log", nil)
 	if err != nil {
 		return err
@@ -684,6 +704,11 @@ func (m *Manager) startApp(s *session, e *entry, target, xauth string) error {
 // profile. pageURL goes last, after the Exec field codes have been resolved, so
 // nothing in it is read as one.
 func (m *Manager) appCommand(s *session, e *entry, target, xauth, pageURL string) (argv, env []string, cwd string, err error) {
+	return m.appCommandFor(s, e, target, xauth, pageURL, false)
+}
+
+// appCommandFor: newTab hands the page to the instance already running on this profile.
+func (m *Manager) appCommandFor(s *session, e *entry, target, xauth, pageURL string, newTab bool) (argv, env []string, cwd string, err error) {
 	raw, err := parseExec(e.Exec)
 	if err != nil {
 		return nil, nil, "", err
@@ -695,12 +720,41 @@ func (m *Manager) appCommand(s *session, e *entry, target, xauth, pageURL string
 		return nil, nil, "", fmt.Errorf("program not found: %s", argv[i])
 	}
 	argv[i] = bin
+	pk := packageOf(argv, bin)
+	if pk.kind == pkgFlatpak {
+		argv = dropFileForwarding(argv)
+		pk = packageOf(argv, bin)
+	}
 	profile := filepath.Join(m.cfg.Dir, "profiles", e.ID)
+	// Only this field: the monitor keeps writing the rest of pub, and Instance never changes.
+	instance := max(s.pub.Instance, 1)
+	if instance > 1 {
+		profile = fmt.Sprintf("%s~%d", profile, instance)
+	}
+	if sb, err := sandboxedProfile(pk, instance); err != nil {
+		return nil, nil, "", err
+	} else if sb != "" {
+		profile = sb
+	}
 	if err := os.MkdirAll(filepath.Join(profile, "data"), 0o700); err != nil {
 		return nil, nil, "", err
 	}
-	flags, profEnv := profileFor(bin, profile)
-	if s.pub.Display == DisplayWayland && (familyOf(bin) == familyChromium || familyOf(bin) == familyVSCode) {
+	family := pk.family
+	flags, profEnv := familyProfile(family, profile)
+	if family == familyFirefox {
+		prefs := filepath.Join(profile, "data", "user.js")
+		if _, err := os.Stat(prefs); errors.Is(err, os.ErrNotExist) {
+			if err := os.WriteFile(prefs, []byte(firefoxPrefs), 0o600); err != nil {
+				return nil, nil, "", err
+			}
+		}
+		if newTab {
+			// Without --new-instance it finds the running one, on its bus, by the profile.
+			flags = slices.DeleteFunc(flags, func(f string) bool { return f == "--new-instance" })
+			flags = append(flags, "--new-tab")
+		}
+	}
+	if s.pub.Display == DisplayWayland && (family == familyChromium || family == familyVSCode) {
 		// On X11 only by default, and on Wayland far lighter than under Xwayland.
 		flags = append(flags, "--ozone-platform=wayland")
 	}
@@ -710,29 +764,54 @@ func (m *Manager) appCommand(s *session, e *entry, target, xauth, pageURL string
 			return nil, nil, "", err
 		}
 	}
-	argv = slices.Concat(argv[:i+1], flags, argv[i+1:])
+	argv = slices.Concat(argv[:pk.at+1], flags, argv[pk.at+1:])
 	if pageURL != "" {
 		argv = append(argv, pageURL)
 	}
 	env = m.baseEnv()
 	if s.pub.Display == DisplayWayland {
-		env = append(env, "WAYLAND_DISPLAY="+s.waylandSocket(), "XDG_SESSION_TYPE=wayland",
+		display := s.waylandSocket()
+		if s.sharedRun {
+			// By name: snap run links it into the snap's own runtime folder.
+			display = filepath.Base(display)
+		}
+		env = append(env, "WAYLAND_DISPLAY="+display, "XDG_SESSION_TYPE=wayland",
 			"GDK_BACKEND=wayland,x11", "QT_QPA_PLATFORM=wayland;xcb", "SDL_VIDEODRIVER=wayland,x11",
 			"MOZ_ENABLE_WAYLAND=1", "ELECTRON_OZONE_PLATFORM_HINT=auto", "_JAVA_AWT_WM_NONREPARENTING=1")
 		if s.display >= 0 {
 			env = append(env, fmt.Sprintf("DISPLAY=:%d", s.display))
 		}
 	} else {
+		if pk.kind == pkgSnap {
+			// A snap cannot read the session's folder.
+			b, err := os.ReadFile(xauth)
+			if err != nil {
+				return nil, nil, "", err
+			}
+			xauth = filepath.Join(profile, "xauth")
+			if err := os.WriteFile(xauth, b, 0o600); err != nil {
+				return nil, nil, "", err
+			}
+		}
 		env = append(env, fmt.Sprintf("DISPLAY=:%d", s.display), "XAUTHORITY="+xauth, "GDK_BACKEND=x11", "QT_QPA_PLATFORM=xcb")
 	}
 	env = append(env, profEnv...)
 	if s.pub.Audio {
 		env = append(env, "PULSE_SINK="+sinkName(s.pub.ID), "PIPEWIRE_NODE="+sinkName(s.pub.ID))
 	}
-	// A private bus keeps D-Bus activated apps (one instance per bus) from
-	// sending their window to an instance on the physical display.
-	if p, ok := lookIn(m.pathEnv(), "dbus-run-session"); ok {
-		argv = append([]string{p, "--"}, argv...)
+	switch {
+	case pk.kind == pkgSnap:
+		// A snap may only reach the user's own bus. Firefox finds itself there by its profile,
+		// and a Chromium needs no bus to find itself.
+		env = append(env, "DBUS_SESSION_BUS_ADDRESS="+userBus())
+	case family == familyFirefox && pk.kind == pkgNative:
+		env = append(env, "DBUS_SESSION_BUS_ADDRESS=unix:path="+s.busSock())
+	default:
+		// A private bus keeps D-Bus activated apps (one instance per bus) from
+		// sending their window to an instance on the physical display.
+		if p, ok := lookIn(m.pathEnv(), "dbus-run-session"); ok {
+			argv = append([]string{p, "--"}, argv...)
+		}
 	}
 	cwd = e.Path
 	if target != "" {
@@ -745,6 +824,45 @@ func (m *Manager) appCommand(s *session, e *entry, target, xauth, pageURL string
 		cwd = s.dir
 	}
 	return argv, env, cwd, nil
+}
+
+func (s *session) busSock() string { return filepath.Join(s.dir, "bus") }
+
+// usesOwnBus: a running Firefox takes a page over a session bus. Every run of it in a session has
+// to find the same one, also after a hub restart, so the session keeps one at a fixed place.
+func (m *Manager) usesOwnBus(e *entry) bool {
+	raw, err := parseExec(e.Exec)
+	if err != nil {
+		return false
+	}
+	bin, ok := lookIn(m.pathEnv(), raw[binaryIndex(raw)])
+	if !ok {
+		return false
+	}
+	pk := packageOf(raw, bin)
+	return pk.family == familyFirefox && pk.kind == pkgNative
+}
+
+func (m *Manager) startBus(s *session) error {
+	daemon, ok := lookIn(m.pathEnv(), "dbus-daemon")
+	if !ok {
+		return errors.New("dbus-daemon not found")
+	}
+	if _, err := m.spawn(s, []string{daemon, "--session", "--nofork", "--nopidfile", "--address=unix:path=" + s.busSock()}, s.dir, m.baseEnv(), "bus.log", nil); err != nil {
+		return err
+	}
+	waitUntil(3*time.Second, func() bool {
+		_, err := os.Stat(s.busSock())
+		return err == nil
+	})
+	return nil
+}
+
+func userBus() string {
+	if v := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); v != "" {
+		return v
+	}
+	return "unix:path=" + filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "bus")
 }
 
 // strippedEnv reports whether an inherited variable must not reach an app:
@@ -826,7 +944,7 @@ func (m *Manager) spawn(s *session, argv []string, dir string, env []string, log
 
 func (m *Manager) saveState(s *session) error {
 	m.mu.Lock()
-	st := savedState{Session: s.pub, Display: s.display, XPid: s.xpid, RFBPid: int(s.rfbPid.Load()), HadWindow: s.hadWindow}
+	st := savedState{Session: s.pub, Display: s.display, XPid: s.xpid, RFBPid: int(s.rfbPid.Load()), HadWindow: s.hadWindow, SharedRun: s.sharedRun}
 	m.mu.Unlock()
 	b, err := json.Marshal(st)
 	if err != nil {
@@ -1011,6 +1129,12 @@ func (m *Manager) terminate(s *session) {
 		waitUntil(2*time.Second, func() bool { return !processAlive(s.xpid) })
 	}
 	signalMarked(id, syscall.SIGKILL, 0)
+	if s.sharedRun {
+		if sock := s.waylandSocket(); sock != "" {
+			_ = os.Remove(sock)
+			_ = os.Remove(sock + ".lock")
+		}
+	}
 	_ = os.RemoveAll(s.runDir())
 	_ = os.RemoveAll(s.dir)
 }
@@ -1187,6 +1311,7 @@ func (m *Manager) adopt(dir string) (*session, displayWatch) {
 		display:   st.Display,
 		xpid:      st.XPid,
 		hadWindow: st.HadWindow,
+		sharedRun: st.SharedRun,
 		quit:      make(chan struct{}),
 		gone:      make(chan struct{}),
 	}

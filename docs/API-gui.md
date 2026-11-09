@@ -65,7 +65,7 @@ Sumbernya file `.desktop` di direktori data XDG (termasuk export flatpak dan sna
 |---|---|---|---|
 | GET | `/api/gui/sessions` | — | `[Session…]` |
 | POST | `/api/gui/sessions` | `{ "appId", "path"?, "width"?, "height"? }` | `201 Session` |
-| POST | `/api/gui/browser/open` | `{ "url", "width"?, "height"? }` | `201` browser baru dibuka, `200` jadi tab baru: `{ "session": Session, "url", "newTab": bool }`, lihat §8 |
+| POST | `/api/gui/browser/open` | `{ "url", "width"?, "height"?, "here"?, "instance"? }` | `201` browser baru dibuka, `200` jadi tab baru: `{ "session": Session, "url", "newTab": bool }`, lihat §8 |
 | DELETE | `/api/gui/sessions/{id}` | — | `{ "ok": true }`; penghentian berjalan di belakang, lihat event |
 | GET | `/api/gui/sessions/{id}/ws` | WebSocket | bridge RFB, lihat §4 |
 | GET | `/api/gui/sessions/{id}/video?w=&h=&mbps=&codec=` | WebSocket | AV1 atau H.264, lihat §7 |
@@ -81,6 +81,7 @@ Sumbernya file `.desktop` di direktori data XDG (termasuk export flatpak dan sna
   "state": "running",                   // starting | running | stopping
   "display": "wayland",                 // wayland | x11
   "audio": true,                        // punya sink suara sendiri
+  "instance": 2,                        // browser ke berapa dari jenis ini; tidak ada = yang pertama
   "startedAt": "2026-11-03T00:24:07Z"
 }
 ```
@@ -112,7 +113,7 @@ Event di `/api/events`:
 
 `message` hanya ada kalau `reason` = `failed` (aplikasi keluar tanpa jendela, atau display mati).
 
-**Satu sesi per aplikasi.** Chrome dan aplikasi Electron mengunci profil: membuka profil yang sama di display kedua hanya memunculkan jendela baru di display pertama, dan tile kedua tetap kosong. Karena itu hub menolak sesi kedua dan menunjuk sesi yang ada.
+**Satu sesi per aplikasi.** Chrome dan aplikasi Electron mengunci profil: membuka profil yang sama di display kedua hanya memunculkan jendela baru di display pertama, dan tile kedua tetap kosong. Karena itu hub menolak sesi kedua dan menunjuk sesi yang ada. Pengecualiannya browser yang diminta tile untuk dirinya sendiri (§8): profilnya terpisah, jadi tidak saling mengunci.
 
 ## 4. Tile dan viewer
 
@@ -209,9 +210,19 @@ Web tile (node `web`) menampilkan dua hal: dev server dan situs luar yang ringan
 - Browser belum terbuka: hub memulainya dengan alamat itu, ukuran dari tile (`201`).
 - Browser sudah terbuka: alamat jadi tab baru (`200`, `newTab: true`). Hub menjalankan program browser sekali lagi pada profil yang sama; program itu menyerahkan alamat ke instance yang berjalan lewat kunci profil lalu keluar. Cara ini juga berlaku untuk sesi yang diambil lagi setelah hub restart.
 
-`session` adalah sesi biasa (§3), jadi berbagi sesi dan profil dengan tile Desktop app untuk aplikasi yang sama. Satu browser berarti satu tile per board: kalau board sudah punya tile yang menampilkannya, alamat baru jadi tab di sana, tile itu dipilih dan di-frame, dan tile yang kosong dihapus.
+`session` adalah sesi biasa (§3), jadi berbagi sesi dan profil dengan tile Desktop app untuk aplikasi yang sama.
 
-**Pilihan browser.** Sesi browser yang sedang berjalan dipakai lebih dulu. Selain itu entri desktop dengan kategori `WebBrowser` dari keluarga Chromium, urutan Chrome, Chromium, Brave, Edge, Vivaldi, Opera. Web app yang dipasang dari browser tidak ikut karena tidak berkategori `WebBrowser`. Firefox dan paket snap/flatpak belum didukung (`browser_not_found`): Firefox tidak punya jalur serah-terima tanpa bus sesi, snap/flatpak tidak bisa memakai profil di folder data hub.
+**Lebih dari satu tile.** Kalau alamat diketik di tile baru sedangkan board sudah menampilkan browser, tile itu bertanya: **New tab there** (tile kosong dihapus, tile lama dipilih dan di-frame) atau **Browser here**. `here: true` memulai browser sendiri untuk tile itu, paling banyak 4 per jenis (`409 too_many_sessions`). Tiap browser memakai profil sendiri (`<data>/gui/profiles/<appId>~2/`), jadi **login tidak dibagi antar-tile** dan masing-masing butuh login sendiri. Ini juga berarti dua akun bisa berdampingan. Tile mengingat `instance` di node, jadi saat dibuka lagi ia mendapat profilnya sendiri; kalau nomor itu sedang dipakai, ia mendapat nomor bebas terkecil. Satu Chrome dengan dua jendela di dua output memang berbagi login dan hemat sekitar 200 MB (lihat Memori), tapi butuh RFB dan video per output, dan tidak ada padanannya di display X11.
+
+**Pilihan browser.** Sesi browser yang sedang berjalan dipakai lebih dulu. Selain itu entri desktop dengan kategori `WebBrowser`, urutan Chrome, Chromium, Brave, Edge, Vivaldi, Opera, Firefox, dan paket snap atau flatpak setelah semua yang dipasang biasa. Web app yang dipasang dari browser tidak ikut karena tidak berkategori `WebBrowser`.
+
+**Firefox.** Menyerahkan alamat ke instance yang berjalan lewat bus sesi, jadi tiap sesi Firefox punya `dbus-daemon` sendiri di `<sesi>/bus`, yang juga ditemukan lagi sesudah hub restart. Dimulai dengan `--new-instance --profile`, dan tab baru dengan `--profile --new-tab`. `user.js` di profil baru mematikan pertanyaan browser default dan halaman sambutan.
+
+**Snap.** AppArmor snap hanya mengizinkan `connect` ke `/run/user/<uid>/wayland-<angka>…`, dan yang dinilai adalah path tempat socket di-bind, jadi link ke socket privat ditolak (dicoba pada snap sungguhan). Karena itu compositor sesi ini memasang socket di folder runtime asli, dengan nama pilihan libwayland yang dilaporkan lewat `exec` sway; `WAYLAND_DISPLAY` berisi namanya saja karena `snap run` membuat link-nya di folder runtime snap. Profil di `~/snap/<nama>/common/nextboard`, tetap ada saat snap diperbarui. Bus memakai bus sesi pengguna, satu-satunya yang boleh dijangkau. Pada display X11, cookie disalin ke folder profil.
+
+**Flatpak.** Flag masuk sesudah id aplikasi, penanda `--file-forwarding` dan `@@` dibuang, profil di `~/.var/app/<id>/nextboard`.
+
+**Status verifikasi.** Hanya keluarga Chromium biasa yang teruji penuh dengan browser sungguhan. Firefox hanya teruji dengan program palsu, termasuk `dbus-daemon` sungguhan. Snap teruji sampai jabat tangan Wayland antara sway sungguhan dan proses di dalam kurungan AppArmor snap sungguhan, tanpa browser snap. Flatpak hanya baris perintahnya. Di dua jalur terakhir, serah-terima tab ke browser yang berjalan belum pernah dicoba.
 
 **Keamanan alamat.** Alamat masuk ke command line browser, jadi hanya `http` dan `https` dengan host yang lolos; flag, `file:`, `javascript:`, `chrome:`, dan `about:` ditolak (`400 bad_url`). URL dibentuk ulang dan ditaruh setelah field code `Exec` diselesaikan, jadi `%` di dalamnya tidak terbaca sebagai field code. Browser bisa menjangkau semua yang bisa dijangkau This PC, termasuk layanan `localhost` dan jaringan lokal, setara akses terminal yang sudah ada (§1).
 
@@ -222,7 +233,7 @@ Web tile (node `web`) menampilkan dua hal: dev server dan situs luar yang ringan
 - Gagal dibuka (paket belum ada, bukan Linux): pesan hub tampil di tile dengan pilihan **Browser tab** dan **Link card**.
 - Klien yang belum mengenal jalur ini tetap menampilkan node dari `url`-nya sebagai situs eksternal.
 
-**Batasan.** §6 berlaku, terutama Ctrl+T, Ctrl+W, dan Ctrl+N yang ditahan browser pengguna: pakai tombol `+` dan `×` di Chrome. Situs melihat alamat IP This PC. Login tersimpan di `<data>/gui/profiles/<appId>/` (§1). Satu tile per board, tapi dua situs tetap bisa berdampingan di tile itu lewat Split View bawaan Chrome (klik kanan tab, "New split view with current tab"; teruji di Chrome 156).
+**Batasan.** §6 berlaku, terutama Ctrl+T, Ctrl+W, dan Ctrl+N yang ditahan browser pengguna: pakai tombol `+` dan `×` di Chrome. Situs melihat alamat IP This PC. Login tersimpan di `<data>/gui/profiles/<appId>/` (§1). Dua situs dengan satu login tetap bisa berdampingan dalam satu tile lewat Split View bawaan Chrome (klik kanan tab, "New split view with current tab"; teruji di Chrome 156).
 
 **Memori.** Ukur di This PC, median 3 kali, GitHub dan Wikipedia, termasuk `sway` dan `wayvnc`, belum termasuk encoder: Split View dalam satu tile 740 MB; satu Chrome dengan dua jendela di dua output headless 771 MB (spike, belum ada di produk); dua Chrome dengan dua profil 971 MB. Selisih antar-run sekitar 100 MB.
 

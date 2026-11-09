@@ -131,9 +131,65 @@ func TestProfileFor(t *testing.T) {
 	if flags != nil || !slices.Contains(env, "XDG_CONFIG_HOME=/p/config") {
 		t.Errorf("generic: %q %q", flags, env)
 	}
-	// A snap can't reach the hub's data folder.
-	if flags, _ = profileFor("/snap/bin/chromium", "/p"); flags != nil {
+	// Only a browser's snap is known to take a profile from its own folder. Others stay as they were.
+	if flags, _ = profileFor("/snap/bin/chromium", "/p"); !slices.Contains(flags, "--user-data-dir=/p/data") {
+		t.Errorf("snap browser: %q", flags)
+	}
+	if flags, _ = profileFor("/snap/bin/gimp", "/p"); flags != nil {
 		t.Errorf("snap: %q", flags)
+	}
+}
+
+func TestPackageOf(t *testing.T) {
+	flatpak := []string{"/usr/bin/flatpak", "run", "--branch=stable", "--arch=x86_64", "--command=firefox", "--file-forwarding", "org.mozilla.firefox", "@@u", "@@"}
+	for _, tc := range []struct {
+		name   string
+		argv   []string
+		bin    string
+		kind   string
+		pkg    string
+		family string
+		at     int
+	}{
+		{"native", []string{"/usr/bin/firefox"}, "/usr/bin/firefox", pkgNative, "", familyFirefox, 0},
+		{"env first", []string{"env", "A=b", "/usr/bin/google-chrome"}, "/usr/bin/google-chrome", pkgNative, "", familyChromium, 2},
+		{"snap firefox", []string{"/snap/bin/firefox"}, "/snap/bin/firefox", pkgSnap, "firefox", familyFirefox, 0},
+		{"snap chromium", []string{"env", "BAMF=x", "/snap/bin/chromium"}, "/snap/bin/chromium", pkgSnap, "chromium", familyChromium, 2},
+		{"snap app of a snap", []string{"/snap/bin/firefox.geckodriver"}, "/snap/bin/firefox.geckodriver", pkgSnap, "firefox", familyFirefox, 0},
+		{"other snap", []string{"/snap/bin/telegram-desktop"}, "/snap/bin/telegram-desktop", pkgNative, "", "", 0},
+		{"flatpak run", flatpak, "/usr/bin/flatpak", pkgFlatpak, "org.mozilla.firefox", familyFirefox, 6},
+		{"flatpak export", []string{"/var/lib/flatpak/exports/bin/com.google.Chrome"}, "/var/lib/flatpak/exports/bin/com.google.Chrome", pkgFlatpak, "com.google.Chrome", familyChromium, 0},
+		{"user flatpak", []string{"/home/a/.local/share/flatpak/exports/bin/org.chromium.Chromium"}, "/home/a/.local/share/flatpak/exports/bin/org.chromium.Chromium", pkgFlatpak, "org.chromium.Chromium", familyChromium, 0},
+		{"other flatpak", []string{"/usr/bin/flatpak", "run", "org.gimp.GIMP"}, "/usr/bin/flatpak", pkgNative, "", "", 0},
+		{"flatpak without run", []string{"/usr/bin/flatpak", "list"}, "/usr/bin/flatpak", pkgNative, "", "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := packageOf(tc.argv, tc.bin)
+			if got.kind != tc.kind || got.name != tc.pkg || got.family != tc.family || got.at != tc.at {
+				t.Fatalf("got %+v", got)
+			}
+		})
+	}
+	if got := dropFileForwarding(append([]string{}, flatpak...)); slices.Contains(got, "@@u") || slices.Contains(got, "--file-forwarding") || got[len(got)-1] != "org.mozilla.firefox" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSandboxedProfile(t *testing.T) {
+	t.Setenv("HOME", "/h")
+	for _, tc := range []struct {
+		pk   appPackage
+		n    int
+		want string
+	}{
+		{appPackage{}, 1, ""},
+		{appPackage{kind: pkgSnap, name: "firefox"}, 1, "/h/snap/firefox/common/nextboard"},
+		{appPackage{kind: pkgSnap, name: "chromium"}, 2, "/h/snap/chromium/common/nextboard-2"},
+		{appPackage{kind: pkgFlatpak, name: "org.mozilla.firefox"}, 3, "/h/.var/app/org.mozilla.firefox/nextboard-3"},
+	} {
+		if got, err := sandboxedProfile(tc.pk, tc.n); err != nil || got != tc.want {
+			t.Errorf("%+v: %q %v", tc.pk, got, err)
+		}
 	}
 }
 
