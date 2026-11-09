@@ -11,6 +11,7 @@ require (
 	github.com/pkg/sftp v1.13.10
 	golang.org/x/crypto v0.58.0
 	golang.org/x/image v0.36.0
+	golang.org/x/net v0.62.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 	rsc.io/qr v0.2.0
@@ -31,6 +32,5 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 )
