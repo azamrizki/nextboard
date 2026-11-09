@@ -187,6 +187,7 @@ func (s *Server) routes() {
 	s.routesGitPreview(authed)
 	s.routesReview(authed)
 	s.routesTasks(authed)
+	s.routesLaravel(authed)
 	s.routesStudio(authed)
 	s.routesGUI(authed)
 

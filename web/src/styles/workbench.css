@@ -1640,6 +1640,43 @@
 .wb-dbg-start select {
   min-width: 0;
 }
+.wb-laravel-tools {
+  display: flex;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-2);
+}
+.wb-laravel-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--s-3);
+}
+.wb-laravel-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-weight: normal;
+  text-transform: none;
+}
+.wb-laravel-level {
+  color: var(--tint-warning-text);
+}
+.wb-laravel-detail {
+  padding: var(--s-1) var(--s-2);
+}
+.wb-laravel-detail pre {
+  margin: var(--s-1) 0 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.wb-laravel-artisan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  padding: 0 var(--s-2);
+}
 .wb-attach-list {
   display: flex;
   flex-direction: column;

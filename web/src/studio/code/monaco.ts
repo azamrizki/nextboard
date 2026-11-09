@@ -222,6 +222,7 @@ export function languageFor(path: string): string | undefined {
     const hit = claimed.get(base.slice(i));
     if (hit) return hit;
   }
+  if (base.endsWith('.blade.php')) return 'blade';
   if (BY_NAME[base]) return BY_NAME[base];
   const i = base.lastIndexOf('.');
   return i > 0 ? BY_EXT[base.slice(i + 1)] : undefined;

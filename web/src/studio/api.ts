@@ -284,6 +284,57 @@ export interface OnSaveRun {
 const pr = (pid: string) => `/api/projects/${enc(pid)}`;
 
 /** Code workbench (docs/API-studio.md §7.2–§7.4). */
+export interface LaravelKey {
+  key: string;
+  file: string;
+  line: number;
+}
+export interface LaravelRoute {
+  name?: string;
+  method: string;
+  uri: string;
+  action?: string;
+  file?: string;
+  line?: number;
+}
+export interface LaravelView {
+  name: string;
+  file: string;
+}
+export interface LaravelIndex {
+  detected: boolean;
+  /** Below the project folder: files are relative to it. */
+  root?: string;
+  version?: string;
+  views: LaravelView[];
+  components: LaravelView[];
+  routes: LaravelRoute[];
+  config: LaravelKey[];
+  lang: LaravelKey[];
+  env: string[];
+}
+export interface LaravelLogEntry {
+  at: string;
+  env: string;
+  level: string;
+  message: string;
+  trace?: string;
+  file?: string;
+  line?: number;
+}
+export interface LaravelLog {
+  file: string;
+  entries: LaravelLogEntry[];
+  cut: boolean;
+}
+
+export const laravelApi = {
+  index: (pid: string) => get<LaravelIndex>(`${pr(pid)}/laravel`),
+  log: (pid: string) => get<LaravelLog>(`${pr(pid)}/laravel/log`),
+  /** Runs artisan on the project's machine, which boots the application. Only on a click. */
+  routes: (pid: string) => post<{ items: LaravelRoute[] }>(`${pr(pid)}/laravel/routes`, {}),
+};
+
 export const filesApi = {
   eslint: (pid: string, path: string, text: string, fix = false) => post<EslintRun>(`/api/projects/${enc(pid)}/eslint`, { path, text, fix }),
   list: (pid: string) => get<FileListing>(`${pr(pid)}/files`),

@@ -10,7 +10,7 @@ import { prefs } from '../../lib/format';
 import { limiter } from '../../lib/limiter';
 import type { Project } from '../../lib/types';
 import { store } from '../../store';
-import { filesApi, fsApi, gitApi, reviewApi, type Confirm, type FileListing } from '../api';
+import { filesApi, fsApi, gitApi, laravelApi, reviewApi, type Confirm, type FileListing, type LaravelIndex } from '../api';
 import { drafts, type Draft } from '../drafts';
 import { studioStore, waitJob } from '../store';
 import type { GitStatus, GitTarget, ProjectTask, ReviewSummary, TreeEntry } from '../types';
@@ -31,7 +31,11 @@ const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', '
 const MEDIA_EXT = new Set(['mp4', 'webm', 'mov', 'mp3', 'wav', 'ogg', 'flac']);
 export const MARKDOWN_EXT = new Set(['md', 'markdown', 'mdx']);
 
-export type SideView = 'files' | 'search' | 'scm' | 'review' | 'debug' | 'extensions' | 'agents' | 'settings';
+/** Saving one of these can change what the Laravel index holds. */
+const changesLaravelIndex = (rel: string) =>
+  /(^|\/)(routes|config|lang)\/[^/]+\.php$/.test(rel) || /(^|\/)resources\/views\//.test(rel) || /(^|\/)app\/View\/Components\//.test(rel) || /(^|\/)\.env\.example$/.test(rel);
+
+export type SideView = 'files' | 'search' | 'scm' | 'review' | 'debug' | 'laravel' | 'extensions' | 'agents' | 'settings';
 export type PanelView = 'terminal' | 'problems' | 'output' | 'debug' | 'tasks' | 'ports';
 export type MdView = 'reader' | 'split' | 'source';
 export type DiffSource = 'head' | 'index' | 'staged' | 'disk' | `commit:${string}` | `ide:${string}`;
@@ -323,6 +327,8 @@ export class Workspace {
   run: RemoteRun = (fn) => fn({});
   lsp: LspHub;
   debug: Debugger;
+  /** The Laravel app in this project, as read from its files; null until read. */
+  laravel: LaravelIndex | null = null;
   /** Ghost text requests in flight, for the status bar. */
   aiBusy = 0;
   /** Where questions from the editor go ("quick", "planner", "console:x", "group:x", "card:id"). */
@@ -389,6 +395,7 @@ export class Workspace {
       if (e.projectId === this.pid) toast.info(`${e.agents.join(' and ')} both changed ${e.path}. Check it in Review.`);
     });
     void this.refreshReview();
+    void this.refreshLaravel();
     let gitRepo = this.gitTarget.repo;
     studioStore.subscribe(() => {
       if (gitRepo === this.gitTarget.repo) return;
@@ -699,6 +706,15 @@ export class Workspace {
   }
 
   // ---- review of what agents changed (ReviewPanel.tsx) ----------------------------------
+
+  async refreshLaravel() {
+    try {
+      this.laravel = await laravelApi.index(this.pid);
+    } catch {
+      /* no answer now: what is known stays */
+    }
+    this.changed();
+  }
 
   async refreshReview() {
     try {
@@ -1102,6 +1118,7 @@ export class Workspace {
         return false;
       }
       d.mtime = st.mtime;
+      if (this.laravel?.detected && changesLaravelIndex(this.rel(path))) void this.refreshLaravel();
       d.size = st.size;
       d.savedAlt = d.model.getAlternativeVersionId();
       d.dirty = false;

@@ -44,6 +44,8 @@ import { taskApi } from '../api';
 import { showHistory, toggleFileBlame } from './gitLens';
 import { DEFAULT_WEB_SIZE, webNode } from '../../web/model';
 import { jumpBookmark, listBookmarks, toggleBookmark } from './bookmarks';
+import { LaravelPanel } from './LaravelPanel';
+import { registerLaravel } from './laravel';
 import { ReviewPanel } from './ReviewPanel';
 import { runTask } from './TasksPanel';
 import { hasNative } from './nativeExt';
@@ -81,6 +83,7 @@ const ACTIVITY: { view: SideView; icon: IconName; label: string; keys?: string }
   { view: 'scm', icon: 'branch', label: 'Source Control', keys: 'Ctrl+Shift+G' },
   { view: 'review', icon: 'checklist', label: 'Review' },
   { view: 'debug', icon: 'bug', label: 'Run and Debug', keys: 'Ctrl+Shift+D' },
+  { view: 'laravel', icon: 'layers', label: 'Laravel' },
   { view: 'extensions', icon: 'puzzle', label: 'Extensions', keys: 'Ctrl+Shift+X' },
   { view: 'agents', icon: 'sparkle', label: 'Ask', keys: 'Ctrl+L' },
 ];
@@ -109,6 +112,7 @@ let openerDone = false;
 function registerOpener() {
   if (openerDone) return;
   openerDone = true;
+  registerLaravel();
   monaco.editor.registerEditorOpener({
     openCodeEditor(_source, resource, target) {
       const ws = openerWs;
@@ -596,6 +600,7 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
       { id: 'ai.explain', label: 'AI: Explain This', icon: 'sparkle', run: () => askAgent(undefined, 'Explain this code.') },
       { id: 'ai.bugs', label: 'AI: Find Bugs Here', icon: 'sparkle', run: () => askAgent(undefined, 'Look for bugs in this code. Say what is wrong and why, most serious first.') },
       { id: 'view.debug', label: 'View: Show Run and Debug', keys: 'Ctrl+Shift+D', icon: 'bug', run: () => showView('debug') },
+      ...(ws.laravel?.detected ? [{ id: 'view.laravel', label: 'View: Show Laravel', icon: 'layers' as const, run: () => showView('laravel') }] : []),
       { id: 'view.extensions', label: 'View: Show Extensions', keys: 'Ctrl+Shift+X', icon: 'puzzle', run: () => showView('extensions') },
       { id: 'debug.start', label: 'Debug: Start Debugging', keys: 'F5', icon: 'play', run: () => void startDebug() },
       { id: 'debug.run', label: 'Debug: Run Without Debugging', keys: 'Ctrl+F5', icon: 'play', run: () => void startDebug(true) },
@@ -929,7 +934,7 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
       />
       <div className="wb-body nodrag nowheel nopan" ref={bodyRef}>
         <nav className="wb-activity" aria-label="Views">
-          {ACTIVITY.map((a) => (
+          {ACTIVITY.filter((a) => a.view !== 'laravel' || ws.laravel?.detected).map((a) => (
             <button
               key={a.view}
               type="button"
@@ -958,6 +963,7 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
               {ws.side === 'scm' && <ScmPanel ws={ws} />}
               {ws.side === 'review' && <ReviewPanel ws={ws} />}
               {ws.side === 'debug' && <DebugView ws={ws} onInstall={installInTerminal} />}
+              {ws.side === 'laravel' && <LaravelPanel ws={ws} onTerminal={installInTerminal} />}
               {ws.side === 'extensions' && <ExtensionsPanel ws={ws} onInstall={installInTerminal} />}
               {ws.side === 'agents' && <AgentsPanel ws={ws} ctl={ctl} nodeId={nodeId} context={context} setContext={setContext} request={agentRequest} focusTick={agentsTick} />}
               {ws.side === 'settings' && <SettingsPanel ws={ws} onInstall={installInTerminal} />}

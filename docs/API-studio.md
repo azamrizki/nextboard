@@ -708,6 +708,25 @@ Tab **Ports** menampilkan port TCP yang terbuka di machine project, diperbarui t
 
 **Commit graph satu tab:** tombol *Open graph* atau palette `Git: Open Commit Graph`, dengan kolom pesan, author, hash, tanggal, dan filter yang meredupkan baris lain tanpa memutus lane.
 
+### 7.14 Laravel
+
+Project yang punya `artisan` dan `composer.json` dengan `laravel/framework`, di folder project atau satu tingkat di bawahnya, mendapat view **Laravel** di Code card dan bantuan di editor. Tidak butuh PHP, Composer, atau extension apa pun di This PC, dan jalan sama di server.
+
+| Method | Path | Response / error |
+|---|---|---|
+| GET | `/api/projects/{id}/laravel` | `{"detected","root"?,"version"?,"views":[{name,file}],"components":[{name,file}],"routes":[{name?,method,uri,action?,file,line}],"config":[{key,file,line}],"lang":[{key,file,line}],"env":[…]}` |
+| GET | `/api/projects/{id}/laravel/log` | `{"file","entries":[{at,env,level,message,trace?,file?,line?}],"cut"}`, terbaru dulu, paling banyak 200 entri dari 512 KB terakhir file log terbaru. `409 not_laravel` |
+| POST | `/api/projects/{id}/laravel/routes` | `{"items":[{method,uri,name?,action,middleware?}]}`: `php artisan route:list --json`. `409 not_laravel`, `501 no_php`, `502 artisan_failed` |
+
+- **Tidak ada yang dijalankan untuk membaca.** Indeks dibaca dari file: `routes/*.php`, `config/*.php`, `lang/en/*.php`, nama file di `resources/views` dan `app/View/Components`. Menjalankan aplikasi hanya karena kartu dibuka bukan hal yang boleh terjadi di server produksi. Bacaan memakai `nice -n 19`.
+- **`.env` tidak pernah dibaca.** Nama variabel untuk `env('…')` datang dari `.env.example`.
+- **Bantuan editor**, di file `php` dan Blade: completion, Go to Definition, dan hover untuk `route()`, `to_route()`, `view()`, `@include`, `@extends`, `config()`, `__()`, `trans()`, `env()` (completion saja), dan `<x-…>`. Indeks dibaca lagi saat file di folder itu disimpan.
+- **Blade:** `.blade.php` punya bahasa sendiri dengan penyorotan `{{ }}`, `{!! !!}`, `@directive`, dan tag. Language server PHP tidak menempel ke bahasa ini.
+- **Routes:** dibaca dari file dengan pembaca PHP kecil: rantai method, `group` dengan `prefix` dan `name`, `resource` dan `apiResource` dengan `only` dan `except`, `match`, `view`, `redirect`. Route yang dibangun oleh kode atau dari paket tidak terbaca; **Ask artisan** meminta daftar lengkap dari aplikasi, sesudah konfirmasi, karena perintah itu mem-boot aplikasi. Hasilnya tidak mengganti indeks completion.
+- **Log:** file `storage/logs/*.log` yang terbaru, jadi log harian ikut. Tiap entri menunjuk file pertama di dalam project yang disebutnya, bukan kode `vendor/`.
+- **Artisan:** tombol dan kolom perintah mengetik `php artisan …` di terminal baru pada machine project, tanpa Enter. Hub tidak menerima perintah artisan bebas dari klien.
+- **Batas:** bahasa selain `en` tidak dibaca. Nilai config tidak dievaluasi. Komponen di namespace paket dan Livewire tidak terbaca. Peringatan untuk nama yang tidak ada belum dibuat.
+
 ## 8. Markdown studio dan link graph (E5)
 
 `GET /api/projects/{id}/markdown?refresh=0` →
