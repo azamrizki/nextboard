@@ -856,6 +856,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Memory tile | Haiku menerima tumpukan dari launch, membaca blok lewat `memory_read`, dan membalas `OK` untuk kiriman 163 karakter; kiriman tanpa fakta baru tidak mengetik apa pun (`TestRealMemoryTile`) |
 | Perintah terblokir | Claude Code berhenti di dialog izin, juga lewat `bash -c`, dan skripnya tidak jalan (`TestRealBlockedCommand`). Mode skip permissions tidak dicoba |
 | Chrome 156 di Wayland | github.com, Wikipedia, tab, restart hub (lewat Playwright) |
+| Firefox 159 di Wayland dan X11 | Halaman, tab lewat bus, tab sesudah hub restart, tile kedua (`TestRealFirefox`, tarball resmi) |
 | Video | Intel Arc A380 |
 | Workbench | gopls, pyright, typescript-language-server, Vue, Tailwind, ESLint, rust-analyzer, taplo, Delve, debugpy di browser; dua extension Open VSX |
 | Diagram | Dua job Claude Code di hub dev, masing-masing sekitar 95 detik |
@@ -873,7 +874,6 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 - OpenCode sampai menjawab di server.
 - Log koneksi pada jaringan sungguhan (baru lewat proxy TCP lokal).
 - macOS, NVENC, iframe preview dengan sertifikat self-signed.
-- Firefox di tile browser, termasuk tab baru lewat bus sesi: hanya program palsu dan `dbus-daemon` sungguhan.
 - Browser dari snap: jabat tangan Wayland dari dalam kurungan AppArmor snap sungguhan sudah, browser snap-nya belum. Browser dari flatpak: hanya baris perintahnya.
 - Passkey situs lain di Google Chrome dan di situs internet sungguhan: end-to-end baru dengan Chromium dan halaman di localhost, diverifikasi seperti relying party.
 - Mikrofon dengan aplikasi sungguhan yang merekam: sampai ke sumber PipeWire sesi, belum sampai ke situs di Chrome.
@@ -901,7 +901,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 | Git | File > 100 MB hanya bisa dibuang dari commit yang belum di-push (API-studio §3.7). Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
 | Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |
 | Aplikasi desktop | VA-API saja, baru teruji di Arc A380. Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N) hanya lewat menu keyboard di tile. Mikrofon butuh HTTPS atau localhost. `wayvnc` 0.9.1 sesekali segfault (hub menyalakannya ulang dalam sekitar 2 detik). Di mesin tanpa output suara asli, sink sesi bisa menjadi default |
-| Browser di tile | Firefox, snap, dan flatpak belum pernah dicoba dengan browser sungguhan ([API-gui §8](API-gui.md)). Tile kedua punya profil dan login sendiri |
+| Browser di tile | Snap dan flatpak belum pernah dicoba dengan browser sungguhan ([API-gui §8](API-gui.md)). Tile kedua punya profil dan login sendiri. Firefox hanya dipakai kalau tidak ada keluarga Chromium; belum ada pengaturan untuk memilih |
 | Usage | Tiap pemeriksaan Claude menambah 2 baris ke `history.jsonl` pada config yang dipakai. Codex 0.165 menulis `[tui]` ke `config.toml` sekali, dan hub tidak bisa mencegahnya tanpa menulis config. Format layar bisa berubah kapan saja |
 | Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
 | Credentials | Passkey situs lain butuh extension di tile browser: otomatis di Chromium, sekali lewat tangan di Google Chrome, tidak ada di Firefox ([API-vault.md](API-vault.md)). Kartu Android dan desktop belum ada. Agent memakai credential hanya teruji dengan agent palsu dan Claude Code; Codex dan OpenCode belum ([API-vault.md](API-vault.md)) |

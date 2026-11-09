@@ -227,7 +227,9 @@ Web tile (node `web`) menampilkan dua hal: dev server dan situs luar yang ringan
 
 **Flatpak.** Flag masuk sesudah id aplikasi, penanda `--file-forwarding` dan `@@` dibuang, profil di `~/.var/app/<id>/nextboard`.
 
-**Status verifikasi.** Hanya keluarga Chromium biasa yang teruji penuh dengan browser sungguhan. Firefox hanya teruji dengan program palsu, termasuk `dbus-daemon` sungguhan. Snap teruji sampai jabat tangan Wayland antara sway sungguhan dan proses di dalam kurungan AppArmor snap sungguhan, tanpa browser snap. Flatpak hanya baris perintahnya. Di dua jalur terakhir, serah-terima tab ke browser yang berjalan belum pernah dicoba.
+**Status verifikasi.** Keluarga Chromium biasa dan Firefox teruji dengan browser sungguhan. Firefox 159 dari tarball resmi, lewat `NEXTBOARD_REAL_FIREFOX=<program> go test ./internal/gui -run TestRealFirefox` (tidak di CI), di display Wayland dan X11: halaman pertama, tab baru lewat bus, tab baru sesudah hub restart, tile kedua, dan tidak ada proses tersisa. Tiap langkah dibuktikan oleh request yang benar-benar masuk ke server uji. Tarball itu di Ubuntu tidak mendapat user namespace (`unshare(CLONE_NEWPID): EPERM`), jadi sandbox prosesnya lebih lemah daripada Firefox dari paket; ini sifat tarball dan AppArmor Ubuntu, bukan hub. Snap teruji sampai jabat tangan Wayland antara sway sungguhan dan proses di dalam kurungan AppArmor snap sungguhan, tanpa browser snap. Flatpak hanya baris perintahnya. Di dua jalur terakhir, serah-terima tab ke browser yang berjalan belum pernah dicoba.
+
+**Firefox bukan pilihan pertama.** Kalau ada keluarga Chromium di This PC, itu yang dimulai. Belum ada pengaturan untuk memilih browser tile.
 
 **Keamanan alamat.** Alamat masuk ke command line browser, jadi hanya `http` dan `https` dengan host yang lolos; flag, `file:`, `javascript:`, `chrome:`, dan `about:` ditolak (`400 bad_url`). URL dibentuk ulang dan ditaruh setelah field code `Exec` diselesaikan, jadi `%` di dalamnya tidak terbaca sebagai field code. Browser bisa menjangkau semua yang bisa dijangkau This PC, termasuk layanan `localhost` dan jaringan lokal, setara akses terminal yang sudah ada (§1).
 
