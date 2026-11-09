@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "NextBoard passkeys",
+  "version": "1.0.0",
+  "description": "Keeps the passkeys of sites in the NextBoard vault. Every use asks the owner in NextBoard.",
+  "minimum_chrome_version": "111",
+  "background": { "service_worker": "background.js" },
+  "host_permissions": ["http://127.0.0.1/*"],
+  "content_scripts": [
+    { "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"], "js": ["main.js"], "run_at": "document_start", "world": "MAIN" },
+    { "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"], "js": ["bridge.js"], "run_at": "document_start" }
+  ]
+}

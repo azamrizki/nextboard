@@ -782,3 +782,15 @@ ul.vault-approve-uses li {
   flex-direction: column;
   gap: var(--s-3);
 }
+
+.vault-steps {
+  margin: 0;
+  padding-left: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.vault-passkeys h3 {
+  margin: 0 0 var(--s-1);
+  font-weight: 600;
+}

@@ -173,6 +173,17 @@ function Detail({ item, folders, onBack, onEdit, onDeleted }: DetailProps) {
       </div>
       {item.type === 'login' && !item.deletedAt && item.values.password && <LeakCheck key={item.values.password} password={item.values.password} />}
 
+      {!!item.passkeys?.length && (
+        <div className="vault-passkeys" data-testid="vault-passkeys">
+          <h3 className="vault-note">Passkeys</h3>
+          {item.passkeys.map((k) => (
+            <p key={k.credentialId} className="vault-note">
+              {k.userName || 'No account name'} on {k.rpId}
+              {k.createdAt ? `, made ${formatDateTime(k.createdAt)}` : ''}
+            </p>
+          ))}
+        </div>
+      )}
       {item.history.length > 0 && (
         <details className="vault-history">
           <summary>Password history ({item.history.length})</summary>

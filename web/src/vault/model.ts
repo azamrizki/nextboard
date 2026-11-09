@@ -22,6 +22,16 @@ export interface AgentShare {
   projects: string[];
 }
 
+/** A passkey of a site (passkeys.ts). `secret` signs in this browser and nowhere else. */
+export interface StoredPasskey {
+  rpId: string;
+  credentialId: string;
+  userHandle: string;
+  userName: string;
+  secret: string;
+  createdAt: string;
+}
+
 export interface VaultItem {
   k: 'item';
   id: string;
@@ -43,6 +53,7 @@ export interface VaultItem {
   /** In the trash since. */
   deletedAt?: string;
   agents?: AgentShare;
+  passkeys?: StoredPasskey[];
 }
 
 export interface VaultFolder {
@@ -177,7 +188,18 @@ export function readRecord(raw: unknown, id: string, rev: number): VaultRecord |
     updatedAt: str(o.updatedAt),
     deletedAt: typeof o.deletedAt === 'string' ? o.deletedAt : undefined,
     agents: readShare(o.agents),
+    passkeys: readPasskeys(o.passkeys),
   };
+}
+
+function readPasskeys(v: unknown): StoredPasskey[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: StoredPasskey[] = [];
+  for (const raw of v) {
+    const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    if (str(p.rpId) && str(p.credentialId) && str(p.secret)) out.push({ rpId: str(p.rpId), credentialId: str(p.credentialId), userHandle: str(p.userHandle), userName: str(p.userName), secret: str(p.secret), createdAt: str(p.createdAt) });
+  }
+  return out.length ? out : undefined;
 }
 
 function readShare(v: unknown): AgentShare | undefined {

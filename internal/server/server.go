@@ -70,23 +70,26 @@ type Server struct {
 	uptime     *uptime.Service
 	credVault  *vault.Service
 	// credReqs: commands agents asked to run with a credential (credrun.go)
-	credReqs   *credRequests
-	projects   *project.Store
-	boards     *board.Manager
-	agents     *agent.Store
-	settings   *settings.Store
-	extensions *studio.Extensions
-	ide        *idelink.Hub
-	profiles   *profiles.Store
-	mcp        *mcpreg.Store
-	jobs       *jobs.Manager
-	deliver    *delivery.Engine
-	orch       *orch.Service
-	attn       *attentionRing
-	events     *Broker
-	conns      *connRegistry
-	dev        bool
-	devWeb     int // Vite port accepted in dev mode
+	credReqs *credRequests
+	passkeys *passkeyRelay
+	// tests: how long a page waits for the owner
+	passkeyWaitOverride time.Duration
+	projects            *project.Store
+	boards              *board.Manager
+	agents              *agent.Store
+	settings            *settings.Store
+	extensions          *studio.Extensions
+	ide                 *idelink.Hub
+	profiles            *profiles.Store
+	mcp                 *mcpreg.Store
+	jobs                *jobs.Manager
+	deliver             *delivery.Engine
+	orch                *orch.Service
+	attn                *attentionRing
+	events              *Broker
+	conns               *connRegistry
+	dev                 bool
+	devWeb              int // Vite port accepted in dev mode
 
 	listen       string
 	statusListen string
@@ -182,6 +185,7 @@ func New(opts Options) (*Server, error) {
 		limiter:      auth.NewRateLimiter(5, 10*time.Minute),
 		running:      map[string]bool{},
 	}
+	s.passkeys = newPasskeyRelay(s.st.Path("gui", "passkey.json"))
 	if err := s.startHookListener(); err != nil {
 		log.Printf("local hook listener failed: %v", err)
 	}
@@ -193,6 +197,7 @@ func New(opts Options) (*Server, error) {
 	s.setupGUI()
 	s.setupAttachments()
 	s.setupVault()
+	s.passkeysAtStart()
 	if err := s.setupUptime(); err != nil {
 		return nil, err
 	}
@@ -511,6 +516,8 @@ func (s *Server) startHookListener() error {
 	mux.Handle("/nb/hook", s.sessions.HookHandler())
 	mux.HandleFunc("/nb/mcp/{sid}", s.handleRemoteMCP)
 	mux.HandleFunc("/nb/mcp-job", s.handleRemoteJobMCP)
+	mux.HandleFunc("/nb/passkey", s.handlePasskeyAsk)
+	mux.HandleFunc("/nb/passkey/hello", s.handlePasskeyHello)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 	return nil

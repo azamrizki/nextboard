@@ -41,6 +41,7 @@ const MemoryPage = lazy(() => import('./memory/MemoryPage').then((m) => ({ defau
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })));
 const PrintPage = lazy(() => import('./studio/print/PrintPage'));
 const CredentialRequests = lazy(() => import('./vault/Requests').then((m) => ({ default: m.CredentialRequests })));
+const PasskeyRequests = lazy(() => import('./vault/PasskeyRequests').then((m) => ({ default: m.PasskeyRequests })));
 
 const isAppPath = (p: string) => parseRoute(p).page !== 'unknown';
 
@@ -215,6 +216,7 @@ export function App() {
             {route.page !== 'print' && (
               <Suspense fallback={null}>
                 <CredentialRequests />
+                <PasskeyRequests />
               </Suspense>
             )}
           </AuthProvider>

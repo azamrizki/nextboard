@@ -52,6 +52,47 @@ Folder juga record terenkripsi: `{ "k": "folder", "name": "…" }`. Hub tidak bi
 
 Trash ada di dalam blob, jadi browser yang menghapus: item yang lebih dari 30 hari di trash dihapus saat unlock berikutnya.
 
+## Passkey situs lain
+
+Situs di tile browser bisa menyimpan passkey-nya di vault. Halaman tidak bisa dijangkau dari luar tanpa extension, jadi hub menyediakan extension yang menggantikan `navigator.credentials` untuk permintaan passkey. Mati sampai dinyalakan di menu vault, **Passkeys for sites…**.
+
+```
+situs di tile → extension (background.js: asal dari browser) → hub (loopback, token) → dialog di browser pemilik
+                                                                                       ↓ kunci menandatangani di sini
+situs ← hasil ← extension ← hub ←──────────────────────────────────────────────────── hasil tanpa kunci
+```
+
+- **Zero-knowledge tetap berlaku:** kunci privat P-256 ada di blob item login (`passkeys[]`) dan menandatangani di browser pemilik dengan `@noble/curves`, karena `crypto.subtle` tidak ada di HTTP biasa. Hub dan extension hanya melihat site, nama akun, tantangan, dan hasil tanda tangan, dan itu hanya di memori selama halaman menunggu.
+- **Tiap pemakaian ditanya.** Dialog terbuka sendiri karena situs sedang menunggu, paling lama 2 menit. **Save in vault** atau **Sign in as**, **Use the browser's own**, atau **Refuse**. Vault yang terkunci meminta dibuka di dialog itu.
+- **Asal situs dari browser**, `sender.origin` di service worker, bukan dari halaman. Hub mengecek aturan WebAuthn: halaman aman (HTTPS atau localhost), rpId adalah host itu atau domain di atasnya, dan bukan public suffix (`golang.org/x/net/publicsuffix`). Frame dari situs lain diserahkan ke browser. Yang gagal dicek juga diserahkan ke browser, yang menolaknya dengan error yang diharapkan halaman.
+- **Yang diserahkan ke browser:** situs yang tidak menerima ES256, autofill (`mediation: "conditional"`), permintaan selagi situs yang sama menunggu, lebih dari 3 permintaan sekaligus, dan tidak ada jawaban. Halaman tidak bisa membanjiri pemilik dengan dialog.
+- **Bentuk:** attestation `none`, AAGUID nol, counter 0, flag UP, UV, BE, BS. UV diklaim karena vault terbuka dan orang menyetujui. Backup-eligible karena blob ikut ekspor.
+- **Ekspor:** `nextboardPasskeys` di samping format Bitwarden. Bitwarden tidak membacanya, jadi passkey hanya pindah antar-NextBoard.
+
+**Memasang extension.** File-nya tertanam di binary (`internal/gui/passkeyext`), ditulis ke `<data>/gui/passkey-extension/` bersama `config.json` berisi alamat loopback dan token. Port hook berganti tiap hub start, jadi `config.json` ditulis ulang dan dibaca ulang tiap permintaan.
+
+| Browser | Cara | Status |
+|---|---|---|
+| Chromium, Brave, Edge, Vivaldi, Opera | `--load-extension` otomatis saat browser dimulai | Teruji di Chromium |
+| Google Chrome 137 ke atas | **Sekali lewat tangan**: `chrome://extensions`, Developer mode, Load unpacked. Dialog memandu. Hub tidak bisa membuka halaman itu: dari command line, Chrome 156 hanya membuka New Tab | Jalur manual belum dicoba sampai selesai |
+| Firefox | Tidak didukung, butuh XPI bertanda tangan | — |
+
+Browser dari snap atau flatpak membaca salinan di folder miliknya sendiri, yang ditulis saat browser dimulai, jadi sesudah hub restart browser itu perlu dimulai lagi supaya alamatnya baru. Jalur ini belum dicoba dengan browser sungguhan.
+
+Kenapa Chrome harus manual, dicoba di Chrome 156: `--load-extension` diabaikan, folder `External Extensions` di profil diabaikan, dan `Extensions.loadUnpacked` lewat pipe debugging tidak bertahan setelah browser ditutup. Pipe yang terus dibuka juga membuat `navigator.webdriver` bernilai `true`, tanda yang membuat situs menolak login, padahal itu alasan browser sungguhan dipakai.
+
+| Route | Listener | Isi |
+|---|---|---|
+| POST `/nb/passkey` | loopback, `Authorization: Bearer` | `{"kind":"create"\|"get","origin","options"}` → `{"result"}`, `{"fallback":true}`, atau `{"error":{"name","message"}}`. Menunggu paling lama 2 menit |
+| GET `/nb/passkey/hello` | loopback, token | Extension memberi tahu ia jalan |
+| GET `/api/vault/passkeys` | login | `{"enabled","active","path"?,"requests":[{id,kind,origin,rpId,options,createdAt}]}` |
+| PUT `/api/vault/passkeys` | login | `{"enabled"}`. Mematikan membuang token, jadi salinan extension di browser berhenti bekerja |
+| POST `/api/vault/passkeys/requests/{id}` | login | `{"result"}`, `{"fallback":true}`, atau `{"refuse":true}`. `404 request_gone` |
+
+Event `passkeyRequest` memberi tahu web untuk memuat ulang.
+
+**Batas kepercayaan.** Token ada di folder data hub, dan program di This PC yang berjalan sebagai user yang sama bisa membacanya, lalu mengirim permintaan atas nama situs apa pun. Pemilik tetap harus menyetujuinya, tetapi nama situs di dialog itu tidak bisa dibuktikan dalam kasus ini, jadi dialog meminta menyetujui hanya yang baru saja dilakukan. Ini sama dengan batas agen yang bisa mengganti binary hub atau file web. Bukti di tes: upacara WebAuthn diverifikasi dengan `node:crypto` seperti relying party, dan end-to-end dengan Chromium sungguhan.
+
 ## API
 
 Semua lewat login biasa, ber-header `X-NextBoard: 1` untuk yang mengubah data. Yang bisa mengunci pemilik keluar hanya untuk admin, bukan token device.

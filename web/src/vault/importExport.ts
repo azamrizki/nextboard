@@ -71,6 +71,12 @@ function fromBitwardenJson(text: string): Imported {
     it.history = arr(o.passwordHistory)
       .map((h) => ({ password: str(obj(h).password), at: str(obj(h).lastUsedDate) }))
       .filter((h) => h.password);
+    // Ours, beside Bitwarden's format: an export without them would quietly lose the keys.
+    const keys = arr(o.nextboardPasskeys)
+      .map((k) => obj(k))
+      .filter((k) => str(k.rpId) && str(k.credentialId) && str(k.secret))
+      .map((k) => ({ rpId: str(k.rpId), credentialId: str(k.credentialId), userHandle: str(k.userHandle), userName: str(k.userName), secret: str(k.secret), createdAt: str(k.createdAt) }));
+    if (keys.length) it.passkeys = keys;
     if (type === 'login') {
       const login = obj(o.login);
       it.values = picked(login, ['username', 'password', 'totp']);
@@ -203,6 +209,7 @@ export function toBitwardenJson(items: VaultItem[], folders: VaultFolder[]): str
           deletedDate: it.deletedAt ?? null,
         };
         if (it.history.length) base.passwordHistory = it.history.map((h) => ({ lastUsedDate: h.at, password: h.password }));
+        if (it.passkeys?.length) base.nextboardPasskeys = it.passkeys;
         const v = it.values;
         if (it.type === 'login') base.login = { uris: it.uris.map((uri) => ({ match: null, uri })), username: v.username || null, password: v.password || null, totp: v.totp || null, fido2Credentials: [] };
         else if (it.type === 'note') base.secureNote = { type: 0 };

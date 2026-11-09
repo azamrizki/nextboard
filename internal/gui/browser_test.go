@@ -376,3 +376,76 @@ func TestFlatpakBrowserCommand(t *testing.T) {
 		t.Fatalf("got %q\nwant %q", runs, want)
 	}
 }
+
+// The extension of the vault's passkeys goes on the command line of a browser that still honours
+// it, only when turned on, and never of Google's own, which ignores it.
+func TestPasskeyExtensionOnTheCommandLine(t *testing.T) {
+	m, ev := newTestManager(t, map[string]string{"notes": ""})
+	log := fakeBrowser(t, "fake-chromium", "chromium", "Network;WebBrowser;")
+	opened, err := m.OpenURL(OpenURLRequest{URL: "https://a.example/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSession(t, m, ev, "window", func(s Session) bool { return s.ID == opened.Session.ID && s.State == StateRunning })
+	hasFlag := func(run []string) bool {
+		return slices.ContainsFunc(run, func(a string) bool { return strings.HasPrefix(a, "--load-extension=") })
+	}
+	if hasFlag(browserRuns(t, log)[0]) {
+		t.Fatalf("off, yet on the command line: %q", browserRuns(t, log)[0])
+	}
+	if err := m.Stop(opened.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitGone(t, m, ev, opened.Session.ID)
+	if err := os.Remove(log); err != nil {
+		t.Fatal(err)
+	}
+
+	dir, err := m.SetPasskeyExtension(true, "http://127.0.0.1:1", "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"manifest.json", "main.js", "bridge.js", "background.js", "config.json"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Fatalf("no %s: %v", f, err)
+		}
+	}
+	opened, err = m.OpenURL(OpenURLRequest{URL: "https://a.example/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSession(t, m, ev, "window again", func(s Session) bool { return s.ID == opened.Session.ID && s.State == StateRunning })
+	if !slices.Contains(browserRuns(t, log)[0], "--load-extension="+dir) {
+		t.Fatalf("on, yet not on the command line: %q", browserRuns(t, log)[0])
+	}
+
+	// a browser's own pages cannot be asked for by address
+	if _, err := m.OpenURL(OpenURLRequest{URL: "chrome://settings/"}); errCode(err) != "bad_url" {
+		t.Fatalf("a browser page by address: %v", err)
+	}
+}
+
+func TestPasskeyExtensionNotForGooglesChrome(t *testing.T) {
+	for _, bin := range []string{"/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/opt/x/google-chrome-beta"} {
+		if !branded(bin) {
+			t.Errorf("%s is Google's", bin)
+		}
+	}
+	for _, bin := range []string{"/usr/bin/chromium", "/usr/bin/brave-browser", "/usr/bin/microsoft-edge"} {
+		if branded(bin) {
+			t.Errorf("%s is not Google's", bin)
+		}
+	}
+	m, _ := newTestManager(t, map[string]string{"notes": ""})
+	if _, err := m.SetPasskeyExtension(true, "http://127.0.0.1:1", "tok"); err != nil {
+		t.Fatal(err)
+	}
+	flags, err := m.passkeyFlags(appPackage{family: familyChromium}, "/usr/bin/google-chrome", "/p")
+	if err != nil || flags != nil {
+		t.Fatalf("%q %v", flags, err)
+	}
+	flags, err = m.passkeyFlags(appPackage{family: familyFirefox}, "/usr/bin/firefox", "/p")
+	if err != nil || flags != nil {
+		t.Fatalf("firefox: %q %v", flags, err)
+	}
+}

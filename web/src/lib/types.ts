@@ -751,6 +751,7 @@ export type HubEvent =
   | { type: 'uptimeRemoved'; projectId: string; id: string }
   | { type: 'vaultChanged'; rev: number; vaultId: string }
   | { type: 'credentialRequest'; id: string; state: string }
+  | { type: 'passkeyRequest'; id?: string }
   | { type: 'settings'; settings: Settings }
   | { type: 'agents' }
   | { type: 'profile'; profile: Profile }

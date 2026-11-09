@@ -148,6 +148,8 @@ type Manager struct {
 	forceSharedRun bool
 	wg             sync.WaitGroup
 
+	passkeys PasskeyExtension
+
 	// Result of encoderArgs.
 	probeOnce sync.Once
 	encOK     bool
@@ -766,6 +768,11 @@ func (m *Manager) appCommandFor(s *session, e *entry, target, xauth, pageURL str
 			return nil, nil, "", err
 		}
 	}
+	more, err := m.passkeyFlags(pk, bin, profile)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	flags = append(flags, more...)
 	argv = slices.Concat(argv[:pk.at+1], flags, argv[pk.at+1:])
 	if pageURL != "" {
 		argv = append(argv, pageURL)
