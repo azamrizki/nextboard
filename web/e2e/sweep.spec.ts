@@ -1,7 +1,9 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test, type Hub } from './hub';
+import { openVault } from './vault';
 
 // The whole web on every screen (DESIGN.md §3.0): every page, every settings pane, the dialogs
 // and every card shown on its own fit the screen, with nothing run off its side. layout.spec.ts
@@ -208,5 +210,125 @@ test('every card fits the screen when shown on its own', async ({ page, hub }, i
   await page.waitForTimeout(700);
   for (const e of await offScreen(page, '.react-flow__node.is-focused')) found.push(`console: ${e}`);
   await shot(page, info.project.name, 'card-console');
+  expect(found).toEqual([]);
+});
+
+// What the server and Laravel work added, on every screen: the Laravel view, the process picker
+// of the debugger, the warning about a big file in a commit, a browser tile's full header with its
+// keyboard and microphone, the choice a new tile offers, and the passkey dialogs.
+test('the workbench views, tile controls and passkey dialogs fit the screen', async ({ page, hub }, info) => {
+  test.setTimeout(180_000);
+  const p = await project(hub, 'Newer');
+  const put = (rel: string, body: string) => {
+    mkdirSync(dirname(join(p.path, rel)), { recursive: true });
+    writeFileSync(join(p.path, rel), body);
+  };
+  put('artisan', '<?php\n');
+  put('composer.json', '{"require":{"laravel/framework":"^12.0"}}');
+  put('routes/web.php', "<?php\nRoute::middleware('auth')->prefix('administration/of/the/whole/application')->name('administration.')->group(function () {\n  Route::resource('very-long-resource-names-for-the-narrowest-screen', A::class);\n});\n");
+  put('storage/logs/laravel.log', `[2026-11-09 10:00:01] production.ERROR: A rather long message that a phone has to wrap or cut somewhere at ${p.path}/app/Foo.php:12\n[stacktrace]\n#0 ${p.path}/vendor/laravel/framework/src/Illuminate/Routing/Router.php(100): something()\n`);
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: p.path, env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.com' } });
+  const bare = `${p.path}.git`;
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare]);
+  git('init', '-q', '-b', 'main');
+  git('add', '-A');
+  git('commit', '-qm', 'base');
+  git('remote', 'add', 'origin', bare);
+  git('push', '-q', '-u', 'origin', 'main');
+  const fd = openSync(join(p.path, 'a-file-with-quite-a-long-name-for-a-narrow-screen.bin'), 'w');
+  ftruncateSync(fd, 101 * 1024 * 1024);
+  closeSync(fd);
+  git('add', '-A');
+  git('commit', '-qm', 'big');
+
+  await hub.ops(p.wid, [{ op: 'put', node: { id: 'n_sweepnew01', kind: 'editor', x: 0, y: 0, w: 1100, h: 700, data: {} } }]);
+  await page.goto(`/p/${p.id}/w/${p.wid}?card=n_sweepnew01`);
+  const found: string[] = [];
+  const check = async (name: string, scope: string) => {
+    await page.waitForTimeout(400);
+    for (const e of await offScreen(page, scope)) found.push(`${name}: ${e}`);
+    await shot(page, info.project.name, name);
+  };
+  const view = async (label: string) => {
+    const drawer = page.getByRole('button', { name: 'Side bar' });
+    if (await drawer.isVisible().catch(() => false)) await drawer.click();
+    await page.getByRole('button', { name: label, exact: true }).click();
+  };
+
+  await expect(page.getByRole('button', { name: 'Laravel', exact: true }).or(page.getByRole('button', { name: 'Side bar' })).first()).toBeVisible({ timeout: 20_000 });
+  await view('Laravel');
+  await expect(page.locator('.wb-side').getByText('administration', { exact: false }).first()).toBeVisible({ timeout: 15_000 });
+  await check('laravel-view', '.wb-side');
+
+  await view('Source Control');
+  await expect(page.getByTestId('git-large-history')).toBeVisible({ timeout: 15_000 });
+  await check('large-file-warning', '.wb-side');
+
+  await view('Run and Debug');
+  const choose = page.getByRole('combobox', { name: 'Debug configuration' });
+  await expect(choose.locator('option', { hasText: 'Attach to a running' })).toHaveCount(1, { timeout: 15_000 });
+  await choose.selectOption({ label: 'Attach to a running Node.js process' });
+  await page.getByRole('button', { name: 'Start debugging (F5)' }).click();
+  await expect(page.getByRole('dialog', { name: 'Attach to a Node.js process' })).toBeVisible();
+  await check('attach-picker', '[role="dialog"]');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
+
+  // the header of a browser tile with everything it can show
+  const status = await hub.call('GET', '/api/gui/apps');
+  if (status.available) {
+    await hub.ops(p.wid, [
+      { op: 'put', node: { id: 'n_sweepnew02', kind: 'web', x: 1300, y: 0, w: 900, h: 620, data: { url: 'https://example.com/', realBrowser: true } } },
+      { op: 'put', node: { id: 'n_sweepnew03', kind: 'web', x: 2300, y: 0, w: 900, h: 620, data: {} } },
+    ]);
+    const sessions = async () => (await hub.call('GET', '/api/gui/sessions')) as { id: string; state: string; mic?: boolean }[];
+    try {
+      await page.goto(`/p/${p.id}/w/${p.wid}?card=n_sweepnew02`);
+      const tile = page.locator('.react-flow__node.is-focused');
+      await tile.getByRole('button', { name: 'Open here' }).click();
+      await expect.poll(async () => (await sessions())[0]?.state, { timeout: 60_000 }).toBe('running');
+      await expect(tile.getByRole('button', { name: /^Keys for / })).toBeVisible({ timeout: 30_000 });
+      await check('browser-tile-header', '.react-flow__node.is-focused');
+
+      await page.goto(`/p/${p.id}/w/${p.wid}?card=n_sweepnew03`);
+      const fresh = page.locator('.react-flow__node.is-focused');
+      await fresh.getByRole('textbox', { name: 'Address' }).fill('http://192.168.77.1/');
+      await fresh.getByRole('textbox', { name: 'Address' }).press('Enter');
+      await expect(fresh.getByTestId('browser-choice')).toBeVisible({ timeout: 30_000 });
+      await check('browser-choice', '.react-flow__node.is-focused');
+    } finally {
+      for (const s of await sessions()) await hub.call('DELETE', `/api/gui/sessions/${s.id}`);
+      await expect.poll(async () => (await sessions()).length, { timeout: 30_000 }).toBe(0);
+    }
+  }
+
+  // the passkey dialogs
+  await page.goto('/');
+  await page.locator('.vault-button').click();
+  const win = page.getByRole('dialog', { name: 'Credentials', exact: true });
+  await expect(win).toBeVisible();
+  await openVault(page);
+  await win.getByRole('button', { name: 'Vault actions' }).click();
+  await page.getByRole('menuitem', { name: 'Passkeys for sites…' }).click();
+  const box = page.getByTestId('site-passkeys');
+  await box.getByRole('checkbox').click();
+  await expect(box.getByText('Developer mode', { exact: false })).toBeVisible({ timeout: 10_000 });
+  await check('passkeys-for-sites', '[role="dialog"]:has([data-testid="site-passkeys"])');
+
+  const { path } = await hub.call('GET', '/api/vault/passkeys');
+  const conf = JSON.parse(readFileSync(join(path, 'config.json'), 'utf8'));
+  const waiting = fetch(`${conf.hub}/nb/passkey`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${conf.token}` },
+    body: JSON.stringify({ kind: 'create', origin: 'https://a-rather-long-subdomain.of-a-site.example.com', options: { rp: { name: 'A site' }, user: { id: 'dQ', name: 'someone-with-a-long-address@a-rather-long-domain.example.com' }, challenge: 'Y2g', pubKeyCredParams: [{ alg: -7 }] } }),
+  });
+  try {
+    const ask = page.getByTestId('passkey-request');
+    await expect(ask).toBeVisible({ timeout: 15_000 });
+    await check('passkey-request', '[role="dialog"]:has([data-testid="passkey-request"])');
+    await page.getByRole('button', { name: 'Refuse' }).click();
+    await waiting;
+  } finally {
+    await hub.call('PUT', '/api/vault/passkeys', { enabled: false });
+  }
   expect(found).toEqual([]);
 });

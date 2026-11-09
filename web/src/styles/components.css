@@ -638,6 +638,11 @@ textarea.control {
   color: var(--text);
   font-size: var(--fs-sm);
 }
+/* a long name inside must wrap or be cut there, not widen the alert past its box */
+.alert > div,
+.alert > span {
+  min-width: 0;
+}
 .alert svg {
   flex: 0 0 auto;
   width: var(--size-icon);
@@ -1071,6 +1076,8 @@ textarea.control {
 }
 .modal-foot .foot-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--s-2);
   margin-left: auto;
 }

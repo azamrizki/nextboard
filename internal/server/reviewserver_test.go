@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -130,5 +131,54 @@ func TestReviewOnAServer(t *testing.T) {
 		default:
 			t.Errorf("left on the server: %s", e.Name())
 		}
+	}
+}
+
+// The Laravel view of a project on a server: read over SSH, and the real .env stays there.
+func TestLaravelOnAServer(t *testing.T) {
+	port, key := startSSHServer(t)
+	h := newTestHub(t)
+	h.setup()
+	mid := h.connectMachine(port, key)
+	dir := t.TempDir()
+	for rel, body := range map[string]string{
+		"artisan":                           "<?php\n",
+		"composer.json":                     `{"require":{"laravel/framework":"^12.0"}}`,
+		"routes/web.php":                    "<?php Route::get('/users', [U::class, 'index'])->name('users.index');",
+		"config/app.php":                    "<?php return ['name' => 'Demo'];",
+		"resources/views/welcome.blade.php": "<h1>hi</h1>",
+		".env":                              "APP_KEY=CANARY-laravel-server-env\n",
+		".env.example":                      "APP_NAME=Demo\n",
+		"storage/logs/laravel.log":          "[2026-11-09 10:00:00] production.ERROR: boom\n",
+	} {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, pr := h.do("POST", "/api/projects", map[string]any{"name": "srv", "machineId": mid, "path": dir}, nil)
+	if st != 201 {
+		t.Fatalf("project: %d %v", st, pr)
+	}
+	pid := pr["id"].(string)
+	st, idx := h.do("GET", "/api/projects/"+pid+"/laravel", nil, nil)
+	if st != 200 || idx["detected"] != true {
+		t.Fatalf("index: %d %v", st, idx)
+	}
+	b, _ := json.Marshal(idx)
+	for _, want := range []string{"users.index", "app.name", "welcome", "APP_NAME"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("index lacks %s: %s", want, b)
+		}
+	}
+	if strings.Contains(string(b), "CANARY-laravel-server-env") {
+		t.Fatal(".env reached the hub")
+	}
+	st, log := h.do("GET", "/api/projects/"+pid+"/laravel/log", nil, nil)
+	if st != 200 || !strings.Contains(fmt.Sprint(log), "boom") {
+		t.Fatalf("log: %d %v", st, log)
 	}
 }
