@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,7 +34,8 @@ type ghRelease struct {
 func cmdUpdate(args []string) error {
 	fs, _ := newFlags("update")
 	repo := fs.String("repo", version.Repo, "GitHub repo owner/name")
-	force := fs.Bool("force", false, "reinstall even if the version is the same")
+	force := fs.Bool("force", false, "reinstall even if the version is the same, or older")
+	tag := fs.String("version", "", "install this release, such as a beta (v0.4.0-beta.1), instead of the latest stable one")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -40,14 +43,30 @@ func cmdUpdate(args []string) error {
 		return errors.New("GitHub repo not known; use --repo owner/nextboard")
 	}
 	client := &http.Client{Timeout: 2 * time.Minute}
-	rel, err := latestRelease(client, *repo)
+	var rel *ghRelease
+	var err error
+	if *tag != "" {
+		rel, err = releaseByTag(client, *repo, "v"+strings.TrimPrefix(*tag, "v"))
+	} else {
+		rel, err = latestRelease(client, *repo)
+	}
 	if err != nil {
 		return err
 	}
 	latest := strings.TrimPrefix(rel.TagName, "v")
-	if !*force && latest == strings.TrimPrefix(version.Version, "v") {
-		fmt.Println("Already the latest version:", version.Version)
-		return nil
+	current := strings.TrimPrefix(version.Version, "v")
+	if !*force {
+		if latest == current {
+			fmt.Println("Already on", version.Version)
+			return nil
+		}
+		// The latest stable release can be older than a beta running here: going back is the
+		// user's choice, never what a plain update does.
+		if *tag == "" && newerVersion(current, latest) {
+			fmt.Printf("This hub runs %s, which is newer than the latest stable release %s.\n", version.Version, rel.TagName)
+			fmt.Printf("To go back to it: nextboard update --version %s --force\n", rel.TagName)
+			return nil
+		}
 	}
 	want := fmt.Sprintf("nextboard_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
 	var archiveURL, sumsURL string
@@ -99,8 +118,17 @@ func cmdUpdate(args []string) error {
 	return nil
 }
 
+// latestRelease is the newest stable release: GitHub leaves pre-releases (betas) out of it.
 func latestRelease(c *http.Client, repo string) (*ghRelease, error) {
-	b, err := fetch(c, "https://api.github.com/repos/"+repo+"/releases/latest")
+	return release(c, "https://api.github.com/repos/"+repo+"/releases/latest")
+}
+
+func releaseByTag(c *http.Client, repo, tag string) (*ghRelease, error) {
+	return release(c, "https://api.github.com/repos/"+repo+"/releases/tags/"+url.PathEscape(tag))
+}
+
+func release(c *http.Client, u string) (*ghRelease, error) {
+	b, err := fetch(c, u)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +137,75 @@ func latestRelease(c *http.Client, repo string) (*ghRelease, error) {
 		return nil, err
 	}
 	return &rel, nil
+}
+
+// newerVersion reports whether a is a later version than b, by the rules of semver.org: the
+// numbers first, then a pre-release (1.2.0-beta.1) comes before its release (1.2.0). A version
+// that is not semver ("dev") is never newer.
+func newerVersion(a, b string) bool {
+	va, okA := parseVersion(a)
+	vb, okB := parseVersion(b)
+	if !okA || !okB {
+		return false
+	}
+	for i := range 3 {
+		if va.core[i] != vb.core[i] {
+			return va.core[i] > vb.core[i]
+		}
+	}
+	switch {
+	case len(va.pre) == 0 || len(vb.pre) == 0:
+		return len(va.pre) == 0 && len(vb.pre) > 0
+	}
+	for i := 0; i < len(va.pre) && i < len(vb.pre); i++ {
+		x, y := va.pre[i], vb.pre[i]
+		if x == y {
+			continue
+		}
+		nx, errX := strconv.Atoi(x)
+		ny, errY := strconv.Atoi(y)
+		switch {
+		case errX == nil && errY == nil:
+			return nx > ny
+		case errX == nil:
+			return false // numbers sort before words
+		case errY == nil:
+			return true
+		default:
+			return x > y
+		}
+	}
+	return len(va.pre) > len(vb.pre)
+}
+
+type semver struct {
+	core [3]int
+	pre  []string
+}
+
+func parseVersion(v string) (semver, bool) {
+	v = strings.TrimPrefix(v, "v")
+	v, _, _ = strings.Cut(v, "+")
+	v, pre, hasPre := strings.Cut(v, "-")
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return semver{}, false
+	}
+	var out semver
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return semver{}, false
+		}
+		out.core[i] = n
+	}
+	if hasPre {
+		if pre == "" {
+			return semver{}, false
+		}
+		out.pre = strings.Split(pre, ".")
+	}
+	return out, true
 }
 
 func fetch(c *http.Client, url string) ([]byte, error) {

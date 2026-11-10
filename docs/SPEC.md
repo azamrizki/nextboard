@@ -95,7 +95,7 @@ curl -fsSL https://raw.githubusercontent.com/<user>/nextboard/main/install.sh | 
 | `nextboard setup-link` | Membuat link setup baru (kalau link lama kedaluwarsa sebelum setup) |
 | `nextboard reset-password` | Reset password admin dari terminal server |
 | `nextboard pair` | Mencetak QR + kode pairing di terminal (alternatif dari Web UI) |
-| `nextboard update` | Unduh rilis terbaru lalu restart service |
+| `nextboard update [--version tag]` | Unduh rilis stabil terbaru (atau tag yang disebut, mis. beta) lalu restart service; tidak pernah turun versi tanpa `--force` |
 
 ### Setup pertama (wizard di Web UI)
 
