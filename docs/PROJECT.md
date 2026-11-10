@@ -745,6 +745,8 @@ Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go in
 
 Commit memakai Conventional Commits: `fix:`, `perf:`, `revert:` → patch; `feat:` → minor; `docs:`, `test:`, `ci:`, `chore:`, dan commit lain → tidak merilis. Sebelum 1.0, perubahan breaking (`feat!:`, footer `BREAKING CHANGE:`) juga minor. Aturannya di `.releaserc.json`.
 
+**Beta.** Branch `beta` adalah branch prerelease semantic-release. Samakan dulu dengan main (`git push origin main:beta`), lalu `gh workflow run release.yml --ref beta`. Hasilnya tag `vX.Y.Z-beta.N`, dan goreleaser (`release.prerelease: auto`) menerbitkannya sebagai pre-release di GitHub, jadi `releases/latest` tetap rilis stabil terakhir: `nextboard update` dan `install.sh` tidak memasang beta kecuali diminta dengan tag (`nextboard update --version v0.4.0-beta.1`, `install.sh --version=…`). `nextboard update` tanpa tag juga tidak pernah turun versi: hub yang menjalankan beta lebih baru dari rilis stabil terakhir dibiarkan, dengan perintah `--version … --force` untuk kembali.
+
 **Deploy.** `deploy/nginx.conf.example` + `deploy/nextboard-proxy.inc`:
 
 - Port utama dan tiap port preview masing-masing diberi HTTPS.

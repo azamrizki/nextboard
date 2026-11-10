@@ -5,6 +5,10 @@ name: release
 # run the tests and see which version would come out, without publishing anything.
 #
 # The commit messages since the last tag decide the version: see .releaserc.json.
+#
+# A beta: bring the beta branch up to main (`git push origin main:beta`), then run this on it
+# (`gh workflow run release.yml --ref beta`). It is tagged vX.Y.Z-beta.N and published as a
+# pre-release, which `nextboard update` and install.sh leave alone unless asked for by tag.
 
 on:
   workflow_dispatch:
@@ -19,7 +23,7 @@ permissions:
 
 jobs:
   release:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

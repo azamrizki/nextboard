@@ -27,6 +27,11 @@ archives:
       - LICENSE
       - install.sh
 
+# A tag such as v0.4.0-beta.1 is a pre-release on GitHub, so it never becomes "latest", which is
+# what `nextboard update` and install.sh install.
+release:
+  prerelease: auto
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256
