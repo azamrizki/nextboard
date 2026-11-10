@@ -5,7 +5,7 @@ LISTEN  ?= 0.0.0.0:12312
 WEB_PORT ?= 15173
 RELOAD  ?= 1
 
-.PHONY: all web build test test-web test-e2e test-ssh dev dev-hub dev-web clean snapshot
+.PHONY: all web build test test-web test-e2e test-ssh demo dev dev-hub dev-web clean snapshot
 
 all: build
 
@@ -31,6 +31,17 @@ test-e2e:
 	touch internal/webui/dist/.gitkeep
 	CGO_ENABLED=0 go build -buildvcs=false -o bin/e2e/nextboard ./cmd/nextboard
 	cd web && NEXTBOARD_E2E_BIN=$(CURDIR)/bin/e2e/nextboard npx playwright test -c e2e/playwright.config.ts
+
+# The README's screenshots and video (docs/media), from a hub of made-up data: web/demo.
+# Needs ffmpeg with libx264. Each run starts its own hub, so the two do not share state.
+demo:
+	cd web && npm run build
+	touch internal/webui/dist/.gitkeep
+	CGO_ENABLED=0 go build -buildvcs=false -o bin/e2e/nextboard ./cmd/nextboard
+	rm -rf bin/demo-out
+	cd web && NEXTBOARD_E2E_BIN=$(CURDIR)/bin/e2e/nextboard npx playwright test -c demo/playwright.config.ts tour
+	cd web && NEXTBOARD_E2E_BIN=$(CURDIR)/bin/e2e/nextboard npx playwright test -c demo/playwright.config.ts shots
+	scripts/demo-media.sh bin/demo-out docs/media
 
 # Includes the agentless SSH test against a throwaway local sshd.
 test-ssh:
