@@ -174,6 +174,9 @@ func startHidden(h machine.Host, sp CheckSpec, cs cliSpec, dir string) (*hidden,
 				break
 			}
 		}
+		// The screen applies what it is fed on a goroutine of its own: a CLI that quits at once
+		// would otherwise be seen as gone before its last words, the reason it quit, are on screen.
+		hp.scr.Sync()
 		code, _ := p.Wait()
 		hp.mu.Lock()
 		hp.code = code
