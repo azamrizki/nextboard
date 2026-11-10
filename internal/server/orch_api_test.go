@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/azamrizki/nextboard/internal/orch"
 )
 
 // fakeOrchAgent behaves like Claude Code for the delivery engine: it fires
@@ -415,7 +417,7 @@ func TestSpawnGroupsDeployAPI(t *testing.T) {
 	_, tok := anon.do("POST", "/api/auth/device", map[string]any{"deviceId": pc["deviceId"], "nonce": chal["nonce"], "sig": sig}, nil)
 	bearer := map[string]string{"Authorization": "Bearer " + tok["accessToken"].(string)}
 	layouts := h.list("/api/layouts")
-	if len(layouts) != 22 || layouts[0].(map[string]any)["id"] != "builtin:duo" {
+	if len(layouts) != len(orch.BuiltinLayouts()) || layouts[0].(map[string]any)["id"] != "builtin:duo" {
 		t.Fatalf("layouts %v", layouts)
 	}
 	st, dep := anon.do("POST", "/api/workspaces/"+wid+"/deploy", map[string]any{"layoutId": "builtin:duo", "fill": map[string]any{"agent": "shell"},
