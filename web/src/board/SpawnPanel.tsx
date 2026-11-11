@@ -6,17 +6,17 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { AgentBadge, shortAgentName } from '../agents/AgentBadge';
 import { ModelPicker } from '../agents/ModelPicker';
-import { defaultLoginLabel } from '../agents/settings';
 import { Button } from '../components/Button';
 import { SelectField } from '../components/form';
 import type { Agent } from '../lib/types';
+import { AccountOptions } from '../providers/AccountOptions';
 import type { useNewTerminal } from './NewTerminal';
 
 interface Props {
   agents: Agent[];
   nt: ReturnType<typeof useNewTerminal>;
-  /** profileId "" is the default profile. */
-  onSpawn: (agent: Agent, profileId: string) => void;
+  /** account "" is the default profile; pf_… another profile; ap_… an API provider. */
+  onSpawn: (agent: Agent, account: string) => void;
 }
 
 export function SpawnPanel({ agents, nt, onSpawn }: Props) {
@@ -26,7 +26,8 @@ export function SpawnPanel({ agents, nt, onSpawn }: Props) {
   if (!sel) return <p className="ring-empty">No agent is installed on this machine yet.</p>;
   // nt lists the profiles of the agent it has armed, which is the selected tile
   const profiles = sel.id === nt.agentId ? nt.profileOptions : [];
-  const chosen = profiles.some((p) => p.id === profileId) ? profileId : '';
+  const providers = sel.id === nt.agentId ? nt.providerOptions : [];
+  const chosen = profiles.some((p) => p.id === profileId) || providers.some((p) => p.id === profileId) ? profileId : '';
   const submit = (e: FormEvent) => {
     e.preventDefault();
     onSpawn(sel, chosen);
@@ -52,14 +53,9 @@ export function SpawnPanel({ agents, nt, onSpawn }: Props) {
           </button>
         ))}
       </div>
-      {profiles.length > 0 && (
+      {profiles.length + providers.length > 0 && (
         <SelectField label="Login profile" value={chosen} onChange={(e) => setProfileId(e.target.value)} className="control-sm">
-          <option value="">{defaultLoginLabel(profiles, nt.defaultProfile)}</option>
-          {profiles.filter((p) => p.id !== nt.defaultProfile).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
+          <AccountOptions profiles={profiles} defaultProfile={nt.defaultProfile} providers={providers} />
         </SelectField>
       )}
       <ModelPicker agent={sel} value={nt.modelChoice} onChange={nt.setModelChoice} profileId={chosen} />

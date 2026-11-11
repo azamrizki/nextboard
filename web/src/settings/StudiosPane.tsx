@@ -10,6 +10,7 @@ import { SettingRow, SwitchRow } from '../components/Switch';
 import { toast } from '../components/Toast';
 import { Button } from '../components/Button';
 import { ManagedBrowserCard } from './ManagedBrowserCard';
+import { compatible, useProviders } from '../providers/providers';
 
 async function save(patch: Record<string, unknown>, what: string) {
   try {
@@ -61,6 +62,7 @@ export function StudiosPane() {
           Hidden runs (all devices)
         </h3>
         <p className="setting-hint">Documents, diagrams and memory scans run your own CLI headless and read-only in the project folder, with your login and plan.</p>
+        <RunnerProvider agent={s.runner?.defaultAgent ?? 'claude'} value={s.runner?.provider ?? ''} />
         <SettingRow title="Default CLI">
           <SegmentedControl<string>
             value={s.runner?.defaultAgent ?? 'claude'}
@@ -81,5 +83,29 @@ export function StudiosPane() {
         />
       </section>
     </div>
+  );
+}
+
+/** Hidden runs through an API provider: the lead, memory, summaries, commit messages, documents. */
+function RunnerProvider({ agent, value }: { agent: string; value: string }) {
+  const providers = useProviders();
+  // the lead and the thread summaries always run Claude Code; the rest the default CLI
+  const fits = providers.filter((p) => compatible({ id: agent, base: '' }, p) || compatible({ id: 'claude', base: '' }, p));
+  if (!providers.length && !value) return null;
+  return (
+    <SettingRow
+      title="Run through"
+      hint="An API provider instead of the CLI’s login, for every hidden run its CLI can make: the lead agent and thread summaries (Claude Code, so an Anthropic-compatible provider), and the rest with the default CLI above. Its budget counts them."
+    >
+      <select className="control control-sm" aria-label="Run hidden runs through" value={value} onChange={(e) => void save({ runner: { provider: e.target.value || null } }, 'hidden runs')}>
+        <option value="">The CLI’s login</option>
+        {fits.map((p) => (
+          <option key={p.id} value={p.id}>
+            API · {p.name}
+          </option>
+        ))}
+        {value && !fits.some((p) => p.id === value) && <option value={value}>A removed provider</option>}
+      </select>
+    </SettingRow>
   );
 }

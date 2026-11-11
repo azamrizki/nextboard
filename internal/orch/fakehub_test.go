@@ -313,7 +313,7 @@ func (h *fakeHub) deliveriesTo(sid string) []delivery.Delivery {
 
 func (h *fakeHub) Pause(_ context.Context, id string) error  { return h.call("pause:" + id) }
 func (h *fakeHub) Resume(_ context.Context, id string) error { return h.call("resume:" + id) }
-func (h *fakeHub) SwitchAgent(id, agentID, profileID, sessionID string, model, effort *string) error {
+func (h *fakeHub) SwitchAgent(id, agentID, profileID, providerID, sessionID string, model, effort *string) error {
 	if err := h.call("switch:" + id + ":" + agentID + ":" + sessionID); err != nil {
 		return err
 	}

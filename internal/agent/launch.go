@@ -50,6 +50,8 @@ type Options struct {
 	CoAuthor       bool   // settings.agents.coAuthor: the CLI may sign its commits
 	// Context is what the hub gives this launch (nil = nothing).
 	Context *LaunchContext
+	// Provider runs the CLI against an API provider instead of its login (provider.go).
+	Provider *ProviderLaunch
 }
 
 // LaunchContext is what the hub gives a launch, the same for every CLI that
@@ -436,7 +438,7 @@ exit 0`
 func shellWords(args []string) string {
 	var out []string
 	for _, a := range args {
-		if a == "$NB_HOOKS" || a == "$NB_MCP" || a == "$NB_CODEX_CFG" || codexMCPVar.MatchString(a) {
+		if a == "$NB_HOOKS" || a == "$NB_MCP" || a == "$NB_CODEX_CFG" || a == "$NB_CODEX_PROVIDER" || codexMCPVar.MatchString(a) {
 			out = append(out, `"`+a+`"`)
 			continue
 		}
@@ -577,7 +579,10 @@ func Build(a Agent, o Options) (Plan, error) {
 		wrapperArgs = append(wrapperArgs, "--settings", "$NB_HOOKS")
 	}
 	model, effort := o.Model, o.Effort
-	if !a.HasModels() {
+	if o.Provider != nil {
+		model = ProviderModel(a, o.Provider, model)
+		wrapperArgs = append(wrapperArgs, providerArgs(a, o.Provider)...)
+	} else if !a.HasModels() {
 		model = ""
 	}
 	if !a.HasEfforts() {
@@ -607,8 +612,12 @@ func Build(a Agent, o Options) (Plan, error) {
 	if o.HookURL != "" {
 		p.Env = append(p.Env, "NB_HOOK_URL="+o.HookURL)
 	}
-	if a.ProfileEnv != "" && o.ProfileDir != "" {
-		p.Env = append(p.Env, a.ProfileEnv+"="+o.ProfileDir)
+	profileDir := o.ProfileDir
+	if o.Provider != nil {
+		profileDir = o.Provider.ConfigDir
+	}
+	if a.ProfileEnv != "" && profileDir != "" {
+		p.Env = append(p.Env, a.ProfileEnv+"="+profileDir)
 	}
 	p.Env = append(p.Env, a.Env...)
 	n := len(p.Shell)
@@ -619,9 +628,15 @@ func Build(a Agent, o Options) (Plan, error) {
 		return Plan{}, fmt.Errorf("the launch command line is too long (%d bytes)", n)
 	}
 	// Only This PC gets these: the process env, never a command line.
+	if o.Provider != nil && a.CapBase() == "opencode" {
+		contextEnv = withOpenCodeProvider(contextEnv, o.Provider, model)
+	}
 	p.Env = append(p.Env, contextEnv...)
 	if c := o.Context; c != nil && a.TakesContext() {
 		p.Env = append(p.Env, c.MCPEnv...)
+	}
+	if o.Provider != nil {
+		p.Env = append(p.Env, providerEnv(a, o.Provider, model)...)
 	}
 	return p, nil
 }

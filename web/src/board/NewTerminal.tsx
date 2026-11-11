@@ -9,7 +9,7 @@ import { errorMessage } from '../api';
 import { byPriority, hasYolo, setArmed, supportsProfiles, useArmed, useMachineAgents } from '../agents/catalog';
 import { ModelPicker } from '../agents/ModelPicker';
 import { defaultChoice } from '../agents/models';
-import { defaultLoginLabel, useEffectiveSettings } from '../agents/settings';
+import { useEffectiveSettings } from '../agents/settings';
 import { onMachine, YoloConfirm } from '../agents/YoloConfirm';
 import { Button } from '../components/Button';
 import { FolderBrowser } from '../components/FolderBrowser';
@@ -21,6 +21,8 @@ import { toast } from '../components/Toast';
 import type { Agent, Machine, Project, ModelChoice } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useMachines, useProfiles } from '../store';
+import { AccountOptions, isProviderId } from '../providers/AccountOptions';
+import { compatible, useProviders } from '../providers/providers';
 import { machineReady, machineStatus } from './sessionStatus';
 
 /** What the dock / Spawn tool would start. */
@@ -34,6 +36,8 @@ export interface TerminalChoice {
   yolo?: boolean;
   /** undefined = default profile from settings. */
   profileId?: string;
+  /** An API provider instead of a login (docs/API-agents.md §10.2). */
+  providerId?: string;
   /** undefined = the default in settings. */
   model?: string;
   effort?: string;
@@ -64,6 +68,7 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
   const machines = useMachines();
   const settings = useEffectiveSettings();
   const profiles = useProfiles();
+  const providers = useProviders();
   const [machineId, setMachineId] = useState(project.machineId || 'local');
   const armed = useArmed();
   const ma = useMachineAgents(machineId);
@@ -93,6 +98,9 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
   const yoloable = hasYolo(agent);
   const yolo = yoloable ? (yoloChoice ?? settings.agents.yoloDefault) : false;
   const profileOptions = agent && supportsProfiles(agent) ? profiles.filter((p) => p.machineId === machineId && p.agent === agent.id) : [];
+  // agents run on This PC, whatever machine they work on, so any provider that can run this one
+  const providerOptions = agent ? providers.filter((p) => compatible(agent, p)) : [];
+  const account = profileOptions.some((p) => p.id === profileId) || providerOptions.some((p) => p.id === profileId) ? profileId : '';
   const defaultProfile = settings.agents.profiles?.[machineId]?.[agentId] ?? '';
   const modelDefault = defaultChoice(settings, undefined, agentId);
   const modelChoice = modelChoices[agentId] ?? modelDefault;
@@ -115,7 +123,8 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     name: name.trim(),
     cwd: cwd.trim() || (machineId === project.machineId ? project.path : ''),
     yolo: yoloable && yoloChoice !== undefined ? yoloChoice : undefined,
-    profileId: profileOptions.some((p) => p.id === profileId) ? profileId : undefined,
+    profileId: account && !isProviderId(account) ? account : undefined,
+    providerId: isProviderId(account) ? account : undefined,
     model: modelChoices[agentId]?.model,
     effort: modelChoices[agentId]?.effort,
   });
@@ -157,9 +166,18 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     yolo,
     setYolo: (v: boolean) => setYoloChoice(v),
     profileOptions,
-    profileId: profileOptions.some((p) => p.id === profileId) ? profileId : '',
+    providerOptions,
+    /** The account chosen: "" (the default login), a profile (pf_…) or an API provider (ap_…). */
+    profileId: account,
+    providerId: isProviderId(account) ? account : '',
+    /** Whether there is any choice of account to show. */
+    hasAccounts: profileOptions.length > 0 || providerOptions.length > 0,
     defaultProfile,
-    setProfileId,
+    /** Another account: a model of the old one would not exist on it. */
+    setProfileId: (v: string) => {
+      if (isProviderId(v) !== isProviderId(account) || (isProviderId(v) && v !== account)) setModelChoices((m) => ({ ...m, [agentId]: {} }));
+      setProfileId(v);
+    },
     modelChoice,
     setModelChoice: (c: ModelChoice) => setModelChoices((m) => ({ ...m, [agentId]: c })),
     name,
@@ -316,18 +334,13 @@ function NewTerminalDock({ nt, onBrowse }: { nt: NT; onBrowse: () => void }) {
         </select>
       </div>
 
-      {nt.profileOptions.length > 0 && (
-        <div className="input-group has-lead dock-profile" title="Login profile">
+      {nt.hasAccounts && (
+        <div className="input-group has-lead dock-profile" title="Login profile or API provider">
           <span className="ig-lead">
             <Icon name="user" />
           </span>
           <select className="control control-sm" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)} aria-label="Login profile">
-            <option value="">{defaultLoginLabel(nt.profileOptions, nt.defaultProfile)}</option>
-            {nt.profileOptions.filter((p) => p.id !== nt.defaultProfile).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
+            <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
           </select>
         </div>
       )}
@@ -423,14 +436,9 @@ function NewTerminalSheet({ nt, onClose, onBrowse }: { nt: NT; onClose: () => vo
             <AgentOptions nt={nt} />
           </SelectField>
           <ModelField nt={nt} />
-          {nt.profileOptions.length > 0 && (
+          {nt.hasAccounts && (
             <SelectField label="Login profile" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)}>
-              <option value="">{defaultLoginLabel(nt.profileOptions, nt.defaultProfile)}</option>
-              {nt.profileOptions.filter((p) => p.id !== nt.defaultProfile).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
             </SelectField>
           )}
           <Field label="Working directory" optional hint="Leave empty to start in the project folder.">
@@ -541,14 +549,9 @@ function NewTerminalPanel({ nt, onBrowse, onDone }: { nt: NT; onBrowse: () => vo
         <AgentOptions nt={nt} />
       </SelectField>
       <ModelField nt={nt} />
-      {nt.profileOptions.length > 0 && (
+      {nt.hasAccounts && (
         <SelectField label="Login profile" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)} className="control-sm">
-          <option value="">{defaultLoginLabel(nt.profileOptions, nt.defaultProfile)}</option>
-          {nt.profileOptions.filter((p) => p.id !== nt.defaultProfile).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
+          <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
         </SelectField>
       )}
       <Field label="Working directory" optional>

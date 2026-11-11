@@ -7,7 +7,7 @@
 import { orchError } from '../actions';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { byPriority, useMachineAgents } from '../../agents/catalog';
-import { defaultLoginLabel, defaultProfileOf, useEffectiveSettings } from '../../agents/settings';
+import { defaultProfileOf, useEffectiveSettings } from '../../agents/settings';
 import type { BoardController } from '../../board/controller';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -15,6 +15,8 @@ import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import type { Agent, Project } from '../../lib/types';
 import { useMachines, useProfiles } from '../../store';
+import { AccountOptions, splitAccount } from '../../providers/AccountOptions';
+import { compatible, useProviders } from '../../providers/providers';
 import { orchApi } from '../api';
 import { is404, useOrch } from '../store';
 import { ROLE_LABEL, type LaneOverride, type Layout, type Role } from '../types';
@@ -228,6 +230,7 @@ function LaneInspector({
 }) {
   const machines = useMachines();
   const profiles = useProfiles();
+  const providers = useProviders();
   const settings = useEffectiveSettings();
   const ma = useMachineAgents(project.machineId);
   const agents = useMemo(() => ma.agents.filter((a) => a.available !== false).sort(byPriority), [ma.agents]);
@@ -282,7 +285,8 @@ function LaneInspector({
     const ra = role ? settings.agents.roleAgents?.[role] : '';
     return ra || ma.defaultAgent || 'shell';
   };
-  const setLane = (key: string, patch: LaneOverride) => setOver((o) => ({ ...o, [key]: { ...o[key], ...patch } }));
+  // another agent may not run on the provider picked for the old one
+  const setLane = (key: string, patch: LaneOverride) => setOver((o) => ({ ...o, [key]: { ...o[key], ...(patch.agent !== undefined ? { providerId: undefined } : {}), ...patch } }));
   /** Click cycles through the installed agents (right-click / select picks any). */
   const cycle = (key: string, current: string) => {
     const list = agents.filter((a) => a.kind === 'agent');
@@ -300,6 +304,7 @@ function LaneInspector({
         if (v.agent) clean.agent = v.agent;
         if (v.machineId) clean.machineId = v.machineId;
         if (v.profileId) clean.profileId = v.profileId;
+        if (v.providerId) clean.providerId = v.providerId;
         if (Object.keys(clean).length) overrides[k] = clean;
       }
       // no "at": the hub lays the team out right of the board's content
@@ -428,6 +433,8 @@ function LaneInspector({
           const eff = o.agent || defaultFor(l.role, l.agent);
           const mid = o.machineId || project.machineId;
           const profs = profiles.filter((p) => p.machineId === mid && p.agent === eff);
+          const effAgent = ma.agents.find((a) => a.id === eff);
+          const provs = providers.filter((p) => compatible(effAgent, p));
           const defaultId = defaultProfileOf(settings, mid, eff);
           return (
             <li key={l.key} className="lane-row">
@@ -451,21 +458,21 @@ function LaneInspector({
                 <option value="">Default ({nameOf(defaultFor(l.role, l.agent))})</option>
                 {agentOptions(ma.agents.filter((a) => a.available !== false))}
               </select>
-              <select className="control control-sm lane-select" aria-label={`Machine for lane ${l.key}`} value={mid} onChange={(e) => setLane(l.key, { machineId: e.target.value === project.machineId ? undefined : e.target.value, profileId: undefined })}>
+              <select className="control control-sm lane-select" aria-label={`Machine for lane ${l.key}`} value={mid} onChange={(e) => setLane(l.key, { machineId: e.target.value === project.machineId ? undefined : e.target.value, profileId: undefined, providerId: undefined })}>
                 {machines.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
                 ))}
               </select>
-              {profs.length > 0 && (
-                <select className="control control-sm lane-select" aria-label={`Login profile for lane ${l.key}`} value={o.profileId ?? ''} onChange={(e) => setLane(l.key, { profileId: e.target.value || undefined })}>
-                  <option value="">{defaultLoginLabel(profs, defaultId)}</option>
-                  {profs.filter((p) => p.id !== defaultId).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
+              {profs.length + provs.length > 0 && (
+                <select
+                  className="control control-sm lane-select"
+                  aria-label={`Login profile for lane ${l.key}`}
+                  value={o.providerId ?? o.profileId ?? ''}
+                  onChange={(e) => setLane(l.key, { profileId: undefined, providerId: undefined, ...splitAccount(e.target.value) })}
+                >
+                  <AccountOptions profiles={profs} defaultProfile={defaultId} providers={provs} />
                 </select>
               )}
             </li>

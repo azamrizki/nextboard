@@ -11,7 +11,7 @@ import { openVault } from './vault';
 //
 // SWEEP_SHOTS=<folder> also saves a screenshot of each, to look at by eye.
 
-const PANES = ['agents', 'lead', 'profiles', 'mcp', 'notifications', 'shortcuts', 'usage', 'studios', 'voice', 'connections', 'appearance', 'app'];
+const PANES = ['agents', 'lead', 'profiles', 'providers', 'mcp', 'notifications', 'shortcuts', 'usage', 'studios', 'voice', 'connections', 'appearance', 'app'];
 
 async function shot(page: Page, project: string, name: string) {
   const dir = process.env.SWEEP_SHOTS;

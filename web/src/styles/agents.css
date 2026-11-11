@@ -1201,3 +1201,118 @@ textarea.control.textarea-sm {
   overflow-wrap: anywhere;
   user-select: all;
 }
+
+/* API providers (settings/ProvidersPane.tsx, providers/ProviderBadge.tsx) */
+.provider-list {
+  display: flex;
+  flex-direction: column;
+}
+.provider-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-top: var(--hairline) solid var(--glass-border);
+}
+.provider-main {
+  flex: 1 1 16rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.provider-title {
+  min-width: 0;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.provider-budget {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+}
+.provider-budget-bar {
+  flex: 0 0 8rem;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--glass-border);
+  overflow: hidden;
+}
+.provider-budget-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--text-2);
+}
+.provider-budget-bar.is-near > span {
+  background: var(--tint-warning-text);
+}
+.provider-budget-bar.is-over > span {
+  background: var(--tint-danger-text);
+}
+.provider-spend {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+.spend-table {
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+}
+.spend-table th,
+.spend-table td {
+  padding: 2px var(--s-3) 2px 0;
+  text-align: left;
+  white-space: nowrap;
+}
+.spend-table th {
+  color: var(--text-3);
+  font-weight: var(--fw-medium, 500);
+}
+.provider-test {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.provider-test svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+.provider-prices {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.price-grid {
+  display: grid;
+  grid-template-columns: minmax(8rem, 2fr) repeat(4, minmax(4rem, 1fr)) auto;
+  gap: var(--s-1) var(--s-2);
+  align-items: center;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  overflow-x: auto;
+}
+.price-row {
+  display: contents;
+}
+@media (max-width: 600px) {
+  .price-grid {
+    grid-template-columns: minmax(7rem, 1fr) repeat(2, minmax(3.5rem, 1fr)) auto;
+  }
+  .price-grid > [role='columnheader']:nth-child(4),
+  .price-grid > [role='columnheader']:nth-child(5),
+  .price-row > input:nth-child(4),
+  .price-row > input:nth-child(5) {
+    display: none;
+  }
+}
+.provider-badge svg {
+  width: 12px;
+  height: 12px;
+}

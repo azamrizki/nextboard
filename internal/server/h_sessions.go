@@ -23,6 +23,12 @@ func (s *Server) sessionErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusNotFound, "profile_not_found", err.Error())
 	case errors.Is(err, session.ErrProfileMismatch):
 		writeErrCode(w, http.StatusBadRequest, "profile_mismatch", err.Error())
+	case errors.Is(err, session.ErrProviderNotFound):
+		writeErrCode(w, http.StatusNotFound, "provider_not_found", err.Error())
+	case errors.Is(err, session.ErrProviderMismatch):
+		writeErrCode(w, http.StatusBadRequest, "provider_mismatch", err.Error())
+	case errors.Is(err, session.ErrProviderBudget):
+		writeErrCode(w, http.StatusConflict, "provider_budget", err.Error())
 	case errors.Is(err, session.ErrAgentDisabled):
 		writeErrCode(w, http.StatusConflict, "agent_disabled", err.Error())
 	case errors.Is(err, session.ErrAgentThisPC):

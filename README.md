@@ -76,7 +76,7 @@ Terminals, notes, checklists, kanban, calendar, shapes, pen, images, files and w
 <td width="50%" valign="top">
 
 **🤖 Agents**<br>
-Live `WORKING` / `NEEDS YOU` / `READY`, exact conversation resume, and model and effort per console. Claude Code and Codex are the most tested; Gemini CLI, OpenCode and 16 more CLIs from the catalog (Aider, Amp, GitHub Copilot CLI, Goose, Qwen Code, …) work with less testing, and any other CLI can be added.
+Live `WORKING` / `NEEDS YOU` / `READY`, exact conversation resume, and model and effort per console. Claude Code and Codex are the most tested; Gemini CLI, OpenCode and 16 more CLIs from the catalog (Aider, Amp, GitHub Copilot CLI, Goose, Qwen Code, …) work with less testing, and any other CLI can be added. Claude Code, Codex and OpenCode can also run on an **API provider** instead of a subscription: any Anthropic- or OpenAI-compatible endpoint (GLM, Kimi, DeepSeek, OpenRouter, Ollama, …), with its cost per console and a monthly budget.
 
 </td>
 </tr>
@@ -218,6 +218,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 - `make dev` binds to `0.0.0.0` by default. On an untrusted network, use `make dev LISTEN=127.0.0.1:12312`.
 - Agents run as your user and can read everything your user can, including NextBoard's data folder. Critical notes are instructions to agents, not a technical lock. Blocked commands make the CLI itself ask you first, but they are not a sandbox: an agent with a shell can still write a script that does the same.
 - The credentials vault encrypts in the browser and the hub stores only ciphertext. If you forget the master password, the contents are gone. Letting agents use a credential guards against accidents, not against an agent set on stealing it. See [docs/API-vault.md](docs/API-vault.md) for what it does not protect against.
+- API provider keys are sealed with the hub's master key and given only to the processes that use them, never to a browser. An agent running on a provider can still read its own key from its environment, as with any CLI that uses an API key.
 - Only the status page may face the internet, on a listener of its own (`--status-listen`). It shows the names you chose for your monitors and their uptime, and never a host, an address or an error message.
 
 Please report security problems through a [private security advisory](https://github.com/azamrizki/nextboard/security/advisories/new), not a public issue.

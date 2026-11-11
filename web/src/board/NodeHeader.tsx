@@ -23,6 +23,8 @@ import { toast } from '../components/Toast';
 import type { SocketState } from '../lib/socket';
 import type { Agent, Conversation, LaunchMode, Machine, Session } from '../lib/types';
 import { store, useProfile } from '../store';
+import { splitAccount } from '../providers/AccountOptions';
+import { ProviderBadge } from '../providers/ProviderBadge';
 import { rectOf } from './controller';
 import { DisplayButton } from './DisplayButton';
 import { FocusButton } from './FocusButton';
@@ -114,6 +116,7 @@ export function useConsoleActions(nodeId: string, session: Session, machine: Mac
       name: '',
       rect,
       profileId: session.profileId || undefined,
+      providerId: session.providerId || undefined,
       launch: { mode: 'resume', agentSessionId: c.agentSessionId },
     });
     if (!s) throw new Error('The new console could not be started.');
@@ -213,9 +216,12 @@ export function useConsoleActions(nodeId: string, session: Session, machine: Mac
               const ok = await restartConsole(session, { ...resumeBody(session, agent), model: c.model ?? '', effort: c.effort ?? '' }, 'Model');
               if (!ok) throw new Error('The console did not restart.');
             }}
-            onSwitch={async (agentId, profileId, { brief, note, fresh, ...opts }) => {
+            onSwitch={async (agentId, account, { brief, note, fresh, ...opts }) => {
               try {
-                orchStore.upsertHandoff(await orchApi.handoff(session.id, { model: opts.model, effort: opts.effort, agent: agentId, profileId, inPlace: true, noBrief: !brief, note: note || undefined, fresh }));
+                const { profileId, providerId } = splitAccount(account);
+                orchStore.upsertHandoff(
+                  await orchApi.handoff(session.id, { model: opts.model, effort: opts.effort, agent: agentId, profileId: profileId ?? '', providerId, inPlace: true, noBrief: !brief, note: note || undefined, fresh }),
+                );
               } catch (err) {
                 throw new Error(orchError(err));
               }
@@ -518,6 +524,7 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
           {profile ? initials(profile.name) : '…'}
         </span>
       )}
+      {session.providerId && <ProviderBadge sessionId={session.id} providerId={session.providerId} />}
 
       {linked && (
         <span className="node-linked" title="Input linked: what you type here also goes to the rest of the group">

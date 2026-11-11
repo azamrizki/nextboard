@@ -33,6 +33,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/preview"
 	"github.com/azamrizki/nextboard/internal/profiles"
 	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/providers"
 	"github.com/azamrizki/nextboard/internal/review"
 	"github.com/azamrizki/nextboard/internal/secret"
 	"github.com/azamrizki/nextboard/internal/session"
@@ -82,6 +83,8 @@ type Server struct {
 	ide                 *idelink.Hub
 	profiles            *profiles.Store
 	mcp                 *mcpreg.Store
+	providers           *providers.Store
+	spend               spendCache
 	jobs                *jobs.Manager
 	deliver             *delivery.Engine
 	orch                *orch.Service
@@ -162,6 +165,10 @@ func New(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	provs, err := providers.Open(st, box)
+	if err != nil {
+		return nil, err
+	}
 	connLog, err := connlog.Open(st.Path("logs"))
 	if err != nil {
 		log.Printf("connection log not available: %v", err)
@@ -178,7 +185,7 @@ func New(opts Options) (*Server, error) {
 	s := &Server{
 		st: st, cfg: cfg, auth: as, machines: reg, sessions: mgr, connLog: connLog,
 		projects: projects, boards: board.NewManager(st),
-		mcp: mcpServers, agents: mgr.Agents, settings: sets, extensions: studio.NewExtensions(st.Path("extensions")), profiles: profs, jobs: jobs.NewManager(st, reg.Host), attn: newAttentionRing(),
+		mcp: mcpServers, providers: provs, agents: mgr.Agents, settings: sets, extensions: studio.NewExtensions(st.Path("extensions")), profiles: profs, jobs: jobs.NewManager(st, reg.Host), attn: newAttentionRing(),
 		events: NewBroker(), conns: newConnRegistry(), dev: opts.Dev, devWeb: cmp.Or(opts.DevWebPort, 5173),
 		listen:       cfg.Listen,
 		statusListen: cfg.StatusListen,
@@ -268,6 +275,7 @@ func (s *Server) wire() {
 		s.sessions.CommitHooks = dir
 	}
 	s.sessions.RemoteWorkDir, s.sessions.LaunchContext = s.remoteWorkDir, s.launchContext
+	s.sessions.Providers = providerHub{s}
 	s.ide = idelink.New(idelink.Options{
 		WorkspaceOf: func(id string) string { w, _ := s.sessions.WorkspaceOf(id); return w },
 		NameOf:      s.ideConsoleName,

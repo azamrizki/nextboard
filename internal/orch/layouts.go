@@ -646,12 +646,14 @@ func LayoutFromBoard(b board.Board, nodeIDs []string, sessions map[string]sessio
 
 // LaneOverride is a per-lane deploy override.
 type LaneOverride struct {
-	Agent     string  `json:"agent,omitempty"`
-	MachineID string  `json:"machineId,omitempty"`
-	ProfileID string  `json:"profileId,omitempty"`
-	Yolo      *bool   `json:"yolo,omitempty"`
-	Model     *string `json:"model,omitempty"`
-	Effort    *string `json:"effort,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	MachineID string `json:"machineId,omitempty"`
+	ProfileID string `json:"profileId,omitempty"`
+	// ProviderID runs the lane on an API provider instead of a login.
+	ProviderID string  `json:"providerId,omitempty"`
+	Yolo       *bool   `json:"yolo,omitempty"`
+	Model      *string `json:"model,omitempty"`
+	Effort     *string `json:"effort,omitempty"`
 }
 
 // DeployRequest is POST /api/workspaces/{id}/deploy.

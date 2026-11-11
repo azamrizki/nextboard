@@ -268,6 +268,8 @@ export interface SpawnSlot {
   agent?: string;
   machineId?: string;
   profileId?: string;
+  /** An API provider instead of a login (docs/API-agents.md §10.2). */
+  providerId?: string;
   yolo?: boolean;
   /** undefined = the default of the role or agent in settings, '' = the CLI's own choice. */
   model?: string;
@@ -348,6 +350,8 @@ export interface HandoffRequest {
   agent: string;
   machineId?: string;
   profileId?: string;
+  /** An API provider instead of a login (docs/API-agents.md §10.2). */
+  providerId?: string;
   workspaceId?: string;
   note?: string;
   threadId?: string;
@@ -530,6 +534,8 @@ export interface LaneOverride {
   agent?: string;
   machineId?: string;
   profileId?: string;
+  /** An API provider instead of a login (docs/API-agents.md §10.2). */
+  providerId?: string;
   yolo?: boolean;
 }
 export interface DeployRequest {

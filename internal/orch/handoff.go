@@ -45,6 +45,7 @@ type HandoffRequest struct {
 	Agent       string `json:"agent"`
 	MachineID   string `json:"machineId,omitempty"`
 	ProfileID   string `json:"profileId,omitempty"`
+	ProviderID  string `json:"providerId,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
 	// Model and Effort: nil = the default in settings, "" = the CLI's own choice.
 	Model    *string `json:"model,omitempty"`
@@ -340,7 +341,7 @@ func (s *Service) switchInPlace(id string) {
 	}
 	s.setHandoff(id, func(x *Handoff) { x.State, x.phaseAt = "switching", s.Now() })
 	before := h.CreatedAt
-	if err := s.hub.SwitchAgent(h.SourceSessionID, h.Agent, h.req.ProfileID, h.backTo, h.req.Model, h.req.Effort); err != nil {
+	if err := s.hub.SwitchAgent(h.SourceSessionID, h.Agent, h.req.ProfileID, h.req.ProviderID, h.backTo, h.req.Model, h.req.Effort); err != nil {
 		s.handoffManual(id, "failed", err.Error())
 		return
 	}
@@ -486,7 +487,7 @@ func (s *Service) spawnTarget(id string) {
 	if !ok {
 		return
 	}
-	req := SpawnRequest{WorkspaceID: h.workspaceID, Slots: []SpawnSlot{{Agent: h.Agent, Model: h.req.Model, Effort: h.req.Effort, MachineID: h.req.MachineID, ProfileID: h.req.ProfileID, Cwd: h.remoteCwd}}}
+	req := SpawnRequest{WorkspaceID: h.workspaceID, Slots: []SpawnSlot{{Agent: h.Agent, Model: h.req.Model, Effort: h.req.Effort, MachineID: h.req.MachineID, ProfileID: h.req.ProfileID, ProviderID: h.req.ProviderID, Cwd: h.remoteCwd}}}
 	if b, err := s.hub.Board(h.workspaceID); err == nil {
 		for _, n := range b.Nodes {
 			if n.Kind == board.KindTerminal && n.SessionID() == h.SourceSessionID {

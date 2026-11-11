@@ -67,11 +67,13 @@ type RunnerRequest struct {
 	Agent     string // "claude" | "codex"
 	Command   string // binary to run (settings path override); "" = Agent
 	Env       []string
-	Prompt    string // sent on stdin
-	Schema    json.RawMessage
-	Model     string
-	Stream    bool // claude: stream-json (+ jobOutput) instead of json
-	Timeout   time.Duration
+	// Extra goes on the CLI's command line before the prompt (codex: an API provider's -c).
+	Extra   []string
+	Prompt  string // sent on stdin
+	Schema  json.RawMessage
+	Model   string
+	Stream  bool // claude: stream-json (+ jobOutput) instead of json
+	Timeout time.Duration
 	// IdleTimeout kills a run without any output for that long.
 	IdleTimeout time.Duration
 	OnFinish    func(Job)
@@ -180,6 +182,7 @@ func RunnerArgv(req RunnerRequest) []string {
 		if len(req.Schema) > 0 {
 			argv = append(argv, "--output-schema", SchemaFileArg)
 		}
+		argv = append(argv, req.Extra...)
 		return append(argv, "-")
 	}
 	argv := []string{cmd, "-p"}
@@ -204,7 +207,7 @@ func RunnerArgv(req RunnerRequest) []string {
 	if req.Model != "" {
 		argv = append(argv, "--model", req.Model)
 	}
-	return argv
+	return append(argv, req.Extra...)
 }
 
 // runnerScript wraps the argv: a missing CLI is reported with
@@ -309,6 +312,12 @@ func (m *Manager) runOnce(ctx context.Context, j *job, h machine.Host) *runOutco
 	p.close()
 	m.mu.Lock()
 	j.types = p.types
+	if u := p.usage; u.Input+u.Output+u.CacheRead+u.CacheWrite > 0 {
+		if u.Model == "" {
+			u.Model = req.Model
+		}
+		j.Usage = &u
+	}
 	m.mu.Unlock()
 	if errors.Is(err, machine.ErrNotConnected) || errors.Is(err, machine.ErrDisconnected) {
 		return &runOutcome{code: "machine_offline", msg: err.Error(), partial: p.partial.String(), sessionID: p.sessionID}
@@ -448,6 +457,7 @@ type streamParser struct {
 	partial    strings.Builder
 	types      []string // event types in order of first appearance
 	seen       map[string]bool
+	usage      RunUsage
 }
 
 func (p *streamParser) write(chunk []byte) {
@@ -527,9 +537,34 @@ func (p *streamParser) event(b []byte) {
 			Text string `json:"text"`
 		} `json:"item"`
 		Error json.RawMessage `json:"error"`
+		// both: what the run used
+		Usage *struct {
+			Input       int64 `json:"input_tokens"`
+			Output      int64 `json:"output_tokens"`
+			CacheRead   int64 `json:"cache_read_input_tokens"`
+			CacheWrite  int64 `json:"cache_creation_input_tokens"`
+			CachedInput int64 `json:"cached_input_tokens"` // codex
+		} `json:"usage"`
+		ModelUsage map[string]json.RawMessage `json:"modelUsage"` // claude, by model
 	}
 	if json.Unmarshal(b, &ev) != nil {
 		return
+	}
+	switch {
+	case ev.Type == "result" && ev.Usage != nil:
+		// claude: the whole run, so far as the result says
+		p.usage.Input, p.usage.Output = ev.Usage.Input, ev.Usage.Output
+		p.usage.CacheRead, p.usage.CacheWrite = ev.Usage.CacheRead, ev.Usage.CacheWrite
+		for m := range ev.ModelUsage {
+			if p.usage.Model == "" || m < p.usage.Model {
+				p.usage.Model = m
+			}
+		}
+	case ev.Type == "turn.completed" && ev.Usage != nil:
+		// codex: per turn; its input counts the cached part too
+		p.usage.Input += max(0, ev.Usage.Input-ev.Usage.CachedInput)
+		p.usage.CacheRead += ev.Usage.CachedInput
+		p.usage.Output += ev.Usage.Output
 	}
 	var msg struct {
 		Content []struct {

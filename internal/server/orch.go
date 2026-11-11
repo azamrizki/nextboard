@@ -186,12 +186,13 @@ func (h hubAdapter) Delivery(id string) (delivery.Delivery, bool) { return h.s.d
 func (h hubAdapter) CancelDelivery(id string) (delivery.Delivery, error) {
 	return h.s.deliver.Cancel(id)
 }
-func (h hubAdapter) SwitchAgent(id, agentID, profileID, sessionID string, model, effort *string) error {
+func (h hubAdapter) SwitchAgent(id, agentID, profileID, providerID, sessionID string, model, effort *string) error {
 	mode := agent.ModeFresh
 	if sessionID != "" {
 		mode = agent.ModeResume
 	}
-	_, err := h.s.sessions.Restart(id, session.RestartRequest{Model: model, Effort: effort, Agent: agentID, ProfileID: &profileID, Mode: mode, AgentSessionID: sessionID})
+	// the choice made in the dialog: a provider, or "" for a login
+	_, err := h.s.sessions.Restart(id, session.RestartRequest{Model: model, Effort: effort, Agent: agentID, ProfileID: &profileID, ProviderID: &providerID, Mode: mode, AgentSessionID: sessionID})
 	return err
 }
 func (h hubAdapter) Pause(ctx context.Context, id string) error {

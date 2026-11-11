@@ -435,6 +435,9 @@ func (s *Server) submitRunner(req jobs.RunnerRequest) (jobs.Job, error) {
 	if len(req.Env) == 0 && (req.MachineID == "" || req.MachineID == machine.LocalID) {
 		req.Env = s.defaultProfileEnv(req.Agent)
 	}
+	if err := s.withRunnerProvider(&req); err != nil {
+		return jobs.Job{}, err
+	}
 	return s.jobs.SubmitRunner(req)
 }
 
@@ -456,6 +459,9 @@ func (s *Server) submitRemoteRunner(req jobs.RunnerRequest) (jobs.Job, error) {
 	}
 	req.Agent, req.Command, req.MachineID = "claude", s.settings.Get().Agents.Paths[machine.LocalID]["claude"], machine.LocalID
 	req.Env = s.defaultProfileEnv("claude")
+	if err := s.withRunnerProvider(&req); err != nil {
+		return jobs.Job{}, err
+	}
 	if !jobs.ReadsProject(req.Purpose) {
 		return s.jobs.SubmitRunner(req)
 	}

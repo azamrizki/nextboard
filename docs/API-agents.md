@@ -488,6 +488,56 @@ Sesi dengan `profileId` mendapat env `<profileEnv>=<dir>`. "Connect new account"
 
 **Sign in dari Settings** (2026-11-11): dialog Add profile untuk This PC langsung lanjut ke langkah Sign in: `POST …/signin`, terminal console itu di dialog, status "Signed in" begitu CLI mencapai prompt (`agentState` `ready`/`working`). Menutup dialog menghapus console itu; login tetap tersimpan di folder profil. Baris profil This PC punya tombol Sign in untuk login lagi. Profil di server tidak punya langkah ini. Badge header menampilkan inisial nama profil.
 
+### 10.2 API providers (2026-11-11)
+
+Console Claude Code, Codex, atau OpenCode bisa jalan pada **endpoint Anthropic- atau OpenAI-compatible** (GLM, Kimi, DeepSeek, OpenRouter, Ollama lokal, …) dengan key-nya sendiri, sebagai ganti login langganan. Paket `internal/providers`, server `internal/server/providers.go`, peluncuran `internal/agent/provider.go`.
+
+**Kecocokan** (dicoba dengan CLI sungguhan pada server API palsu di loopback, folder home kosong, tanpa akun):
+
+| Endpoint | Claude Code 2.1 | Codex 0.165 | OpenCode 1.17 |
+|---|---|---|---|
+| Anthropic `/v1/messages` | ya, Bearer lewat `ANTHROPIC_AUTH_TOKEN` atau `x-api-key` | – | ya (`@ai-sdk/anthropic`) |
+| OpenAI Chat Completions | – | **tidak**: 0.165 menolak `wire_api="chat"` | ya (`@ai-sdk/openai-compatible`) |
+| OpenAI Responses | – | ya | ya |
+
+```jsonc
+// Provider (GET tanpa key; "hasKey" saja)
+{ "id": "ap_…", "name": "GLM", "kind": "anthropic"|"openai", "baseUrl": "https://api.z.ai/api/anthropic",
+  "api"?: "chat"|"responses",          // openai
+  "auth"?: "bearer"|"x-api-key",       // anthropic
+  "model": "glm-4.6", "fastModel"?: "glm-4.5-air", "models"?: ["…"],
+  "prices"?: { "glm-4.6": { "input": 0.6, "output": 2.2, "cacheRead"?: 0.11, "cacheWrite"?: 0 } },  // USD per 1 juta token
+  "budget"?: 20,                        // USD per bulan kalender; 0 = tanpa batas
+  "hasKey": true, "createdAt": "…", "updatedAt": "…",
+  "monthCost": 3.14, "inUse": 2 }       // hanya di daftar
+```
+
+| Method | Path | Request | Response / error |
+|---|---|---|---|
+| GET | `/api/providers` | — | `{"items":[Provider…]}` |
+| POST | `/api/providers` | `{name, kind, baseUrl, api?, auth?, model, fastModel?, models?, prices?, budget?, apiKey}` | `201 Provider`; `400 bad_provider` (alamat bukan http/https atau memuat kutip/spasi, model bukan nama model, nama kembar, tanpa key untuk layanan yang bukan di mesin ini) |
+| PATCH | `/api/providers/{id}` | field yang berubah; `apiKey:""` menyimpan key lama | `Provider` |
+| DELETE | `/api/providers/{id}[?purge=1]` | — | `{ok}`; `409 provider_in_use` selama ada console berjalan; mengosongkan `runner.provider` yang menunjuknya; `purge` menghapus folder config-nya |
+| POST | `/api/providers/test` | draf form, atau `{id}` (key tersimpan dipakai bila `apiKey` kosong) | `{ok, models?, checked: "models"\|"message", status?, error?}`: `GET …/models` dulu; tanpa daftar, satu pesan `max_tokens: 1`. Key tidak pernah ada di jawaban. Pada `{id}`, model yang ditemukan disimpan |
+| GET | `/api/providers/{id}/spend?month=YYYY-MM` | — | `{month, cost, budget?, tokens, byModel:[{model, input, output, cacheRead, cacheWrite, cost, priced}], unpriced?}` |
+| GET | `/api/sessions/{id}/cost` | — | sama, untuk seluruh percakapan console itu; `409 not_on_provider` |
+
+Event `{"type":"provider","provider":…}` dan `{"type":"providerRemoved","id"}`.
+
+**Key.** Disegel dengan kunci master hub (`internal/secret`, seperti kredensial SSH) di `providers.json`. Tidak pernah ke klien, dokumen settings, command line, atau log; hanya ke environment proses yang memakainya, sesudah cek panjang command line (jalur yang sama dengan nilai rahasia server MCP). Agent di console itu bisa membaca env-nya sendiri, sama seperti key API mana pun yang dipakai CLI. Ini bukan vault zero-knowledge: hub harus bisa membukanya.
+
+**Console.** `providerId` di `POST /api/sessions`, `restart`, slot spawn, lane Layouts, dan handoff (`ProviderID` di `Spec`, ikut di JSON sesi). Pilihannya ada di select "Login profile" yang sama (grup "API providers", nilai `ap_…`). Profil diabaikan; model kosong = model provider; model login yang tidak ada di provider dibuang klien.
+- Claude Code: `CLAUDE_CONFIG_DIR=<data>/providers/<id>/claude` (login langganan tidak dipakai dan tidak tertimpa; `.claude.json` diisi `hasCompletedOnboarding`, dan untuk `x-api-key` key-nya disetujui lewat 20 karakter terakhir), `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` (atau `ANTHROPIC_API_KEY`, yang lain dikosongkan), `ANTHROPIC_MODEL` dan `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`/`ANTHROPIC_SMALL_FAST_MODEL` (alias CLI menunjuk model provider), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, `DISABLE_TELEMETRY=1`. `baseUrl` disimpan tanpa `/v1`.
+- Codex: `CODEX_HOME=<data>/providers/<id>/codex`, `-c model_provider="nextboard"` dan `-c "$NB_CODEX_PROVIDER"` (`model_providers.nextboard={name, base_url, env_key="NB_PROVIDER_KEY", wire_api="responses"}`), key di `NB_PROVIDER_KEY`.
+- OpenCode: blok `provider.nextboard` (+ `model`, `small_model`) digabung ke `OPENCODE_CONFIG_CONTENT`, key lewat `{env:NB_PROVIDER_KEY}`; model `nextboard/<model>`.
+- Server di mesin ini tanpa key (Ollama) mendapat key pengganti `nextboard-local`, karena CLI-nya meminta satu.
+- Restart: provider tetap, kecuali diganti (`providerId`), dilepas (`""`), atau agent baru tidak cocok / provider dihapus (kembali ke login default). Anggaran habis menolak restart (`409 provider_budget`), tidak pernah diam-diam pindah ke langganan.
+- Badge "API" di header tile, dengan biaya percakapan itu (diperbarui tiap menit).
+
+**Run tersembunyi** (`settings.runner.provider`, Settings › Previews & studios › Run through): setiap job runner yang CLI-nya cocok berjalan lewat provider itu: lead/planner dan ringkasan thread (selalu Claude Code, jadi provider Anthropic-compatible), dokumen, diagram, memory, pesan commit (CLI bawaan). Claude: env provider; alias `haiku`/`sonnet`/`opus` dipertahankan, nama model Anthropic lain diganti model provider. Codex: `-c` provider di command line (tanpa rahasia) dan key di env. CLI yang tidak cocok tetap pada login. Anggaran habis menolak job.
+
+**Biaya dan anggaran.** Token dibaca utuh (`usage.FileTurns`, parser yang sama dengan indeks token) dari transcript Claude Code dan Codex di folder provider, plus `ledger.jsonl` berisi pemakaian run tersembunyi (yang tidak menyimpan transcript; `Job.usage` dari `result.usage`/`modelUsage` Claude dan `turn.completed` Codex). Biaya = token × harga model (USD per 1 juta; OpenCode menamai `nextboard/<model>`, harga dicari juga tanpa awalan). Model tanpa harga dihitung tokennya dan disebut di `unpriced`. Bulan = bulan kalender waktu hub. Begitu `cost ≥ budget`: console baru, restart, dan run tersembunyi pada provider itu ditolak; console yang berjalan diteruskan. Batasan: percakapan OpenCode tidak dihitung (catatannya di database OpenCode sendiri).
+
 ## 11. Settings store
 
 `GET /api/settings` → dokumen lengkap (default terisi). `PATCH /api/settings` → JSON Merge Patch (RFC 7386): objek di-merge, `null` = kembali ke default. Key top-level tak dikenal → `400 bad_setting`. Respons = dokumen lengkap, lalu event `settings`. Body ≤ 64 KB.

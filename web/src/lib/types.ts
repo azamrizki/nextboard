@@ -120,6 +120,8 @@ export interface PastRun {
   agent: string;
   agentSessionId?: string;
   profileId?: string;
+  /** An API provider instead of a login (docs/API-agents.md §10.2). */
+  providerId?: string;
   at: string;
 }
 
@@ -290,6 +292,8 @@ export interface CreateSession {
   /** Default settings.agents.yoloDefault; ignored for agents without yolo. */
   yolo?: boolean;
   profileId?: string;
+  /** An API provider instead of a login (docs/API-agents.md §10.2). */
+  providerId?: string;
   /** undefined = the default in settings, '' = the CLI's own choice. */
   model?: string;
   effort?: string;
@@ -597,6 +601,8 @@ export interface SessionAgentFields {
   agentExitCode?: number | null;
   yolo?: boolean;
   profileId?: string;
+  /** An API provider instead of a login (docs/API-agents.md §10.2). */
+  providerId?: string;
   resumeOffer?: boolean;
   lastTurn?: { startedAt: string; endedAt: string; durationMs: number } | null;
   reply?: { at: string; chars: number; paragraphs: number } | null;
@@ -694,7 +700,7 @@ export interface Settings {
   /** The lead agent (docs/API-orchestration.md §3.9). */
   lead?: { name: string; personality: string; talkFirst: boolean };
   usage?: { background: boolean; agents?: Record<string, boolean>; chime: { enabled: boolean; play: 'after100' | 'always'; sound: 'bell' | 'chime' | 'pop' | 'soft' } };
-  runner?: { defaultAgent: 'claude' | 'codex' | string };
+  runner?: { defaultAgent: 'claude' | 'codex' | string; /** hidden runs through this API provider; absent = the login */ provider?: string };
   git?: { commitWithRunner: boolean };
   [key: string]: unknown;
 }

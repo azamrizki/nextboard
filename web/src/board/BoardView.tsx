@@ -50,6 +50,8 @@ import type { BoardNode, Op, Project, Workspace } from '../lib/types';
 import { useLayout } from '../lib/layout';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { store, useMachine, useNeedsYou } from '../store';
+import { splitAccount } from '../providers/AccountOptions';
+import { providerModels, providersStore } from '../providers/providers';
 import { duplicate, makePayload, parsePayload, pastePayload, recall, remember, serialize, type ClipPayload } from './clipboard';
 import { BoardController, isRunning, rectOf, sessionOf } from './controller';
 import { createTile, type InsertKind } from './create';
@@ -542,6 +544,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
         rect,
         yolo: choice.yolo,
         profileId: choice.profileId,
+        providerId: choice.providerId,
         model: choice.model,
         effort: choice.effort,
       });
@@ -1322,6 +1325,13 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
 
   // ---- menus ----
   /** Right-click on the empty board, clockwise from the top. */
+  /** A model chosen for a login would not exist on an API provider: its own default then. */
+  const onProvider = (c: TerminalChoice): TerminalChoice => {
+    if (!c.providerId || !c.model) return c;
+    const p = providersStore.get().find((x) => x.id === c.providerId);
+    return p && providerModels(p).includes(c.model) ? c : { ...c, model: undefined, effort: c.effort };
+  };
+
   const ringItems = (at: { x: number; y: number }): RingItem[] => {
     const clip = recall();
     const agents = nt.agents.filter((a) => a.available !== false).sort(byPriority);
@@ -1344,11 +1354,11 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
           <SpawnPanel
             agents={agents}
             nt={nt}
-            onSpawn={(a, profileId) => {
+            onSpawn={(a, account) => {
               close();
               void spawnAt(
                 a.id === nt.agentId
-                  ? { ...nt.choice(), profileId: profileId || undefined }
+                  ? onProvider({ ...nt.choice(), profileId: undefined, providerId: undefined, ...splitAccount(account) })
                   : { ...nt.choice(), preset: a.id, yolo: undefined, profileId: undefined, model: undefined, effort: undefined },
                 at,
               );

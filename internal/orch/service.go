@@ -65,7 +65,7 @@ type Hub interface {
 	CancelDelivery(id string) (delivery.Delivery, error)
 	// SwitchAgent restarts a console with another agent or login, in the same
 	// place. A sessionID continues that conversation.
-	SwitchAgent(id, agentID, profileID, sessionID string, model, effort *string) error
+	SwitchAgent(id, agentID, profileID, providerID, sessionID string, model, effort *string) error
 	Pause(ctx context.Context, sessionID string) error
 	Resume(ctx context.Context, sessionID string) error
 	Restart(sessionID string) error

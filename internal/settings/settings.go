@@ -90,6 +90,9 @@ type Shortcuts struct {
 // Runner configures the hidden CLI runner (API-studio.md §12).
 type Runner struct {
 	DefaultAgent string `json:"defaultAgent"`
+	// Provider runs the hidden runs (lead, memory, summaries, commit messages…) through this API
+	// provider instead of the CLI's login (docs/API-agents.md §10.2); "" = the login.
+	Provider string `json:"provider,omitempty"`
 }
 
 // Delivery configures the delivery engine (docs/API-orchestration.md §2).
@@ -337,6 +340,7 @@ var (
 	idRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
 	machineRe  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	profileRe  = regexp.MustCompile(`^pf_[a-z0-9]{4,24}$`)
+	providerRe = regexp.MustCompile(`^ap_[a-z0-9]{4,24}$`)
 	modelRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,127}$`)
 	effortRe   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,23}$`)
 	shortcutRe = regexp.MustCompile(`^[a-z0-9!-/:-@\[-` + "`" + `{-~]$`)
@@ -438,6 +442,9 @@ func validate(s *Settings) error {
 	}
 	if s.Runner.DefaultAgent != "claude" && s.Runner.DefaultAgent != "codex" {
 		return badSetting(`runner.defaultAgent must be "claude" or "codex"`)
+	}
+	if s.Runner.Provider != "" && !providerRe.MatchString(s.Runner.Provider) {
+		return badSetting("runner.provider must be the id of an API provider")
 	}
 	if err := validateOrchestration(s); err != nil {
 		return err

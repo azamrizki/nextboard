@@ -5,7 +5,7 @@
 import { orchError } from '../actions';
 import { useMemo, useState, type FormEvent } from 'react';
 import { byPriority, useMachineAgents } from '../../agents/catalog';
-import { defaultLoginLabel, defaultProfileOf, useEffectiveSettings } from '../../agents/settings';
+import { defaultProfileOf, useEffectiveSettings } from '../../agents/settings';
 import { jumpToSession } from '../../agents/jump';
 import { ApiError } from '../../api';
 import { machineReady } from '../../board/sessionStatus';
@@ -15,6 +15,8 @@ import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import { useMachines, useProfiles, useSession } from '../../store';
+import { AccountOptions, splitAccount } from '../../providers/AccountOptions';
+import { compatible, useProviders } from '../../providers/providers';
 import { orchApi } from '../api';
 import { is404, orchStore, useOrch } from '../store';
 
@@ -30,6 +32,7 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
   const source = useSession(sessionId);
   const machines = useMachines();
   const profiles = useProfiles();
+  const providers = useProviders();
   const settings = useEffectiveSettings();
   const [machineId, setMachineId] = useState(source?.machineId ?? 'local');
   const ma = useMachineAgents(machineId);
@@ -44,6 +47,8 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
   const target = useSession(h?.targetSessionId ?? '');
   const chosen = agent || options.find((a) => a.id !== (source?.agent || source?.preset))?.id || options[0]?.id || '';
   const profs = profiles.filter((p) => p.machineId === machineId && p.agent === chosen);
+  const provs = providers.filter((p) => compatible(options.find((a) => a.id === chosen), p));
+  const account = profs.some((p) => p.id === profileId) || provs.some((p) => p.id === profileId) ? profileId : '';
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -54,7 +59,7 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
       const r = await orchApi.handoff(sessionId, {
         agent: chosen,
         machineId: machineId !== source?.machineId ? machineId : undefined,
-        profileId: profileId || undefined,
+        ...splitAccount(account),
         workspaceId,
         note: note.trim() || undefined,
         threadId: projectId,
@@ -124,14 +129,9 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
               </option>
             ))}
           </SelectField>
-          {profs.length > 0 && (
-            <SelectField label="Login profile" optional value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-              <option value="">{defaultLoginLabel(profs, defaultProfileOf(settings, machineId, chosen))}</option>
-              {profs.filter((p) => p.id !== defaultProfileOf(settings, machineId, chosen)).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+          {profs.length + provs.length > 0 && (
+            <SelectField label="Login profile" optional value={account} onChange={(e) => setProfileId(e.target.value)}>
+              <AccountOptions profiles={profs} defaultProfile={defaultProfileOf(settings, machineId, chosen)} providers={provs} />
             </SelectField>
           )}
           <Field label="Note for the next agent" optional hint="Added to the brief, for example what to focus on.">

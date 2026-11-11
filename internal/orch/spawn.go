@@ -39,7 +39,9 @@ type SpawnSlot struct {
 	Agent     string `json:"agent,omitempty"`
 	MachineID string `json:"machineId,omitempty"`
 	ProfileID string `json:"profileId,omitempty"`
-	Yolo      *bool  `json:"yolo,omitempty"`
+	// ProviderID runs it on an API provider instead of a login (docs/API-agents.md §10.2).
+	ProviderID string `json:"providerId,omitempty"`
+	Yolo       *bool  `json:"yolo,omitempty"`
 	// Model and Effort: nil = the default of the role or agent in settings, "" = the CLI's own choice.
 	Model  *string `json:"model,omitempty"`
 	Effort *string `json:"effort,omitempty"`
@@ -217,6 +219,10 @@ func (s *Service) Spawn(req SpawnRequest) (SpawnResult, error) {
 		if sl.ProfileID != "" {
 			p := sl.ProfileID
 			cr.ProfileID = &p
+		}
+		if sl.ProviderID != "" {
+			p := sl.ProviderID
+			cr.ProviderID = &p
 		}
 		in, err := s.hub.CreateSession(cr)
 		if err != nil {
@@ -428,6 +434,10 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 		if ov.ProfileID != "" {
 			p := ov.ProfileID
 			cr.ProfileID = &p
+		}
+		if ov.ProviderID != "" {
+			p := ov.ProviderID
+			cr.ProviderID = &p
 		}
 		in, err := s.hub.CreateSession(cr)
 		if err != nil {

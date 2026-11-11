@@ -135,7 +135,7 @@ func TestSwitchingAgentStaysOnTheNextBoardAccount(t *testing.T) {
 
 	// the way the switch dialog and a handoff ask: "" for the default
 	id = start()
-	if err := (hubAdapter{h.srv}).SwitchAgent(id, "codex", "", "", nil, nil); err != nil {
+	if err := (hubAdapter{h.srv}).SwitchAgent(id, "codex", "", "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := profileOf(id); got != home("codex") {
@@ -152,7 +152,7 @@ func TestSwitchingAgentStaysOnTheNextBoardAccount(t *testing.T) {
 
 	// back to a conversation: it keeps the login it was made under
 	id = start()
-	if err := (hubAdapter{h.srv}).SwitchAgent(id, "codex", "", "11111111-1111-4111-8111-111111111111", nil, nil); err != nil {
+	if err := (hubAdapter{h.srv}).SwitchAgent(id, "codex", "", "", "11111111-1111-4111-8111-111111111111", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := profileOf(id); got != "" {

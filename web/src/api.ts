@@ -192,6 +192,8 @@ export interface RestartBody {
   mode?: Exclude<LaunchMode, 'shell'> | 'shell';
   agent?: string;
   profileId?: string;
+  /** An API provider instead of a login (docs/API-agents.md §10.2). */
+  providerId?: string;
   yolo?: boolean;
   /** Move the console to this conversation (mode defaults to resume). */
   agentSessionId?: string;

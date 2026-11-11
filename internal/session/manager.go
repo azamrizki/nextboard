@@ -41,8 +41,12 @@ var (
 	ErrProfileNotFound = errors.New("profile not found")
 	ErrProfileMismatch = errors.New("the profile is not for this machine/agent")
 	ErrAgentDisabled   = errors.New("this agent is turned off in Settings › Agents")
-	ErrAgentThisPC     = errors.New("agents always run on This PC; a server runs only plain shells")
-	ErrBadMode         = errors.New("unknown launch mode")
+	// API providers (§10.2); the hub's ProviderHub wraps these with what went wrong.
+	ErrProviderNotFound = errors.New("API provider not found")
+	ErrProviderMismatch = errors.New("this agent cannot run on that API provider")
+	ErrProviderBudget   = errors.New("the API provider's budget for this month is spent")
+	ErrAgentThisPC      = errors.New("agents always run on This PC; a server runs only plain shells")
+	ErrBadMode          = errors.New("unknown launch mode")
 )
 
 // LaunchRequest selects how the agent starts (§3.1).
@@ -53,17 +57,19 @@ type LaunchRequest struct {
 
 // CreateRequest is the body of POST /api/sessions.
 type CreateRequest struct {
-	MachineID string         `json:"machineId"`
-	Preset    string         `json:"preset"`
-	Agent     string         `json:"agent"` // alias of preset
-	Name      string         `json:"name"`
-	Cwd       string         `json:"cwd"`
-	Cols      uint16         `json:"cols"`
-	Rows      uint16         `json:"rows"`
-	Handle    string         `json:"handle"`
-	Yolo      *bool          `json:"yolo"`
-	ProfileID *string        `json:"profileId"`
-	Launch    *LaunchRequest `json:"launch"`
+	MachineID string  `json:"machineId"`
+	Preset    string  `json:"preset"`
+	Agent     string  `json:"agent"` // alias of preset
+	Name      string  `json:"name"`
+	Cwd       string  `json:"cwd"`
+	Cols      uint16  `json:"cols"`
+	Rows      uint16  `json:"rows"`
+	Handle    string  `json:"handle"`
+	Yolo      *bool   `json:"yolo"`
+	ProfileID *string `json:"profileId"`
+	// ProviderID runs the console on an API provider instead of a login (§10.2).
+	ProviderID *string        `json:"providerId"`
+	Launch     *LaunchRequest `json:"launch"`
 	// Model and Effort: nil = the default in settings, "" = the CLI's own choice.
 	Model  *string `json:"model"`
 	Effort *string `json:"effort"`
@@ -83,7 +89,9 @@ type RestartRequest struct {
 	AgentSessionID string  `json:"agentSessionId"`
 	Agent          string  `json:"agent"`
 	ProfileID      *string `json:"profileId"`
-	Yolo           *bool   `json:"yolo"`
+	// ProviderID: nil keeps the console's, "" goes back to a login, an id runs on that provider.
+	ProviderID *string `json:"providerId"`
+	Yolo       *bool   `json:"yolo"`
 	// Model and Effort: nil keeps what the console has, "" = the CLI's own choice.
 	Model  *string `json:"model"`
 	Effort *string `json:"effort"`
@@ -100,6 +108,8 @@ type Manager struct {
 	Agents   *agent.Store
 	Settings func() settings.Settings
 	Profiles *profiles.Store
+	// Providers resolves providerId (nil = none can be used).
+	Providers ProviderHub
 	// HookURL returns NB_HOOK_URL for a machine ("" = tty only).
 	HookURL func(machineID string) string
 	// RemoteWorkDir is the local folder of an agent that works on a server.
@@ -493,6 +503,23 @@ func (m *Manager) nextHandleLocked() string {
 // ---- creation and changes ----
 
 // validateProfile checks that profile id belongs to the machine and agent.
+// ProviderHub is what consoles need of the hub's API providers (internal/providers).
+type ProviderHub interface {
+	// Check: the provider exists, can run this agent, and has budget left this month.
+	Check(id string, a agent.Agent) error
+	// Launch: what a launch needs, its key included. It also checks, as Check does.
+	Launch(id string, a agent.Agent) (*agent.ProviderLaunch, error)
+	// ConfigDir: the CLI's folder for the provider, where its conversations are ("" = none).
+	ConfigDir(id string, a agent.Agent) string
+}
+
+func (m *Manager) checkProvider(id string, a agent.Agent) error {
+	if m.Providers == nil {
+		return ErrProviderNotFound
+	}
+	return m.Providers.Check(id, a)
+}
+
 func (m *Manager) validateProfile(id, machineID string, a agent.Agent) error {
 	if id == "" {
 		return nil
@@ -528,8 +555,18 @@ func (m *Manager) defaultProfile(machineID string, a agent.Agent) string {
 	return id
 }
 
-// profileDir is the folder of the session's profile ("" = default login).
+// profileDir is the folder of the session's profile ("" = default login), or of its API provider.
 func (m *Manager) profileDir(sp Spec) string {
+	if sp.ProviderID != "" {
+		if m.Providers == nil {
+			return ""
+		}
+		a, ok := m.Agents.Get(sp.Agent)
+		if !ok {
+			return ""
+		}
+		return m.Providers.ConfigDir(sp.ProviderID, a)
+	}
 	if sp.ProfileID == "" || m.Profiles == nil {
 		return ""
 	}
@@ -549,6 +586,16 @@ func (m *Manager) plan(s *Session, a agent.Agent, sp Spec, mode string) (agent.P
 		SessionID: sp.ID, Token: token, ProfileDir: m.profileDir(sp), Model: sp.Model, Effort: sp.Effort, CoAuthor: st.Agents.CoAuthor}
 	if p := st.Agents.Paths[sp.MachineID][a.ID]; p != "" {
 		o.Command = p
+	}
+	if sp.ProviderID != "" {
+		if m.Providers == nil {
+			return agent.Plan{}, ErrProviderNotFound
+		}
+		pl, err := m.Providers.Launch(sp.ProviderID, a)
+		if err != nil {
+			return agent.Plan{}, err
+		}
+		o.Provider, o.ProfileDir = pl, ""
 	}
 	if st.Agents.HookChannel != "tty" && m.HookURL != nil {
 		o.HookURL = m.HookURL(sp.MachineID)
@@ -661,6 +708,17 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 			return Info{}, err
 		}
 	}
+	providerID := ""
+	if req.ProviderID != nil && *req.ProviderID != "" {
+		if err := m.checkProvider(*req.ProviderID, a); err != nil {
+			return Info{}, err
+		}
+		// its own folder instead of a login; its own model unless one was chosen
+		providerID, profileID = *req.ProviderID, ""
+		if req.Model == nil {
+			model = ""
+		}
+	}
 	cwd := strings.TrimSpace(req.Cwd)
 	if cwd == "" {
 		cwd = "~"
@@ -685,7 +743,7 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		Env: append([]string{}, a.Env...), Cwd: cwd,
 		Cols: clamp(req.Cols, 10, 500), Rows: clamp(req.Rows, 4, 300),
 		CreatedAt: time.Now().UTC(), ProjectID: req.ProjectID, WorkspaceID: req.WorkspaceID, Panel: req.Panel,
-		Agent: a.ID, AgentKind: a.Kind, Yolo: yolo, ProfileID: profileID, AgentSessionID: aid,
+		Agent: a.ID, AgentKind: a.Kind, Yolo: yolo, ProfileID: profileID, ProviderID: providerID, AgentSessionID: aid,
 		Model: model, Effort: effort,
 	}
 	if target != req.MachineID {
@@ -877,6 +935,41 @@ func (m *Manager) Restart(id string, req RestartRequest) (Info, error) {
 		}
 		sp.ProfileID = *req.ProfileID
 	}
+	backToLogin := func() {
+		sp.ProviderID = ""
+		if req.ProfileID == nil {
+			sp.ProfileID = m.defaultProfile(sp.MachineID, a)
+		}
+		if req.Model == nil {
+			c := m.Settings().Agents.ModelFor("", a.ID)
+			sp.Model, sp.Effort = c.Model, c.Effort
+		}
+	}
+	switch {
+	case req.ProviderID != nil && *req.ProviderID != "":
+		if err := m.checkProvider(*req.ProviderID, a); err != nil {
+			return Info{}, err
+		}
+		if (*req.ProviderID != sp.ProviderID || a.ID != left.Agent) && req.Model == nil {
+			sp.Model = "" // the provider's own
+		}
+		sp.ProviderID, sp.ProfileID = *req.ProviderID, ""
+	case req.ProviderID != nil:
+		if sp.ProviderID != "" {
+			backToLogin()
+		}
+	case sp.ProviderID != "":
+		switch err := m.checkProvider(sp.ProviderID, a); {
+		case errors.Is(err, ErrProviderBudget):
+			// never moved to the subscription quietly
+			return Info{}, err
+		case err != nil:
+			// another agent that cannot run on it, or a provider that is gone
+			backToLogin()
+		case a.ID != left.Agent && req.Model == nil:
+			sp.Model = ""
+		}
+	}
 	if req.Yolo != nil {
 		sp.Yolo = *req.Yolo && a.HasYolo()
 	}
@@ -951,7 +1044,7 @@ func (m *Manager) runToRemember(s *Session, sp Spec, a agent.Agent) PastRun {
 	case a.Resume.Kind == agent.ResumeNone:
 		return PastRun{}
 	}
-	return PastRun{Agent: sp.Agent, AgentSessionID: sp.AgentSessionID, Model: sp.Model, Effort: sp.Effort, ProfileID: sp.ProfileID, At: time.Now().UTC()}
+	return PastRun{Agent: sp.Agent, AgentSessionID: sp.AgentSessionID, Model: sp.Model, Effort: sp.Effort, ProfileID: sp.ProfileID, ProviderID: sp.ProviderID, At: time.Now().UTC()}
 }
 
 func rememberRun(list []PastRun, r PastRun) []PastRun {

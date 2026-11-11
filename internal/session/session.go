@@ -68,11 +68,13 @@ type Spec struct {
 	// going back continues their conversation.
 	PastRuns []PastRun `json:"pastRuns,omitempty"`
 
-	Handle         string `json:"handle"`
-	Agent          string `json:"agent"`
-	AgentKind      string `json:"agentKind"`
-	Yolo           bool   `json:"yolo"`
-	ProfileID      string `json:"profileId"`
+	Handle    string `json:"handle"`
+	Agent     string `json:"agent"`
+	AgentKind string `json:"agentKind"`
+	Yolo      bool   `json:"yolo"`
+	ProfileID string `json:"profileId"`
+	// ProviderID: the console runs against this API provider instead of a login (§10.2).
+	ProviderID     string `json:"providerId,omitempty"`
 	AgentSessionID string `json:"agentSessionId"`
 	// Model and Effort survive a restart (docs/API-agents.md §25): "" = the CLI's own choice.
 	Model  string `json:"model,omitempty"`
@@ -100,6 +102,7 @@ type PastRun struct {
 	Agent          string    `json:"agent"`
 	AgentSessionID string    `json:"agentSessionId,omitempty"`
 	ProfileID      string    `json:"profileId,omitempty"`
+	ProviderID     string    `json:"providerId,omitempty"`
 	Model          string    `json:"model,omitempty"`
 	Effort         string    `json:"effort,omitempty"`
 	At             time.Time `json:"at"`

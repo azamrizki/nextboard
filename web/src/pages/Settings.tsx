@@ -15,6 +15,7 @@ import { AppPane } from '../settings/AppPane';
 import { McpPane } from '../settings/McpPane';
 import { NotificationsPane } from '../settings/NotificationsPane';
 import { ProfilesPane } from '../settings/ProfilesPane';
+import { ProvidersPane } from '../settings/ProvidersPane';
 import { ShortcutsPane } from '../settings/ShortcutsPane';
 import { ConnectionsPane } from '../settings/ConnectionsPane';
 import { StudiosPane } from '../settings/StudiosPane';
@@ -27,6 +28,7 @@ const PANES: { id: string; label: string; icon: IconName; hint: string }[] = [
   { id: 'agents', label: 'Agents', icon: 'bot', hint: 'Catalog, defaults, your agents' },
   { id: 'lead', label: 'Lead agent', icon: 'orchestrator', hint: 'Its name, how it talks and leads' },
   { id: 'profiles', label: 'Login profiles', icon: 'user', hint: 'Several accounts per CLI' },
+  { id: 'providers', label: 'API providers', icon: 'plug', hint: 'Other models through an API' },
   { id: 'mcp', label: 'MCP servers', icon: 'cpu', hint: 'Tools every agent gets' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', hint: 'When an agent needs you' },
   { id: 'shortcuts', label: 'Shortcuts', icon: 'keyboard', hint: 'Single-key board tools' },
@@ -105,6 +107,7 @@ export function SettingsPage({ pane }: { pane: string }) {
             )}
             {current.id === 'agents' && <AgentsPane />}
             {current.id === 'profiles' && <ProfilesPane />}
+            {current.id === 'providers' && <ProvidersPane />}
             {current.id === 'mcp' && <McpPane />}
             {current.id === 'notifications' && <NotificationsPane />}
             {current.id === 'shortcuts' && <ShortcutsPane />}

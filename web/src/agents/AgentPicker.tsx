@@ -9,12 +9,14 @@ import { Modal } from '../components/Modal';
 import { timeAgo } from '../lib/format';
 import type { Agent, Machine, ModelChoice, Profile, Session } from '../lib/types';
 import { useProfiles } from '../store';
+import { AccountOptions } from '../providers/AccountOptions';
+import { compatible, useProviders } from '../providers/providers';
 import { AgentLogo } from './AgentLogo';
 import { agentLogo } from './logos';
 import { byPriority, canResumeExact, canContinue, hasLiveStatus, hasYolo, supportsProfiles, useMachineAgents } from './catalog';
 import { ModelPicker } from './ModelPicker';
 import { defaultChoice, modelSummary } from './models';
-import { defaultLoginLabel, defaultProfileOf, useEffectiveSettings } from './settings';
+import { defaultProfileOf, useEffectiveSettings } from './settings';
 
 /** An agent in a list: its logo, or its colour when it has none. */
 export function AgentSwatch({ agent }: { agent: Agent }) {
@@ -305,7 +307,8 @@ interface SwitchAgentDialogProps {
   /** The agent to start on, when coming back to an earlier one. */
   initial?: string;
   onClose: () => void;
-  onSwitch: (agentId: string, profileId: string, opts: { brief: boolean; note: string; fresh: boolean; model?: string; effort?: string }) => Promise<void>;
+  /** account: "" the default login, a profile (pf_…) or an API provider (ap_…). */
+  onSwitch: (agentId: string, account: string, opts: { brief: boolean; note: string; fresh: boolean; model?: string; effort?: string }) => Promise<void>;
   /** The same agent and login with another model: the conversation goes on. */
   onModel: (c: ModelChoice) => Promise<void>;
 }
@@ -314,9 +317,10 @@ interface SwitchAgentDialogProps {
 export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel }: SwitchAgentDialogProps) {
   const ma = useMachineAgents(session.machineId);
   const profiles = useProfiles();
+  const providers = useProviders();
   const current = session.agent || session.preset;
   const [value, setValue] = useState(initial ?? current);
-  const [profileId, setProfileId] = useState(session.profileId ?? '');
+  const [profileId, setProfileId] = useState(session.providerId || session.profileId || '');
   const [brief, setBrief] = useState(true);
   const [note, setNote] = useState('');
   const [goBack, setGoBack] = useState(true);
@@ -324,11 +328,12 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
   const [error, setError] = useState('');
   const sel = ma.agents.find((a) => a.id === value && a.available !== false);
   const options: Profile[] = sel && supportsProfiles(sel) ? profiles.filter((p) => p.machineId === session.machineId && p.agent === sel.id) : [];
+  const provOptions = providers.filter((p) => compatible(sel, p));
   const settings = useEffectiveSettings();
   const defaultId = sel ? defaultProfileOf(settings, session.machineId, sel.id) : '';
   // the default account is the empty choice, whether it was picked or came with the session
   const chosen = profileId === defaultId ? '' : profileId;
-  const sameAgent = sel?.id === current && (chosen || defaultId) === (session.profileId || defaultId);
+  const sameAgent = sel?.id === current && (chosen || defaultId) === (session.providerId || session.profileId || defaultId);
   const [picked, setPicked] = useState<Record<string, ModelChoice>>({});
   const startsWith: ModelChoice = sel?.id === current ? { model: session.model ?? '', effort: session.effort ?? '' } : defaultChoice(settings, undefined, sel?.id ?? '');
   const modelNow = (sel && picked[sel.id]) || startsWith;
@@ -354,7 +359,7 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
       if (sameAgent) await onModel(modelNow);
       else {
         const own = picked[sel.id];
-        await onSwitch(sel.id, options.some((p) => p.id === chosen) ? chosen : '', { brief, note: note.trim(), fresh: !!past && !goBack, model: own?.model, effort: own?.effort });
+        await onSwitch(sel.id, options.some((p) => p.id === chosen) || provOptions.some((p) => p.id === chosen) ? chosen : '', { brief, note: note.trim(), fresh: !!past && !goBack, model: own?.model, effort: own?.effort });
       }
       onClose();
     } catch (err) {
@@ -399,18 +404,13 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
         ) : (
           <AgentList agents={ma.agents} value={value} onChange={setValue} onActivate={() => void go()} machineName={session.machineName} label="Agent" />
         )}
-        {options.length > 0 && (
+        {options.length + provOptions.length > 0 && (
           <div className="field">
             <label className="field-label" htmlFor="switch-profile">
               Login profile
             </label>
             <select id="switch-profile" className="control" value={chosen} onChange={(e) => setProfileId(e.target.value)}>
-              <option value="">{defaultLoginLabel(options, defaultId)}</option>
-              {options.filter((p) => p.id !== defaultId).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              <AccountOptions profiles={options} defaultProfile={defaultId} providers={provOptions} />
             </select>
           </div>
         )}

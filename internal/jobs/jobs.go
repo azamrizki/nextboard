@@ -76,6 +76,17 @@ type Job struct {
 	Error      string          `json:"error"`
 	Code       string          `json:"code"`
 	Result     json.RawMessage `json:"result"`
+	// Usage is the tokens a runner job used, as its CLI reported them (nil = not told).
+	Usage *RunUsage `json:"usage,omitempty"`
+}
+
+// RunUsage is what one hidden run used.
+type RunUsage struct {
+	Model      string `json:"model,omitempty"`
+	Input      int64  `json:"input"`
+	Output     int64  `json:"output"`
+	CacheRead  int64  `json:"cacheRead"`
+	CacheWrite int64  `json:"cacheWrite"`
 }
 
 // Active reports whether the job is still queued or running.

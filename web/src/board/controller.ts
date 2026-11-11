@@ -33,6 +33,7 @@ export interface TerminalSpec {
   /** Phase 5: undefined = hub default (settings.agents.yoloDefault). */
   yolo?: boolean;
   profileId?: string;
+  providerId?: string;
   /** undefined = the default in settings. */
   model?: string;
   effort?: string;
@@ -398,6 +399,7 @@ export class BoardController {
       rect: rectOf(n),
       // yolo is never re-enabled without a fresh confirmation: the hub default applies
       profileId: s.profileId || undefined,
+      providerId: s.providerId || undefined,
       model: s.model ?? '',
       effort: s.effort ?? '',
     };
@@ -414,6 +416,7 @@ export class BoardController {
         agent: spec.preset,
         yolo: spec.yolo,
         profileId: spec.profileId || undefined,
+        providerId: spec.providerId || undefined,
         model: spec.model,
         effort: spec.effort,
         launch: spec.launch,
