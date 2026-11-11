@@ -9,13 +9,13 @@
 Claude Code, Codex, Gemini CLI or any other agent CLI as live terminal tiles on one canvas,<br>
 on a machine you control, reachable from any browser.
 
-[![Release](https://img.shields.io/github/v/release/azamrizki/nextboard?include_prereleases&sort=semver&label=release)](https://github.com/azamrizki/nextboard/releases)
+[![Release](https://img.shields.io/github/v/release/azamrizki/nextboard?sort=semver&label=release)](https://github.com/azamrizki/nextboard/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 ![Linux and macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-555)
 ![Status: beta](https://img.shields.io/badge/status-beta-orange)
 
-[Why](#why-nextboard) · [How it works](#how-it-works) · [Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [Security](#security) · [Docs](#documentation)
+[Why](#why-nextboard) · [How it works](#how-it-works) · [Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [API providers](#api-providers) · [Security](#security) · [Docs](#documentation)
 
 <a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Handing out work with an @mention: the tester agent's console turns to working, prints its steps and reports done"></a>
 
@@ -31,7 +31,7 @@ on a machine you control, reachable from any browser.
 - **See every agent at once.** Each console shows whether its agent is working, needs you or is ready, so you do not have to open terminals one by one to find the one that is waiting.
 - **Agents keep running.** They run on your machine or your servers, not in the browser. Close the tab, and pick up later from another computer or your phone.
 - **Everything around the agents in one place.** Hand out work, review the diff, preview the app, share project memory, and give an agent a credential without showing it the value.
-- **Yours.** One Go binary, your machine, your agent subscriptions. No account, no cloud service in between.
+- **Yours.** One Go binary, your machine, your agent subscriptions or your own API keys. No account, no cloud service in between.
 
 ## How it works
 
@@ -42,10 +42,12 @@ flowchart TB
     data[("~/.nextboard<br/>boards, memory, vault")]
     local["Agents on This PC<br/>Claude Code, Codex, Gemini CLI, …"]
     ssh["Agents on SSH servers<br/>agentless, tmux when available"]
+    models["Models<br/>your subscription login,<br/>or an API provider with your key"]
     browser <-->|"HTTP + WebSocket<br/>localhost, private network or HTTPS"| hub
     hub --- data
     hub -->|"terminal (PTY)"| local
     hub -->|"SSH"| ssh
+    local --> models
 ```
 
 The hub starts each agent CLI in a terminal of its own, reads its screen to know its state, and types your orders into it. Nothing is installed on a server: the hub reaches it over SSH with your own keys.
@@ -76,7 +78,7 @@ Terminals, notes, checklists, kanban, calendar, shapes, pen, images, files and w
 <td width="50%" valign="top">
 
 **🤖 Agents**<br>
-Live `WORKING` / `NEEDS YOU` / `READY`, exact conversation resume, and model and effort per console. Claude Code and Codex are the most tested; Gemini CLI, OpenCode and 16 more CLIs from the catalog (Aider, Amp, GitHub Copilot CLI, Goose, Qwen Code, …) work with less testing, and any other CLI can be added. Claude Code, Codex and OpenCode can also run on an **API provider** instead of a subscription: any Anthropic- or OpenAI-compatible endpoint (GLM, Kimi, DeepSeek, OpenRouter, Ollama, …), with its cost per console and a monthly budget.
+Live `WORKING` / `NEEDS YOU` / `READY`, exact conversation resume, and model and effort per console. Claude Code and Codex are the most tested; Gemini CLI, OpenCode and 16 more CLIs from the catalog (Aider, Amp, GitHub Copilot CLI, Goose, Qwen Code, …) work with less testing, and any other CLI can be added. Claude Code, Codex and OpenCode can also run on an **[API provider](#api-providers)** instead of a subscription: any Anthropic- or OpenAI-compatible endpoint (GLM, Kimi, DeepSeek, OpenRouter, a router of your own, Ollama, …), with its cost per console and a monthly budget.
 
 </td>
 </tr>
@@ -84,7 +86,7 @@ Live `WORKING` / `NEEDS YOU` / `READY`, exact conversation resume, and model and
 <td valign="top">
 
 **🧭 Orchestration**<br>
-A command bar with `@mentions`, and a lead agent that plans with your own local `claude -p`. Groups, handoffs, result forwarding, loops, task boards and a mission map. 44 layout templates deploy a whole team, with the consoles per group chosen first. Commands work in English and Indonesian.
+A command bar with `@mentions`, and a lead agent that plans on This PC with the runner you pick: Claude Code, Codex, or an API provider. It can start consoles on a provider too (“start two Claude on the API”). Groups, handoffs, result forwarding, loops, task boards and a mission map. 44 layout templates deploy a whole team, with the consoles per group chosen first. Commands work in English and Indonesian.
 
 </td>
 <td valign="top">
@@ -170,12 +172,12 @@ This puts the binary in `~/.local/bin`, checks its checksum, sets up a service (
 
 `nextboard update` installs newer stable releases.
 
-**Betas** are published as GitHub pre-releases, and `nextboard update` never installs one by itself. To try one, pick its tag on the [releases page](https://github.com/azamrizki/nextboard/releases):
+**Betas** are published as GitHub pre-releases, and `nextboard update` never installs one by itself. To try one, pick its tag (`vX.Y.Z-beta.N`) on the [releases page](https://github.com/azamrizki/nextboard/releases):
 
 ```bash
-nextboard update --version v0.4.0-beta.1
+nextboard update --version vX.Y.Z-beta.N
 # or, for a new install
-curl -fsSL https://raw.githubusercontent.com/azamrizki/nextboard/main/install.sh | sh -s -- --version=v0.4.0-beta.1
+curl -fsSL https://raw.githubusercontent.com/azamrizki/nextboard/main/install.sh | sh -s -- --version=vX.Y.Z-beta.N
 ```
 
 <details>
@@ -201,6 +203,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 | Tool | Used for |
 |---|---|
 | `tmux` on a server | Sessions that survive SSH disconnects and hub restarts |
+| `bubblewrap` (`bwrap`) | Keeps an API provider's key out of the commands Claude Code runs |
 | `gh` | Publishing to GitHub and pull requests |
 | Language servers and debuggers (`gopls`, `pyright`, `typescript-language-server`, `dlv`, `debugpy`, ...) | The code workbench; each is used when found on `PATH` |
 | `sway`, `wayvnc`, `wf-recorder`, `xwayland` | Desktop apps in a tile, with GPU |
@@ -208,6 +211,22 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 | `ffmpeg` with VA-API, PipeWire | Hardware video and sound in desktop tiles |
 
 </details>
+
+## API providers
+
+Run Claude Code, Codex or OpenCode on an API key of your own instead of a subscription login. Claude Code and Codex get a config folder of their own per provider, so your logins are neither used nor changed.
+
+| Agent | Needs |
+|---|---|
+| Claude Code | An Anthropic-compatible API (`/v1/messages`) |
+| Codex | An OpenAI-compatible API **with the Responses API** (`/v1/responses`); Codex no longer speaks Chat Completions |
+| OpenCode | Either |
+
+1. **Settings › API providers › Add provider**: the address, the key, a default model, and optionally prices per model and a monthly budget. **Test the connection** lists its models.
+2. **Start a console on it**: pick **API · *name*** where you choose the login (new console, spawn, layouts, handoff, switch agent). The tile shows **API · $cost**.
+3. **Optional**: Settings › Lead agent › *What it runs on* puts the lead on a provider, and gives the consoles it starts a default provider per agent. Settings › Previews & studios › *Run through* does the same for the other hidden runs (memory, summaries, commit messages, documents).
+
+Once a month's budget is spent, new consoles, restarts and hidden runs on that provider are refused; nothing moves to your subscription by itself. Claude Code consoles on a provider start in *accept edits* mode, because its default auto mode checks each action on Anthropic's servers, which a gateway does not reach.
 
 ## Security
 
@@ -218,7 +237,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 - `make dev` binds to `0.0.0.0` by default. On an untrusted network, use `make dev LISTEN=127.0.0.1:12312`.
 - Agents run as your user and can read everything your user can, including NextBoard's data folder. Critical notes are instructions to agents, not a technical lock. Blocked commands make the CLI itself ask you first, but they are not a sandbox: an agent with a shell can still write a script that does the same.
 - The credentials vault encrypts in the browser and the hub stores only ciphertext. If you forget the master password, the contents are gone. Letting agents use a credential guards against accidents, not against an agent set on stealing it. See [docs/API-vault.md](docs/API-vault.md) for what it does not protect against.
-- API provider keys are sealed with the hub's master key and given only to the processes that use them, never to a browser. An agent running on a provider can still read its own key from its environment, as with any CLI that uses an API key.
+- API provider keys are sealed with the hub's master key and given only to the agent process that uses them, never to a browser, a command line or a log. The commands an agent runs do not get the key with Codex, nor with Claude Code when `bubblewrap` is installed; OpenCode's commands still do. An agent set on finding it can still read it from its own CLI's process.
 - Only the status page may face the internet, on a listener of its own (`--status-listen`). It shows the names you chose for your monitors and their uptime, and never a host, an address or an error message.
 
 Please report security problems through a [private security advisory](https://github.com/azamrizki/nextboard/security/advisories/new), not a public issue.
@@ -279,7 +298,9 @@ internal/server/    router, auth middleware, REST, WebSocket
 internal/session/   terminals, scrollback, resume
 internal/machine/   local PTY and agentless SSH
 internal/agent/     agent catalog, status, hooks
-internal/orch/      command bar, planner, orders, loops, memory
+internal/orch/      command bar, lead and planner, orders, loops, memory
+internal/jobs/      hidden runs of the agent CLIs (planner, summaries, commit messages)
+internal/providers/ API providers: sealed keys, prices, budgets
 internal/delivery/  typing orders into consoles
 internal/studio/    code workbench and studios
 internal/gitsvc/    git panel and GitHub
