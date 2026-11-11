@@ -1344,9 +1344,14 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
           <SpawnPanel
             agents={agents}
             nt={nt}
-            onSpawn={(a) => {
+            onSpawn={(a, profileId) => {
               close();
-              void spawnAt(a.id === nt.agentId ? nt.choice() : { ...nt.choice(), preset: a.id, yolo: undefined, profileId: undefined, model: undefined, effort: undefined }, at);
+              void spawnAt(
+                a.id === nt.agentId
+                  ? { ...nt.choice(), profileId: profileId || undefined }
+                  : { ...nt.choice(), preset: a.id, yolo: undefined, profileId: undefined, model: undefined, effort: undefined },
+                at,
+              );
             }}
           />
         ),
