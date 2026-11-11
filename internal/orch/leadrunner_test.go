@@ -49,6 +49,12 @@ func TestLeadRunner(t *testing.T) {
 			t.Fatalf("%q runner %+v", c.runner, run)
 		}
 	}
+	// the lead's model and effort go with its runs
+	h.set.Lead.Model, h.set.Lead.Effort = "cx/fast", "low"
+	if run := plan(); run.Model != "cx/fast" || run.Effort != "low" {
+		t.Fatalf("model %q effort %q", run.Model, run.Effort)
+	}
+	h.set.Lead.Model, h.set.Lead.Effort = "", ""
 	// the lead's CLI must be on This PC
 	h.set.Lead.Runner = "codex"
 	delete(h.onMach, "local/codex")

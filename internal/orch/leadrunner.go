@@ -62,6 +62,8 @@ func (s *Service) leadRequest(req jobs.RunnerRequest) (jobs.RunnerRequest, error
 		return req, err
 	}
 	req.Agent, req.Command, req.Provider = lr.agent, lr.command, lr.provider
+	l := s.hub.Settings().Lead
+	req.Model, req.Effort = l.Model, l.Effort
 	return req, nil
 }
 

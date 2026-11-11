@@ -704,6 +704,9 @@ export interface Settings {
     talkFirst: boolean;
     /** "" = like hidden runs (Claude Code), "claude" | "codex" on its login, or an API provider id. */
     runner?: string;
+    /** The lead's model and effort on that runner; absent = its default. */
+    model?: string;
+    effort?: string;
     /** agent id → API provider id for the consoles the lead starts. */
     providers?: Record<string, string>;
   };

@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { errorMessage } from '../api';
 import { useMachineAgents } from '../agents/catalog';
+import { ModelPicker } from '../agents/ModelPicker';
 import { patchSettings, useEffectiveSettings } from '../agents/settings';
 import { SettingRow, SwitchRow } from '../components/Switch';
 import { compatible, useProviders, type ApiProvider } from '../providers/providers';
@@ -111,6 +112,11 @@ function LeadRunner() {
   const known = runner === '' || runner === 'claude' || runner === 'codex' || fits.some((p) => p.id === runner);
   const picks = s.lead?.providers ?? {};
   const rows = agents.filter((a) => a.kind === 'agent' && providers.some((p) => compatible(a, p)));
+  // the CLI the lead runs, and the provider its model list comes from
+  const onProvider = providers.find((p) => p.id === runner);
+  const cli = runner === 'codex' || (onProvider && runnerCli(onProvider) === 'Codex') ? 'codex' : 'claude';
+  const listFrom = onProvider?.id ?? (runner === '' && hidden && runnerCli(hidden) === 'Claude Code' ? hidden.id : '');
+  const leadAgent = agents.find((a) => a.id === cli);
   return (
     <section className="card settings-card" aria-labelledby="lead-runs">
       <h3 id="lead-runs" className="section-title">
@@ -120,7 +126,12 @@ function LeadRunner() {
         title="Thinks with"
         hint={`${name}’s own turns: planning, splitting results, summaries. On a login they use that plan; on an API provider its budget counts them. Codex needs an OpenAI provider with the Responses API.`}
       >
-        <select className="control control-sm" aria-label="Lead runs on" value={runner} onChange={(e) => void save({ runner: e.target.value || null })}>
+        <select
+          className="control control-sm"
+          aria-label="Lead runs on"
+          value={runner}
+          onChange={(e) => void save({ runner: e.target.value || null, model: null, effort: null })}
+        >
           <option value="">Like hidden runs · Claude Code{hidden && runnerCli(hidden) === 'Claude Code' ? ` on API · ${hidden.name}` : ''}</option>
           <option value="claude">Claude Code · its login</option>
           <option value="codex">Codex · its login</option>
@@ -136,6 +147,16 @@ function LeadRunner() {
           {!known && <option value={runner}>A removed provider</option>}
         </select>
       </SettingRow>
+      {leadAgent && (
+        <SettingRow title="Model" hint={`What ${name} thinks with on that runner. A fast model answers sooner; a stronger one plans better.`}>
+          <ModelPicker
+            agent={leadAgent}
+            profileId={listFrom}
+            value={{ model: s.lead?.model ?? '', effort: s.lead?.effort ?? '' }}
+            onChange={(c) => void save({ model: c.model || null, effort: c.effort || null })}
+          />
+        </SettingRow>
+      )}
       {rows.length > 0 ? (
         rows.map((a) => {
           const opts = providers.filter((p) => compatible(a, p));

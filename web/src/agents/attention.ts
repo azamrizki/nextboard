@@ -11,6 +11,7 @@ import type { Attention, Session } from '../lib/types';
 import { store } from '../store';
 import { revealMonitor } from '../uptime/store';
 import { openCredentialRequest } from '../vault/agents';
+import { navigate } from '../lib/router';
 import { jumpToSession } from './jump';
 
 // ---- per-client preferences ----
@@ -65,17 +66,33 @@ export async function requestBrowserPermission(): Promise<Permission> {
 
 // ---- delivery ----
 
-const KIND_TOAST = { needsYou: 'warning', credential: 'warning', finished: 'success', error: 'error', uptimeDown: 'error', uptimeUp: 'success', certExpiring: 'warning' } as const;
+const KIND_TOAST = {
+  needsYou: 'warning',
+  credential: 'warning',
+  finished: 'success',
+  error: 'error',
+  uptimeDown: 'error',
+  uptimeUp: 'success',
+  certExpiring: 'warning',
+  providerBudget: 'warning',
+  providerSpent: 'error',
+} as const;
 
 /** Show what the attention is about. */
 const showTarget = (a: Attention) =>
-  a.kind === 'credential' ? openCredentialRequest() : a.monitorId ? revealMonitor(a.projectId, a.monitorId) : void jumpToSession(a.sessionId);
+  a.kind === 'credential'
+    ? openCredentialRequest()
+    : a.kind.startsWith('provider')
+      ? navigate('/settings/providers')
+      : a.monitorId
+        ? revealMonitor(a.projectId, a.monitorId)
+        : void jumpToSession(a.sessionId);
 const open = new Map<string, Notification>();
 
 function showBrowser(a: Attention) {
   if (!clientPrefs.browser || browserPermission() !== 'granted' || !document.hidden) return;
   try {
-    const key = a.monitorId || a.sessionId;
+    const key = a.monitorId || a.sessionId || a.kind;
     open.get(key)?.close();
     const n = new Notification(a.title, { body: a.body || undefined, tag: `nb-${key}` });
     n.onclick = () => {

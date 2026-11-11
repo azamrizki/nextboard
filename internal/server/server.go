@@ -372,6 +372,7 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 	go func() { errCh <- srv.Serve(ln) }()
 	stopStatus := s.serveStatusOnly()
 	defer stopStatus()
+	go s.watchBudgets(ctx)
 
 	log.Printf("NextBoard %s running at http://%s", version.Version, s.listen)
 	if !isLoopbackListen(s.listen) {

@@ -128,6 +128,9 @@ type Lead struct {
 	// runner.provider when one is set), "claude" or "codex" = that CLI on its login, ap_… = an API
 	// provider, on the CLI that speaks its API (docs/API-agents.md §10.2).
 	Runner string `json:"runner,omitempty"`
+	// Model and Effort of the lead's runs; "" = the runner's own default.
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
 	// Providers is the API provider the consoles the lead starts run on, by agent id; absent = the
 	// agent's login. An order that names an account wins.
 	Providers map[string]string `json:"providers,omitempty"`
@@ -366,6 +369,12 @@ func validate(s *Settings) error {
 	}
 	if r := s.Lead.Runner; r != "" && r != "claude" && r != "codex" && !providerRe.MatchString(r) {
 		return badSetting(`lead.runner must be "", "claude", "codex" or the id of an API provider`)
+	}
+	if m := s.Lead.Model; m != "" && !modelRe.MatchString(m) {
+		return badSetting("lead.model: a model name")
+	}
+	if e := s.Lead.Effort; e != "" && !effortRe.MatchString(e) {
+		return badSetting("lead.effort: an effort level")
 	}
 	if len(s.Lead.Providers) > 64 {
 		return badSetting("lead.providers: at most 64 agents")

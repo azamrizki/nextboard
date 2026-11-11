@@ -271,6 +271,15 @@ func TestRunnerThroughProvider(t *testing.T) {
 	if err := h.srv.withRunnerProvider(&req); err != nil || !slices.Contains(req.Env, "ANTHROPIC_AUTH_TOKEN="+providerKey) {
 		t.Fatalf("named %v %v", err, len(req.Env))
 	}
+	// a model the provider lists is taken as it is
+	req = jobs.RunnerRequest{Purpose: "planner", Agent: "claude", Provider: id, Model: "glm-4.5-air"}
+	if err := h.srv.withRunnerProvider(&req); err != nil || req.Model != "" || !slices.Contains(req.Env, "ANTHROPIC_MODEL=glm-4.5-air") {
+		t.Fatalf("own model %q %v", req.Model, err)
+	}
+	req = jobs.RunnerRequest{Purpose: "planner", Agent: "claude", Provider: id, Model: "claude-opus-4-1"}
+	if _ = h.srv.withRunnerProvider(&req); req.Model != "" || !slices.Contains(req.Env, "ANTHROPIC_MODEL=glm-4.6") {
+		t.Fatalf("a login's model went to the provider: %q", req.Model)
+	}
 	req = jobs.RunnerRequest{Purpose: "planner", Agent: "codex", Provider: id}
 	if err := h.srv.withRunnerProvider(&req); !errors.Is(err, session.ErrProviderMismatch) {
 		t.Fatalf("named, wrong CLI: %v", err)
@@ -325,5 +334,84 @@ func TestPriceOf(t *testing.T) {
 		if pr.Input != want || ok != (want > 0) {
 			t.Errorf("%s: %v %v", model, pr, ok)
 		}
+	}
+}
+
+// A provider's Claude Code config takes the folders trusted in a login on This PC, and nothing else.
+func TestProviderTrustFromLogin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	login := `{"oauthAccount":{"emailAddress":"someone@example.com"},"projects":{"/work/app":{"hasTrustDialogAccepted":true,"history":["secret prompt"]},"/work/no":{"hasTrustDialogAccepted":false},"rel":{"hasTrustDialogAccepted":true}}}`
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(login), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestHub(t)
+	h.setup()
+	api := newFakeAPI(t)
+	_, pv := h.do("POST", "/api/providers", map[string]any{"name": "Router", "kind": "anthropic", "baseUrl": api.URL, "model": "m", "apiKey": providerKey}, nil)
+	p, _ := h.srv.providers.Get(pv["id"].(string))
+	dir, err := h.srv.providerConfigDir(p, "claude", providerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	var doc map[string]any
+	_ = json.Unmarshal(b, &doc)
+	projects, _ := doc["projects"].(map[string]any)
+	if app, _ := projects["/work/app"].(map[string]any); app["hasTrustDialogAccepted"] != true || len(app) != 1 {
+		t.Fatalf("trusted folder %v", projects["/work/app"])
+	}
+	if _, ok := projects["/work/no"]; ok || projects["rel"] != nil {
+		t.Fatalf("untrusted or relative folder copied: %v", projects)
+	}
+	if strings.Contains(string(b), "someone@example.com") || strings.Contains(string(b), "secret prompt") || doc["hasCompletedOnboarding"] != true {
+		t.Fatalf("more than the trust came over: %s", b)
+	}
+}
+
+// The owner hears once a month at 80% of a provider's budget and once when it is spent.
+func TestProviderBudgetWarning(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	api := newFakeAPI(t)
+	_, pv := h.do("POST", "/api/providers", map[string]any{"name": "Router", "kind": "anthropic", "baseUrl": api.URL, "model": "m",
+		"prices": map[string]any{"m": map[string]any{"input": 1, "output": 0}}, "budget": 1, "apiKey": providerKey}, nil)
+	id := pv["id"].(string)
+	kinds := func() []string {
+		items, _ := h.srv.attn.since(0, 100)
+		var out []string
+		for _, a := range items {
+			if strings.HasPrefix(a.Kind, "provider") {
+				out = append(out, a.Kind)
+			}
+		}
+		return out
+	}
+	now := time.Now()
+	h.srv.noteProviderRun(id, "m", "planner", usage.Tokens{Input: 500_000}) // $0.50
+	h.srv.checkBudgets(now)
+	if k := kinds(); len(k) != 0 {
+		t.Fatalf("under 80%%: %v", k)
+	}
+	h.srv.noteProviderRun(id, "m", "planner", usage.Tokens{Input: 350_000}) // $0.85
+	h.srv.checkBudgets(now)
+	h.srv.checkBudgets(now)
+	if k := kinds(); len(k) != 1 || k[0] != "providerBudget" {
+		t.Fatalf("at 85%%: %v", k)
+	}
+	h.srv.noteProviderRun(id, "m", "planner", usage.Tokens{Input: 300_000}) // $1.15
+	h.srv.checkBudgets(now)
+	h.srv.checkBudgets(now)
+	if k := kinds(); len(k) != 2 || k[1] != "providerSpent" {
+		t.Fatalf("spent: %v", k)
+	}
+	items, _ := h.srv.attn.since(0, 100)
+	if b, _ := json.Marshal(items); strings.Contains(string(b), providerKey) || !strings.Contains(string(b), "Router: monthly budget spent") {
+		t.Fatalf("attention %s", b)
+	}
+	// the next month starts over
+	h.srv.checkBudgets(now.AddDate(0, 1, 0))
+	if k := kinds(); len(k) != 2 {
+		t.Fatalf("next month, nothing spent yet: %v", k)
 	}
 }

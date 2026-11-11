@@ -23,6 +23,7 @@ import (
 
 	"github.com/azamrizki/nextboard/internal/agent"
 	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/orch"
 	"github.com/azamrizki/nextboard/internal/providers"
 	"github.com/azamrizki/nextboard/internal/session"
@@ -99,7 +100,7 @@ func (s *Server) providerConfigDir(p providers.Provider, base, key string) (stri
 		return "", err
 	}
 	if base == "claude" {
-		if err := seedClaudeConfig(dir, p, key); err != nil {
+		if err := seedClaudeConfig(dir, p, key, s.loginTrusted()); err != nil {
 			return "", err
 		}
 	}
@@ -108,13 +109,29 @@ func (s *Server) providerConfigDir(p providers.Provider, base, key string) (stri
 
 // seedClaudeConfig answers what Claude Code asks on its first start in a new folder: the theme
 // and the onboarding, and for an x-api-key provider whether to use the key it found.
-func seedClaudeConfig(dir string, p providers.Provider, key string) error {
+func seedClaudeConfig(dir string, p providers.Provider, key string, trusted []string) error {
 	path := filepath.Join(dir, ".claude.json")
 	doc := map[string]any{}
 	if b, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(b, &doc)
 	}
 	doc["hasCompletedOnboarding"] = true
+	// the folders the owner already trusted in a login: no second "trust this folder?" per provider
+	if len(trusted) > 0 {
+		projects, _ := doc["projects"].(map[string]any)
+		if projects == nil {
+			projects = map[string]any{}
+			doc["projects"] = projects
+		}
+		for _, f := range trusted {
+			entry, _ := projects[f].(map[string]any)
+			if entry == nil {
+				entry = map[string]any{}
+				projects[f] = entry
+			}
+			entry["hasTrustDialogAccepted"] = true
+		}
+	}
 	doc["lspRecommendationDisabled"] = true
 	if _, ok := doc["theme"]; !ok {
 		doc["theme"] = "dark"
@@ -142,6 +159,44 @@ func seedClaudeConfig(dir string, p providers.Provider, key string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// loginTrusted lists the folders trusted in the Claude Code logins on This PC: the default login
+// profile's config and the owner's own (~/.claude.json). Only the trust is taken, nothing else.
+func (s *Server) loginTrusted() []string {
+	var files []string
+	if id := s.settings.Get().Agents.Profiles[machine.LocalID]["claude"]; id != "" {
+		if pf, ok := s.profiles.Get(id); ok && pf.Dir != "" {
+			files = append(files, filepath.Join(pf.Dir, ".claude.json"))
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		files = append(files, filepath.Join(home, ".claude.json"))
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var doc struct {
+			Projects map[string]struct {
+				Trusted bool `json:"hasTrustDialogAccepted"`
+			} `json:"projects"`
+		}
+		if json.Unmarshal(b, &doc) != nil {
+			continue
+		}
+		for dir, pr := range doc.Projects {
+			if pr.Trusted && filepath.IsAbs(dir) && !seen[dir] {
+				seen[dir] = true
+				out = append(out, dir)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ---- what a provider costs
@@ -281,6 +336,80 @@ func (s *Server) providerSpend(p providers.Provider, month string) ProviderSpend
 	return costOf(p, month, s.providerTurns(p.ID))
 }
 
+// ---- budget warnings
+
+// budgetWarnAt is the share of a monthly budget at which the owner hears about it first.
+const budgetWarnAt = 0.8
+
+const budgetNotesFile = "provider-budget-notes.json"
+
+// watchBudgets checks the budgets every five minutes: the consoles' turns are read from their
+// transcripts, so nothing else says when they spend.
+func (s *Server) watchBudgets(ctx context.Context) {
+	t := time.NewTicker(5 * time.Minute)
+	defer t.Stop()
+	s.checkBudgets(time.Now())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			s.checkBudgets(now)
+		}
+	}
+}
+
+// checkBudgets tells the owner, once a month each, when a provider has spent 80% of its budget and
+// when it has spent it all: from then on its new consoles, restarts and hidden runs are refused.
+func (s *Server) checkBudgets(now time.Time) {
+	month := monthOf(now)
+	for _, p := range s.providers.List() {
+		if p.Budget <= 0 {
+			continue
+		}
+		sp := s.providerSpend(p, month)
+		level := 0
+		switch {
+		case sp.Cost >= p.Budget:
+			level = 100
+		case sp.Cost >= p.Budget*budgetWarnAt:
+			level = 80
+		}
+		if level == 0 || !s.budgetNoted(p.ID, month, level) {
+			continue
+		}
+		a := Attention{Kind: "providerBudget", Title: fmt.Sprintf("%s: %d%% of its budget spent", p.Name, int(sp.Cost/p.Budget*100)),
+			Body: fmt.Sprintf("$%.2f of $%.2f in %s. At the budget, its new consoles and hidden runs are refused.", sp.Cost, p.Budget, month)}
+		if level == 100 {
+			a.Kind, a.Title = "providerSpent", p.Name+": monthly budget spent"
+			a.Body = fmt.Sprintf("$%.2f of $%.2f in %s. New consoles, restarts and hidden runs on it are refused until next month or a higher budget; running consoles go on.", sp.Cost, p.Budget, month)
+		}
+		a = s.attn.add(a)
+		s.events.Publish(map[string]any{"type": "attention", "attention": a})
+	}
+}
+
+// budgetNoted records that the owner was told of level for month, and reports whether that is
+// new: a level once told, or a lower one after it, is not told again that month.
+func (s *Server) budgetNoted(id, month string, level int) bool {
+	s.spend.mu.Lock()
+	defer s.spend.mu.Unlock()
+	notes := map[string]struct {
+		Month string `json:"month"`
+		Level int    `json:"level"`
+	}{}
+	_, _ = s.st.Load(budgetNotesFile, &notes)
+	if n, ok := notes[id]; ok && n.Month == month && n.Level >= level {
+		return false
+	}
+	notes[id] = struct {
+		Month string `json:"month"`
+		Level int    `json:"level"`
+	}{month, level}
+	_ = s.st.Save(budgetNotesFile, notes)
+	return true
+}
+
 // ---- the ledger of hidden runs
 
 type ledgerEntry struct {
@@ -302,13 +431,15 @@ func (s *Server) noteProviderRun(id, model, purpose string, t usage.Tokens) {
 		return
 	}
 	s.spend.mu.Lock()
-	defer s.spend.mu.Unlock()
 	f, err := os.OpenFile(filepath.Join(dir, "ledger.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
+	if err == nil {
+		_, _ = f.Write(append(b, '\n'))
+		_ = f.Close()
 	}
-	defer f.Close()
-	_, _ = f.Write(append(b, '\n'))
+	s.spend.mu.Unlock()
+	if err == nil {
+		s.checkBudgets(time.Now()) // a run's OnFinish, already off the request path
+	}
 }
 
 func (s *Server) ledgerTurns(id string) []usage.Turn {
@@ -729,24 +860,33 @@ func (s *Server) withRunnerProvider(req *jobs.RunnerRequest) error {
 	case err != nil:
 		return nil
 	}
-	model := ""
+	// a model the provider lists is its own; the CLI's aliases map to its models; any other
+	// name is the login's, which the provider would not know
+	pv, _ := s.providers.Get(id)
+	own := req.Model != "" && (req.Model == pv.Model || req.Model == pv.FastModel || slices.Contains(pv.Models, req.Model))
+	model, envModel := "", ""
 	switch a.CapBase() {
 	case "claude":
-		// the CLI's own names map to the provider's models; any other name is Anthropic's
 		if m := req.Model; m == "haiku" || m == "sonnet" || m == "opus" {
 			model = m
 		}
+		if own {
+			envModel = req.Model
+		}
 	case "codex":
 		model = pl.Model
+		if own {
+			model = req.Model
+		}
 	}
 	req.Model = model
 	env := []string{}
 	if a.ProfileEnv != "" && pl.ConfigDir != "" {
 		env = append(env, a.ProfileEnv+"="+pl.ConfigDir)
 	}
-	req.Env = append(env, agent.ProviderEnv(a, pl, agent.ProviderModel(a, pl, model))...)
+	req.Env = append(env, agent.ProviderEnv(a, pl, agent.ProviderModel(a, pl, cmpOrStr(envModel, model)))...)
 	req.Extra = append(req.Extra, agent.ProviderRunnerArgs(a, pl)...)
-	purpose, done, fallback := req.Purpose, req.OnFinish, cmpOrStr(model, pl.Model)
+	purpose, done, fallback := req.Purpose, req.OnFinish, cmpOrStr(cmpOrStr(envModel, model), pl.Model)
 	req.OnFinish = func(j jobs.Job) {
 		if u := j.Usage; u != nil {
 			s.noteProviderRun(id, cmpOrStr(u.Model, fallback), purpose, usage.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -58,6 +59,8 @@ var purposes = map[string]purposePolicy{
 	"code-ask":        {readOnly: true, partial: true, timeout: 5 * time.Minute},
 }
 
+var effortRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,23}$`)
+
 // ProviderLogin in RunnerRequest.Provider keeps a run on the CLI's login whatever runner.provider says.
 const ProviderLogin = "login"
 
@@ -74,10 +77,12 @@ type RunnerRequest struct {
 	Provider string
 	Env      []string
 	// Extra goes on the CLI's command line before the prompt (codex: an API provider's -c).
-	Extra   []string
-	Prompt  string // sent on stdin
-	Schema  json.RawMessage
-	Model   string
+	Extra  []string
+	Prompt string // sent on stdin
+	Schema json.RawMessage
+	Model  string
+	// Effort: claude --effort, codex model_reasoning_effort; "" = the CLI's default.
+	Effort  string
 	Stream  bool // claude: stream-json (+ jobOutput) instead of json
 	Timeout time.Duration
 	// IdleTimeout kills a run without any output for that long.
@@ -133,6 +138,9 @@ func (m *Manager) SubmitRunner(req RunnerRequest) (Job, error) {
 	if strings.ContainsAny(req.Command, "\x00\n") {
 		return Job{}, fmt.Errorf("%w: command", ErrBadRequest)
 	}
+	if req.Effort != "" && !effortRe.MatchString(req.Effort) {
+		return Job{}, fmt.Errorf("%w: effort", ErrBadRequest)
+	}
 	if req.Purpose == "planner" || req.MachineID == "" {
 		req.MachineID = machine.LocalID
 	}
@@ -185,6 +193,9 @@ func RunnerArgv(req RunnerRequest) []string {
 		if req.Model != "" {
 			argv = append(argv, "-m", req.Model)
 		}
+		if req.Effort != "" {
+			argv = append(argv, "-c", `model_reasoning_effort="`+req.Effort+`"`)
+		}
 		if len(req.Schema) > 0 {
 			argv = append(argv, "--output-schema", SchemaFileArg)
 		}
@@ -212,6 +223,9 @@ func RunnerArgv(req RunnerRequest) []string {
 	}
 	if req.Model != "" {
 		argv = append(argv, "--model", req.Model)
+	}
+	if req.Effort != "" {
+		argv = append(argv, "--effort", req.Effort)
 	}
 	return append(argv, req.Extra...)
 }

@@ -868,7 +868,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 
 - Gemini CLI (tidak terpasang) dan flag katalog bertanda † di API-agents.
 - Jalur AI di workbench dengan model sungguhan (tes memakai CLI palsu).
-- Field `danger` milik lead, langkah tugas planner, dan pembagian forward `split` dari model sungguhan.
+- Field `danger` milik lead dari model sungguhan: pada uji 2026-11-11 (API-orchestration §3.9) model menolak atau bertanya balik, tidak pernah mengisinya. Langkah tugas, pembagian kerja, dan forward `split` sudah lolos dengan model sungguhan.
 - `idelink` dengan Claude yang login dan model sungguhan.
 - Review agent dengan Codex, dan Codex melewati layar login di panel card.
 - Pull request ke GitHub sungguhan (tes memakai `gh` palsu).

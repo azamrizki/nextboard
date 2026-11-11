@@ -129,7 +129,8 @@ function BudgetLine({ p }: { p: ApiProvider }) {
         <span style={{ width: `${share * 100}%` }} />
       </div>
       <span className="fs-xs text-3">
-        {money(cost)} of {money(p.budget)} this month{share >= 1 ? ' · spent: no new consoles or hidden runs on it' : ''}
+        {money(cost)} of {money(p.budget)} this month
+        {share >= 1 ? ' · spent: no new consoles or hidden runs on it' : share >= 0.8 ? ` · ${Math.floor(share * 100)}% used` : ''}
       </span>
     </div>
   );
