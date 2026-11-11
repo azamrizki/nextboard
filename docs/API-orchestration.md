@@ -305,7 +305,7 @@ Orchestrator adalah **lead agent**: asisten owner sekaligus pemimpin agent lain,
 - **Balasan lead ditulis Markdown** (Claude memakainya); klien merender tanpa HTML mentah, gambar jadi placeholder, tautan relatif tidak dibuka. Copy mengambil teks aslinya.
 - `talkFirst: false` = rencana langsung jalan seperti sebelumnya; planner hanya dipanggil untuk yang tidak dimengerti parser dengan batas 600 karakter.
 
-**Membalas pesan.** `replyTo` pada §3.1: hub mencari pesan itu di 200 pesan terakhir thread (tidak ketemu = diabaikan). Pesan owner disimpan dengan kata-katanya sendiri plus `replyTo { id, handle?, excerpt }`; yang diteruskan ke agent atau planner mendapat tambahan `[This answers what @Arkan said: "…"]`. Baris rencana di thread tidak menampilkan tambahan itu. Klien: balasan ke pesan agent dikirim sebagai `@Arkan teks`, jadi langsung ke agent itu; "Ask lead" tanpa awalan, jadi ke lead.
+**Membalas pesan.** `replyTo` pada §3.1: hub mencari pesan itu di 200 pesan terakhir thread (tidak ketemu = diabaikan). Pesan owner disimpan dengan kata-katanya sendiri plus `replyTo { id, handle?, excerpt }`; yang diteruskan ke agent atau planner mendapat tambahan `[This answers what @Arkan said: "…"]`. Baris rencana di thread tidak menampilkan tambahan itu. Klien: balasan ke pesan agent dikirim sebagai `@Arkan teks`, jadi langsung ke agent itu; "Ask lead" tanpa awalan, jadi ke lead. Kolom Reply di jendela "See output" sebuah laporan juga mengirim order seperti ini, jadi hasil berikutnya kembali ke thread. Pola berisiko (§3.7) hanya dicek pada kata-kata owner, tanpa kutipan: kutipan adalah kata-kata agent sendiri, dan "Next I can delete …" di dalamnya dulu menahan setiap balasan.
 
 ### 3.10 Papan tugas lead
 

@@ -648,3 +648,58 @@ func TestNamesNobodyHasGoToThePlanner(t *testing.T) {
 		t.Fatalf("%+v", r.Confirmation)
 	}
 }
+
+// Answering an agent's report is an order like any other: it is not held because of the words
+// being answered, and the agent's next result comes back to the thread as its own report.
+func TestAnAnswerToAReportGetsItsOwnReport(t *testing.T) {
+	h, s := newFakeHub(t)
+	p, wid := h.project("app")
+	ash := h.console(p, wid, "Ash", "claude", agentstate.Ready)
+	finish := func(orderID, text string, at time.Time) ThreadMessage {
+		t.Helper()
+		d := h.deliveriesTo(ash.ID)
+		last := d[len(d)-1]
+		if last.OrderID != orderID {
+			t.Fatalf("delivery %+v is not for order %s", last, orderID)
+		}
+		h.setDelivery(s, last.ID, delivery.Confirmed)
+		h.replies[ash.ID] = &session.Reply{Text: text, MessageID: "m_" + orderID, Chars: len(text), At: at}
+		end := at
+		in, _ := h.SessionInfo(ash.ID)
+		s.OnAgentEvent(in, agentstate.Event{Kind: agentstate.EvFinished, Turn: agentstate.LastTurn{StartedAt: at.Add(-time.Minute), EndedAt: &end, DurationMs: 60000}})
+		for i := 0; i < 100; i++ {
+			for _, m := range s.Threads.Last(p.ID, 30) {
+				if m.Kind == "report" && m.OrderID == orderID {
+					return m
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatalf("no report for order %s", orderID)
+		return ThreadMessage{}
+	}
+
+	first := cmd(t, s, wid, "@Ash clean the build")
+	rep := finish(first.OrderID, "Done. Next I can delete the old build folder too.", t0.Add(time.Minute))
+
+	// the report says "delete"; the answer to it does not, so it goes out at once
+	r, err := s.Command(CommandRequest{Text: "@Ash yes, go ahead", WorkspaceID: wid, ClientID: "c_test", Planner: "off", ReplyTo: rep.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Confirmation != nil || r.OrderID == "" || r.OrderID == first.OrderID {
+		t.Fatalf("the answer was not sent as a new order: %+v", r)
+	}
+	if _, held := s.Confirms.Pending(p.ID, t0.Add(2*time.Minute)); held {
+		t.Fatal("the answer waits for a confirmation because of the words it answers")
+	}
+	second := finish(r.OrderID, "Removed it. The folder is gone.", t0.Add(3*time.Minute))
+	if !strings.HasPrefix(second.Text, "Removed it.") || second.Handle != "Ash" {
+		t.Fatalf("second report %+v", second)
+	}
+
+	// the owner's own risky words still ask first
+	if r := cmd(t, s, wid, "@Ash delete the cache"); r.Confirmation == nil {
+		t.Fatalf("a risky order went out without asking: %+v", r)
+	}
+}

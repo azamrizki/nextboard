@@ -963,8 +963,10 @@ func (s *Service) policy(c *execCtx, sc *scope, steps []Step) *Confirmation {
 			switch {
 			case st.Op == "send":
 				// the owner's own order to an agent too: a slip on the keyboard costs as
-				// much as a plan's mistake, and "@Ash delete …" is one word from it
-				if m := riskyMatch(st.Text, s.hub.Settings().Commands.RiskyPatterns); m != "" {
+				// much as a plan's mistake, and "@Ash delete …" is one word from it. Only
+				// the owner's words count: the quote of what is being answered is the
+				// agent's own, and "Next I can delete …" in it would hold every answer.
+				if m := riskyMatch(withoutReply(st.Text, c.reply), s.hub.Settings().Commands.RiskyPatterns); m != "" {
 					risky = fmt.Sprintf("an order for %s that says %q", sc.handles(st.Targets), m)
 					yours = fmt.Sprintf("Your order for %s says %q", sc.handles(st.Targets), m)
 					typed = typed && !st.Planned
