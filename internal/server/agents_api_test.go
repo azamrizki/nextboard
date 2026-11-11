@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -189,9 +190,16 @@ func TestAgentConsoleHooksEndToEnd(t *testing.T) {
 	}
 	_ = ws.WriteJSON(map[string]any{"t": "i", "d": "quit\r"})
 	h.waitInfo(id, "shell again", state("shell"))
-	// A job in the foreground blocks §3.3.
+	// A job in the foreground blocks §3.3. Wait for the shell to have started it: a fixed
+	// pause was too short under a loaded test run.
 	_ = ws.WriteJSON(map[string]any{"t": "i", "d": "sleep 30\r"})
-	time.Sleep(2200 * time.Millisecond)
+	waitTrue(t, "sleep in the foreground", 15*time.Second, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		idle, comm, err := sess.Foreground(ctx)
+		return err == nil && !idle && comm == "sleep"
+	})
+	time.Sleep(2200 * time.Millisecond) // no client input in the last 2 s
 	if st, body := h.do("POST", "/api/sessions/"+id+"/agent", map[string]any{"mode": "fresh"}, nil); st != 409 || body["code"] != "shell_busy" {
 		t.Fatalf("shell_busy %d %v", st, body)
 	}
