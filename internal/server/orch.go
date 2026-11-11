@@ -296,12 +296,20 @@ func (h hubAdapter) Attention(a orch.Attention) {
 	h.s.events.Publish(map[string]any{"type": "attention", "attention": at})
 }
 
-// PlannerHost: Claude Code must be detected on This PC (decision #6).
-func (h hubAdapter) PlannerHost() (bool, string) {
-	if h.AgentOnMachine(machine.LocalID, "claude") {
+// PlannerHost: the lead's CLI must be detected on This PC (decision #6).
+func (h hubAdapter) PlannerHost(agentID string) (bool, string) {
+	if h.AgentOnMachine(machine.LocalID, agentID) {
 		return true, ""
 	}
-	return false, "claude_missing"
+	return false, agentID + "_missing"
+}
+
+func (h hubAdapter) ProviderRunner(id string) (string, string, error) {
+	return h.s.providerRunner(id)
+}
+
+func (h hubAdapter) Providers() []orch.ProviderInfo {
+	return h.s.providerInfos()
 }
 
 func (h hubAdapter) CreateWorkspace(pid, name string) (project.Workspace, error) {

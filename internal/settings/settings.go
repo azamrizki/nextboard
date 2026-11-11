@@ -124,6 +124,13 @@ type Lead struct {
 	Name        string `json:"name"`
 	Personality string `json:"personality"`
 	TalkFirst   bool   `json:"talkFirst"` // talk and ask back; dangerous work waits for the owner
+	// Runner is what the lead thinks with: "" = Claude Code like the other hidden runs (so through
+	// runner.provider when one is set), "claude" or "codex" = that CLI on its login, ap_… = an API
+	// provider, on the CLI that speaks its API (docs/API-agents.md §10.2).
+	Runner string `json:"runner,omitempty"`
+	// Providers is the API provider the consoles the lead starts run on, by agent id; absent = the
+	// agent's login. An order that names an account wins.
+	Providers map[string]string `json:"providers,omitempty"`
 }
 
 // Memory configures project memory (§12).
@@ -356,6 +363,21 @@ func validate(s *Settings) error {
 	}
 	if len([]rune(s.Lead.Personality)) > 800 {
 		return badSetting("lead.personality: at most 800 characters")
+	}
+	if r := s.Lead.Runner; r != "" && r != "claude" && r != "codex" && !providerRe.MatchString(r) {
+		return badSetting(`lead.runner must be "", "claude", "codex" or the id of an API provider`)
+	}
+	if len(s.Lead.Providers) > 64 {
+		return badSetting("lead.providers: at most 64 agents")
+	}
+	for ag, p := range s.Lead.Providers {
+		if p == "" {
+			delete(s.Lead.Providers, ag)
+			continue
+		}
+		if !idRe.MatchString(ag) || !providerRe.MatchString(p) {
+			return badSetting("lead.providers maps an agent id to the id of an API provider")
+		}
 	}
 	if s.SchemaVersion != 1 {
 		return badSetting("schemaVersion must be 1")

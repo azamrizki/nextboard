@@ -81,8 +81,13 @@ type Hub interface {
 	// Exec runs a goal command ($SHELL -lc) on a machine.
 	Exec(ctx context.Context, machineID, cwd, script string, timeout time.Duration) (int, error)
 	Attention(a Attention)
-	// PlannerHost reports whether claude is detected on This PC.
-	PlannerHost() (bool, string)
+	// PlannerHost reports whether the lead's CLI ("claude" or "codex") is detected on This PC.
+	PlannerHost(agentID string) (bool, string)
+	// ProviderRunner is the CLI that runs hidden runs on an API provider ("claude" or "codex") and
+	// the provider's name; an error when it is gone or neither CLI speaks its API.
+	ProviderRunner(id string) (agentID, name string, err error)
+	// Providers lists the API providers with the agents each can run, for the lead's spawn orders.
+	Providers() []ProviderInfo
 	// AgentOnMachine reports whether an agent CLI is detected on a machine.
 	AgentOnMachine(machineID, agentID string) bool
 	CreateWorkspace(projectID, name string) (project.Workspace, error)

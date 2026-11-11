@@ -698,7 +698,15 @@ export interface Settings {
   /** Code workbench (docs/API-studio.md §7.2). */
   editor?: { onSave: { pattern: string; command: string }[] | null };
   /** The lead agent (docs/API-orchestration.md §3.9). */
-  lead?: { name: string; personality: string; talkFirst: boolean };
+  lead?: {
+    name: string;
+    personality: string;
+    talkFirst: boolean;
+    /** "" = like hidden runs (Claude Code), "claude" | "codex" on its login, or an API provider id. */
+    runner?: string;
+    /** agent id → API provider id for the consoles the lead starts. */
+    providers?: Record<string, string>;
+  };
   usage?: { background: boolean; agents?: Record<string, boolean>; chime: { enabled: boolean; play: 'after100' | 'always'; sound: 'bell' | 'chime' | 'pop' | 'soft' } };
   runner?: { defaultAgent: 'claude' | 'codex' | string; /** hidden runs through this API provider; absent = the login */ provider?: string };
   git?: { commitWithRunner: boolean };

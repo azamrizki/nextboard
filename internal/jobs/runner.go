@@ -58,6 +58,9 @@ var purposes = map[string]purposePolicy{
 	"code-ask":        {readOnly: true, partial: true, timeout: 5 * time.Minute},
 }
 
+// ProviderLogin in RunnerRequest.Provider keeps a run on the CLI's login whatever runner.provider says.
+const ProviderLogin = "login"
+
 // RunnerRequest describes one hidden runner job.
 type RunnerRequest struct {
 	Purpose   string
@@ -66,7 +69,10 @@ type RunnerRequest struct {
 	Cwd       string // planner: <data>/runner/planner
 	Agent     string // "claude" | "codex"
 	Command   string // binary to run (settings path override); "" = Agent
-	Env       []string
+	// Provider is the account, for the hub to fill in Env and Extra (docs/API-agents.md §10.2):
+	// "" = settings runner.provider, ProviderLogin = the CLI's login, ap_… = that API provider.
+	Provider string
+	Env      []string
 	// Extra goes on the CLI's command line before the prompt (codex: an API provider's -c).
 	Extra   []string
 	Prompt  string // sent on stdin
@@ -224,7 +230,7 @@ func runnerScript(req RunnerRequest) string {
 		`d=$(mktemp -d /tmp/nb-run.XXXXXX) || exit 125; ` +
 		`case "$d" in /tmp/nb-run.??????) ;; *) echo 'unexpected mktemp path' >&2; exit 125;; esac; ` +
 		`trap 'rm -rf -- "$d"' EXIT; ` +
-		`printf '%s' ` + machine.Quote(string(req.Schema)) + ` > "$d/schema.json" || exit 125; ` +
+		`printf '%s' ` + machine.Quote(string(StrictSchema(req.Schema))) + ` > "$d/schema.json" || exit 125; ` +
 		`cat > "$d/prompt" || exit 125; ` +
 		run + ` < "$d/prompt" & c=$!; ` +
 		`trap 'kill -TERM "$c" 2>/dev/null; t=1' TERM INT HUP; ` +
@@ -392,6 +398,9 @@ func classify(req RunnerRequest, res *machine.ExecResult, execErr error, p *stre
 		if len(s) == 0 {
 			o.code, o.msg = "bad_output", "the runner output is not valid JSON"
 			return o
+		}
+		if req.Agent == "codex" {
+			s = FromStrict(req.Schema, s)
 		}
 		o.structured = s
 	}

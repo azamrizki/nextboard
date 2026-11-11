@@ -4,8 +4,10 @@
 
 import { useEffect, useState } from 'react';
 import { errorMessage } from '../api';
+import { useMachineAgents } from '../agents/catalog';
 import { patchSettings, useEffectiveSettings } from '../agents/settings';
-import { SwitchRow } from '../components/Switch';
+import { SettingRow, SwitchRow } from '../components/Switch';
+import { compatible, useProviders, type ApiProvider } from '../providers/providers';
 import { toast } from '../components/Toast';
 import { leadNameOf } from '../orch/lead';
 import { LeadAvatar } from '../orch/OrderBits';
@@ -34,7 +36,7 @@ export function LeadPane() {
           Who leads your agents
         </h3>
         <p className="setting-hint">
-          The lead is your assistant and the agent who directs the others. It runs on Claude Code on This PC, so talking to it uses your plan. Name a card on the board to give that card a lead of its own.
+          The lead is your assistant and the agent who directs the others. It runs a CLI on This PC (below), so talking to it uses that CLI’s plan or API provider. Name a card on the board to give that card a lead of its own.
         </p>
         <div className="lead-who">
           <LeadAvatar name={draftName || name} size="lg" />
@@ -74,6 +76,7 @@ export function LeadPane() {
           />
         </div>
       </section>
+      <LeadRunner />
       <section className="card settings-card" aria-labelledby="lead-how">
         <h3 id="lead-how" className="section-title">
           How it works with you
@@ -86,5 +89,74 @@ export function LeadPane() {
         />
       </section>
     </div>
+  );
+}
+
+/** The CLI a hidden run takes on a provider: Claude Code on an Anthropic API, Codex on the Responses API. */
+function runnerCli(p: ApiProvider): string {
+  if (compatible({ id: 'claude', base: '' }, p)) return 'Claude Code';
+  if (compatible({ id: 'codex', base: '' }, p)) return 'Codex';
+  return '';
+}
+
+/** What the lead thinks with, and what the consoles it starts run on (docs/API-agents.md §10.2). */
+function LeadRunner() {
+  const s = useEffectiveSettings();
+  const providers = useProviders();
+  const { agents } = useMachineAgents('local');
+  const name = leadNameOf(s);
+  const runner = s.lead?.runner ?? '';
+  const hidden = providers.find((p) => p.id === s.runner?.provider);
+  const fits = providers.filter((p) => runnerCli(p));
+  const known = runner === '' || runner === 'claude' || runner === 'codex' || fits.some((p) => p.id === runner);
+  const picks = s.lead?.providers ?? {};
+  const rows = agents.filter((a) => a.kind === 'agent' && providers.some((p) => compatible(a, p)));
+  return (
+    <section className="card settings-card" aria-labelledby="lead-runs">
+      <h3 id="lead-runs" className="section-title">
+        What it runs on
+      </h3>
+      <SettingRow
+        title="Thinks with"
+        hint={`${name}’s own turns: planning, splitting results, summaries. On a login they use that plan; on an API provider its budget counts them. Codex needs an OpenAI provider with the Responses API.`}
+      >
+        <select className="control control-sm" aria-label="Lead runs on" value={runner} onChange={(e) => void save({ runner: e.target.value || null })}>
+          <option value="">Like hidden runs · Claude Code{hidden && runnerCli(hidden) === 'Claude Code' ? ` on API · ${hidden.name}` : ''}</option>
+          <option value="claude">Claude Code · its login</option>
+          <option value="codex">Codex · its login</option>
+          {fits.length > 0 && (
+            <optgroup label="API providers">
+              {fits.map((p) => (
+                <option key={p.id} value={p.id}>
+                  API · {p.name} ({runnerCli(p)})
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {!known && <option value={runner}>A removed provider</option>}
+        </select>
+      </SettingRow>
+      {rows.length > 0 ? (
+        rows.map((a) => {
+          const opts = providers.filter((p) => compatible(a, p));
+          const v = picks[a.id] ?? '';
+          return (
+            <SettingRow key={a.id} title={`New ${a.name} consoles`} hint={`What a ${a.name} console ${name} starts runs on. An order that names a provider (“start two Claude on the API”) or “login” wins.`}>
+              <select className="control control-sm" aria-label={`${a.name} consoles the lead starts`} value={v} onChange={(e) => void save({ providers: { [a.id]: e.target.value || null } })}>
+                <option value="">Its login</option>
+                {opts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    API · {p.name}
+                  </option>
+                ))}
+                {v && !opts.some((p) => p.id === v) && <option value={v}>A removed provider</option>}
+              </select>
+            </SettingRow>
+          );
+        })
+      ) : (
+        <p className="setting-hint">Consoles {name} starts use their login. Add an API provider in Settings › API providers to run them there instead.</p>
+      )}
+    </section>
   );
 }

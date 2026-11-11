@@ -80,8 +80,7 @@ func (s *Service) splitForward(c *execCtx, sources []string, parts []ReplyPart, 
 	}
 	// The answer can come at any moment from now on, so it gets a context of its own.
 	done := *c
-	_, err = s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "planner", ProjectID: c.projectID, Agent: "claude",
-		Command: s.claudeCommand(), Prompt: splitPrompt + string(raw), Schema: SplitSchema,
+	req, err := s.leadRequest(jobs.RunnerRequest{Purpose: "planner", ProjectID: c.projectID, Prompt: splitPrompt + string(raw), Schema: SplitSchema,
 		OnFinish: func(j jobs.Job) {
 			// The hub is stopping: nothing may run now, and the thread must say so before it exits.
 			if j.Code == "hub_restart" {
@@ -90,6 +89,9 @@ func (s *Service) splitForward(c *execCtx, sources []string, parts []ReplyPart, 
 			}
 			s.splitDone(&done, j, sources, parts, targets, depth, line)
 		}})
+	if err == nil {
+		_, err = s.hub.SubmitRunner(req)
+	}
 	if err != nil {
 		return false
 	}
@@ -101,7 +103,7 @@ func (s *Service) splitForward(c *execCtx, sources []string, parts []ReplyPart, 
 func (s *Service) splitDone(c *execCtx, j jobs.Job, sources []string, parts []ReplyPart, targets []string, depth int, line forwardLine) {
 	var out splitOutput
 	reason := ""
-	answered := plannerAnswer(j, &out, &reason)
+	answered := plannerAnswer(j, &out, &reason, s.leadRunOrDefault())
 	s.recordPlanner(j, answered)
 	if !s.lineExists(line) {
 		s.note(c, "Forward from "+s.handlesOf(sources)+" not sent: its line was removed.")

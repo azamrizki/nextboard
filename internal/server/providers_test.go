@@ -2,12 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/providers"
+	"github.com/azamrizki/nextboard/internal/session"
 	"github.com/azamrizki/nextboard/internal/usage"
 )
 
@@ -254,6 +257,57 @@ func TestRunnerThroughProvider(t *testing.T) {
 	_ = h.srv.withRunnerProvider(&req)
 	if len(req.Env) != 1 || req.Env[0] != "CODEX_HOME=/login" || len(req.Extra) != 0 {
 		t.Fatalf("codex left %v %v", req.Env, req.Extra)
+	}
+	// a run that names its account: the login whatever the setting says, or a provider by id,
+	// and then one that cannot run its CLI is an error instead of the login
+	req = jobs.RunnerRequest{Purpose: "planner", Agent: "claude", Provider: jobs.ProviderLogin, Env: []string{"CLAUDE_CONFIG_DIR=/the/login"}}
+	if err := h.srv.withRunnerProvider(&req); err != nil || len(req.Env) != 1 {
+		t.Fatalf("login %v %v", err, req.Env)
+	}
+	if st, _ := h.do("PATCH", "/api/settings", map[string]any{"runner": map[string]any{"provider": nil}}, nil); st != 200 {
+		t.Fatal(st)
+	}
+	req = jobs.RunnerRequest{Purpose: "planner", Agent: "claude", Provider: id}
+	if err := h.srv.withRunnerProvider(&req); err != nil || !slices.Contains(req.Env, "ANTHROPIC_AUTH_TOKEN="+providerKey) {
+		t.Fatalf("named %v %v", err, len(req.Env))
+	}
+	req = jobs.RunnerRequest{Purpose: "planner", Agent: "codex", Provider: id}
+	if err := h.srv.withRunnerProvider(&req); !errors.Is(err, session.ErrProviderMismatch) {
+		t.Fatalf("named, wrong CLI: %v", err)
+	}
+	// which CLI runs the lead on a provider, and what the lead may name for new consoles
+	if ag, name, err := h.srv.providerRunner(id); err != nil || ag != "claude" || name != "GLM" {
+		t.Fatalf("runner %q %q %v", ag, name, err)
+	}
+	_, chat := h.do("POST", "/api/providers", map[string]any{"name": "Chat", "kind": "openai", "api": "chat", "baseUrl": api.URL, "model": "m", "apiKey": providerKey}, nil)
+	if _, _, err := h.srv.providerRunner(chat["id"].(string)); !errors.Is(err, session.ErrProviderMismatch) {
+		t.Fatalf("chat runner %v", err)
+	}
+	infos := h.srv.providerInfos()
+	b, _ := json.Marshal(infos)
+	if len(infos) != 2 || strings.Contains(string(b), providerKey) || strings.Contains(string(b), api.URL) {
+		t.Fatalf("infos %s", b)
+	}
+	for _, pi := range infos {
+		if pi.ID == id && !slices.Contains(pi.Agents, "claude") || slices.Contains(pi.Agents, "shell") {
+			t.Fatalf("agents %+v", pi)
+		}
+	}
+	// settings: lead.runner and lead.providers
+	if st, b := h.do("PATCH", "/api/settings", map[string]any{"lead": map[string]any{"runner": id, "providers": map[string]any{"claude": id}}}, nil); st != 200 {
+		t.Fatalf("lead %d %v", st, b)
+	}
+	for _, bad := range []map[string]any{{"runner": "gpt"}, {"providers": map[string]any{"claude": "pf_abcd"}}, {"providers": map[string]any{"Bad Id": id}}} {
+		if st, _ := h.do("PATCH", "/api/settings", map[string]any{"lead": bad}, nil); st != 400 {
+			t.Fatalf("bad lead %v: %d", bad, st)
+		}
+	}
+	// removing the provider takes it out of the lead's settings too
+	if st, _ := h.do("DELETE", "/api/providers/"+id, nil, nil); st != 200 {
+		t.Fatal(st)
+	}
+	if l := h.srv.settings.Get().Lead; l.Runner != "" || len(l.Providers) != 0 || l.Name == "" {
+		t.Fatalf("lead after delete %+v", l)
 	}
 }
 

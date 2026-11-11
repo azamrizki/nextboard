@@ -198,8 +198,10 @@ export interface Confirmation {
 
 export interface PlannerStatus {
   available: boolean;
-  reason?: 'claude_missing' | 'not_logged_in' | 'disabled' | 'cooldown' | string;
+  reason?: 'claude_missing' | 'codex_missing' | 'not_logged_in' | 'disabled' | 'cooldown' | string;
   lastLatencyMs?: number;
+  /** What the lead thinks with: "Claude Code", "Codex" or "API · <provider>". */
+  runner?: string;
 }
 
 // ---- §4 threads & orders ----------------------------------------------------------

@@ -222,8 +222,12 @@ func (s *Service) process(c *execCtx, text string) (string, *Confirmation) {
 			limit = maxCommand
 		}
 		if ok, reason := s.PlannerAvailable(c.plannerMode); ok && len([]rune(text)) <= limit {
-			if s.startPlanner(c, sc, text) {
+			ok, why := s.startPlanner(c, sc, text)
+			if ok {
 				return "pending", nil
+			}
+			if why != "" {
+				b.notes = append([]string{"Planner unavailable: " + why}, b.notes...)
 			}
 		} else if reason != "" && reason != "disabled" {
 			b.notes = append([]string{"Planner unavailable: " + reason}, b.notes...)

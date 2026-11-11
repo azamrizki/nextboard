@@ -22,6 +22,7 @@ import (
 
 	"github.com/azamrizki/nextboard/internal/agent"
 	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/orch"
 	"github.com/azamrizki/nextboard/internal/providers"
 	"github.com/azamrizki/nextboard/internal/session"
 	"github.com/azamrizki/nextboard/internal/usage"
@@ -391,8 +392,31 @@ func (s *Server) handleProviderDelete(w http.ResponseWriter, r *http.Request, p 
 		providerErr(w, err)
 		return
 	}
-	if s.settings.Get().Runner.Provider == id {
-		_, _ = s.settings.Patch([]byte(`{"runner":{"provider":null}}`)) // broadcast by the store
+	// nothing may keep naming it: the hidden runs, the lead, the lead's consoles (broadcast by the store)
+	set := s.settings.Get()
+	patch := map[string]any{}
+	if set.Runner.Provider == id {
+		patch["runner"] = map[string]any{"provider": nil}
+	}
+	lead := map[string]any{}
+	if set.Lead.Runner == id {
+		lead["runner"] = nil
+	}
+	gone := map[string]any{}
+	for ag, pid := range set.Lead.Providers {
+		if pid == id {
+			gone[ag] = nil
+		}
+	}
+	if len(gone) > 0 {
+		lead["providers"] = gone
+	}
+	if len(lead) > 0 {
+		patch["lead"] = lead
+	}
+	if len(patch) > 0 {
+		b, _ := json.Marshal(patch)
+		_, _ = s.settings.Patch(b)
 	}
 	if r.URL.Query().Get("purge") == "1" {
 		_ = os.RemoveAll(s.st.Path("providers", id))
@@ -617,24 +641,69 @@ func cmpOrStr(a, b string) string {
 	return b
 }
 
-// ---- hidden runs (settings.runner.provider)
+// ---- hidden runs (settings.runner.provider, lead.runner)
+
+// providerRunner is the CLI that runs hidden runs on provider id: Claude Code on an Anthropic API,
+// Codex on the Responses API. The runner has no OpenCode, so a Chat Completions provider has none.
+func (s *Server) providerRunner(id string) (string, string, error) {
+	p, ok := s.providers.Get(id)
+	if !ok {
+		return "", "", fmt.Errorf("%w: it was removed", session.ErrProviderNotFound)
+	}
+	for _, base := range []string{"claude", "codex"} {
+		if providers.Compatible(base, p) {
+			return base, p.Name, nil
+		}
+	}
+	return "", "", fmt.Errorf("%w: hidden runs need an Anthropic-compatible API (Claude Code) or the Responses API (Codex), and %s has neither", session.ErrProviderMismatch, p.Name)
+}
+
+// providerInfos lists the providers with the agents that are on and can run on each, for the lead.
+func (s *Server) providerInfos() []orch.ProviderInfo {
+	off := s.settings.Get().Agents.Disabled
+	out := []orch.ProviderInfo{}
+	for _, p := range s.providers.List() {
+		pi := orch.ProviderInfo{ID: p.ID, Name: p.Name, Agents: []string{}}
+		for _, a := range s.agents.All() {
+			if a.Kind == agent.KindAgent && !off[a.ID] && providers.Compatible(a.CapBase(), p) {
+				pi.Agents = append(pi.Agents, a.ID)
+			}
+		}
+		out = append(out, pi)
+	}
+	return out
+}
 
 // withRunnerProvider runs a hidden job through the API provider of settings.runner.provider when
 // that provider can run the job's CLI, and notes what it used in the provider's ledger. A spent
 // budget refuses the job: it never moves to the subscription by itself. A provider that cannot
 // run that CLI leaves the job on the login.
+//
+// req.Provider overrides the setting: jobs.ProviderLogin keeps the login, an id uses that provider,
+// and then a provider that cannot run the CLI is an error instead of the login.
 func (s *Server) withRunnerProvider(req *jobs.RunnerRequest) error {
-	id := s.settings.Get().Runner.Provider
+	id, named := req.Provider, req.Provider != ""
+	switch id {
+	case jobs.ProviderLogin:
+		return nil
+	case "":
+		id = s.settings.Get().Runner.Provider
+	}
 	if id == "" {
 		return nil
 	}
 	a, ok := s.agents.Get(req.Agent)
 	if !ok {
+		if named {
+			return fmt.Errorf("%w: %s is not an agent", session.ErrProviderMismatch, req.Agent)
+		}
 		return nil
 	}
 	pl, err := providerHub{s}.Launch(id, a)
 	switch {
 	case errors.Is(err, session.ErrProviderBudget):
+		return err
+	case err != nil && named:
 		return err
 	case err != nil:
 		return nil

@@ -293,8 +293,15 @@ Orchestrator adalah **lead agent**: asisten owner sekaligus pemimpin agent lain,
 // settings.lead (PATCH /api/settings menggabungkan per kolom)
 { "name": "Aruna",         // 1–24 karakter, satu baris; bawaan "Aruna" sejak 2026-11-08 (sebelumnya "Nara", yang tersimpan ikut pindah)
   "personality": "",       // ≤ 800 karakter; ditulis owner, aturan hub setelahnya tetap berlaku
-  "talkFirst": true }
+  "talkFirst": true,
+  "runner": "",            // yang dipakai lead berpikir (2026-11-11): "" = seperti run tersembunyi (Claude Code, lewat runner.provider bila ada),
+                           // "claude" | "codex" = CLI itu pada login-nya, "ap_…" = API provider pada CLI yang bicara API-nya
+  "providers": { "claude": "ap_…" } }  // console yang di-spawn lead, per agent id; tidak ada = login agent itu
 ```
+
+- **Runner lead** (Settings › Lead agent › What it runs on). Berlaku untuk giliran planner, forward `mode:"split"` dan ringkasan thread. Provider Anthropic-compatible → Claude Code, OpenAI dengan Responses API → Codex, Chat Completions saja → tidak bisa (runner tidak punya OpenCode). CLI lead harus terpasang di This PC: tanpa itu `GET /api/planner` memberi `reason: "claude_missing" | "codex_missing"`, dan `runner` menyebut labelnya ("Claude Code", "Codex", "API · <nama>"). Login gagal ditunggu satu menit hanya untuk runner yang gagal; memilih runner lain langsung dicoba. Provider yang hilang: alasan ditulis di thread dan parser yang menjawab. Menghapus provider mengosongkan `lead.runner` dan `lead.providers` yang menunjuknya.
+- **Skema strict untuk Codex.** Codex 0.165 mengirim `--output-schema` ke API dengan `"strict": true` (diukur terhadap API palsu di loopback), dan mode strict menolak properti opsional, objek terbuka, `maxLength`/`minLength`. Runner menulis ulang skema untuk Codex (`jobs.StrictSchema`: semua properti `required`, yang opsional jadi nullable, objek bebas seperti `data` jadi string JSON) lalu mengembalikan jawabannya ke bentuk semula (`jobs.FromStrict`: null opsional dibuang, string JSON di-decode). Berlaku untuk semua run Codex yang memakai skema.
+- **Spawn oleh lead di API.** Input planner memuat `providers: [{id, name, agents}]` (tanpa key atau alamat). Step `spawn`/`group.add` boleh membawa `account`: nama atau id provider, atau `login`. Tanpa `account` berlaku `lead.providers[agent]`; begitu juga perintah ketikan seperti `spawn 1 claude`. Spawn dari panel, layout, dan handoff tidak terpengaruh. Provider tak dikenal menghentikan step dengan catatan; provider yang tidak cocok dengan agent ditolak oleh pembuatan session (`provider_mismatch`). Console provider memakai model provider kecuali slot memilih model.
 
 - **Identitas.** Prompt planner dibuka dengan nama dan kepribadian. Kartu punya lead sendiri bila judulnya bukan `Orchestrator[ n]`; `data.personality` kartu menimpa yang global (dipotong ke 800 karakter).
 - **Talk first.** Planner boleh membalas tanpa step dan bertanya balik saat ada yang belum jelas. Step yang dikembalikannya langsung jalan, tanpa Go ahead (keputusan pemilik, 2026-11-04).

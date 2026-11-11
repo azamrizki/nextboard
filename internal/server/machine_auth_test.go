@@ -200,9 +200,9 @@ func TestAgentDisabled(t *testing.T) {
 	patch(map[string]any{"disabled": map[string]any{"shell": nil}})
 
 	// hidden runs as well: the planner stops, and nothing starts the CLI behind the scenes
-	if ok, _ := (hubAdapter{h.srv}).PlannerHost(); ok {
+	if ok, _ := (hubAdapter{h.srv}).PlannerHost("claude"); ok {
 		patch(map[string]any{"disabled": map[string]any{"claude": true}})
-		if ok, _ := (hubAdapter{h.srv}).PlannerHost(); ok {
+		if ok, _ := (hubAdapter{h.srv}).PlannerHost("claude"); ok {
 			t.Fatal("planner masih memakai Claude Code yang dimatikan")
 		}
 		patch(map[string]any{"disabled": map[string]any{"claude": nil}})

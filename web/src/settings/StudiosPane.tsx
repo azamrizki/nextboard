@@ -89,13 +89,13 @@ export function StudiosPane() {
 /** Hidden runs through an API provider: the lead, memory, summaries, commit messages, documents. */
 function RunnerProvider({ agent, value }: { agent: string; value: string }) {
   const providers = useProviders();
-  // the lead and the thread summaries always run Claude Code; the rest the default CLI
+  // the lead and the thread summaries run Claude Code (unless Settings › Lead agent picks theirs); the rest the default CLI
   const fits = providers.filter((p) => compatible({ id: agent, base: '' }, p) || compatible({ id: 'claude', base: '' }, p));
   if (!providers.length && !value) return null;
   return (
     <SettingRow
       title="Run through"
-      hint="An API provider instead of the CLI’s login, for every hidden run its CLI can make: the lead agent and thread summaries (Claude Code, so an Anthropic-compatible provider), and the rest with the default CLI above. Its budget counts them."
+      hint="An API provider instead of the CLI’s login, for every hidden run its CLI can make: the lead agent and thread summaries (Claude Code, so an Anthropic-compatible provider, unless Settings › Lead agent picks what the lead runs on), and the rest with the default CLI above. Its budget counts them."
     >
       <select className="control control-sm" aria-label="Run hidden runs through" value={value} onChange={(e) => void save({ runner: { provider: e.target.value || null } }, 'hidden runs')}>
         <option value="">The CLI’s login</option>

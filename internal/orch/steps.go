@@ -15,12 +15,14 @@ import (
 // Step is one unit of work of a command (docs/API-orchestration.md §3.4).
 // Only the fields of its op are set.
 type Step struct {
-	Op             string         `json:"op"`
-	Targets        []string       `json:"targets,omitempty"`
-	Text           string         `json:"text,omitempty"`
-	Mode           string         `json:"mode,omitempty"`
-	Count          int            `json:"count,omitempty"`
-	Agent          string         `json:"agent,omitempty"`
+	Op      string   `json:"op"`
+	Targets []string `json:"targets,omitempty"`
+	Text    string   `json:"text,omitempty"`
+	Mode    string   `json:"mode,omitempty"`
+	Count   int      `json:"count,omitempty"`
+	Agent   string   `json:"agent,omitempty"`
+	// Account: spawn on this API provider (its name or id), or "login"; "" = settings lead.providers.
+	Account        string         `json:"account,omitempty"`
 	Role           string         `json:"role,omitempty"`
 	GroupID        string         `json:"groupId,omitempty"`
 	NewGroup       *NewGroup      `json:"newGroup,omitempty"`

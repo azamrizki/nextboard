@@ -32,7 +32,9 @@ type plannerState struct {
 	failures      int
 	cooldownUntil time.Time
 	loginFailedAt time.Time
-	lastLatencyMs int64
+	// loginFailedFor is the lead.runner that failed: choosing another one tries at once.
+	loginFailedFor string
+	lastLatencyMs  int64
 }
 
 // PlanSchema is the JSON schema of the planner output.
@@ -45,7 +47,7 @@ var PlanSchema = json.RawMessage(`{"type":"object","additionalProperties":false,
 	`"sources":{"type":"array","items":{"type":"string"},"maxItems":12},` +
 	`"text":{"type":"string","maxLength":8000},` +
 	`"count":{"type":"integer","minimum":1,"maximum":12},` +
-	`"agent":{"type":"string"},"role":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},` +
+	`"agent":{"type":"string"},"account":{"type":"string"},"role":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},` +
 	`"source":{"type":"string"},"mode":{"type":"string","enum":["digest","split"]},` +
 	`"query":{"type":"string","enum":["status","finished","needsYou","summary","help"]},` +
 	`"kind":{"type":"string","enum":["note","text","checklist","kanban","calendar","uptime","orchestrator","web","shape","branches","editor","memory","file"]},` +
@@ -61,6 +63,8 @@ type PlannerStatus struct {
 	Available     bool   `json:"available"`
 	Reason        string `json:"reason,omitempty"`
 	LastLatencyMs int64  `json:"lastLatencyMs"`
+	// Runner names what the lead thinks with: "Claude Code", "Codex" or "API · <provider>".
+	Runner string `json:"runner,omitempty"`
 }
 
 // PlannerAvailable applies §3.5 (mode = the request's "planner").
@@ -68,13 +72,17 @@ func (s *Service) PlannerAvailable(mode string) (bool, string) {
 	if mode == "off" || s.hub.Settings().Commands.Planner == "off" {
 		return false, "disabled"
 	}
-	if ok, _ := s.hub.PlannerHost(); !ok {
-		return false, "claude_missing"
+	lr, err := s.leadRunner()
+	if err != nil {
+		return false, "the lead's runner: " + err.Error()
+	}
+	if ok, reason := s.hub.PlannerHost(lr.agent); !ok {
+		return false, reason
 	}
 	now := s.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.plan.loginFailedAt.IsZero() && now.Sub(s.plan.loginFailedAt) < plannerLoginWait {
+	if !s.plan.loginFailedAt.IsZero() && now.Sub(s.plan.loginFailedAt) < plannerLoginWait && s.plan.loginFailedFor == s.hub.Settings().Lead.Runner {
 		return false, "not_logged_in"
 	}
 	if now.Before(s.plan.cooldownUntil) {
@@ -86,9 +94,13 @@ func (s *Service) PlannerAvailable(mode string) (bool, string) {
 // Planner is GET /api/planner.
 func (s *Service) Planner() PlannerStatus {
 	ok, reason := s.PlannerAvailable("")
+	runner := ""
+	if lr, err := s.leadRunner(); err == nil {
+		runner = lr.label
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return PlannerStatus{Available: ok, Reason: reason, LastLatencyMs: s.plan.lastLatencyMs}
+	return PlannerStatus{Available: ok, Reason: reason, LastLatencyMs: s.plan.lastLatencyMs, Runner: runner}
 }
 
 // plannerInput is the snapshot sent on stdin: names, states, short tile labels
@@ -110,8 +122,10 @@ type plannerInput struct {
 	PendingPlan   []PlanNote       `json:"pendingPlan,omitempty"`
 	Agents        []string         `json:"agents"`
 	CustomAgents  []string         `json:"customAgents"`
-	Loops         []string         `json:"loops"`
-	Selection     []string         `json:"selection"`
+	// Providers are the API providers a spawned console can run on (never a key).
+	Providers []ProviderInfo `json:"providers,omitempty"`
+	Loops     []string       `json:"loops"`
+	Selection []string       `json:"selection"`
 }
 
 const plannerPrompt = `Turn what the user wants done into steps for the hub. The input JSON below describes the consoles (by handle), groups, orchestrator cards and the recent thread.
@@ -122,6 +136,7 @@ Rules:
 - Use only handles and group names that appear in the input. Never invent consoles.
 - You can address consoles and groups on any board. Answer questions about the boards from the input.
 - spawn, group.create and node.add land on the current board unless you set "workspace" to the name of another board.
+- "providers" lists the API providers and which agents can run on each. When the user wants new consoles on one ("on the API", "pakai API", a provider's name), set "account" of the spawn step to that provider's name, with an agent it lists; "login" keeps them on the subscription. Otherwise leave "account" out: the owner's default applies.
 - "send" gives a console a self-contained instruction in "text" (targets = handles). When several consoles should share a task, split the work: one send step per console with its own part, unless the user asked for the same prompt.
 - Rewrite vague orders into clear, specific instructions, keeping the user's intent. Do not add work the user did not ask for.
 - Put your answer to the user in the top-level "reply" field (max 2000 characters), once. Do not repeat it in a "reply" step. Use "ask" for status questions.
@@ -222,6 +237,7 @@ func (s *Service) plannerSnapshot(c *execCtx, sc *scope, text string) plannerInp
 	for _, l := range s.Loops.List(sc.proj.ID) {
 		in.Loops = append(in.Loops, l.Name)
 	}
+	in.Providers = s.hub.Providers()
 	for _, nid := range c.selection {
 		if sid, ok := sc.sidOf[nid]; ok {
 			in.Selection = append(in.Selection, sc.handle(sid))
@@ -272,8 +288,8 @@ func tileLabel(n *board.Node) string {
 }
 
 // startPlanner submits a planner turn for the thread. false = could not
-// start (the caller falls back to the parser).
-func (s *Service) startPlanner(c *execCtx, sc *scope, text string) bool {
+// start (the caller falls back to the parser), with why when the owner should know.
+func (s *Service) startPlanner(c *execCtx, sc *scope, text string) (bool, string) {
 	in := s.plannerSnapshot(c, sc, text)
 	if cf, ok := s.Confirms.Pending(c.threadID, s.Now()); ok && cf.Kind == ConfProposal {
 		in.PendingPlan = cf.Plan
@@ -288,8 +304,8 @@ func (s *Service) startPlanner(c *execCtx, sc *scope, text string) bool {
 	tq.busy, tq.ctx, tq.text, tq.startedAt, tq.thinkSaid, tq.thinkID = true, c, text, s.Now(), false, ""
 	s.mu.Unlock()
 	tid := c.threadID
-	_, err := s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "planner", ProjectID: c.projectID, Agent: "claude",
-		Command: s.claudeCommand(), Prompt: leadPrompt(s.leadOf(sc)) + plannerPrompt + string(raw), Schema: PlanSchema,
+	req, err := s.leadRequest(jobs.RunnerRequest{Purpose: "planner", ProjectID: c.projectID,
+		Prompt: leadPrompt(s.leadOf(sc)) + plannerPrompt + string(raw), Schema: PlanSchema,
 		OnFinish: func(j jobs.Job) {
 			// The hub is stopping: nothing may run now, and the thread must say so before it exits.
 			if j.Code == "hub_restart" {
@@ -298,15 +314,18 @@ func (s *Service) startPlanner(c *execCtx, sc *scope, text string) bool {
 			}
 			go s.plannerDone(tid, j)
 		}})
+	if err == nil {
+		_, err = s.hub.SubmitRunner(req)
+	}
 	if err != nil {
 		s.mu.Lock()
 		tq.busy = false
 		s.mu.Unlock()
-		return false
+		return false, err.Error()
 	}
 	c.planned = true
 	s.hub.Publish(map[string]any{"type": "command", "commandId": c.commandID, "clientId": c.clientID, "state": "planning"})
-	return true
+	return true, ""
 }
 
 // plannerTick posts "Still thinking…" after 3 s.
@@ -369,7 +388,7 @@ func (s *Service) plannerDone(tid string, j jobs.Job) {
 	var plan *planOutput
 	reason := ""
 	var p planOutput
-	if plannerAnswer(j, &p, &reason) {
+	if plannerAnswer(j, &p, &reason, s.leadRunOrDefault()) {
 		plan = &p
 	}
 	s.recordPlanner(j, plan != nil)
@@ -409,7 +428,7 @@ func (s *Service) plannerDone(tid string, j jobs.Job) {
 }
 
 // plannerAnswer decodes a planner job's JSON into out, or says in reason why it has none.
-func plannerAnswer(j jobs.Job, out any, reason *string) bool {
+func plannerAnswer(j jobs.Job, out any, reason *string, lr leadRun) bool {
 	if j.State != jobs.StateDone {
 		*reason = j.Code
 		if *reason == "" {
@@ -417,9 +436,13 @@ func plannerAnswer(j jobs.Job, out any, reason *string) bool {
 		}
 		switch j.Code {
 		case "cli_not_logged_in":
-			*reason = "Claude Code is not signed in. Open a Claude Code console on a board and sign in there once."
+			if lr.provider != "" && lr.provider != jobs.ProviderLogin {
+				*reason = lr.label + " refused the key. Check it in Settings › API providers."
+			} else {
+				*reason = lr.label + " is not signed in. Open a " + lr.label + " console on a board and sign in there once."
+			}
 		case "cli_missing":
-			*reason = "claude not found"
+			*reason = lr.agent + " not found"
 		case "timeout":
 			*reason = "no answer in time. Send it again."
 		}
@@ -454,7 +477,7 @@ func (s *Service) recordPlanner(j jobs.Job, ok bool) {
 	}
 	s.plan.failures++
 	if j.Code == "cli_not_logged_in" {
-		s.plan.loginFailedAt = s.Now()
+		s.plan.loginFailedAt, s.plan.loginFailedFor = s.Now(), s.hub.Settings().Lead.Runner
 	}
 	if s.plan.failures >= 2 {
 		s.plan.cooldownUntil = s.Now().Add(plannerCooldown)
@@ -554,6 +577,7 @@ type plannerStep struct {
 	Text     string   `json:"text"`
 	Count    int      `json:"count"`
 	Agent    string   `json:"agent"`
+	Account  string   `json:"account"`
 	Role     string   `json:"role"`
 	Group    string   `json:"group"`
 	Name     string   `json:"name"`
@@ -651,7 +675,7 @@ func (s *Service) translatePlan(sc *scope, p planOutput) ([]Step, []string) {
 				ok = false
 			}
 		case "spawn":
-			st.Count, st.Agent, st.Role = max(ps.Count, 1), ps.Agent, RoleOf(ps.Role)
+			st.Count, st.Agent, st.Role, st.Account = max(ps.Count, 1), ps.Agent, RoleOf(ps.Role), ps.Account
 			if ps.Group != "" {
 				if g := sc.groupByName(ps.Group); g != nil {
 					st.Op, st.GroupID, st.WorkspaceID = "group.add", g.ID, sc.wsOf[g.ID]
@@ -672,7 +696,7 @@ func (s *Service) translatePlan(sc *scope, p planOutput) ([]Step, []string) {
 				ok = false
 				break
 			}
-			st.GroupID, st.WorkspaceID, st.Count, st.Agent, st.Role = g.ID, sc.wsOf[g.ID], max(ps.Count, 1), ps.Agent, RoleOf(ps.Role)
+			st.GroupID, st.WorkspaceID, st.Count, st.Agent, st.Role, st.Account = g.ID, sc.wsOf[g.ID], max(ps.Count, 1), ps.Agent, RoleOf(ps.Role), ps.Account
 		case "pause", "resume", "restart", "kill":
 			st.Targets, ok = names(ps.Targets)
 			ok = ok && len(st.Targets) > 0

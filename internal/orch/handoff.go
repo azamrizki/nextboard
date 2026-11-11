@@ -420,7 +420,7 @@ func (s *Service) collect(id string) {
 	prompt += "\nConversation of @" + in.Handle + ":\n\n" + text
 	var cmd string
 	if machineID == machine.LocalID && runAgent == "claude" {
-		cmd = s.claudeCommand()
+		cmd = s.cliCommand("claude")
 	}
 	j, err := s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "handoff-summary", ProjectID: h.projectID, MachineID: machineID,
 		Agent: runAgent, Command: cmd, Prompt: prompt, Cwd: projectCwd(s, h.projectID, machineID),

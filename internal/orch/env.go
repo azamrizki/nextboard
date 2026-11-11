@@ -86,7 +86,7 @@ func (s *Service) goalAgent(l LoopDef, reply string, done func(met, ok bool, rea
 	prompt := "Decide whether this goal is met, judging only from the agents' latest replies below.\nGoal: " + g.Text +
 		"\n\nLatest replies:\n" + reply + "\n\nAnswer with JSON {\"met\": true|false, \"reason\": \"…\"}."
 	_, err := s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "loop-goal", ProjectID: l.ProjectID, Agent: g.Agent, Prompt: prompt, Schema: GoalSchema,
-		Command: map[bool]string{true: s.claudeCommand()}[g.Agent == "claude"],
+		Command: map[bool]string{true: s.cliCommand("claude")}[g.Agent == "claude"],
 		OnFinish: func(j jobs.Job) {
 			if j.State != jobs.StateDone {
 				done(false, false, firstNonEmpty(j.Code, j.State))

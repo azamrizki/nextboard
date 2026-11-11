@@ -260,10 +260,11 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
   const plannerTitle = !planner
     ? ''
     : planner.available
-      ? `Sentences are planned by Claude Code on This PC${planner.lastLatencyMs ? ` (last ${Math.round(planner.lastLatencyMs / 100) / 10}s)` : ''}`
+      ? `Sentences are planned by ${planner.runner || 'Claude Code'} on This PC${planner.lastLatencyMs ? ` (last ${Math.round(planner.lastLatencyMs / 100) / 10}s)` : ''}`
       : ({
           claude_missing: 'Claude Code is not installed on This PC, so orders use the built-in parser.',
-          not_logged_in: 'Claude Code on This PC is not logged in, so orders use the built-in parser.',
+          codex_missing: 'Codex is not installed on This PC, so orders use the built-in parser.',
+          not_logged_in: `${planner.runner || 'Claude Code'} could not sign in, so orders use the built-in parser for a while.`,
           disabled: 'The planner is turned off in settings.',
           cooldown: 'The planner failed twice; it is paused for a minute.',
         }[planner.reason ?? ''] ?? 'The planner is not available.');

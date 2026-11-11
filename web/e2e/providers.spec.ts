@@ -84,6 +84,25 @@ test('an API provider is added, tested, and offered where a console starts', asy
     await expect(run.locator('option', { hasText: 'API · E2E Router' })).toHaveCount(0);
     await run.selectOption({ label: 'API · E2E GLM' });
     await expect.poll(async () => (await hub.call('GET', '/api/settings')).runner?.provider).toBe(glm.id);
+
+    // the lead: what it thinks with, and what the consoles it starts run on
+    await page.goto('/settings/lead');
+    const lead = page.getByLabel('Lead runs on');
+    await expect(lead.locator('option').first()).toHaveText('Like hidden runs · Claude Code on API · E2E GLM');
+    await expect(lead.locator('option', { hasText: 'API · E2E GLM (Claude Code)' })).toHaveCount(1);
+    await expect(lead.locator('option', { hasText: 'API · E2E Router (Codex)' })).toHaveCount(1);
+    await lead.selectOption({ label: 'Codex · its login' });
+    await expect.poll(async () => (await hub.call('GET', '/api/settings')).lead?.runner).toBe('codex');
+    await lead.selectOption({ label: 'API · E2E Router (Codex)' });
+    await expect.poll(async () => (await hub.call('GET', '/api/settings')).lead?.runner).toBe(router.id);
+    const fake = page.getByLabel('Fake CLI consoles the lead starts');
+    await expect(fake.locator('option', { hasText: 'API · E2E GLM' })).toHaveCount(0); // Codex-based: no Anthropic API
+    await fake.selectOption({ label: 'API · E2E Router' });
+    await expect.poll(async () => (await hub.call('GET', '/api/settings')).lead?.providers?.fakecli).toBe(router.id);
+    await fake.selectOption({ label: 'Its login' });
+    await expect.poll(async () => (await hub.call('GET', '/api/settings')).lead?.providers?.fakecli).toBeUndefined();
+    await lead.selectOption({ index: 0 });
+    await expect.poll(async () => (await hub.call('GET', '/api/settings')).lead?.runner).toBeUndefined();
   } finally {
     for (const s of await sessions(p.wid)) await hub.call('DELETE', `/api/sessions/${s.id}`);
     for (const id of made) await hub.call('DELETE', `/api/providers/${id}?purge=1`);

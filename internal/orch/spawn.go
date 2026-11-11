@@ -74,6 +74,10 @@ type SpawnRequest struct {
 	At             *Point      `json:"at,omitempty"`
 	// Near places the consoles right of this node (handoff).
 	Near string `json:"-"`
+	// ByLead: the lead starts these consoles, so a slot without an account takes the API provider
+	// Account names, else the one settings lead.providers gives its agent (docs/API-agents.md §10.2).
+	ByLead  bool   `json:"-"`
+	Account string `json:"-"`
 }
 
 // SpawnResult is the 201 body.
@@ -209,8 +213,19 @@ func (s *Service) Spawn(req SpawnRequest) (SpawnResult, error) {
 			mid = proj.MachineID
 		}
 		ag := s.pickAgent(sl.Agent, role, mid)
+		if req.ByLead && sl.ProfileID == "" && sl.ProviderID == "" {
+			pid, err := s.providerFor(ag, req.Account)
+			if err != nil {
+				rollback()
+				return SpawnResult{}, err
+			}
+			sl.ProviderID = pid
+		}
 		cr := session.CreateRequest{Agent: ag, MachineID: mid, WorkspaceID: ws.ID, ProjectID: proj.ID, Yolo: sl.Yolo}
 		cr.Model, cr.Effort = s.slotModel(role, ag, sl.Model, sl.Effort)
+		if sl.ProviderID != "" && sl.Model == nil {
+			cr.Model = nil // the provider's own model, not one the settings name for a login
+		}
 		if mid == proj.MachineID {
 			cr.Cwd = proj.Path
 		} else if sl.Cwd != "" {

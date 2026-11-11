@@ -51,7 +51,7 @@ func (s *Service) runStep(c *execCtx, st Step) error {
 		return s.applyTaskEdit(c, st)
 	case "spawn", "group.add":
 		req := SpawnRequest{WorkspaceID: firstNonEmpty(st.WorkspaceID, c.workspaceID), Count: st.Count, Agent: st.Agent, Role: st.Role,
-			OrchestratorID: st.OrchestratorID, MachineID: st.MachineID}
+			OrchestratorID: st.OrchestratorID, MachineID: st.MachineID, ByLead: true, Account: st.Account}
 		if st.NewGroup != nil {
 			req.Group = &SpawnGroup{Name: st.NewGroup.Name, Role: st.NewGroup.Role}
 		}
@@ -573,8 +573,8 @@ func (sc *scope) perBoard(agents []session.Info) string {
 // excerpts are the fallback.
 func (s *Service) summarise(c *execCtx, raw string) {
 	tid := c.threadID
-	_, err := s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "thread-summary", ProjectID: c.projectID, Agent: "claude",
-		Command: s.claudeCommand(), Prompt: "Summarise these agent reports for the user in at most 5 short sentences:\n\n" + raw,
+	req, err := s.leadRequest(jobs.RunnerRequest{Purpose: "thread-summary", ProjectID: c.projectID,
+		Prompt: "Summarise these agent reports for the user in at most 5 short sentences:\n\n" + raw,
 		OnFinish: func(j jobs.Job) {
 			text := raw
 			if j.State == jobs.StateDone {
@@ -587,16 +587,14 @@ func (s *Service) summarise(c *execCtx, raw string) {
 			}
 			s.Threads.Add(ThreadMessage{ThreadID: tid, Role: "hub", Kind: "reply", Text: text})
 		}})
+	if err == nil {
+		_, err = s.hub.SubmitRunner(req)
+	}
 	if err != nil {
 		s.say(c, ThreadMessage{Kind: "reply", Text: raw})
 		return
 	}
 	s.note(c, "Summarising…")
-}
-
-// claudeCommand is the path override of claude on This PC, if any.
-func (s *Service) claudeCommand() string {
-	return s.hub.Settings().Agents.Paths["local"]["claude"]
 }
 
 // addNode places a tile (near the card in card scope, else right of the

@@ -56,6 +56,10 @@ type fakeHub struct {
 	docText          string
 	pageLog          []preview.LogEntry
 	transcr          map[string]string
+	// API providers: the list the lead sees, the CLI each runs hidden runs on, what consoles got.
+	provs     []ProviderInfo
+	provRun   map[string]string // provider id → "claude" | "codex"
+	createReq []session.CreateRequest
 }
 
 func newFakeHub(t *testing.T) (*fakeHub, *Service) {
@@ -213,10 +217,14 @@ func (h *fakeHub) CreateSession(req session.CreateRequest) (session.Info, error)
 		in.AgentKind = agent.KindShell
 	}
 	in.AgentState = agentstate.Starting
+	if req.ProviderID != nil {
+		in.ProviderID = *req.ProviderID
+	}
 	h.mu.Lock()
 	h.sessions[in.ID] = &in
 	h.order = append(h.order, in.ID)
 	h.calls = append(h.calls, "create:"+req.Agent+"@"+req.MachineID)
+	h.createReq = append(h.createReq, req)
 	h.mu.Unlock()
 	return in, nil
 }
@@ -420,7 +428,21 @@ func (h *fakeHub) Attention(a Attention) {
 	defer h.mu.Unlock()
 	h.attn = append(h.attn, a)
 }
-func (h *fakeHub) PlannerHost() (bool, string) { return h.planner, "" }
+func (h *fakeHub) PlannerHost(agentID string) (bool, string) {
+	if !h.planner {
+		return false, agentID + "_missing"
+	}
+	return true, ""
+}
+func (h *fakeHub) ProviderRunner(id string) (string, string, error) {
+	for _, p := range h.provs {
+		if p.ID == id && h.provRun[id] != "" {
+			return h.provRun[id], p.Name, nil
+		}
+	}
+	return "", "", errors.New("provider not found")
+}
+func (h *fakeHub) Providers() []ProviderInfo { return h.provs }
 func (h *fakeHub) CreateWorkspace(pid, name string) (project.Workspace, error) {
 	w, _, err := h.projects.AddWorkspace(pid, name)
 	return w, err
