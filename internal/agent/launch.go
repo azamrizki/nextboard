@@ -582,6 +582,12 @@ func Build(a Agent, o Options) (Plan, error) {
 	if o.Provider != nil {
 		model = ProviderModel(a, o.Provider, model)
 		wrapperArgs = append(wrapperArgs, providerArgs(a, o.Provider)...)
+		if a.CapBase() == "claude" && !(o.Yolo && a.HasYolo()) {
+			// Claude Code's default, auto mode, checks each action on Anthropic's servers, which a
+			// gateway does not reach: every tool call then stops on "Auto mode can't check actions"
+			// (Claude Code 2.1.322 on a real router). Edits go ahead, commands ask, as it suggests.
+			wrapperArgs = append(wrapperArgs, "--permission-mode", "acceptEdits")
+		}
 	} else if !a.HasModels() {
 		model = ""
 	}

@@ -700,7 +700,9 @@ func (s *Session) syncModel() {
 	case s.spec.AgentSessionID != spec.AgentSessionID || s.spec.Agent != spec.Agent:
 	case seen.HasModel && agent.ValidModel(seen.Model):
 		s.spec.Model = seen.Model
-	case (s.spec.Model == "" || seen.Follow) && seen.Replied != "" && agent.ValidModel(seen.Replied):
+	case (s.spec.Model == "" || seen.Follow) && seen.Replied != "" && agent.ValidModel(seen.Replied) && s.spec.ProviderID == "":
+		// a provider's answer may name its model otherwise than the name it takes (a router's
+		// cx/gpt-x answers as gpt-x), so a provider console keeps the provider's own
 		s.spec.Model = seen.Replied
 	}
 	if seen.HasEffort && agent.ValidEffort(seen.Effort) && s.spec.AgentSessionID == spec.AgentSessionID && s.spec.Agent == spec.Agent {

@@ -314,3 +314,16 @@ func TestRunnerThroughProvider(t *testing.T) {
 func usageTokens(in, out int64) usage.Tokens { return usage.Tokens{Input: in, Output: out} }
 
 func providerInputBudget(b float64) providers.Input { return providers.Input{Budget: &b} }
+
+// A transcript names a model otherwise than the price list: a router answers without its prefix,
+// Claude Code drops [1m], OpenCode adds nextboard/.
+func TestPriceOf(t *testing.T) {
+	p := providers.Provider{Prices: map[string]providers.Price{"cx/gpt-6.1-sol": {Input: 1}, "cx/gpt-6-astra[1m]": {Input: 2}, "glm-4.6": {Input: 3}}}
+	for model, want := range map[string]float64{"cx/gpt-6.1-sol": 1, "gpt-6.1-sol": 1, "GPT-6.1-sol": 1, "gpt-6-astra": 2, "cx/gpt-6-astra[1m]": 2,
+		"nextboard/glm-4.6": 3, "glm-4.6": 3, "gpt-6": 0, "gpt-6.1-sol-review": 0} {
+		pr, ok := priceOf(p, model)
+		if pr.Input != want || ok != (want > 0) {
+			t.Errorf("%s: %v %v", model, pr, ok)
+		}
+	}
+}

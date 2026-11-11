@@ -107,6 +107,16 @@ func TestModelSurvivesRestart(t *testing.T) {
 	if in = restart(other, map[string]any{"mode": "fresh"}); in["model"] != "claude-sonnet-5-5" {
 		t.Fatalf("not pinned to its replies: %v", in["model"])
 	}
+	// A console on an API provider is not: its answers may name the model otherwise than the
+	// provider takes it (a router's cx/gpt-x answers as gpt-x).
+	api := newFakeAPI(t)
+	_, pv := h.do("POST", "/api/providers", map[string]any{"name": "Router", "kind": "anthropic", "baseUrl": api.URL, "model": "cx/gpt-x", "apiKey": providerKey}, nil)
+	in = create(map[string]any{"providerId": pv["id"]})
+	onAPI := in["id"].(string)
+	h.srv.sessions.TestSetTranscript(onAPI, tp2)
+	if in = restart(onAPI, map[string]any{"mode": "fresh"}); in["model"] != nil {
+		t.Fatalf("a provider console took its reply's model: %v", in["model"])
+	}
 
 	// Bad values never reach a command line.
 	if st, b := h.do("POST", "/api/sessions", map[string]any{"agent": "fake-model", "cwd": dir, "model": "x; rm -rf /"}, nil); st != 400 {

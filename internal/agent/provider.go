@@ -24,6 +24,9 @@ type ProviderLaunch struct {
 	// ConfigDir is the CLI's own folder for this provider (CLAUDE_CONFIG_DIR, CODEX_HOME), so
 	// that the subscription login is neither used nor overwritten.
 	ConfigDir string
+	// Scrub: bubblewrap is on This PC, which Claude Code needs to keep the key out of the
+	// commands its tools run (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).
+	Scrub bool
 }
 
 // codexProviderID names the provider inside Codex's config.
@@ -48,10 +51,16 @@ func ProviderModel(a Agent, p *ProviderLaunch, chosen string) string {
 // providerArgs are the CLI's flags for a provider, on top of its own.
 func providerArgs(a Agent, p *ProviderLaunch) []string {
 	if a.CapBase() == "codex" {
-		return []string{"-c", `model_provider="` + codexProviderID + `"`, "-c", "$NB_CODEX_PROVIDER"}
+		return append([]string{"-c", `model_provider="` + codexProviderID + `"`, "-c", "$NB_CODEX_PROVIDER"}, codexKeepKey...)
 	}
 	return nil
 }
+
+// codexKeepKey keeps the key where Codex needs it, its own process, measured with Codex 0.165
+// against a real router: the TUI writes the login shell's environment to shell_snapshots/*.sh,
+// and the commands it runs get the whole environment, NB_PROVIDER_KEY too.
+var codexKeepKey = []string{"-c", "features.shell_snapshot=false", "-c", "features.shell_snapshot_v2=false",
+	"-c", `shell_environment_policy.exclude=["NB_PROVIDER_KEY","NB_CODEX_PROVIDER"]`}
 
 // providerEnv is the process environment of a provider console. model is ProviderModel's.
 func providerEnv(a Agent, p *ProviderLaunch, model string) []string {
@@ -77,6 +86,10 @@ func providerEnv(a Agent, p *ProviderLaunch, model string) []string {
 			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 			"DISABLE_TELEMETRY=1",
 			"DISABLE_ERROR_REPORTING=1",
+		}
+		if p.Scrub {
+			// the commands its tools run do not get the key (they would see it in their environment)
+			env = append(env, "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1")
 		}
 		if p.Auth == "x-api-key" {
 			return append(env, "ANTHROPIC_API_KEY="+key, "ANTHROPIC_AUTH_TOKEN=")
@@ -145,5 +158,5 @@ func ProviderRunnerArgs(a Agent, p *ProviderLaunch) []string {
 	if a.CapBase() != "codex" {
 		return nil
 	}
-	return []string{"-c", `model_provider="` + codexProviderID + `"`, "-c", strings.TrimPrefix(providerEnv(a, p, "")[1], "NB_CODEX_PROVIDER=")}
+	return append([]string{"-c", `model_provider="` + codexProviderID + `"`, "-c", strings.TrimPrefix(providerEnv(a, p, "")[1], "NB_CODEX_PROVIDER=")}, codexKeepKey...)
 }

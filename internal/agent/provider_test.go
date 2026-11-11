@@ -60,6 +60,26 @@ func TestProviderClaude(t *testing.T) {
 	if !strings.Contains(p.Shell, "NB_MODEL=glm-4.6") {
 		t.Fatalf("model: %s", p.Shell)
 	}
+	// auto mode cannot reach Anthropic's check through a gateway: edits go ahead, commands ask
+	if !strings.Contains(p.Shell+envMap(p.Env)["NB_WRAP"], "acceptEdits") {
+		t.Fatalf("permission mode: %s", envMap(p.Env)["NB_WRAP"])
+	}
+	if y, _ := Build(a, Options{Mode: ModeFresh, Yolo: true, Provider: provider("anthropic", "", "bearer")}); strings.Contains(envMap(y.Env)["NB_WRAP"], "acceptEdits") {
+		t.Fatal("a yolo console keeps skipping permissions")
+	}
+	if l, _ := Build(a, Options{Mode: ModeFresh}); strings.Contains(envMap(l.Env)["NB_WRAP"], "acceptEdits") {
+		t.Fatal("a login console keeps its own mode")
+	}
+	// the commands its tools run keep the key only where bubblewrap lets Claude Code scrub it
+	if _, ok := env["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"]; ok {
+		t.Fatal("scrub without bubblewrap")
+	}
+	scrub := provider("anthropic", "", "bearer")
+	scrub.Scrub = true
+	p, _ = Build(a, Options{Mode: ModeFresh, Provider: scrub})
+	if envMap(p.Env)["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] != "1" {
+		t.Fatal("no scrub with bubblewrap")
+	}
 	// the provider's own header
 	p, _ = Build(a, Options{Mode: ModeFresh, Provider: provider("anthropic", "", "x-api-key")})
 	if env := envMap(p.Env); env["ANTHROPIC_API_KEY"] != testKey || env["ANTHROPIC_AUTH_TOKEN"] != "" {
@@ -92,6 +112,17 @@ func TestProviderCodex(t *testing.T) {
 	wrap := env["NB_WRAP"]
 	if !strings.Contains(wrap, `'model_provider="nextboard"'`) || !strings.Contains(wrap, `"$NB_CODEX_PROVIDER"`) {
 		t.Fatalf("wrapper: %s", wrap)
+	}
+	// Codex's TUI would write the environment, key and all, to shell_snapshots
+	if !strings.Contains(wrap, "features.shell_snapshot=false") || !strings.Contains(wrap, "features.shell_snapshot_v2=false") {
+		t.Fatalf("shell snapshots stay on: %s", wrap)
+	}
+	// and the commands it runs do not get the key
+	if !strings.Contains(wrap, `shell_environment_policy.exclude=["NB_PROVIDER_KEY","NB_CODEX_PROVIDER"]`) {
+		t.Fatalf("commands get the key: %s", wrap)
+	}
+	if args := strings.Join(ProviderRunnerArgs(a, provider("openai", "responses", "")), " "); !strings.Contains(args, "shell_environment_policy.exclude") {
+		t.Fatalf("hidden run: %s", args)
 	}
 }
 

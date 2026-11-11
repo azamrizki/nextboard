@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -74,8 +75,9 @@ func (h providerHub) Launch(id string, a agent.Agent) (*agent.ProviderLaunch, er
 	if err != nil {
 		return nil, err
 	}
+	_, bwrap := exec.LookPath("bwrap")
 	return &agent.ProviderLaunch{ID: p.ID, Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, API: p.API, Auth: p.Auth,
-		Model: p.Model, FastModel: p.FastModel, Key: key, ConfigDir: dir}, nil
+		Model: p.Model, FastModel: p.FastModel, Key: key, ConfigDir: dir, Scrub: bwrap == nil}, nil
 }
 
 func (h providerHub) ConfigDir(id string, a agent.Agent) string {
@@ -209,12 +211,31 @@ func priceOf(p providers.Provider, model string) (providers.Price, bool) {
 	if pr, ok := p.Prices[model]; ok {
 		return pr, true
 	}
-	if _, rest, ok := strings.Cut(model, "/"); ok {
-		if pr, ok := p.Prices[rest]; ok {
-			return pr, true
+	// A transcript may name the model otherwise than the price list: OpenCode as nextboard/<model>,
+	// a router without its own prefix (cx/gpt-x answers as gpt-x), Claude Code without [1m].
+	want := bareModel(model)
+	keys := make([]string, 0, len(p.Prices))
+	for k := range p.Prices {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if bareModel(k) == want {
+			return p.Prices[k], true
 		}
 	}
 	return providers.Price{}, false
+}
+
+// bareModel is a model name without a provider prefix or a [1m]-style suffix.
+func bareModel(m string) string {
+	if i := strings.LastIndex(m, "/"); i >= 0 {
+		m = m[i+1:]
+	}
+	if i := strings.Index(m, "["); i > 0 {
+		m = m[:i]
+	}
+	return strings.ToLower(strings.TrimSpace(m))
 }
 
 // costOf sums turns into a spend.
