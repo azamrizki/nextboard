@@ -11,9 +11,10 @@ import (
 const procTreeMax = 64
 
 // ReadBytes is how many bytes the process pid and the processes below it
-// have read so far (rchar of /proc/<pid>/io: files, pipes and sockets alike).
-// It is for This PC, where agents run; false where /proc has no answer, as
-// on macOS or once the process is gone.
+// have read so far (rchar of /proc/<pid>/io: files, pipes and sockets read
+// with read(2)), plus what their TCP sockets received, which recv(2) leaves
+// out of rchar (sockrecv_linux.go). It is for This PC, where agents run;
+// false where /proc has no answer, as on macOS or once the process is gone.
 func ReadBytes(pid int) (uint64, bool) {
 	if pid <= 0 {
 		return 0, false
@@ -22,6 +23,7 @@ func ReadBytes(pid int) (uint64, bool) {
 	seen := 0
 	ok := false
 	queue := []int{pid}
+	var tree []int
 	for len(queue) > 0 && seen < procTreeMax {
 		p := queue[0]
 		queue = queue[1:]
@@ -29,12 +31,13 @@ func ReadBytes(pid int) (uint64, bool) {
 		if n, got := rchar(p); got {
 			total += n
 			ok = true
+			tree = append(tree, p)
 		} else if p == pid {
 			return 0, false
 		}
 		queue = append(queue, children(p)...)
 	}
-	return total, ok
+	return total + socketsReceived(tree), ok
 }
 
 func rchar(pid int) (uint64, bool) {
