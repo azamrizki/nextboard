@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/profiles"
+	"github.com/azamrizki/nextboard/internal/session"
 	"github.com/azamrizki/nextboard/internal/settings"
 )
 
@@ -210,4 +212,51 @@ func (s *Server) handleJobCancel(w http.ResponseWriter, r *http.Request, p *prin
 		return
 	}
 	writeJSON(w, http.StatusOK, j)
+}
+
+// handleProfileSignIn starts the profile's CLI in a console of its own, with no board tile, so
+// that the CLI runs its sign-in there and the settings dialog shows it (docs/API-agents.md §10).
+// This PC only, where agents run. The console runs in a folder of the hub's, trusted beforehand
+// in a Claude config folder the hub made, so the only dialogs left are the CLI's own login.
+func (s *Server) handleProfileSignIn(w http.ResponseWriter, r *http.Request, p *principal) {
+	pf, ok := s.profiles.Get(r.PathValue("id"))
+	if !ok {
+		writeErrCode(w, http.StatusNotFound, "profile_not_found", "no such profile")
+		return
+	}
+	if pf.MachineID != machine.LocalID {
+		writeErrCode(w, http.StatusBadRequest, "profile_remote", "agents run on This PC: a profile on a server signs in there")
+		return
+	}
+	a, ok := s.agents.Get(pf.Agent)
+	if !ok || a.ProfileEnv == "" {
+		writeErrCode(w, http.StatusBadRequest, "profile_unsupported", "this agent does not support login profiles")
+		return
+	}
+	dir := s.st.Path("agents", "signin")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if pf.CreatedByHub && a.CapBase() == "claude" {
+		if err := profiles.TrustFolder(pf.Dir, dir); err != nil {
+			log.Printf("trust sign-in folder: %v", err)
+		}
+	}
+	proj, ws, err := s.defaultWorkspace()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	id := pf.ID
+	in, err := s.sessions.Create(session.CreateRequest{
+		MachineID: machine.LocalID, Agent: a.ID, Name: "Sign in · " + pf.Name, Cwd: dir, Cols: 100, Rows: 30,
+		ProfileID: &id, Panel: true, ProjectID: proj.ID, WorkspaceID: ws.ID,
+	})
+	if err != nil {
+		s.sessionErr(w, err)
+		return
+	}
+	s.emitMachine(in.MachineID)
+	writeJSON(w, http.StatusCreated, in)
 }

@@ -322,3 +322,48 @@ func TestFSReadTailAndOffset(t *testing.T) {
 		t.Fatalf("plain %v", b)
 	}
 }
+
+// Signing in to a profile: its CLI starts in a console without a tile, in the hub's own folder,
+// trusted beforehand in a Claude config folder the hub made. This PC only.
+func TestProfileSignIn(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	setupFakeClaude(t, h)
+	st, pf := h.do("POST", "/api/profiles", map[string]any{"machineId": "local", "agent": "fake-claude", "name": "Work", "create": true}, nil)
+	if st != 201 {
+		t.Fatalf("create %d %v", st, pf)
+	}
+	id := pf["id"].(string)
+	st, in := h.do("POST", "/api/profiles/"+id+"/signin", nil, nil)
+	if st != 201 || in["profileId"] != id || in["agent"] != "fake-claude" || in["panel"] != true || in["name"] != "Sign in · Work" {
+		t.Fatalf("sign in %d %v", st, in)
+	}
+	folder := h.srv.st.Path("agents", "signin")
+	if in["cwd"] != folder {
+		t.Fatalf("cwd %v, want %s", in["cwd"], folder)
+	}
+	cfg, err := os.ReadFile(filepath.Join(pf["dir"].(string), ".claude.json"))
+	if err != nil || !strings.Contains(string(cfg), folder) || !strings.Contains(string(cfg), `"hasTrustDialogAccepted": true`) {
+		t.Fatalf("the sign-in folder is not trusted: %v %s", err, cfg)
+	}
+	_, board := h.do("GET", "/api/workspaces/"+in["workspaceId"].(string)+"/board", nil, nil)
+	for _, n := range board["nodes"].([]any) {
+		if n.(map[string]any)["data"].(map[string]any)["sessionId"] == in["id"] {
+			t.Fatal("the sign-in console has a tile on the board")
+		}
+	}
+	if st, _ := h.do("DELETE", "/api/sessions/"+in["id"].(string), nil, nil); st != 200 {
+		t.Fatal(st)
+	}
+
+	if st, b := h.do("POST", "/api/profiles/pf_nope1234/signin", nil, nil); st != 404 || b["code"] != "profile_not_found" {
+		t.Fatalf("unknown %d %v", st, b)
+	}
+	remote, err := h.srv.profiles.Add("m_server01", "fake-claude", "Server", "/home/u/.claude", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, b := h.do("POST", "/api/profiles/"+remote.ID+"/signin", nil, nil); st != 400 || b["code"] != "profile_remote" {
+		t.Fatalf("remote %d %v", st, b)
+	}
+}

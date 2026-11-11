@@ -286,6 +286,8 @@ export const api = {
     post<Profile>('/api/profiles', body),
   updateProfile: (id: string, body: { name: string }) => patch<Profile>(`/api/profiles/${enc(id)}`, body),
   deleteProfile: (id: string, purge = false) => del<Ok>(`/api/profiles/${enc(id)}${purge ? '?purge=1' : ''}`),
+  /** Starts the profile's CLI in a console without a tile, to sign in there (This PC only). */
+  profileSignIn: (id: string) => post<Session>(`/api/profiles/${enc(id)}/signin`),
 
   // settings (§11) & attention (§12)
   settings: () => get<Settings>('/api/settings'),

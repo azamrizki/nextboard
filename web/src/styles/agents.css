@@ -900,6 +900,56 @@ textarea.control.textarea-sm {
   flex: 0 0 auto;
 }
 
+/* signing in to a profile (settings/ProfileSignIn.tsx) */
+.profile-signin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.profile-signin-box {
+  height: min(420px, 55vh);
+  padding: var(--s-1) 0 0 var(--s-2);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+  overflow: hidden;
+}
+.profile-signin-term {
+  width: 100%;
+  height: 100%;
+}
+.profile-signin-wait {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.profile-signin-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.profile-signin-note svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+.profile-signin-note > span {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.profile-signin-note.is-success {
+  color: var(--tint-success-text);
+}
+.profile-signin-note.is-danger {
+  color: var(--tint-danger-text);
+}
 /* shortcuts */
 .shortcut-list {
   display: flex;

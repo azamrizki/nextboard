@@ -17,6 +17,7 @@ import { toast } from '../components/Toast';
 import { formatDateTime } from '../lib/format';
 import type { Agent, Machine, Profile } from '../lib/types';
 import { store, useMachines, useProfiles } from '../store';
+import { ProfileSignInDialog } from './ProfileSignIn';
 
 export function ProfilesPane() {
   const machines = useMachines();
@@ -27,6 +28,7 @@ export function ProfilesPane() {
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<Profile | null>(null);
   const [renaming, setRenaming] = useState<Profile | null>(null);
+  const [signing, setSigning] = useState<Profile | null>(null);
   const agentName = (id: string) => catalog.agents.find((a) => a.id === id)?.name ?? id;
 
   const setDefault = async (p: Profile, on: boolean) => {
@@ -50,8 +52,8 @@ export function ProfilesPane() {
           </Button>
         </div>
         <p className="setting-hint">
-          Agents keep their login, memory and settings in NextBoard’s own folder, apart from your CLI setup. Each profile is its own config folder; the CLI signs in there the first time
-          you start a console with it. On remote machines NextBoard only uses folders that already exist.
+          Agents keep their login, memory and settings in NextBoard’s own folder, apart from your CLI setup. Each profile is its own config folder: sign in right after adding it, or
+          later with Sign in. On remote machines NextBoard only uses folders that already exist.
         </p>
         {profiles.length === 0 && <div className="list-msg">No profiles yet. Consoles use each CLI’s default login.</div>}
         {machines
@@ -87,6 +89,11 @@ export function ProfilesPane() {
                           </div>
                         </div>
                         <div className="profile-actions">
+                          {p.machineId === 'local' && p.exists && (
+                            <Button size="sm" variant="ghost" icon="user" aria-label={`Sign in to ${p.name}`} onClick={() => setSigning(p)}>
+                              Sign in
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" onClick={() => void setDefault(p, !isDefault)}>
                             {isDefault ? 'Unset default' : 'Use by default'}
                           </Button>
@@ -104,6 +111,7 @@ export function ProfilesPane() {
       </section>
       {adding && <ProfileDialog machines={machines} agents={agents} onClose={() => setAdding(false)} />}
       {renaming && <RenameProfileDialog profile={renaming} onClose={() => setRenaming(null)} />}
+      {signing && <ProfileSignInDialog profile={signing} agentName={agentName(signing.agent)} onClose={() => setSigning(null)} />}
       {deleting && <DeleteProfileDialog profile={deleting} machine={machines.find((m) => m.id === deleting.machineId)} onClose={() => setDeleting(null)} />}
     </div>
   );
@@ -124,6 +132,7 @@ function ProfileDialog({ machines, agents, onClose }: { machines: Machine[]; age
   const [browsing, setBrowsing] = useState(false);
   const [errors, setErrors] = useState<{ name?: string; dir?: string; form?: string }>({});
   const [busy, setBusy] = useState(false);
+  const [added, setAdded] = useState<Profile | null>(null);
   const effectiveMode = local ? mode : 'existing';
   const agentObj = agents.find((a) => a.id === agent);
   const envHint = useMemo(() => (agentObj ? `Passed to ${agentObj.name} as ${agentObj.profileEnv}.` : ''), [agentObj]);
@@ -144,11 +153,12 @@ function ProfileDialog({ machines, agents, onClose }: { machines: Machine[]; age
         ...(effectiveMode === 'create' ? { create: true } : { dir: dir.trim() }),
       });
       store.upsertProfile(p);
-      toast.success(
-        effectiveMode === 'create'
-          ? `Profile “${p.name}” created. Start a ${agentObj?.name ?? 'console'} with it to sign in.`
-          : `Profile “${p.name}” added.`,
-      );
+      // on This PC, where agents run, the dialog goes on to signing in
+      if (p.machineId === 'local') {
+        setAdded(p);
+        return;
+      }
+      toast.success(`Profile “${p.name}” added.`);
       onClose();
     } catch (err) {
       if (err instanceof ApiError && err.code === 'profile_dir_missing') setErrors({ dir: `That folder doesn’t exist on ${machine?.name}. NextBoard never creates folders on remote machines.` });
@@ -156,6 +166,8 @@ function ProfileDialog({ machines, agents, onClose }: { machines: Machine[]; age
       setBusy(false);
     }
   };
+
+  if (added) return <ProfileSignInDialog profile={added} agentName={agentObj?.name ?? added.agent} fresh onClose={onClose} />;
 
   return (
     <>

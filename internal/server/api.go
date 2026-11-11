@@ -178,6 +178,7 @@ func (s *Server) routes() {
 	authed("POST /api/profiles", s.handleProfileCreate)
 	authed("PATCH /api/profiles/{id}", s.handleProfileUpdate)
 	authed("DELETE /api/profiles/{id}", s.handleProfileDelete)
+	authed("POST /api/profiles/{id}/signin", s.handleProfileSignIn)
 	authed("GET /api/attention", s.handleAttention)
 	authed("GET /api/jobs", s.handleJobs)
 	authed("GET /api/jobs/{id}", s.handleJobGet)

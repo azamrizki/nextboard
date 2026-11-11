@@ -478,12 +478,15 @@ Read-only lewat file API Fase 4 (lokal langsung, SSH via SFTP, fallback exec). F
 | POST | `/api/profiles` | `{machineId, agent, name, dir?, create?: bool}` | `201 Profile`. Remote: `dir` wajib dan harus sudah ada (fs/stat) → `400 profile_dir_missing`; `create:true` di remote → `403 remote_create_forbidden`. Lokal `create:true` → hub membuat `<data>/profiles/<id>/` (0700). `400 profile_unsupported` bila agen tanpa `profileEnv` |
 | PATCH | `/api/profiles/{id}` | `{name?}` | `Profile` |
 | DELETE | `/api/profiles/{id}` | — | `{"ok":true}`; hanya menghapus referensi. Folder buatan hub di lokal dihapus hanya bila `?purge=1`. Folder remote tidak pernah disentuh |
+| POST | `/api/profiles/{id}/signin` | — | `201 Session`: CLI profil itu di console tanpa tile (`panel:true`), nama `Sign in · <nama>`, cwd `<data>/agents/signin`, di workspace bawaan. Folder itu ditandai trusted di config Claude buatan hub, jadi yang tersisa hanya login CLI-nya sendiri. `404 profile_not_found`; `400 profile_remote` (agent hanya jalan di This PC); `400 profile_unsupported` |
 
 **Folder state NextBoard (keputusan #10):** hub membuat satu profil `"home": true` per agen bawaan yang punya `profileEnv` di `<data>/agents/<agent>` (0700) dan menjadikannya default **sekali**; default yang dimatikan user tetap mati setelah restart. Console, planner, dan runner lain di This PC memakai profil default ini, jadi login dan memory-nya satu, sedangkan `~/.claude` dan CLI yang dijalankan user sendiri tidak terpengaruh. Folder baru belum login: sign-in dilakukan sekali di console. `DELETE` profil home → `409 profile_home`. Agen custom ber-`base` mengikuti default agen dasarnya.
 
 Ganti agent di console (`restart` dengan `agent`, dialog Switch agent, handoff in-place) juga memakai default agen barunya. `profileId: ""` di `restart` berarti default, kecuali saat kembali ke percakapan lama (`agentSessionId`), yang tetap memakai login tempat percakapan itu dibuat. Login CLI sendiri (`~/.claude`) hanya dipakai bila default-nya dimatikan. Semua pilihan akun di UI menampilkan default-nya sebagai `NextBoard (default)`.
 
-Sesi dengan `profileId` mendapat env `<profileEnv>=<dir>`. "Connect new account" (lokal) = buat profil `create:true` lalu spawn console agen itu dengan profil tersebut; CLI menjalankan login-nya sendiri. Badge header menampilkan inisial nama profil.
+Sesi dengan `profileId` mendapat env `<profileEnv>=<dir>`. "Connect new account" (lokal) = buat profil `create:true` lalu spawn console agen itu dengan profil tersebut; CLI menjalankan login-nya sendiri.
+
+**Sign in dari Settings** (2026-11-11): dialog Add profile untuk This PC langsung lanjut ke langkah Sign in: `POST …/signin`, terminal console itu di dialog, status "Signed in" begitu CLI mencapai prompt (`agentState` `ready`/`working`). Menutup dialog menghapus console itu; login tetap tersimpan di folder profil. Baris profil This PC punya tombol Sign in untuk login lagi. Profil di server tidak punya langkah ini. Badge header menampilkan inisial nama profil.
 
 ## 11. Settings store
 
