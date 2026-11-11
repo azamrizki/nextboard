@@ -203,7 +203,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 | Tool | Used for |
 |---|---|
 | `tmux` on a server | Sessions that survive SSH disconnects and hub restarts |
-| `bubblewrap` (`bwrap`) | Keeps an API provider's key out of the commands Claude Code runs |
+| `bubblewrap` (`bwrap`) | Claude Code's sandbox, and keeping an API provider's key out of the commands Claude Code runs |
 | `gh` | Publishing to GitHub and pull requests |
 | Language servers and debuggers (`gopls`, `pyright`, `typescript-language-server`, `dlv`, `debugpy`, ...) | The code workbench; each is used when found on `PATH` |
 | `sway`, `wayvnc`, `wf-recorder`, `xwayland` | Desktop apps in a tile, with GPU |
@@ -235,7 +235,7 @@ Once a month's budget is spent, new consoles, restarts and hidden runs on that p
 
 - The hub speaks plain HTTP and binds to `127.0.0.1` by default. For remote access, put it behind HTTPS with nginx (`deploy/nginx.conf.example`) or use a private network such as Tailscale. `tailscale serve` only forwards the main port, so web tiles do not work through it.
 - `make dev` binds to `0.0.0.0` by default. On an untrusted network, use `make dev LISTEN=127.0.0.1:12312`.
-- Agents run as your user and can read everything your user can, including NextBoard's data folder. Critical notes are instructions to agents, not a technical lock. Blocked commands make the CLI itself ask you first, but they are not a sandbox: an agent with a shell can still write a script that does the same.
+- Agents run as your user and can read everything your user can, including NextBoard's data folder. Critical notes are instructions to agents, not a technical lock. Blocked commands make the CLI itself ask you first, but they are not a sandbox: an agent with a shell can still write a script that does the same. For a lock, a project's **Sandbox** (in its critical notes) keeps the commands of Codex and Claude Code to the project folder, the temp folder and package caches, with or without network. Codex needs nothing more; Claude Code needs bubblewrap, and on Ubuntu the AppArmor step from its sandboxing docs, without which its commands fail rather than run unsandboxed.
 - The credentials vault encrypts in the browser and the hub stores only ciphertext. If you forget the master password, the contents are gone. Letting agents use a credential guards against accidents, not against an agent set on stealing it. See [docs/API-vault.md](docs/API-vault.md) for what it does not protect against.
 - API provider keys are sealed with the hub's master key and given only to the agent process that uses them, never to a browser, a command line or a log. The commands an agent runs do not get the key with Codex, nor with Claude Code when `bubblewrap` is installed; OpenCode's commands still do. An agent set on finding it can still read it from its own CLI's process.
 - Only the status page may face the internet, on a listener of its own (`--status-listen`). It shows the names you chose for your monitors and their uptime, and never a host, an address or an error message.

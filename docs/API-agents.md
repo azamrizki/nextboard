@@ -901,3 +901,19 @@ Default `settings.agents.coAuthor: false`: commit dari console agen tidak membaw
 - **Yang dibuang:** `Co-authored-by` dengan alamat vendor, atau nama agen dengan alamat bot; dan baris "Generated with/by <agen>". Nama saja tidak cukup: `Claude Dupont <claude.dupont@acme.com>` tetap ada.
 - **Bukan kunci:** `git commit --no-verify`, commit lewat GitHub API, dan console shell biasa melewati hook. Agen yang bekerja di server lewat tool hub hanya kena setting dan instruksi, karena tidak ada yang dipasang di server. Pull request hanya kena setting dan instruksi. Riwayat commit lama tidak diubah.
 - Generator commit NextBoard sendiri sudah membuang baris ini (`gitsvc/suggest.go`).
+
+## 27. Sandbox agen (2026-11-11)
+
+Kunci, bukan instruksi: `project.sandbox` membatasi perintah yang dijalankan agen di project itu. Diatur di catatan kritis project (Memory › Critical notes › Sandbox) atau `PATCH /api/projects/{id} {"sandbox": "" | "workspace" | "offline"}` (`400 bad_sandbox` untuk nilai lain). Berlaku sejak console berikutnya dimulai.
+
+| Nilai | Perintah agen boleh menulis | Jaringan |
+|---|---|---|
+| `""` | apa yang dibolehkan CLI-nya sendiri | apa yang dibolehkan CLI-nya |
+| `workspace` | folder project, folder temp, dan cache paket yang ada (`~/.cache`, `~/.npm`, `~/go/pkg/mod`, `~/.cargo/registry`, `~/.cargo/git`, `~/.bun/install/cache`, `~/.local/share/pnpm`, `~/.m2/repository`, `~/.gradle/caches`, `~/.composer/cache`, `~/.pub-cache`, `$GOMODCACHE`) | ya |
+| `offline` | sama | tidak |
+
+- **Codex**: `--sandbox workspace-write -c sandbox_workspace_write.network_access=… -c sandbox_workspace_write.writable_roots=[…]` (Landlock). Console yolo mendapat `--ask-for-approval never`, bukan `--dangerously-bypass-approvals-and-sandbox` yang akan melepas sandbox juga. Diuji 2026-11-11 dengan Codex 0.165 sungguhan lewat API provider: tulis di project jalan, tulis di luar "Read-only file system", jaringan mati, juga dengan yolo. Codex juga mengizinkan `$TMPDIR`; bila itu folder di bawah home, folder itu ikut bisa ditulis.
+- **Claude Code**: `sandbox` di `--settings` (`enabled`, `failIfUnavailable`, `allowUnsandboxedCommands: false`, `autoAllowBashIfSandboxed`, `filesystem.allowWrite`, dan untuk `workspace` `network.allowedDomains: ["*"]`). Sandbox-nya bubblewrap yang di dalamnya membuat user namespace lagi; Ubuntu dengan `kernel.apparmor_restrict_unprivileged_userns=1` menolaknya (`apply-seccomp: write /proc/self/setgroups … Permission denied`). Di mesin seperti itu setiap perintah Claude gagal: tidak ada yang jalan di luar sandbox, tapi juga tidak ada yang jalan. Perbaikannya langkah AppArmor di dokumentasi sandbox Claude Code (butuh root); hub tidak menjalankannya. `GET /api/agents/sandbox` → `{"claude":{"ready","reason"},"codex":{"ready"}}` (probe bwrap + `unshare --user` di dalamnya, disimpan 1 menit) dan UI memperingatkan. Belum pernah diuji di mesin dengan sandbox Claude yang berfungsi, termasuk `allowedDomains: ["*"]` yang belum didokumentasikan.
+- **CLI lain** (OpenCode, Gemini, …) tidak punya sandbox: perintahnya tidak dibatasi; UI mengatakannya.
+- Agen diberi tahu di prompt peluncuran ("Your shell commands run in a sandbox…") supaya tidak mencoba jalan lain.
+- Batas: alat CLI di luar shell (Edit/Write milik Claude Code, MCP, hook) tidak berada di sandbox ini; cache paket bisa ditulis, jadi perintah bisa meninggalkan sesuatu yang dipakai build di luar sandbox nanti. Project di server lewat SSH tidak memakai sandbox ini (agennya bekerja lewat tool hub).

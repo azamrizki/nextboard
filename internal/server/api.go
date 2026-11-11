@@ -170,6 +170,7 @@ func (s *Server) routes() {
 	authed("POST /api/archive/{id}/restore", s.handleArchiveRestore)
 
 	authed("GET /api/agents", s.handleAgents)
+	authed("GET /api/agents/sandbox", s.handleSandboxStatus)
 	authed("POST /api/agents", s.handleAgentCreate)
 	authed("PATCH /api/agents/{id}", s.handleAgentUpdate)
 	authed("DELETE /api/agents/{id}", s.handleAgentDelete)

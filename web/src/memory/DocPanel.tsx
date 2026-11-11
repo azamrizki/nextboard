@@ -2,7 +2,7 @@
 // what they point at; critical notes say what makes them different.
 
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
-import { errorMessage, isCode, isStatus } from '../api';
+import { api, errorMessage, isCode, isStatus } from '../api';
 import { Button } from '../components/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Icon, type IconName } from '../components/Icon';
@@ -13,6 +13,8 @@ import { renderMarkdown } from '../lib/markdown';
 import { memoryApi } from './api';
 import { commandLines } from './blocks';
 import { SendMemoryDialog } from './SendMemoryDialog';
+import { useProject } from '../store';
+import type { SandboxStatus } from '../lib/types';
 import type { DocRef, GalaxyOwner, MemoryDocument } from './types';
 
 const LINK_PREFIX = '#memory-';
@@ -97,6 +99,51 @@ function BlockedCommands({ owner, ownerName }: { owner: string; ownerName: strin
           Save commands
         </Button>
       </div>
+    </section>
+  );
+}
+
+/** A project's sandbox for its agents' commands (docs/API-agents.md §27). */
+function ProjectSandbox({ projectId }: { projectId: string }) {
+  const project = useProject(projectId);
+  const [status, setStatus] = useState<SandboxStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.sandboxStatus().then(setStatus, () => setStatus(null));
+  }, []);
+  if (!project) return null;
+  const value = project.sandbox ?? '';
+  const change = async (v: string) => {
+    setBusy(true);
+    try {
+      await api.updateProject(projectId, { sandbox: v });
+      toast.success('Saved. It counts from the next time a console starts.');
+    } catch (err) {
+      toast.error(`Could not save: ${errorMessage(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="mem-sandbox" aria-label="Agent sandbox">
+      <h3 className="section-title">Sandbox</h3>
+      <p className="text-3">
+        A lock, not an instruction: the commands Claude Code and Codex run may write only in this project, the temp folder and package caches. OpenCode and other CLIs have no sandbox, so their commands are not limited.
+      </p>
+      <select className="control control-sm" aria-label={`Sandbox of ${project.name}`} value={value} disabled={busy} onChange={(e) => void change(e.target.value)}>
+        <option value="">Off: what each CLI does by itself</option>
+        <option value="workspace">Write only in this project</option>
+        <option value="offline">Write only in this project, no network</option>
+      </select>
+      {value && status && !status.claude.ready && (
+        <p className="field-error" role="alert">
+          Claude Code cannot build its sandbox on This PC: {status.claude.reason}. Its commands fail until that is fixed, so none runs outside it. The fix is the AppArmor step in{' '}
+          <a href="https://code.claude.com/docs/en/sandboxing" target="_blank" rel="noreferrer">
+            Claude Code's sandboxing docs
+          </a>
+          . Codex is not affected.
+        </p>
+      )}
     </section>
   );
 }
@@ -273,6 +320,7 @@ export function DocPanel({
               </Button>
             )}
             <BlockedCommands owner={doc.owner} ownerName={ownerName} />
+            {doc.owner && <ProjectSandbox projectId={doc.owner} />}
           </div>
         </div>
       )}

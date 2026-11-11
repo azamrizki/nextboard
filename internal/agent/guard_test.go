@@ -90,10 +90,10 @@ func TestClaudeSettingsCarryBlocked(t *testing.T) {
 			Ask []string `json:"ask"`
 		} `json:"permissions"`
 	}
-	if err := json.Unmarshal([]byte(claudeSettings(false, "", false, []string{"git push --force"})), &v); err != nil || len(v.Permissions.Ask) != 1 || v.Permissions.Ask[0] != "Bash(*git push --force*)" {
+	if err := json.Unmarshal([]byte(claudeSettings(false, "", false, []string{"git push --force"}, nil)), &v); err != nil || len(v.Permissions.Ask) != 1 || v.Permissions.Ask[0] != "Bash(*git push --force*)" {
 		t.Fatalf("%v %+v", err, v)
 	}
-	if s := claudeSettings(false, "", false, nil); strings.Contains(s, "permissions") {
+	if s := claudeSettings(false, "", false, nil, nil); strings.Contains(s, "permissions") {
 		t.Fatalf("no list: %s", s)
 	}
 }

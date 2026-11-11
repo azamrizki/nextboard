@@ -359,6 +359,14 @@ export interface Project {
   /** Absent: under All projects. */
   groupId?: string;
   tags?: string[];
+  /** What its agents' commands may do (docs/API-agents.md §27); absent = what each CLI does. */
+  sandbox?: 'workspace' | 'offline';
+}
+
+/** GET /api/agents/sandbox: whether each CLI can build its sandbox on This PC. */
+export interface SandboxStatus {
+  claude: { ready: boolean; reason?: string };
+  codex: { ready: boolean; reason?: string };
 }
 
 /** One level of the tree over the projects. No parent: the top level. */

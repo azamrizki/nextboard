@@ -24,6 +24,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/orch"
 	"github.com/azamrizki/nextboard/internal/profiles"
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
 	"github.com/azamrizki/nextboard/internal/transcript"
 )
@@ -127,6 +128,15 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 			if err := agent.WriteCodexRules(pf.Dir, s.orch.AllBlocked()); err != nil {
 				log.Printf("codex rules: %v", err)
 			}
+		}
+	}
+	if !c.Remote && sp.MachineID == machine.LocalID && agent.Sandboxes(a) {
+		if pr, ok := s.projects.Get(sp.ProjectID); ok && pr.Sandbox != "" {
+			c.Sandbox = &agent.Sandbox{Network: pr.Sandbox != project.SandboxOffline, Write: sandboxWrites()}
+			if prompt.Len() > 0 {
+				prompt.WriteString("\n")
+			}
+			prompt.WriteString(sandboxRule(c.Sandbox.Network) + "\n")
 		}
 	}
 	if !s.settings.Get().Agents.CoAuthor {

@@ -48,6 +48,7 @@ type Patch struct {
 	// GroupID "" takes the project out of its group.
 	GroupID *string
 	Tags    *[]string
+	Sandbox *string
 }
 
 // openGroups loads the tree. A hub from before groups has no file yet, and that
@@ -172,6 +173,9 @@ func (s *Store) Patch(id string, in Patch) (Project, error) {
 			return Project{}, err
 		}
 	}
+	if in.Sandbox != nil && *in.Sandbox != "" && *in.Sandbox != SandboxWorkspace && *in.Sandbox != SandboxOffline {
+		return Project{}, ErrBadSandbox
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, p := s.findLocked(id)
@@ -192,6 +196,9 @@ func (s *Store) Patch(id string, in Patch) (Project, error) {
 	}
 	if in.Tags != nil {
 		p.Tags = tags
+	}
+	if in.Sandbox != nil {
+		p.Sandbox = *in.Sandbox
 	}
 	return p.clone(), s.saveLocked()
 }

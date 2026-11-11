@@ -142,6 +142,27 @@ test('the owner keeps the list of blocked commands', async ({ page, hub }) => {
   expect((await hub.call('GET', `/api/memory/blocked?projectId=${p.id}`)).commands).toEqual(['npm run deploy', '*wipe-all*']);
 });
 
+test('a project sandbox is a lock its owner sets', async ({ page, hub }) => {
+  const p = await hub.project('Portal');
+  const sandboxOf = async () => {
+    const list = (await hub.call('GET', '/api/projects')) as { id: string; sandbox?: string }[] | { items: { id: string; sandbox?: string }[] };
+    return (Array.isArray(list) ? list : list.items).find((x) => x.id === p.id)?.sandbox;
+  };
+  await page.goto(`/memory/${p.id}`);
+  await page.locator('.mem-row.is-critical').first().click();
+  const section = page.locator('.mem-sandbox');
+  await expect(section).toContainText('OpenCode and other CLIs have no sandbox');
+  const pick = section.getByRole('combobox');
+  await expect(pick).toHaveValue('');
+  await pick.selectOption({ label: 'Write only in this project, no network' });
+  await expect.poll(sandboxOf).toBe('offline');
+  await page.reload();
+  await page.locator('.mem-row.is-critical').first().click();
+  await expect(page.locator('.mem-sandbox').getByRole('combobox')).toHaveValue('offline');
+  await page.locator('.mem-sandbox').getByRole('combobox').selectOption({ label: 'Off: what each CLI does by itself' });
+  await expect.poll(sandboxOf).toBeUndefined();
+});
+
 test('nothing runs off a phone screen', async ({ page, hub }) => {
   const p = await hub.project('Portal');
   await hub.memory(p.id, '- the project fact\n');

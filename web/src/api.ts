@@ -44,6 +44,7 @@ import type {
   ModelList,
   Project,
   ProjectGroup,
+  SandboxStatus,
   Session,
   SetupStatus,
   SnapshotInfo,
@@ -270,6 +271,7 @@ export const api = {
 
   // agents (API-agents §1)
   agents: () => get<Agent[] | null>('/api/agents').then((a) => a ?? []),
+  sandboxStatus: () => get<SandboxStatus>('/api/agents/sandbox'),
   /** With the ones turned off, flagged: useMachineAgents leaves them out of the pickers. */
   machineAgents: (id: string) => get<MachineAgents>(`/api/machines/${enc(id)}/agents?all=1`),
   createAgent: (body: AgentInput) => post<Agent>('/api/agents', body),
@@ -302,7 +304,7 @@ export const api = {
   // projects & workspaces (API-board §1)
   projects: () => get<Project[] | null>('/api/projects').then((p) => p ?? []),
   createProject: (body: { machineId: string; path: string; name?: string }) => post<Project>('/api/projects', body),
-  updateProject: (id: string, body: { name?: string; opened?: boolean; groupId?: string; tags?: string[] }) => patch<Project>(`/api/projects/${enc(id)}`, body),
+  updateProject: (id: string, body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; sandbox?: string }) => patch<Project>(`/api/projects/${enc(id)}`, body),
   createProjectGroup: (body: { name: string; parentId?: string }) => post<ProjectGroup>('/api/project-groups', body),
   updateProjectGroup: (id: string, body: { name?: string; parentId?: string }) => patch<ProjectGroup>(`/api/project-groups/${enc(id)}`, body),
   deleteProjectGroup: (id: string) => del<{ ok: boolean }>(`/api/project-groups/${enc(id)}`),

@@ -73,6 +73,22 @@ type LaunchContext struct {
 	Commands []ProjectCommand
 	// Blocked are the commands that need the owner's approval (guard.go).
 	Blocked []string
+	// Sandbox limits what the CLI's commands may do; nil = what the CLI does by itself.
+	Sandbox *Sandbox
+}
+
+// Sandbox is a project's limit on an agent's commands (docs/API-agents.md §27): they write only
+// in the working folder, the temp folder and Write, and reach the network only with Network.
+// Claude Code builds it with bubblewrap, Codex with Landlock; other CLIs have none.
+type Sandbox struct {
+	Network bool
+	Write   []string
+}
+
+// Sandboxes reports whether an agent's CLI can keep its commands in a Sandbox.
+func Sandboxes(a Agent) bool {
+	b := a.CapBase()
+	return b == "claude" || b == "codex"
 }
 
 // MCPVar is a header or environment variable of an MCP server, whose value is in
@@ -179,6 +195,14 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			p.args = append(p.args, "-c", "$"+name)
 			p.env = append(p.env, name+"="+kv)
 		}
+		if sb := c.Sandbox; sb != nil && !c.Remote {
+			roots, _ := json.Marshal(append([]string{}, sb.Write...)) // a JSON array of strings is a TOML one
+			p.args = append(p.args, "--sandbox", "workspace-write",
+				"-c", fmt.Sprintf("sandbox_workspace_write.network_access=%t", sb.Network),
+				"-c", "sandbox_workspace_write.writable_roots="+string(roots))
+			// yolo stops the questions, not the sandbox (its own flag would lift both)
+			p.yolo = []string{"--ask-for-approval", "never"}
+		}
 		if c.Remote {
 			workDir, _ := json.Marshal(c.WorkDir)
 			p.args = append(p.args, "--disable", "shell_tool", "--disable", "unified_exec", "--sandbox", "read-only",
@@ -228,8 +252,18 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 
 // claudeSettings is the inline value of --settings: hooks, where this launch keeps
 // its auto memory, and whether it signs commits. Nothing is written to any settings file.
-func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked []string) string {
+func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked []string, sandbox *Sandbox) string {
 	v := map[string]any{}
+	if sb := sandbox; sb != nil {
+		s := map[string]any{"enabled": true,
+			// no command runs outside it: not when it cannot start, not on a retry
+			"failIfUnavailable": true, "allowUnsandboxedCommands": false, "autoAllowBashIfSandboxed": true,
+			"filesystem": map[string]any{"allowWrite": append([]string{}, sb.Write...)}}
+		if sb.Network {
+			s["network"] = map[string]any{"allowedDomains": []string{"*"}}
+		}
+		v["sandbox"] = s
+	}
 	if len(blocked) > 0 {
 		v["permissions"] = map[string]any{"ask": ClaudeAskRules(blocked)}
 	}
@@ -561,7 +595,7 @@ func Build(a Agent, o Options) (Plan, error) {
 			cp := planContext(a, c)
 			wrapperArgs = append(wrapperArgs, cp.args...)
 			contextEnv = cp.env
-			if c.Remote {
+			if cp.yolo != nil {
 				a.YoloArgs, a.YoloEnv = cp.yolo, nil
 			}
 			if a.CapBase() == "claude" {
@@ -572,10 +606,11 @@ func Build(a Agent, o Options) (Plan, error) {
 	claudeHooks := a.LiveStatus == LiveClaudeHooks && len(live) > 0
 	noCoAuthor := a.CapBase() == "claude" && !o.CoAuthor
 	var blocked []string
+	var sandbox *Sandbox
 	if o.Context != nil && !o.Context.Remote && a.CapBase() == "claude" { // on a server its Bash is off, and the hub's tool looks
-		blocked = o.Context.Blocked
+		blocked, sandbox = o.Context.Blocked, o.Context.Sandbox
 	}
-	if (memoryDir != "" || noCoAuthor || len(blocked) > 0) && !claudeHooks {
+	if (memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil) && !claudeHooks {
 		wrapperArgs = append(wrapperArgs, "--settings", "$NB_HOOKS")
 	}
 	model, effort := o.Model, o.Effort
@@ -612,8 +647,8 @@ func Build(a Agent, o Options) (Plan, error) {
 		"NB_HOOK_SH=" + HookScript,
 		"TERM_PROGRAM=nextboard",
 	}
-	if claudeHooks || memoryDir != "" || noCoAuthor || len(blocked) > 0 {
-		p.Env = append(p.Env, "NB_HOOKS="+claudeSettings(claudeHooks, memoryDir, noCoAuthor, blocked))
+	if claudeHooks || memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil {
+		p.Env = append(p.Env, "NB_HOOKS="+claudeSettings(claudeHooks, memoryDir, noCoAuthor, blocked, sandbox))
 	}
 	if o.HookURL != "" {
 		p.Env = append(p.Env, "NB_HOOK_URL="+o.HookURL)

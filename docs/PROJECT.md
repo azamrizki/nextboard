@@ -888,7 +888,7 @@ Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test
 ### Risiko utama
 
 1. **Rilis baru dicoba di container.** `v0.2.0` keluar lewat semantic-release. Di Ubuntu 24.04 dengan systemd sungguhan di dalam container: `install.sh` memasang `v0.1.0`, `nextboard update` menggantinya ke `v0.2.0` dengan data dan login tetap, service kembali setelah container restart, dan uninstall bersih. Mesin sungguhan belum dicoba, dan binary macOS belum pernah dijalankan.
-2. **Blokir perintah bukan sandbox** (§6). Critical notes tetap instruksi. Perintah terblokir ditegakkan CLI atau hub, tetapi agent dengan shell masih bisa menulis skrip yang melakukan hal sama. Penegakan di Codex dan OpenCode, serta di Claude Code dengan skip permissions, belum diuji dengan model sungguhan.
+2. **Blokir perintah bukan sandbox** (§6); sandbox project sungguhan ada sejak 2026-11-11 untuk Codex (teruji) dan Claude Code (butuh langkah AppArmor di Ubuntu, API-agents §27). Critical notes tetap instruksi. Perintah terblokir ditegakkan CLI atau hub, tetapi agent dengan shell masih bisa menulis skrip yang melakukan hal sama. Penegakan di Codex dan OpenCode, serta di Claude Code dengan skip permissions, belum diuji dengan model sungguhan.
 3. **Aksi tulis git tetap memakai config repo.** Stage, commit, pull, dan push menjalankan hook, filter, dan `core.sshCommand` dari repo, sama seperti git di terminal. Perintah baca sudah tidak (§5.11), tetapi di git < 2.31 filter driver milik repo masih jalan saat `status` dan `diff`.
 
 ### Celah per area

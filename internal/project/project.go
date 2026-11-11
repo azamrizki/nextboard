@@ -29,6 +29,7 @@ var (
 	ErrWorkspaceNotFound = errors.New("workspace not found")
 	ErrLastWorkspace     = errors.New("the last workspace of a project cannot be deleted")
 	ErrBadName           = fmt.Errorf("a name is required, at most %d characters", MaxName)
+	ErrBadSandbox        = errors.New(`sandbox must be "", "workspace" or "offline"`)
 )
 
 // Workspace is one board tab inside a project.
@@ -50,7 +51,17 @@ type Project struct {
 	Workspaces   []Workspace `json:"workspaces"` // tab order
 	GroupID      string      `json:"groupId,omitempty"`
 	Tags         []string    `json:"tags,omitempty"`
+	// Sandbox limits what the commands of its agents may do (docs/API-agents.md §27):
+	// "" = what each CLI does by itself, SandboxWorkspace = write only in the project
+	// folder (and temp and package caches), SandboxOffline = that and no network.
+	Sandbox string `json:"sandbox,omitempty"`
 }
+
+// Sandbox levels of a project.
+const (
+	SandboxWorkspace = "workspace"
+	SandboxOffline   = "offline"
+)
 
 // Counts are live session counts used in the API views.
 type Counts struct{ Total, Running int }
