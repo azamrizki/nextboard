@@ -104,7 +104,7 @@ A Monaco editor card with language servers and debuggers (Delve, debugpy, Node.j
 <td valign="top">
 
 **🌐 Git, previews and browsers**<br>
-A git panel and branch cards, localhost previews (from SSH servers too), and a real Chromium or Firefox in a tile for sites that refuse to load in a frame.
+A git panel and branch cards, localhost previews (from SSH servers too), and a real browser in a tile for sites that refuse to load in a frame: NextBoard Chromium, which the hub downloads and keeps up to date and which loads the passkey extension by itself, or the Chrome, Chromium or Firefox installed on This PC.
 
 </td>
 </tr>
@@ -235,6 +235,7 @@ Please report security problems through a [private security advisory](https://gi
 | `nextboard reset-password` | Reset the admin password |
 | `nextboard pair` | Print a QR code and pairing code for a device |
 | `nextboard update [--version tag]` | Install the latest stable release, or the one named, and restart the service |
+| `sudo nextboard browser-sandbox` | Let NextBoard Chromium make its sandbox where Ubuntu 23.10+ restricts it; only needed without a Chrome or Chromium installed from a package |
 | `nextboard version` | Print the version |
 
 All commands accept `--data-dir` (default `~/.nextboard`, or `$NEXTBOARD_HOME`).

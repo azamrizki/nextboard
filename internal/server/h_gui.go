@@ -54,9 +54,10 @@ const (
 // setupGUI wires the manager and adopts apps that survived a hub restart.
 func (s *Server) setupGUI() {
 	s.gui = gui.New(gui.Config{
-		Dir:     s.st.Path("gui"),
-		Publish: s.events.Publish,
-		Path:    s.machines.Local().LoginPath,
+		Dir:      s.st.Path("gui"),
+		Browsers: s.st.Path("browsers"),
+		Publish:  s.events.Publish,
+		Path:     s.machines.Local().LoginPath,
 	})
 	s.gui.Start()
 }
@@ -67,6 +68,11 @@ func (s *Server) routesGUI(authed func(string, handler)) {
 	authed("GET /api/gui/sessions", s.handleGUISessions)
 	authed("POST /api/gui/sessions", s.handleGUILaunch)
 	authed("POST /api/gui/browser/open", s.handleGUIBrowserOpen)
+	authed("GET /api/gui/browser", s.handleGUIBrowser)
+	authed("POST /api/gui/browser/install", s.handleGUIBrowserInstall)
+	authed("POST /api/gui/browser/check", s.handleGUIBrowserCheck)
+	authed("PATCH /api/gui/browser", s.handleGUIBrowserPatch)
+	authed("DELETE /api/gui/browser", s.handleGUIBrowserRemove)
 	authed("DELETE /api/gui/sessions/{id}", s.handleGUIStop)
 	authed("GET /api/gui/sessions/{id}/ws", s.handleGUIWS)
 	authed("GET /api/gui/sessions/{id}/video", s.handleGUIVideo)
@@ -154,6 +160,54 @@ func (s *Server) handleGUIBrowserOpen(w http.ResponseWriter, r *http.Request, p 
 		status = http.StatusOK
 	}
 	writeJSON(w, status, opened)
+}
+
+// NextBoard Chromium (docs/API-gui.md §8.3): its status, download and updates.
+func (s *Server) handleGUIBrowser(w http.ResponseWriter, r *http.Request, p *principal) {
+	writeJSON(w, http.StatusOK, s.gui.BrowserStatus())
+}
+
+func (s *Server) handleGUIBrowserInstall(w http.ResponseWriter, r *http.Request, p *principal) {
+	if err := s.gui.InstallBrowser(); err != nil {
+		guiErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, s.gui.BrowserStatus())
+}
+
+func (s *Server) handleGUIBrowserCheck(w http.ResponseWriter, r *http.Request, p *principal) {
+	if err := s.gui.CheckBrowser(); err != nil {
+		guiErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, s.gui.BrowserStatus())
+}
+
+func (s *Server) handleGUIBrowserPatch(w http.ResponseWriter, r *http.Request, p *principal) {
+	var req struct {
+		AutoUpdate *bool `json:"autoUpdate"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.AutoUpdate == nil {
+		writeErr(w, http.StatusBadRequest, "autoUpdate is required")
+		return
+	}
+	st, err := s.gui.SetBrowserAutoUpdate(*req.AutoUpdate)
+	if err != nil {
+		guiErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleGUIBrowserRemove(w http.ResponseWriter, r *http.Request, p *principal) {
+	if err := s.gui.RemoveBrowser(); err != nil {
+		guiErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.gui.BrowserStatus())
 }
 
 func (s *Server) handleGUIStop(w http.ResponseWriter, r *http.Request, p *principal) {

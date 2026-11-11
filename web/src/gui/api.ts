@@ -43,7 +43,28 @@ export interface GuiSession {
   startedAt: string;
 }
 
+/** NextBoard Chromium (docs/API-gui.md §8.3). */
+export interface BrowserStatus {
+  id: string;
+  name: string;
+  supported: boolean;
+  installed?: string;
+  latest?: string;
+  checkedAt?: string;
+  autoUpdate: boolean;
+  state: 'idle' | 'checking' | 'downloading' | 'installing' | 'error';
+  done?: number;
+  total?: number;
+  error?: string;
+  /** How it is sandboxed here; "setup" = the owner runs setupCommand once. */
+  sandbox?: 'namespaces' | 'helper' | 'setup';
+  sandboxHelper?: string;
+  setupCommand?: string;
+  dir?: string;
+}
+
 export type GuiEvent =
+  | { type: 'guiBrowser'; browser: BrowserStatus }
   | { type: 'guiSession'; session: GuiSession }
   | { type: 'guiSessionRemoved'; id: string; appId: string; reason: 'closed' | 'stopped' | 'failed'; message?: string };
 
@@ -55,6 +76,11 @@ export const guiApi = {
   launch: (body: { appId: string; path?: string; width?: number; height?: number }) => apiRequest<GuiSession>('POST', '/api/gui/sessions', body),
   openUrl: (body: { url: string; width?: number; height?: number; here?: boolean; instance?: number }) => apiRequest<{ session: GuiSession; url: string; newTab: boolean }>('POST', '/api/gui/browser/open', body),
   stop: (id: string) => apiRequest<{ ok: boolean }>('DELETE', `/api/gui/sessions/${enc(id)}`),
+  browser: () => apiRequest<BrowserStatus>('GET', '/api/gui/browser'),
+  installBrowser: () => apiRequest<BrowserStatus>('POST', '/api/gui/browser/install'),
+  checkBrowser: () => apiRequest<BrowserStatus>('POST', '/api/gui/browser/check'),
+  setBrowserAutoUpdate: (autoUpdate: boolean) => apiRequest<BrowserStatus>('PATCH', '/api/gui/browser', { autoUpdate }),
+  removeBrowser: () => apiRequest<BrowserStatus>('DELETE', '/api/gui/browser'),
 };
 
 export const guiIconUrl = (appId: string) => `/api/gui/apps/${enc(appId)}/icon`;

@@ -359,7 +359,7 @@ func familyOf(bin string) string {
 
 func nameFamily(name string) string {
 	switch name {
-	case "google-chrome", "google-chrome-stable", "google-chrome-beta", "google-chrome-unstable",
+	case "chrome", "google-chrome", "google-chrome-stable", "google-chrome-beta", "google-chrome-unstable",
 		"chromium", "chromium-browser", "brave", "brave-browser", "brave-browser-stable",
 		"microsoft-edge", "microsoft-edge-stable", "vivaldi", "vivaldi-stable", "opera":
 		return familyChromium

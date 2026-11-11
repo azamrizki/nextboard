@@ -219,7 +219,7 @@ Web tile (node `web`) menampilkan dua hal: dev server dan situs luar yang ringan
 
 **Lebih dari satu tile.** Kalau alamat diketik di tile baru sedangkan board sudah menampilkan browser, tile itu bertanya: **New tab there** (tile kosong dihapus, tile lama dipilih dan di-frame) atau **Browser here**. `here: true` memulai browser sendiri untuk tile itu, paling banyak 4 per jenis (`409 too_many_sessions`). Tiap browser memakai profil sendiri (`<data>/gui/profiles/<appId>~2/`), jadi **login tidak dibagi antar-tile** dan masing-masing butuh login sendiri. Ini juga berarti dua akun bisa berdampingan. Tile mengingat `instance` di node, jadi saat dibuka lagi ia mendapat profilnya sendiri; kalau nomor itu sedang dipakai, ia mendapat nomor bebas terkecil. Satu Chrome dengan dua jendela di dua output memang berbagi login dan hemat sekitar 200 MB (lihat Memori), tapi butuh RFB dan video per output, dan tidak ada padanannya di display X11.
 
-**Pilihan browser.** Sesi browser yang sedang berjalan dipakai lebih dulu. Selain itu entri desktop dengan kategori `WebBrowser`, urutan Chrome, Chromium, Brave, Edge, Vivaldi, Opera, Firefox, dan paket snap atau flatpak setelah semua yang dipasang biasa. Web app yang dipasang dari browser tidak ikut karena tidak berkategori `WebBrowser`.
+**Pilihan browser.** Sesi browser yang sedang berjalan dipakai lebih dulu. Selain itu NextBoard Chromium bila sudah diunduh (§8.3), lalu entri desktop dengan kategori `WebBrowser`, urutan Chrome, Chromium, Brave, Edge, Vivaldi, Opera, Firefox, dan paket snap atau flatpak setelah semua yang dipasang biasa. Web app yang dipasang dari browser tidak ikut karena tidak berkategori `WebBrowser`.
 
 **Firefox.** Menyerahkan alamat ke instance yang berjalan lewat bus sesi, jadi tiap sesi Firefox punya `dbus-daemon` sendiri di `<sesi>/bus`, yang juga ditemukan lagi sesudah hub restart. Dimulai dengan `--new-instance --profile`, dan tab baru dengan `--profile --new-tab`. `user.js` di profil baru mematikan pertanyaan browser default dan halaman sambutan.
 
@@ -245,6 +245,40 @@ Web tile (node `web`) menampilkan dua hal: dev server dan situs luar yang ringan
 **Memori.** Ukur di This PC, median 3 kali, GitHub dan Wikipedia, termasuk `sway` dan `wayvnc`, belum termasuk encoder: Split View dalam satu tile 740 MB; satu Chrome dengan dua jendela di dua output headless 771 MB (spike, belum ada di produk); dua Chrome dengan dua profil 971 MB. Selisih antar-run sekitar 100 MB.
 
 **Verifikasi (This PC, 2026-11-03):** `go test ./internal/gui -run 'TestWebURL|TestBrowserChoice|TestOpenURL'`, `internal/server TestGUIBrowserOpen`. Chrome 156 sungguhan di display Wayland, dikendalikan Playwright lewat hub dan build web sementara: github.com, Wikipedia, example.com, iana.org; mengetik di address bar Chrome dari tile; tab kedua; hub restart lalu tab baru; tutup, reload board tanpa Chrome baru, buka lagi; hapus tile.
+
+### 8.3 NextBoard Chromium (2026-11-11)
+
+Browser untuk web tile yang diunduh dan dijaga hub sendiri: **Chrome for Testing kanal stable** dari Google (indeks `last-known-good-versions-with-downloads.json`), build `linux64` dan `linux-arm64`. Isinya Chromium dengan codec Chrome (H.264, AAC, VP9 diuji) yang masih menerima `--load-extension`, sedangkan Chrome bermerek sejak 137 mengabaikannya. Jadi ekstensi passkey (§8, API-vault §passkey) dimuat sendiri di tiap tile. Tidak lebih ringan dari Chrome: 409 MB di disk (Chrome 156: 446 MB), mesinnya sama.
+
+**Unduh** hanya atas permintaan, dari Settings › Previews & studios:
+- Indeks dibaca dari alamat tetap; zip hanya dari `https://storage.googleapis.com` tanpa port, redirect ke host lain ditolak, paling besar 600 MB.
+- Zip hanya boleh berisi file biasa dan folder di bawah folder platformnya. Path yang keluar, link, atau device menolak seluruh rilis.
+- `chrome --version` harus menyebut versi itu sebelum folder dipindah ke `<data>/browsers/chrome-<versi>/`. `state.json` menyimpan `installed`, `latest`, `checkedAt`, `autoUpdate`.
+
+**Update.** Dicek 2 menit setelah hub start lalu tiap jam sekali 24 jam lewat, selama terpasang. Rilis stable yang lebih baru diunduh bila `autoUpdate` (bawaan nyala), seperti Chrome memperbarui dirinya. Tile yang sedang terbuka memakai versinya sampai ditutup; versi lama dihapus sesudah tidak dipakai, dan sesi yang diadopsi setelah restart (versinya tidak diketahui) menunda penghapusan.
+
+**Pilihan browser.** Entri sintetis `nextboard-chromium` (kategori `WebBrowser`, ikon `product_logo_48.png`) di urutan pertama, sebelum browser yang dipasang.
+
+**Bar "for automated testing".** Chrome for Testing menampilkan bar tetap "only for automated testing … use a standard version of Chrome that updates automatically". `--disable-infobars` menyembunyikannya (dicoba; `--test-type` tidak). `--enable-automation` tidak dipakai karena membuat `navigator.webdriver` true.
+
+**Sandbox.** Ubuntu 23.10+ (`kernel.apparmor_restrict_unprivileged_userns = 1`) hanya mengizinkan user namespace bagi program yang dinamai profil AppArmor, dan Chrome for Testing tanpa itu berhenti dengan "No usable sandbox". Urutannya:
+1. Pembatasan tidak aktif, atau `/etc/apparmor.d/nextboard-browser` ada: sandbox namespace milik Chromium sendiri.
+2. Ada helper setuid root dari browser paket (`/opt/google/chrome/chrome-sandbox`, Chromium, Brave, Edge, Vivaldi): `CHROME_DEVEL_SANDBOX=<helper>`. Diuji dengan helper Chrome 156 untuk CfT 153 dan 157.
+3. Selain itu tile tidak dimulai (`409 browser_sandbox`) dan Settings menampilkan `sudo nextboard browser-sandbox --data-dir <data>` sekali. Perintah itu menulis profil `flags=(unconfined) { userns, }` untuk `<data>/browsers/chrome-*/chrome-linux*/chrome`, sama seperti profil Ubuntu untuk Chrome, lalu `apparmor_parser -r`. `--print` hanya mencetaknya.
+
+`--no-sandbox` tidak pernah dipakai.
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/gui/browser` | — | `{id, name, supported, installed?, latest?, checkedAt?, autoUpdate, state: idle\|checking\|downloading\|installing\|error, done?, total?, error?, sandbox?: namespaces\|helper\|setup, sandboxHelper?, setupCommand?, dir?}` |
+| POST | `/api/gui/browser/install` | — | `202` status; mengunduh rilis stable terbaru, atau update ke sana. `409 browser_busy`; `501 browser_unsupported` (bukan Linux x86-64/ARM64) |
+| POST | `/api/gui/browser/check` | — | `202`; hanya membaca indeks, dan update bila `autoUpdate` dan sudah terpasang |
+| PATCH | `/api/gui/browser` | `{autoUpdate}` | status |
+| DELETE | `/api/gui/browser` | — | status; `409 browser_in_use` selama tile menjalankannya. Profil tile tetap |
+
+Event `{"type":"guiBrowser","browser":status}` pada tiap perubahan, termasuk progres unduh (paling sering dua kali per detik).
+
+**Lebih hemat memori (semua keluarga Chromium di tile).** `--disable-features=MediaRouter,OptimizationHints,OptimizationGuideModelDownloading,OptimizationHintsFetching,OptimizationTargetPrediction` mematikan casting dan model serta petunjuk yang diunduh Chrome di belakang. Diukur dengan CfT 153 headless, enam tab dari dua situs lokal, PSS seluruh proses: 718 dan 723 MB → 664 MB (−7 %). Dicoba tanpa hasil: `--process-per-site` (726 MB), `--disable-gpu` (663 MB). Dibuang karena mengurangi fitur: `--disable-software-rasterizer` (636 MB, tapi tanpa WebGL di mesin tanpa GPU). Memory Saver (membuang tab di belakang) belum dicoba: butuh pengukuran berjam-jam.
 
 ## 9. Display tanpa salinan
 

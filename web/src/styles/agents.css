@@ -1172,3 +1172,32 @@ textarea.control.textarea-sm {
   font-size: var(--fs-xs);
   font-weight: 400;
 }
+
+/* NextBoard Chromium in Settings (settings/ManagedBrowserCard.tsx) */
+.browser-progress {
+  height: 6px;
+  margin: var(--s-1) 0 var(--s-2);
+  border-radius: var(--r-pill);
+  background: var(--glass-border);
+  overflow: hidden;
+}
+.browser-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--text-2);
+  transition: width 0.4s ease;
+}
+.setup-command {
+  display: block;
+  margin-top: var(--s-2);
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+  background: var(--term-bg);
+  color: var(--term-fg);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}

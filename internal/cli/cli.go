@@ -39,7 +39,8 @@ Commands:
   setup-link       Create a new setup link (single use, 30 minutes)
   reset-password   Reset the admin password
   pair             Print a QR + pairing code in the terminal
-  update           Download the latest release, then restart the service
+  update           Download the latest stable release (or --version tag), then restart the service
+  browser-sandbox  Let NextBoard Chromium make its sandbox where Linux restricts it (run with sudo once)
   version          Print the version
 
 Common options:
@@ -78,6 +79,8 @@ func Main(args []string) int {
 		err = cmdPair(rest)
 	case "update":
 		err = cmdUpdate(rest)
+	case "browser-sandbox":
+		err = cmdBrowserSandbox(rest)
 	case "version", "--version", "-v":
 		fmt.Println("nextboard", version.Version)
 	case "help", "--help", "-h":

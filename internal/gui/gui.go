@@ -115,9 +115,11 @@ func newErr(status int, code, format string, a ...any) *Error {
 
 // Config wires the manager to the hub.
 type Config struct {
-	Dir     string        // <data>/gui
-	Publish func(any)     // event sink
-	Path    func() string // PATH for apps; nil = the hub's own
+	Dir string // <data>/gui
+	// Browsers is <data>/browsers, where NextBoard Chromium goes; "" = none (managed.go).
+	Browsers string
+	Publish  func(any)     // event sink
+	Path     func() string // PATH for apps; nil = the hub's own
 }
 
 // LaunchRequest starts an app.
@@ -149,6 +151,7 @@ type Manager struct {
 	wg             sync.WaitGroup
 
 	passkeys PasskeyExtension
+	mb       managedBrowser
 
 	// Result of encoderArgs.
 	probeOnce sync.Once
@@ -165,6 +168,8 @@ type session struct {
 	xpid    int
 	cookie  []byte
 	pageURL string // web page the app opens with (OpenURL)
+	// managedVersion: the release of NextBoard Chromium it runs, kept while it is open.
+	managedVersion string
 
 	hadWindow bool // the app reached its first window (saved in state.json)
 	stopping  bool // guarded by Manager.mu
@@ -274,7 +279,7 @@ func (m *Manager) Status() Status {
 func (m *Manager) Apps() []App {
 	path := m.pathEnv()
 	out := []App{}
-	for _, e := range scanEntries(dataDirs()) {
+	for _, e := range m.entries() {
 		if e.launchable(path) {
 			out = append(out, App{ID: e.ID, Name: e.Name, Comment: e.Comment, Categories: e.Categories, AcceptsFolder: e.acceptsFolder()})
 		}
@@ -286,7 +291,7 @@ func (m *Manager) Apps() []App {
 }
 
 func (m *Manager) lookup(id string) (*entry, bool) {
-	e, ok := scanEntries(dataDirs())[id]
+	e, ok := m.entries()[id]
 	if !ok || !e.launchable(m.pathEnv()) {
 		return nil, false
 	}
@@ -447,11 +452,22 @@ func (m *Manager) launch(req LaunchRequest, pageURL string) (Session, error) {
 			return Session{}, newErr(http.StatusBadRequest, "folder_not_found", "folder not found: %s", req.Path)
 		}
 	}
+	managed := ""
+	if e.ID == ManagedBrowserID {
+		// sandboxed, or not started at all
+		if _, err := m.managedEnv(); err != nil {
+			return Session{}, err
+		}
+		m.mb.mu.Lock()
+		managed = m.mb.saved.Installed
+		m.mb.mu.Unlock()
+	}
 	s, err := m.reserve(e, m.displayKind(), req.Instance)
 	if err != nil {
 		return Session{}, err
 	}
 	s.pageURL = pageURL
+	s.managedVersion = managed
 	x, err := m.bootstrap(s, e, target, clamp(req.Width, 320, 3840, defaultW), clamp(req.Height, 200, 2160, defaultH))
 	if err != nil {
 		m.terminate(s)
@@ -773,6 +789,13 @@ func (m *Manager) appCommandFor(s *session, e *entry, target, xauth, pageURL str
 		return nil, nil, "", err
 	}
 	flags = append(flags, more...)
+	var managedEnv []string
+	if e.ID == ManagedBrowserID {
+		if managedEnv, err = m.managedEnv(); err != nil {
+			return nil, nil, "", err
+		}
+		flags = append(flags, managedFlags...)
+	}
 	argv = slices.Concat(argv[:pk.at+1], flags, argv[pk.at+1:])
 	if pageURL != "" {
 		argv = append(argv, pageURL)
@@ -805,6 +828,7 @@ func (m *Manager) appCommandFor(s *session, e *entry, target, xauth, pageURL str
 		env = append(env, fmt.Sprintf("DISPLAY=:%d", s.display), "XAUTHORITY="+xauth, "GDK_BACKEND=x11", "QT_QPA_PLATFORM=xcb")
 	}
 	env = append(env, profEnv...)
+	env = append(env, managedEnv...)
 	if s.pub.Audio {
 		env = append(env, "PULSE_SINK="+sinkName(s.pub.ID), "PIPEWIRE_NODE="+sinkName(s.pub.ID))
 	}
@@ -1283,6 +1307,7 @@ func signalMarked(id string, sig syscall.Signal, skip int) {
 
 // Start adopts the sessions that survived a hub restart and clears the rest.
 func (m *Manager) Start() {
+	m.startBrowserUpdates()
 	root := m.sessionsRoot()
 	dirs, err := os.ReadDir(root)
 	if err != nil {
@@ -1354,6 +1379,7 @@ func (m *Manager) adopt(dir string) (*session, displayWatch) {
 
 // Close stops watching but leaves the apps running for the next hub.
 func (m *Manager) Close() {
+	m.stopBrowserUpdates()
 	m.mu.Lock()
 	m.closed = true
 	for _, s := range m.sessions {

@@ -9,6 +9,7 @@ import { SegmentedControl } from '../components/form';
 import { SettingRow, SwitchRow } from '../components/Switch';
 import { toast } from '../components/Toast';
 import { Button } from '../components/Button';
+import { ManagedBrowserCard } from './ManagedBrowserCard';
 
 async function save(patch: Record<string, unknown>, what: string) {
   try {
@@ -54,6 +55,7 @@ export function StudiosPane() {
           </div>
         </SettingRow>
       </section>
+      <ManagedBrowserCard />
       <section className="card settings-card" aria-labelledby="st-run">
         <h3 id="st-run" className="section-title">
           Hidden runs (all devices)

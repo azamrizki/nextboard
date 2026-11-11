@@ -75,6 +75,10 @@ func (m *Manager) browserRank(e *entry) (rank int, ok bool) {
 	if !slices.Contains(e.Categories, "WebBrowser") {
 		return 0, false
 	}
+	if e.ID == ManagedBrowserID {
+		// NextBoard Chromium, once downloaded: it takes the passkey extension by itself
+		return -1, true
+	}
 	argv, err := parseExec(e.Exec)
 	if err != nil || len(argv) == 0 {
 		return 0, false
@@ -109,7 +113,7 @@ func (m *Manager) browserRank(e *entry) (rank int, ok bool) {
 func (m *Manager) browser() *entry {
 	var best *entry
 	bestRank := 0
-	for _, e := range scanEntries(dataDirs()) {
+	for _, e := range m.entries() {
 		if !e.launchable(m.pathEnv()) {
 			continue
 		}
@@ -183,7 +187,7 @@ func (m *Manager) openHere(req OpenURLRequest, u string) (OpenedURL, error) {
 	return OpenedURL{Session: pub, URL: u}, nil
 }
 
-const noBrowserMsg = "no supported browser on This PC. Install Google Chrome, Chromium or Firefox"
+const noBrowserMsg = "no supported browser on This PC. Download NextBoard Chromium in Settings › Previews & studios, or install Google Chrome, Chromium or Firefox"
 
 // OpenURL shows a page in the browser: as a new tab when it is open, else by
 // starting it. The window of a started browser arrives later, announced by a
