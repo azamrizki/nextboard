@@ -114,6 +114,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
       inputRef.current?.focus();
     },
     reuse: (t) => fillIn(att.take(t)),
+    answer: (m, t) => sendCommand(project.id, replyText(t, replyDraftOf(m, name)), { workspaceId: ctl.workspaceId, cardId: id, replyTo: m.id }),
   };
 
   const toggleDetails = () => {

@@ -28,9 +28,17 @@ interface ShownReply {
   partial?: boolean;
 }
 
-type OutputViewerProps = { onClose: () => void } & ({ sessionId: string; message?: undefined } | { message: ThreadMessage; sessionId?: undefined });
+type OutputViewerProps = { onClose: () => void } & (
+  | { sessionId: string; message?: undefined; onAnswer?: undefined }
+  | {
+      message: ThreadMessage;
+      sessionId?: undefined;
+      /** Sends a reply as an order of the thread the report is in, so its result comes back there. */
+      onAnswer?: (text: string) => Promise<unknown>;
+    }
+);
 
-export function OutputViewer({ sessionId, message, onClose }: OutputViewerProps) {
+export function OutputViewer({ sessionId, message, onClose, onAnswer }: OutputViewerProps) {
   const session = useSession(sessionId ?? message?.sessionId ?? '');
   const [reply, setReply] = useState<ShownReply | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading');
@@ -175,7 +183,7 @@ export function OutputViewer({ sessionId, message, onClose }: OutputViewerProps)
           </p>
         )}
       </div>
-      {session && <ReplyBox session={session} />}
+      {session && <ReplyBox session={session} onAnswer={onAnswer} onAnswered={onClose} />}
     </Modal>
   );
 }
@@ -200,8 +208,12 @@ const DELIVERY_TEXT: Record<string, string> = {
   cancelled: 'Cancelled.',
 };
 
-/** "Reply to @handle": a follow-up through the delivery engine (source "reply"). */
-function ReplyBox({ session }: { session: Session }) {
+/**
+ * "Reply to @handle". Opened from a report in a thread, it is an order of that thread, so the
+ * agent's next result is reported there too, and the window closes on the thread. Opened from a
+ * console, it is a follow-up through the delivery engine (source "reply").
+ */
+function ReplyBox({ session, onAnswer, onAnswered }: { session: Session; onAnswer?: (text: string) => Promise<unknown>; onAnswered: () => void }) {
   const id = `reply-${session.id}`;
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -217,6 +229,12 @@ function ReplyBox({ session }: { session: Session }) {
     setBusy(true);
     setError('');
     try {
+      if (onAnswer) {
+        await onAnswer(t);
+        setText('');
+        onAnswered();
+        return;
+      }
       const res = await orchApi.deliver(session.id, { text: t, submit: true, source: 'reply' });
       orchStore.upsertDelivery(res);
       setDeliveryId(res.id);
@@ -267,7 +285,10 @@ function ReplyBox({ session }: { session: Session }) {
         </span>
       ) : (
         <span className="field-hint" id={`${id}-hint`} role="status">
-          {status || `Typed into ${handle} when it is at its prompt — never into a shell or a permission question.`}
+          {status ||
+            (onAnswer
+              ? `Sent as an order: ${handle}'s answer comes back to this thread.`
+              : `Typed into ${handle} when it is at its prompt — never into a shell or a permission question.`)}
         </span>
       )}
     </div>

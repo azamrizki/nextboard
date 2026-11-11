@@ -453,7 +453,7 @@ Read-only lewat file API Fase 4 (lokal langsung, SSH via SFTP, fallback exec). F
 |---|---|---|---|
 | GET | `/api/machines/{id}/conversations?agent=claude&cwd=&profileId=&limit=50` | `limit` ≤ 200 | `{"items":[Conversation…],"scanned":N,"truncated":bool}` (urut `updatedAt` desc; Claude: file di folder slug; Codex: maks 500 file rollout terbaru, filter cwd). `400 no_transcript` untuk agen tanpa transcript. `Conversation.attachedHandle` (tambahan) = handle console yang memegang percakapan (`null` bila tidak ada), di samping `attachedTo`. `messages` dihitung dari 64 KiB pertama file (batas bawah untuk file besar) |
 
-**Output viewer:** tombol "See output" di header muncul bila `reply.chars ≥ 80` atau `reply.paragraphs ≥ 3` dan state bukan `working`. Isi: render Markdown, Copy, "Save .md" (`reply/save`), dan kolom "Reply to @Ash" yang memakai delivery Fase 6 (`POST /api/sessions/{id}/deliveries`); sebelum Fase 6 tersedia, kolom itu nonaktif.
+**Output viewer:** tombol "See output" di header muncul bila `reply.chars ≥ 80` atau `reply.paragraphs ≥ 3` dan state bukan `working`. Isi: render Markdown, Copy, "Save .md" (`reply/save`), dan kolom "Reply to @Ash". Dibuka dari console, kolom itu memakai delivery Fase 6 (`POST /api/sessions/{id}/deliveries`); sebelum Fase 6 tersedia, kolom itu nonaktif. Dibuka dari laporan di thread (command bar, kartu orchestrator, panel agent Code card), kolom itu mengirim order thread tersebut (`replyTo` = laporan itu, lewat `ThreadActions.answer` milik tempatnya), jadi hasil agent berikutnya kembali ke thread, lalu jendelanya menutup. Delivery biasa tidak membawa order, jadi hasilnya dulu tidak pernah dilaporkan.
 
 ## 9. Yolo (C8)
 

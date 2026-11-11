@@ -213,6 +213,11 @@ export interface ThreadActions {
   reply: (m: ThreadMessage, toLead: boolean) => void;
   /** Put the text back in the box, to change and send again. */
   reuse: (text: string) => void;
+  /**
+   * Send text as an answer to m, the way this thread sends orders: the agent's next result comes
+   * back here. The output window's reply box uses it.
+   */
+  answer?: (m: ThreadMessage, text: string) => Promise<unknown>;
 }
 
 /** A message's actions; they show when the pointer is on the message. */
@@ -475,7 +480,13 @@ export function ThreadList({ threadId, compact, empty, lead, actions }: { thread
           </li>
         )}
       </ol>
-      {output && <OutputViewer message={output} onClose={() => setOutput(null)} />}
+      {output && (
+        <OutputViewer
+          message={output}
+          onClose={() => setOutput(null)}
+          onAnswer={actions?.answer && output.role !== 'user' ? (t) => actions.answer!(output, t) : undefined}
+        />
+      )}
     </div>
   );
 }

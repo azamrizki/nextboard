@@ -288,6 +288,7 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
               inputRef.current?.focus();
             },
             reuse: (t) => fillIn(att.take(t)),
+            answer: (m, t) => sendCommand(project.id, replyText(t, replyDraftOf(m, name)), { workspaceId: ctl.workspaceId, cardId: card || null, replyTo: m.id }),
           }}
           empty={
             <OrderWelcome title={`Hi, I'm ${name}`} lead={name} ideas={orderIdeas(attached)} onIdea={fillIn}>

@@ -318,6 +318,10 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
                 setText(att.take(t));
                 inputRef.current?.focus();
               },
+              answer: (m, t) => {
+                noteOrderSent();
+                return sendCommand(project.id, replyText(t, replyDraftOf(m, leadName)), { workspaceId: ctl.workspaceId, replyTo: m.id });
+              },
             }}
             empty="Orders, plans and reports from your agents appear here. Try “@Arkan run the tests” or “spawn two reviewers”." />
         </section>
