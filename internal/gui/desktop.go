@@ -483,6 +483,12 @@ user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
 user_pref("browser.startup.homepage_override.mstone", "ignore");
 `
 
+// chromiumLighter turns off what a browser in a tile has no use for: casting, and the models and
+// hints Chrome downloads in the background. About 7 % less memory over six tabs of two sites,
+// measured with Chrome for Testing 153; the other candidates saved nothing (process per site) or
+// took a feature away (no software rasterizer: no WebGL without a GPU).
+const chromiumLighter = "--disable-features=MediaRouter,OptimizationHints,OptimizationGuideModelDownloading,OptimizationHintsFetching,OptimizationTargetPrediction"
+
 // profileFor returns the extra flags and environment that keep the app on
 // its NextBoard profile instead of the one used on the physical display.
 // The password store is "basic" because a private display has no keyring;
@@ -492,7 +498,7 @@ func profileFor(bin, dir string) (flags, env []string) { return familyProfile(fa
 func familyProfile(family, dir string) (flags, env []string) {
 	switch family {
 	case familyChromium:
-		return []string{"--user-data-dir=" + filepath.Join(dir, "data"), "--no-first-run", "--no-default-browser-check", "--password-store=basic"}, nil
+		return []string{"--user-data-dir=" + filepath.Join(dir, "data"), "--no-first-run", "--no-default-browser-check", "--password-store=basic", chromiumLighter}, nil
 	case familyVSCode:
 		// The shared folder holds the recent list, which otherwise travels
 		// between the profile and the VS Code on the physical display.
