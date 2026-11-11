@@ -1,5 +1,5 @@
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, openSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, openSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import { request } from '@playwright/test';
 import { PORT, STATE_FILE } from './playwright.config';
 
 const FAKE_AGENT = fileURLToPath(new URL('./fake-agent.sh', import.meta.url));
+const FAKE_WORKER = fileURLToPath(new URL('./fake-worker.sh', import.meta.url));
 
 /** Starts the hub, sets it up, and gives back how to stop it. */
 export default async function globalSetup() {
@@ -28,6 +29,12 @@ export default async function globalSetup() {
     const gone = new Promise((done) => hub.once('exit', done));
     hub.kill('SIGTERM');
     await Promise.race([gone, new Promise((done) => setTimeout(done, 8000))]);
+    // the hub's log outlives the run: a hub that died halfway leaves only refused connections
+    try {
+      copyFileSync(join(root, 'hub.log'), join(tmpdir(), `nextboard-e2e-hub-${PORT}.log`));
+    } catch {
+      /* no log */
+    }
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     rmSync(STATE_FILE, { force: true });
   };
@@ -48,6 +55,8 @@ export default async function globalSetup() {
     if (!setup.ok()) throw new Error(`setup: ${setup.status()}`);
     const agent = await ctx.post('/api/agents', { data: { id: 'fakecli', name: 'Fake CLI', command: FAKE_AGENT, base: 'codex' } });
     if (!agent.ok()) throw new Error(`agent: ${agent.status()}`);
+    const worker = await ctx.post('/api/agents', { data: { id: 'fakeworker', name: 'Fake Worker', command: FAKE_WORKER } });
+    if (!worker.ok()) throw new Error(`worker: ${worker.status()}`);
     writeFileSync(STATE_FILE, JSON.stringify(await ctx.storageState()));
     await ctx.dispose();
   } catch (err) {

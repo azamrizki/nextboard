@@ -305,9 +305,12 @@ test('the workbench views, tile controls and passkey dialogs fit the screen', as
   await page.goto(`/p/${p.id}/w/${p.wid}`);
   // a phone has no toolbar for it: it is in what the board's own Insert offers
   const toolbar = page.getByRole('button', { name: 'Layouts' }).first();
-  if (await toolbar.isVisible().catch(() => false)) await toolbar.click();
+  const boardTab = page.getByRole('button', { name: 'Board', exact: true });
+  // whichever this screen has, once the board is drawn
+  await expect.poll(async () => (await toolbar.isVisible()) || (await boardTab.isVisible()), { timeout: 15_000 }).toBe(true);
+  if (await toolbar.isVisible()) await toolbar.click();
   else {
-    await page.getByRole('button', { name: 'Board', exact: true }).click();
+    await boardTab.click();
     await page.locator('.rail-left').getByRole('button', { name: 'Insert' }).click();
     await page.locator('.rail-flyout-insert').getByRole('button', { name: 'Layouts' }).click();
   }
