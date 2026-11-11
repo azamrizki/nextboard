@@ -654,9 +654,21 @@ func (s *Session) refreshReply() {
 				rep = fromTranscript(sp.ID, sp.AgentSessionID, r)
 			}
 		}
+		// a full-screen CLI without transcript: its rendered screen, not its redraws
+		screenAnswer := ""
+		if rep == nil && kind == "" {
+			if rules := s.m.agentFor(s.Spec()).ScreenRules; rules != "" {
+				s.scr.Sync()
+				screenAnswer, _ = agent.ScreenAnswer(rules, s.scr.Snapshot().Lines)
+			}
+		}
 		s.mu.Lock()
 		if rep == nil && kind == "" {
-			rep = s.screenReplyLocked()
+			if screenAnswer != "" {
+				rep = screenReply(s.spec, screenAnswer, time.Now(), "screen")
+			} else {
+				rep = s.screenReplyLocked()
+			}
 		}
 		if rep == nil {
 			s.mu.Unlock()

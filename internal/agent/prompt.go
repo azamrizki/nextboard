@@ -19,6 +19,8 @@ type inputShape struct {
 	// above/below, when set, must match the nearest non-empty line above /
 	// below the cursor line (within 2 rows): the borders of an input box.
 	above, below *regexp.Regexp
+	// next, when set, must match the rows right below the cursor line, in order.
+	next []*regexp.Regexp
 }
 
 var (
@@ -44,8 +46,13 @@ var inputShapes = map[string][]inputShape{
 	// Gemini (unverified): "│ > Type your message…" in a box.
 	"gemini": {{cursor: regexp.MustCompile(`^\s*│\s*>\s`)}},
 	// OpenCode 1.17.15: no prompt character, the cursor sits in a box with a heavy
-	// bar at its left, on "┃  Ask anything…" or on what was typed.
-	"opencode": {{cursor: regexp.MustCompile(`^\s*┃\s{2}`)}},
+	// bar at its left, on "┃  Ask anything…" or on what was typed. After a turn the
+	// placeholder is gone: the cursor is on a bare "┃", with the box's padding row
+	// and its "┃  Build · model" footer right below (a real screen, 2026-11-11).
+	"opencode": {
+		{cursor: regexp.MustCompile(`^\s*┃\s{2}`)},
+		{cursor: regexp.MustCompile(`^\s*┃\s*$`), next: []*regexp.Regexp{regexp.MustCompile(`^\s*┃\s*$`), regexp.MustCompile(`^\s*┃\s{2}\S.*·`)}},
+	},
 	// Agents without screen rules: a prompt character at the cursor line.
 	"": {{cursor: regexp.MustCompile(`^\s*(│\s*)?[>❯›»](\s|$)`)}},
 }
@@ -143,6 +150,9 @@ func InputPrompt(rulesID string, lines []string, cursorY int) (bool, string) {
 		if sh.below != nil && !sh.below.MatchString(neighbour(lines, cursorY, 1)) {
 			continue
 		}
+		if !rowsBelow(lines, cursorY, sh.next) {
+			continue
+		}
 		if l := dialogLine(lines, cursorY, boxed); l != "" {
 			return false, "dialog: " + l
 		}
@@ -152,6 +162,16 @@ func InputPrompt(rulesID string, lines []string, cursorY int) (bool, string) {
 		return false, "dialog: " + l
 	}
 	return false, "no known input prompt on the cursor line: " + strings.TrimSpace(cur)
+}
+
+// rowsBelow reports whether the rows right below y match res, in order.
+func rowsBelow(lines []string, y int, res []*regexp.Regexp) bool {
+	for i, re := range res {
+		if y+1+i >= len(lines) || !re.MatchString(lines[y+1+i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // neighbour returns the nearest non-empty line within 2 rows of y in

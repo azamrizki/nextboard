@@ -102,6 +102,30 @@ func TestOpenCodeInputPrompt(t *testing.T) {
 	if got, _ := InputPrompt("opencode", withFooter, cy); got {
 		t.Error("a dialog footer accepted")
 	}
+	// After a turn the placeholder is gone and the input row is a bare bar (a real
+	// screen of OpenCode 1.17.15 on an API provider): the second order was refused.
+	lines, cy, _, _ = readScreen(t, "testdata/generic/opencode-1.17.15-after-turn.txt")
+	if got, why := InputPrompt("opencode", lines, cy); !got {
+		t.Errorf("OpenCode after a turn refused: %s", why)
+	}
+	if m := GenericEvaluate("opencode", lines, cy); !m.Ready || m.NeedsYou != "" {
+		t.Errorf("after a turn %+v", m)
+	}
+	// and the answer is read off that screen, not off the redraws
+	if got, ok := ScreenAnswer("opencode", lines); !ok || got != "391" {
+		t.Errorf("answer %q %v", got, ok)
+	}
+	if got, ok := ScreenAnswer("opencode", lines[:7]); ok {
+		t.Errorf("an unfinished answer read: %q", got)
+	}
+	if _, ok := ScreenAnswer("claude", lines); ok {
+		t.Error("only OpenCode is read this way")
+	}
+	for _, y := range []int{1, 3, cy - 1, cy + 1} { // the bars of the message above, the box's padding
+		if got, _ := InputPrompt("opencode", lines, y); got {
+			t.Errorf("row %d accepted: %q", y, lines[y])
+		}
+	}
 	var found bool
 	for _, a := range Catalog() {
 		if a.ID == "opencode" {
