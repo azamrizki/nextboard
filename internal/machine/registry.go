@@ -66,6 +66,8 @@ type Registry struct {
 
 	saveMu    sync.Mutex
 	saveTimer *time.Timer
+	saving    sync.WaitGroup // a save saveSoon scheduled and has not finished
+	closed    bool           // Close ran: nothing more is saved later
 }
 
 // OpenRegistry loads machines.json.
@@ -137,8 +139,17 @@ func (r *Registry) Start() {
 	}
 }
 
-// Close disconnects every SSH machine.
+// Close disconnects every SSH machine and saves them once more; a save scheduled before it
+// never writes after it.
 func (r *Registry) Close() {
+	r.saveMu.Lock()
+	r.closed = true
+	if r.saveTimer != nil && r.saveTimer.Stop() {
+		r.saveTimer = nil
+		r.saving.Done()
+	}
+	r.saveMu.Unlock()
+	r.saving.Wait()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, m := range r.ssh {
@@ -166,10 +177,12 @@ func (r *Registry) emit(id string) {
 func (r *Registry) saveSoon() {
 	r.saveMu.Lock()
 	defer r.saveMu.Unlock()
-	if r.saveTimer != nil {
+	if r.saveTimer != nil || r.closed {
 		return
 	}
+	r.saving.Add(1)
 	r.saveTimer = time.AfterFunc(300*time.Millisecond, func() {
+		defer r.saving.Done()
 		r.saveMu.Lock()
 		r.saveTimer = nil
 		r.saveMu.Unlock()

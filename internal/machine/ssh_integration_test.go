@@ -109,6 +109,8 @@ func newTestRegistry(t *testing.T) *Registry {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// before t.TempDir removes the store: a save still scheduled would write into it
+	t.Cleanup(r.Close)
 	return r
 }
 
