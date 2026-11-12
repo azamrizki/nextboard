@@ -90,3 +90,34 @@ test('the layout library finds templates by what they are for', async ({ page, h
   await expect(library.getByRole('option', { name: /Incident room/ })).toHaveCount(1);
   await page.keyboard.press('Escape');
 });
+
+// The grey box of a preview is the board's Code card: deployed on a board that has one, that one
+// moves into the layout's place (left where it was, the layout looked as if it had none).
+test('a layout with the Code card moves the one the board has into place', async ({ page, hub }, info) => {
+  const p = await hub.project(`Editor ${info.project.name}`);
+  await hub.call('POST', `/api/workspaces/${p.wid}/board/ops`, {
+    clientId: 'c_e2e',
+    baseRev: 0,
+    ops: [{ op: 'put', node: { id: 'n_editore2e01', kind: 'editor', x: 0, y: 0, w: 640, h: 400, data: {} } }],
+  });
+  await page.goto(`/p/${p.id}/w/${p.wid}`);
+  await page.getByRole('button', { name: 'Layouts' }).first().click();
+  const panel = page.getByRole('dialog', { name: 'Layouts' });
+  await panel.getByRole('textbox', { name: 'Search layouts' }).fill('Code & pair');
+  const option = panel.getByRole('option', { name: /Code & pair/ });
+  await expect(option).toContainText('2 consoles · Code');
+  await expect(option.locator('.pv-label')).toHaveText('Code');
+  await option.click();
+  await panel.getByRole('button', { name: 'Deploy Code & pair' }).click();
+  await expect(panel).toHaveCount(0, { timeout: 15_000 });
+  const board = await consoles(hub, p.wid);
+  const editors = board.nodes.filter((n) => n.kind === 'editor');
+  const terms = board.nodes.filter((n) => n.kind === 'terminal');
+  expect(editors.length).toBe(1);
+  expect(terms.length).toBe(2);
+  // the editor sits where the preview drew it: left of the pair, as large as the layout says
+  expect(editors[0].x).toBeGreaterThan(0);
+  expect(editors[0].w).toBeGreaterThan(640);
+  for (const t of terms) expect(t.x).toBeGreaterThan(editors[0].x + editors[0].w);
+  for (const s of await hub.call('GET', '/api/sessions')) if (s.workspaceId === p.wid) await hub.call('DELETE', `/api/sessions/${s.id}`);
+});

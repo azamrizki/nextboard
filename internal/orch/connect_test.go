@@ -537,6 +537,32 @@ func TestLayoutKeepsTheEditor(t *testing.T) {
 	if editors != 1 || wires != 2 {
 		t.Fatalf("editors %d, wires %d", editors, wires)
 	}
+	// The one it has moves into the layout's place, open files and all: left where it was, the
+	// layout looked as if it had none.
+	var ed *board.Node
+	for _, n := range b.Nodes {
+		if n.Kind == KindEditor {
+			ed = n
+		}
+	}
+	if ed.X < 400 || !strings.Contains(string(ed.Data), "secret.go") {
+		t.Fatalf("editor not moved into the layout, or its files lost: %+v %s", ed, ed.Data)
+	}
+	// A locked one stays where the owner put it.
+	locked := *ed
+	locked.X, locked.Y, locked.Locked = 10, 10, true
+	if err := h.ApplyOps(wid, []board.Op{{Op: "put", Node: &locked}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Deploy(wid, DeployRequest{LayoutID: saved.ID}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = h.Board(wid)
+	for _, n := range b.Nodes {
+		if n.Kind == KindEditor && (n.X != 10 || n.Y != 10) {
+			t.Fatalf("a locked editor moved to %v,%v", n.X, n.Y)
+		}
+	}
 	// On an empty board it brings the editor along.
 	ws2, err := h.CreateWorkspace(p.ID, "Two")
 	if err != nil {

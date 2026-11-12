@@ -498,9 +498,16 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 	ops = append(groupOps, ops...)
 	for _, n := range l.Nodes {
 		if n.Kind == KindEditor {
-			// a board has one editor card: the layout's wires go to the one it has
+			// A board has one editor card: the layout's wires go to the one it has, and it moves
+			// into the layout's place, as the preview drew it (left where it was, it looked as if the
+			// layout had none). Its open files go with it; one the owner locked stays put.
 			if i := slices.IndexFunc(b.Nodes, func(o *board.Node) bool { return o.Kind == KindEditor }); i >= 0 {
-				keyNode[n.Key] = b.Nodes[i].ID
+				old := b.Nodes[i]
+				keyNode[n.Key] = old.ID
+				if !old.Locked {
+					ops = append(ops, board.Op{Op: "put", Node: &board.Node{ID: old.ID, Kind: old.Kind, X: clampCoord(ox + n.X), Y: clampCoord(oy + n.Y),
+						W: max(n.W, 40), H: max(n.H, 40), Rotation: old.Rotation, Data: old.Data}})
+				}
 				continue
 			}
 		}
