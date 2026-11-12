@@ -1033,6 +1033,29 @@
   display: flex;
   gap: var(--s-1);
 }
+/* a row of text choices: the options on the right, the chosen one inverted as in a segmented control */
+.menu-choice .menu-swatches-row {
+  margin-left: auto;
+}
+.menu-item.choice-item {
+  width: auto;
+  height: var(--s-6);
+  min-height: 0;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+.menu-item.choice-item[aria-checked='true'] {
+  background: var(--c-primary);
+  color: var(--text-on-primary);
+}
+.menu-item.choice-item[aria-checked='true']:hover,
+.menu-item.choice-item[aria-checked='true']:focus-visible {
+  background: var(--c-primary-600);
+  color: var(--text-on-primary);
+}
 .menu-item.swatch-item {
   width: var(--size-swatch);
   height: var(--size-swatch);

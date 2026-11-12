@@ -166,3 +166,62 @@ test('the layout can be pinned for this browser', async ({ page }, info) => {
   await page.getByRole('radiogroup', { name: 'Layout' }).getByRole('radio', { name: 'Auto' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-layout', 'tablet');
 });
+
+test('the project menu sorts its groups and its projects, each its own way, and keeps it', async ({ page, hub }) => {
+  const tag = Date.now().toString(36);
+  const elm = await hub.call('POST', '/api/project-groups', { name: `Elm ${tag}` });
+  const oak = await hub.call('POST', '/api/project-groups', { name: `Oak ${tag}` });
+  // opened in this order: Zed, then Alpha, then beta
+  const zed = await hub.project('Zed');
+  const alpha = await hub.project('Alpha');
+  const beta = await hub.project('beta');
+  await hub.call('PATCH', `/api/projects/${zed.id}`, { groupId: elm.id });
+  for (const p of [alpha, beta]) await hub.call('PATCH', `/api/projects/${p.id}`, { groupId: oak.id });
+  for (const p of [zed, alpha, beta]) await hub.call('PATCH', `/api/projects/${p.id}`, { opened: true });
+  const start = await hub.project('Start');
+  await page.goto(`/p/${start.id}`);
+
+  const menu = page.getByRole('menu', { name: 'Switch project' });
+  const open = async () => {
+    await page.locator('.project-switch:visible').first().click();
+    await expect(menu).toBeVisible();
+  };
+  const order = async (...names: string[]) => {
+    const rows = await menu.getByRole('menuitem').allTextContents();
+    return names.map((n) => rows.findIndex((r) => r.startsWith(n)));
+  };
+  const before = async (a: string, b: string) => {
+    await expect(async () => {
+      const [i, j] = await order(a, b);
+      expect(i, `${a} is in the menu`).toBeGreaterThanOrEqual(0);
+      expect(j, `${b} is in the menu`).toBeGreaterThan(i);
+    }).toPass({ timeout: 5000 });
+  };
+  const choose = async (row: 'Sort groups' | 'Sort projects', value: 'Name' | 'Recent') => {
+    const item = menu.getByRole('group', { name: row }).getByRole('menuitemradio', { name: value });
+    await item.click();
+    await expect(item).toHaveAttribute('aria-checked', 'true');
+  };
+
+  // until chosen: groups A to Z, projects opened last first
+  await open();
+  await expect(menu.getByRole('group', { name: 'Sort groups' }).getByRole('menuitemradio', { name: 'Name' })).toHaveAttribute('aria-checked', 'true');
+  await expect(menu.getByRole('group', { name: 'Sort projects' }).getByRole('menuitemradio', { name: 'Recent' })).toHaveAttribute('aria-checked', 'true');
+  await before(`Elm ${tag}`, `Oak ${tag}`);
+  await before(beta.name, alpha.name);
+
+  // each row changes its own order, and the menu stays open while it does
+  await choose('Sort groups', 'Recent');
+  await before(`Oak ${tag}`, `Elm ${tag}`);
+  await before(beta.name, alpha.name);
+  await choose('Sort projects', 'Name');
+  await before(alpha.name, beta.name);
+  await before(`Oak ${tag}`, `Elm ${tag}`);
+
+  // this browser keeps the choice
+  await page.reload();
+  await open();
+  await before(`Oak ${tag}`, `Elm ${tag}`);
+  await before(alpha.name, beta.name);
+  await expect(menu.getByRole('group', { name: 'Sort projects' }).getByRole('menuitemradio', { name: 'Name' })).toHaveAttribute('aria-checked', 'true');
+});

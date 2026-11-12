@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, errorMessage } from '../api';
-import { groupChain, groupTree, useCollapsedGroups, type GroupNode } from '../home/groups';
+import { groupChain, groupTree, useCollapsedGroups, useMenuSort, type GroupNode } from '../home/groups';
 import { boardPath, navigate } from '../lib/router';
 import type { CloseAllPreview, Project, Workspace } from '../lib/types';
 import { isActive } from '../agents/state';
@@ -122,7 +122,8 @@ function SwitchMenu({
   const groups = useProjectGroups();
   // the current project is always in sight when the menu opens
   const [collapsed, toggle] = useCollapsedGroups(groupChain(groups, project.groupId).map((g) => g.id));
-  const { roots, loose } = useMemo(() => groupTree(groups, projects), [groups, projects]);
+  const [sort, chooseSort] = useMenuSort();
+  const { roots, loose } = useMemo(() => groupTree(groups, projects, sort), [groups, projects, sort]);
   const machineName = (id: string) => machines.find((m) => m.id === id)?.name ?? id;
 
   const projectRow = (p: Project, indent: number): MenuEntry => ({
@@ -150,6 +151,17 @@ function SwitchMenu({
     ];
   };
 
+  const sortRow = (k: 'groups' | 'projects', label: string, recent: string): MenuEntry => ({
+    type: 'choice',
+    label,
+    value: sort[k],
+    options: [
+      { value: 'name', label: 'Name', title: 'A to Z' },
+      { value: 'recent', label: 'Recent', title: recent },
+    ],
+    onSelect: (v) => chooseSort(k, v === 'recent' ? 'recent' : 'name'),
+  });
+
   const items: MenuEntry[] = [
     ...first,
     { label: 'Home', icon: 'home', onSelect: () => navigate('/') },
@@ -157,6 +169,9 @@ function SwitchMenu({
     ...roots.flatMap(groupRows),
     ...(loose.length ? [{ type: 'heading', label: 'All projects' } as const, ...loose.map((p) => projectRow(p, 0))] : []),
     'sep',
+    ...(roots.length ? [sortRow('groups', 'Sort groups', 'The group with the project opened last first')] : []),
+    ...(projects.length > 1 ? [sortRow('projects', 'Sort projects', 'The project opened last first')] : []),
+    ...(roots.length || projects.length > 1 ? (['sep'] as const) : []),
     { label: 'Add project…', icon: 'plus', onSelect: () => navigate('/?add=1') },
     { label: 'Settings', icon: 'sliders', onSelect: () => navigate('/settings') },
     'sep',

@@ -9,16 +9,36 @@ export interface GroupNode {
   group: ProjectGroup;
   depth: number;
   children: GroupNode[];
-  /** In the order they were given. */
+  /** In the order they were given, unless the tree sorts them. */
   projects: Project[];
   /** This group and everything below it. */
   total: number;
+  /** When a project in it or below it was last opened (ms); 0 when it has none. */
+  lastOpened: number;
 }
 
-const byName = (a: ProjectGroup, b: ProjectGroup) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+/** "name": A to Z. "recent": the one opened last first; a group by the project in it opened last. */
+export type TreeSort = 'name' | 'recent';
 
-export function groupTree(groups: ProjectGroup[], projects: Project[]): { roots: GroupNode[]; loose: Project[] } {
-  const nodes = new Map<string, GroupNode>(groups.map((group) => [group.id, { group, depth: 0, children: [], projects: [], total: 0 }]));
+const nameOrder = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+const byName = (a: ProjectGroup, b: ProjectGroup) => nameOrder(a.name, b.name);
+const openedAt = (p: Project) => Date.parse(p.lastOpenedAt) || 0;
+
+/** Projects in the given order: A to Z, or the one opened last first (A to Z on a tie). */
+export function sortProjects(list: Project[], sort: TreeSort): Project[] {
+  return [...list].sort((a, b) => (sort === 'recent' ? openedAt(b) - openedAt(a) : 0) || nameOrder(a.name, b.name));
+}
+
+/**
+ * The groups as a tree. Groups go A to Z and projects stay in the order they were given, unless
+ * `sort` says otherwise; a group with no project goes after those that have one when by recent.
+ */
+export function groupTree(
+  groups: ProjectGroup[],
+  projects: Project[],
+  sort: { groups?: TreeSort; projects?: TreeSort } = {},
+): { roots: GroupNode[]; loose: Project[] } {
+  const nodes = new Map<string, GroupNode>(groups.map((group) => [group.id, { group, depth: 0, children: [], projects: [], total: 0, lastOpened: 0 }]));
   const roots: GroupNode[] = [];
   for (const g of [...groups].sort(byName)) {
     const node = nodes.get(g.id)!;
@@ -32,16 +52,22 @@ export function groupTree(groups: ProjectGroup[], projects: Project[]): { roots:
     if (node) node.projects.push(p);
     else loose.push(p);
   }
+  const byRecent = (a: GroupNode, b: GroupNode) => b.lastOpened - a.lastOpened || byName(a.group, b.group);
   const finish = (n: GroupNode, depth: number) => {
     n.depth = depth;
     n.total = n.projects.length;
+    n.lastOpened = Math.max(0, ...n.projects.map(openedAt));
     for (const c of n.children) {
       finish(c, depth + 1);
       n.total += c.total;
+      n.lastOpened = Math.max(n.lastOpened, c.lastOpened);
     }
+    if (sort.groups === 'recent') n.children.sort(byRecent);
+    if (sort.projects) n.projects = sortProjects(n.projects, sort.projects);
   };
   roots.forEach((n) => finish(n, 0));
-  return { roots, loose };
+  if (sort.groups === 'recent') roots.sort(byRecent);
+  return { roots, loose: sort.projects ? sortProjects(loose, sort.projects) : loose };
 }
 
 /** The tree from top to bottom, a group before what is inside it. */
@@ -75,6 +101,22 @@ export function groupPath(groups: ProjectGroup[], id: string | undefined): strin
 }
 
 const COLLAPSED = 'projects.collapsed';
+const MENU_SORT = { groups: 'projects.menu.groups', projects: 'projects.menu.projects' } as const;
+
+/** How the project menu orders its groups and its projects, per browser: groups A to Z and
+ * projects opened last first until chosen. */
+export function useMenuSort() {
+  const saved = (k: keyof typeof MENU_SORT, fallback: TreeSort): TreeSort => {
+    const v = prefs.get(MENU_SORT[k]);
+    return v === 'name' || v === 'recent' ? v : fallback;
+  };
+  const [sort, setSort] = useState(() => ({ groups: saved('groups', 'name'), projects: saved('projects', 'recent') }));
+  const choose = (k: keyof typeof MENU_SORT, v: TreeSort) => {
+    prefs.set(MENU_SORT[k], v);
+    setSort((s) => ({ ...s, [k]: v }));
+  };
+  return [sort, choose] as const;
+}
 
 function savedCollapsed(): Set<string> {
   try {

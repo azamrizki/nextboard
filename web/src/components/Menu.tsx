@@ -46,6 +46,16 @@ export interface MenuSwatches {
   onSelect: (value: string) => void;
 }
 
+/** A labelled row of a few text options, one of them chosen (menuitemradio). The menu stays open,
+ * so what the choice changes shows at once. */
+export interface MenuChoice {
+  type: 'choice';
+  label: string;
+  value: string;
+  options: { value: string; label: string; title?: string }[];
+  onSelect: (value: string) => void;
+}
+
 /** Non-interactive section heading. */
 export interface MenuHeading {
   type: 'heading';
@@ -66,7 +76,7 @@ export interface MenuStepper {
   resetLabel?: string;
 }
 
-export type MenuEntry = MenuItem | MenuSwatches | MenuHeading | MenuStepper | 'sep';
+export type MenuEntry = MenuItem | MenuSwatches | MenuChoice | MenuHeading | MenuStepper | 'sep';
 
 interface MenuProps {
   label: string;
@@ -164,6 +174,29 @@ function MenuList({ label, items, style, listRef, onClose, className }: MenuList
             return (
               <div key={`h-${i}`} className="menu-heading" role="presentation">
                 {it.label}
+              </div>
+            );
+          if (it.type === 'choice')
+            return (
+              // .menu-swatches: ← and → move along the row, ↓ and ↑ past it
+              <div key={`ch-${i}`} className="menu-swatches menu-choice" role="group" aria-label={it.label}>
+                <span className="menu-swatches-label">{it.label}</span>
+                <span className="menu-swatches-row">
+                  {it.options.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={it.value === o.value}
+                      title={o.title}
+                      tabIndex={-1}
+                      className="menu-item choice-item"
+                      onClick={() => it.onSelect(o.value)}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </span>
               </div>
             );
           if (it.type === 'stepper')
