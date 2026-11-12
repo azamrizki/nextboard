@@ -5,7 +5,7 @@
 // selection) as a new template.
 
 import { orchError } from '../actions';
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { byPriority, useMachineAgents } from '../../agents/catalog';
 import { defaultProfileOf, useEffectiveSettings } from '../../agents/settings';
 import type { BoardController } from '../../board/controller';
@@ -19,7 +19,7 @@ import { AccountOptions, splitAccount } from '../../providers/AccountOptions';
 import { compatible, useProviders } from '../../providers/providers';
 import { orchApi } from '../api';
 import { is404, useOrch } from '../store';
-import { ROLE_LABEL, type LaneOverride, type Layout, type Role } from '../types';
+import { ROLE_LABEL, type LaneOverride, type Layout, type LayoutNode, type Role } from '../types';
 
 export default function LayoutsPanel({
   ctl,
@@ -140,6 +140,7 @@ export default function LayoutsPanel({
                   </span>
                   <span className="layout-meta">
                     {(l.lanes?.length ?? 0) === 1 ? '1 console' : `${l.lanes?.length ?? 0} consoles`}
+                    {cardsOf(l) && ` · ${cardsOf(l)}`}
                     {l.builtin ? '' : ' · yours'}
                   </span>
                 </button>
@@ -169,46 +170,235 @@ export default function LayoutsPanel({
 
 const lanePalette = ['sky', 'violet', 'teal', 'amber', 'rose', 'sage'];
 
+/** What the cards of a layout are, as the preview labels them and the list names them. */
+const cardName: Record<string, string> = {
+  editor: 'Code',
+  web: 'Web',
+  orchestrator: 'Lead',
+  kanban: 'Tasks',
+  checklist: 'List',
+  memory: 'Memory',
+  note: 'Note',
+  text: 'Text',
+};
+
+/** The cards a layout brings besides its consoles: "Code, Web". The board's one Code card is reused. */
+function cardsOf(l: Layout): string {
+  return [...new Set((l.nodes ?? []).map((n) => cardName[n.kind] ?? n.kind))].join(', ');
+}
+
 /** The hub's limits (internal/orch): it refuses more with too_many, whatever this says. */
 const MAX_PER_GROUP = 12;
 const MAX_CONSOLES = 12;
 
+type Box = { x: number; y: number; w: number; h: number };
+
+/** What a card is called on the poster: a task board or checklist by its own title. */
+function cardTitle(n: LayoutNode): string {
+  const title = typeof n.data?.title === 'string' ? n.data.title.trim() : '';
+  if ((n.kind === 'kanban' || n.kind === 'checklist') && title) return title;
+  return cardName[n.kind] ?? n.kind;
+}
+
+/** What a card is, for its tooltip. */
+function cardHint(n: LayoutNode): string {
+  const url = typeof n.data?.url === 'string' ? n.data.url : '';
+  switch (n.kind) {
+    case 'editor':
+      return 'Code card: the board’s one editor, moved here if the board has it';
+    case 'web':
+      return `Web preview${url ? ` of ${url}` : ''}`;
+    case 'orchestrator':
+      return 'Lead card: gives the wired consoles their orders';
+    case 'kanban':
+      return `Task board “${cardTitle(n)}”`;
+    case 'checklist':
+      return `Checklist “${cardTitle(n)}”`;
+    case 'memory':
+      return 'Project memory card';
+    default:
+      return `${cardName[n.kind] ?? n.kind} card`;
+  }
+}
+
+/**
+ * The poster of a layout: consoles as small terminals in their group's colour, each group framed
+ * and named, and every card drawn as what it is (Code, a browser, the lead, a task board…), so a
+ * layout reads at a glance. Hovering a piece names it.
+ */
 export function LayoutPreview({ layout }: { layout: Layout }) {
-  const items = [...(layout.lanes ?? []).map((l) => ({ ...l, lane: true as const })), ...(layout.nodes ?? []).map((n) => ({ ...n, lane: false as const }))];
-  if (!items.length) return <svg className="layout-preview" viewBox="0 0 100 60" aria-hidden="true" />;
-  const minX = Math.min(...items.map((i) => i.x));
-  const minY = Math.min(...items.map((i) => i.y));
-  const maxX = Math.max(...items.map((i) => i.x + i.w));
-  const maxY = Math.max(...items.map((i) => i.y + i.h));
-  const w = maxX - minX || 1;
-  const h = maxY - minY || 1;
-  const s = Math.min(92 / w, 52 / h);
+  const lanes = layout.lanes ?? [];
+  const nodes = layout.nodes ?? [];
+  const groups = layout.groups ?? [];
+  if (!lanes.length && !nodes.length) return <div className="layout-poster" aria-hidden="true" />;
+  const colorOf = new Map(groups.map((g, i) => [g.key, `var(--tag-${g.color || lanePalette[i % lanePalette.length]})`]));
+  const PAD = 30;
+  const NAME = 70; // room above a group's consoles for its name, in board units
+  const frames = groups
+    .map((g) => {
+      const ls = lanes.filter((l) => l.group === g.key);
+      if (!ls.length) return null;
+      const x = Math.min(...ls.map((l) => l.x)) - PAD;
+      const y = Math.min(...ls.map((l) => l.y)) - PAD - NAME;
+      return { g, x, y, w: Math.max(...ls.map((l) => l.x + l.w)) + PAD - x, h: Math.max(...ls.map((l) => l.y + l.h)) + PAD - y, n: ls.length };
+    })
+    .filter((f): f is NonNullable<typeof f> => !!f);
+  const all: Box[] = [...lanes, ...nodes, ...frames];
+  const minX = Math.min(...all.map((b) => b.x));
+  const minY = Math.min(...all.map((b) => b.y));
+  const w = Math.max(...all.map((b) => b.x + b.w)) - minX || 1;
+  const h = Math.max(...all.map((b) => b.y + b.h)) - minY || 1;
+  const s = Math.min(94 / w, 54 / h);
   const ox = (100 - w * s) / 2;
   const oy = (60 - h * s) / 2;
-  const groupColor = new Map((layout.groups ?? []).map((g, i) => [g.key, g.color || lanePalette[i % lanePalette.length]]));
-  const pos = new Map(items.map((i) => [i.key, { x: ox + (i.x - minX) * s + (i.w * s) / 2, y: oy + (i.y - minY) * s + (i.h * s) / 2 }]));
+  const at = (b: Box) => ({ x: ox + (b.x - minX) * s, y: oy + (b.y - minY) * s, w: Math.max(2, b.w * s), h: Math.max(2, b.h * s) });
+  const centre = new Map([...lanes, ...nodes].map((b) => [b.key, { x: at(b).x + at(b).w / 2, y: at(b).y + at(b).h / 2 }]));
+  const groupOfLane = new Map(groups.map((g) => [g.key, g]));
+  const fsFor = (r: Box) => Math.max(2.2, Math.min(4.2, r.w / 5, r.h / 3));
+
+  const loose = lanes.filter((l) => !l.group || !groupOfLane.has(l.group)).length;
+  const summary = [
+    ...frames.map((f) => `${f.g.name}: ${f.n === 1 ? '1 console' : `${f.n} consoles`}`),
+    ...(loose ? [loose === 1 ? '1 console' : `${loose} consoles`] : []),
+    ...nodes.map((n) => cardHint(n)),
+  ].join(' · ');
+  // Names are HTML over the drawing, so they keep a readable size however small the poster is.
+  const tags: ReactNode[] = [];
+  const pct = (x: number, y: number) => ({ left: `${x}%`, top: `${(y / 60) * 100}%` });
   return (
-    <svg className="layout-preview" viewBox="0 0 100 60" aria-hidden="true">
+    <div className="layout-poster" aria-hidden="true" title={summary}>
+    <svg className="layout-preview" viewBox="0 0 100 60">
+      {frames.map((f) => {
+        const r = at(f);
+        const hint = `Group ${f.g.name}: ${f.n === 1 ? '1 console' : `${f.n} consoles`}${f.g.role && f.g.role !== 'general' ? `, ${f.g.role}` : ''}`;
+        // a name may run past its own frame, up to the next frame on the same line
+        const next = Math.min(100, ...frames.map(at).filter((o) => o.x > r.x + 1 && Math.abs(o.y - r.y) < 4).map((o) => o.x));
+        const room = next - r.x - 2;
+        if (room >= 10) {
+          tags.push(
+            <span key={`tag-${f.g.key}`} className="pv-tag" title={hint} style={{ ...pct(r.x + 1, r.y), maxWidth: `${room}%`, ['--pv-c' as string]: colorOf.get(f.g.key) }}>
+              {f.g.name}
+              <span className="pv-n"> · {f.n}</span>
+            </span>,
+          );
+        }
+        return (
+          <g key={`frame-${f.g.key}`}>
+            <rect x={r.x} y={r.y} width={r.w} height={r.h} rx={1.8} className="pv-group" style={{ stroke: colorOf.get(f.g.key), fill: colorOf.get(f.g.key) }} />
+          </g>
+        );
+      })}
       {(layout.wires ?? []).map((wi, k) => {
-        const a = pos.get(wi.from);
-        const groupLanes = (layout.lanes ?? []).filter((l) => l.group === wi.to);
-        const b = pos.get(wi.to) ?? (groupLanes[0] ? pos.get(groupLanes[0].key) : undefined);
+        const a = centre.get(wi.from);
+        const firstLane = lanes.find((l) => l.group === wi.to);
+        const b = centre.get(wi.to) ?? (firstLane ? centre.get(firstLane.key) : undefined);
         return a && b ? <line key={k} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={wi.kind === 'forward' ? 'pv-forward' : 'pv-wire'} /> : null;
       })}
-      {items.map((i) => (
-        <rect
-          key={i.key}
-          x={ox + (i.x - minX) * s}
-          y={oy + (i.y - minY) * s}
-          width={Math.max(2, i.w * s)}
-          height={Math.max(2, i.h * s)}
-          rx={1.5}
-          className={i.lane ? 'pv-lane' : `pv-node pv-${i.kind}`}
-          style={i.lane && i.group ? { fill: `var(--tag-${groupColor.get(i.group) ?? 'sky'})` } : undefined}
-        />
-      ))}
+      {nodes.map((n) => {
+        const r = at(n);
+        const fs = fsFor(r);
+        const cx = r.x + r.w / 2;
+        let glyph: ReactNode = null;
+        let labelY = r.y + r.h / 2 + fs * 0.35;
+        switch (n.kind) {
+          case 'editor':
+            glyph = (
+              <text x={cx} y={r.y + r.h / 2 - fs * 0.15} className="pv-glyph" style={{ fontSize: fs }} textAnchor="middle">
+                {'</>'}
+              </text>
+            );
+            labelY = r.y + r.h / 2 + fs * 0.95;
+            break;
+          case 'web': {
+            const bar = Math.min(2.4, r.h * 0.2);
+            glyph = (
+              <>
+                <rect x={r.x} y={r.y} width={r.w} height={bar} rx={1.2} className="pv-web-bar" />
+                {[0, 1, 2].map((d) => (
+                  <circle key={d} cx={r.x + 1.3 + d * 1.1} cy={r.y + bar / 2} r={Math.min(0.4, bar / 4)} className="pv-dot" />
+                ))}
+                {r.w > 14 && <rect x={r.x + 5} y={r.y + bar * 0.25} width={r.w - 6.5} height={bar * 0.5} rx={bar * 0.25} className="pv-url" />}
+              </>
+            );
+            labelY = r.y + bar + (r.h - bar) / 2 + fs * 0.3;
+            break;
+          }
+          case 'orchestrator': {
+            const rad = Math.max(0.8, Math.min(r.w, r.h) * 0.16);
+            glyph = <circle cx={cx} cy={r.y + r.h / 2 - rad * 0.5} r={rad} className="pv-avatar" />;
+            labelY = r.y + r.h / 2 + rad + fs * 0.75;
+            break;
+          }
+          case 'kanban': {
+            const cols = Math.max(2, Math.min(5, Array.isArray(n.data?.columns) ? (n.data.columns as unknown[]).length : 4));
+            const top = r.y + fs * 1.2;
+            const cw = (r.w - 1.2) / cols;
+            glyph = (
+              <>
+                {Array.from({ length: cols }, (_, c) => (
+                  <rect key={c} x={r.x + 0.6 + c * cw + 0.25} y={top} width={Math.max(0.5, cw - 0.5)} height={Math.max(0.8, r.y + r.h - top - 0.6)} rx={0.5} className="pv-col" />
+                ))}
+              </>
+            );
+            labelY = r.y + fs * 0.95;
+            break;
+          }
+          case 'checklist': {
+            const top = r.y + fs * 1.3;
+            const rows = Math.max(1, Math.min(4, Math.floor((r.h - fs * 1.3) / Math.max(1.6, fs * 0.6))));
+            const step = (r.y + r.h - top) / (rows + 0.2);
+            glyph = (
+              <>
+                {Array.from({ length: rows }, (_, k) => (
+                  <g key={k}>
+                    <rect x={r.x + 1} y={top + k * step} width={Math.min(1.4, step * 0.6)} height={Math.min(1.4, step * 0.6)} rx={0.2} className="pv-check" />
+                    <line x1={r.x + 3} y1={top + k * step + Math.min(0.7, step * 0.3)} x2={r.x + r.w - 1} y2={top + k * step + Math.min(0.7, step * 0.3)} className="pv-line" />
+                  </g>
+                ))}
+              </>
+            );
+            labelY = r.y + fs * 0.95;
+            break;
+          }
+        }
+        return (
+          <g key={n.key}>
+            <rect x={r.x} y={r.y} width={r.w} height={r.h} rx={1.2} className={`pv-node pv-${n.kind}`} />
+            {r.w >= 8 && r.h >= 6 && glyph}
+            {r.w >= 9 && r.h >= 5 && pushLabel(n, cx, labelY, r)}
+          </g>
+        );
+      })}
+      {lanes.map((l) => {
+        const r = at(l);
+        const color = (l.group && colorOf.get(l.group)) || 'var(--tag-sky)';
+        const bar = Math.max(0.6, Math.min(1.8, r.h * 0.2));
+        const fs = Math.max(1.8, Math.min(3, r.w / 4, (r.h - bar) / 2));
+        return (
+          <g key={l.key}>
+            <rect x={r.x} y={r.y} width={r.w} height={r.h} rx={1} className="pv-term" style={{ stroke: color }} />
+            <rect x={r.x} y={r.y} width={r.w} height={bar} rx={0.8} style={{ fill: color }} className="pv-term-bar" />
+            {r.w >= 5 && r.h >= 4 && (
+              <text x={r.x + Math.min(1.2, r.w * 0.12)} y={r.y + bar + fs * 1.05} className="pv-prompt" style={{ fontSize: fs }}>
+                {'>_'}
+              </text>
+            )}
+          </g>
+        );
+      })}
     </svg>
+      {tags}
+    </div>
   );
+
+  function pushLabel(n: LayoutNode, cx: number, y: number, r: Box): null {
+    tags.push(
+      <span key={`label-${n.key}`} className="pv-label" title={cardHint(n)} style={{ ...pct(cx, y), maxWidth: `${r.w - 1}%` }}>
+        {cardTitle(n)}
+      </span>,
+    );
+    return null;
+  }
 }
 
 function LaneInspector({
