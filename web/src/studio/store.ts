@@ -107,15 +107,16 @@ class StudioStore {
         if (this.state.previewsLoaded) void this.loadPreviews();
         break;
       case 'git':
-      case 'gitRepo': {
-        const repo = e.type === 'gitRepo' ? e.repo : '';
-        const list = this.state.gitRepos[e.projectId];
+      case 'gitRepo':
+      case 'gitPart': {
+        const repo = e.type === 'git' ? '' : e.repo;
+        // a part other than the first is kept under its project ref, as its workbench asks for it
+        const key = e.type === 'gitPart' ? `${e.projectId}~${e.part}` : e.projectId;
+        const list = this.state.gitRepos[key];
         this.set({
-          git: (this.state.gitRepo[e.projectId] ?? '') === repo ? { ...this.state.git, [e.projectId]: e.status } : this.state.git,
-          gitRev: { ...this.state.gitRev, [e.projectId]: (this.state.gitRev[e.projectId] ?? 0) + 1 },
-          gitRepos: list
-            ? { ...this.state.gitRepos, [e.projectId]: { ...list, items: list.items.map((it) => (it.path === repo ? { ...it, ...e.status, error: undefined } : it)) } }
-            : this.state.gitRepos,
+          git: (this.state.gitRepo[key] ?? '') === repo ? { ...this.state.git, [key]: e.status } : this.state.git,
+          gitRev: { ...this.state.gitRev, [key]: (this.state.gitRev[key] ?? 0) + 1 },
+          gitRepos: list ? { ...this.state.gitRepos, [key]: { ...list, items: list.items.map((it) => (it.path === repo ? { ...it, ...e.status, error: undefined } : it)) } } : this.state.gitRepos,
         });
         break;
       }

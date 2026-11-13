@@ -99,9 +99,13 @@ func gitErr(w http.ResponseWriter, err error) {
 // repo resolves {id} and ?repo= (one of the project's repositories, relative
 // to its folder) or writes the error.
 func (s *Server) repo(w http.ResponseWriter, r *http.Request) (gitsvc.Repo, bool) {
-	rp, ok := s.gitRepo(r.PathValue("id"))
+	rp, ok := s.gitRepoIn(r.PathValue("id"), r.URL.Query().Get("part"))
 	if !ok {
-		writeErrCode(w, http.StatusNotFound, "project_not_found", project.ErrNotFound.Error())
+		if _, _, err := s.projectRef(r.PathValue("id"), ""); err == nil || errors.Is(err, project.ErrPartNotFound) {
+			writeErrCode(w, http.StatusNotFound, "part_not_found", project.ErrPartNotFound.Error())
+		} else {
+			writeErrCode(w, http.StatusNotFound, "project_not_found", project.ErrNotFound.Error())
+		}
 		return rp, false
 	}
 	rp, err := rp.In(r.URL.Query().Get("repo"))

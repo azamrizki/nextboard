@@ -211,12 +211,18 @@ func runnerErr(w http.ResponseWriter, err error) {
 }
 
 // projectByID resolves {id} as a project.
+// With ?part= the project is seen through that part: its machine and folder (ROADMAP #49).
 func (s *Server) projectByID(w http.ResponseWriter, r *http.Request) (project.Project, bool) {
-	p, ok := s.projects.Get(r.PathValue("id"))
-	if !ok {
+	p, _, err := s.projectRef(r.PathValue("id"), r.URL.Query().Get("part"))
+	switch {
+	case errors.Is(err, project.ErrPartNotFound):
+		writeErrCode(w, http.StatusNotFound, "part_not_found", err.Error())
+		return p, false
+	case err != nil:
 		writeErrCode(w, http.StatusNotFound, "project_not_found", project.ErrNotFound.Error())
+		return p, false
 	}
-	return p, ok
+	return p, true
 }
 
 // claudeCfg is the Claude config folder new consoles of a machine use:
@@ -385,12 +391,16 @@ func (s *Server) memoryDir(ctx context.Context, p project.Project) string {
 // Claude config folders of SSH machines need the confirm protocol.
 func (s *Server) writeAllowed(w http.ResponseWriter, r *http.Request, h machine.Host, p, projectID string, allowOutside bool, c *confirmBody) bool {
 	if projectID != "" && !allowOutside {
-		pr, ok := s.projects.Get(projectID)
-		if !ok || pr.MachineID != h.ID() {
+		pr, part, err := s.projectRef(projectID, "")
+		root, here := partFolder(pr, h.ID(), p)
+		if part != "" && pr.MachineID == h.ID() {
+			root, here = pr.Path, true
+		}
+		if err != nil || !here {
 			writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found on this machine")
 			return false
 		}
-		out, err := studio.OutsideProject(r.Context(), h, pr.Path, p)
+		out, err := studio.OutsideProject(r.Context(), h, root, p)
 		if err != nil {
 			fsErr(w, err)
 			return false

@@ -190,13 +190,30 @@ func (s *Server) spaCSP(scheme, hostHeader string) string {
 		frames + "; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 }
 
-// gitRepo resolves a project to the git service's target.
+// gitRepo resolves a project to the git service's target: its first part.
 func (s *Server) gitRepo(pid string) (gitsvc.Repo, bool) {
-	p, ok := s.projects.Get(pid)
+	return s.gitRepoIn(pid, "")
+}
+
+// gitRepoIn resolves a part of a project ("" = the first) to the git service's target.
+func (s *Server) gitRepoIn(pid, part string) (gitsvc.Repo, bool) {
+	id, inRef, cut := strings.Cut(pid, "~")
+	if cut {
+		part = inRef
+	}
+	p, ok := s.projects.Get(id)
 	if !ok {
 		return gitsvc.Repo{}, false
 	}
-	return gitsvc.Repo{ProjectID: p.ID, MachineID: p.MachineID, Path: p.Path}, true
+	pt, ok := p.Part(part)
+	if !ok {
+		return gitsvc.Repo{}, false
+	}
+	rp := gitsvc.Repo{ProjectID: p.ID, MachineID: pt.MachineID, Path: pt.Path}
+	if pt.ID != p.Parts[0].ID {
+		rp.Part = pt.ID
+	}
+	return rp, true
 }
 
 var _ = jobs.KindGit

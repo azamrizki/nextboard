@@ -27,7 +27,9 @@ import { Icon, type IconName } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { useUi, type UiStore } from '../../board/ui';
 import { toast } from '../../components/Toast';
-import type { NodeLayout, Op, Project } from '../../lib/types';
+import { prefs } from '../../lib/format';
+import { projectParts } from '../../lib/parts';
+import type { NodeLayout, Op, Project, ProjectPart } from '../../lib/types';
 import { useFullscreen } from '../../lib/useFullscreen';
 import { useRemoteConfirm } from '../confirm';
 import { BottomPanel, newTerminal, useProblems } from './BottomPanel';
@@ -234,7 +236,24 @@ function StatusBar({ ws, onPick, onView, onPanel }: { ws: Workspace; onPick: (ki
   );
 }
 
-function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Workspace; project: Project; ctl: BoardController; nodeId: string; viewCenter: () => { x: number; y: number }; filled: boolean }) {
+function Workbench({
+  ws,
+  project,
+  ctl,
+  nodeId,
+  viewCenter,
+  filled,
+  onPart,
+}: {
+  ws: Workspace;
+  project: Project;
+  ctl: BoardController;
+  nodeId: string;
+  viewCenter: () => { x: number; y: number };
+  filled: boolean;
+  /** A project in several parts: shows another part. */
+  onPart?: (id: string) => void;
+}) {
   useWs(ws);
   const rootRef = useRef<HTMLDivElement>(null);
   const clickedInside = useRef(false);
@@ -918,6 +937,15 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
         }
         actions={
           <span className="wb-title-tools nodrag">
+            {onPart && (
+              <select className="control control-sm wb-part" aria-label="Part of the project" title="Which part of the project this editor shows" value={ws.partId} onChange={(e) => onPart(e.target.value)}>
+                {projectParts(project).map((pt) => (
+                  <option key={pt.id} value={pt.id}>
+                    {pt.name}
+                  </option>
+                ))}
+              </select>
+            )}
             {dirtyCount > 0 && (
               <Button size="sm" variant="ghost" icon="save" onClick={() => void ws.saveAll()} title="Save all · Ctrl+Alt+S">
                 Save {dirtyCount}
@@ -1030,10 +1058,24 @@ function Workbench({ ws, project, ctl, nodeId, viewCenter, filled }: { ws: Works
   );
 }
 
-export default function CodeStudio({ project, ctl, ui, nodeId, viewCenter, filled }: Props) {
+const PART_PREF = (projectId: string) => `wb.part.${projectId}`;
+
+/** The workbench of one part of the project at a time (ROADMAP #49): the part last shown, per browser. */
+export default function CodeStudio(props: Props) {
+  const parts = projectParts(props.project);
+  const [partId, setPartId] = useState(() => prefs.get(PART_PREF(props.project.id)) ?? '');
+  const part = parts.find((p) => p.id === partId) ?? parts[0];
+  const choose = (id: string) => {
+    prefs.set(PART_PREF(props.project.id), id);
+    setPartId(id);
+  };
+  return <CodeStudioPart key={`${part.id}:${part.machineId}:${part.path}`} {...props} part={part} onPart={parts.length > 1 ? choose : undefined} />;
+}
+
+function CodeStudioPart({ project, ctl, ui, nodeId, viewCenter, filled, part, onPart }: Props & { part: ProjectPart; onPart?: (id: string) => void }) {
   setupMonaco();
   registerOpener();
-  const [ws] = useState(() => Workspace.get(project));
+  const [ws] = useState(() => Workspace.get(project, part));
   openerWs = ws;
 
   useEffect(() => {
@@ -1062,7 +1104,7 @@ export default function CodeStudio({ project, ctl, ui, nodeId, viewCenter, fille
     ui.set({ openFile: null });
   }, [ws, ui, openFile]);
 
-  return <Workbench ws={ws} project={project} ctl={ctl} nodeId={nodeId} viewCenter={viewCenter} filled={filled} />;
+  return <Workbench ws={ws} project={project} ctl={ctl} nodeId={nodeId} viewCenter={viewCenter} filled={filled} onPart={onPart} />;
 }
 
 /** First visit: the README if there is one, as a preview tab. */

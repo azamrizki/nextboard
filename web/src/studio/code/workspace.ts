@@ -8,7 +8,8 @@ import { fileToBase64, sendPasted } from '../../board/files';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { limiter } from '../../lib/limiter';
-import type { Project } from '../../lib/types';
+import { projectParts } from '../../lib/parts';
+import type { Project, ProjectPart } from '../../lib/types';
 import { store } from '../../store';
 import { filesApi, fsApi, gitApi, laravelApi, reviewApi, type Confirm, type FileListing, type LaravelIndex } from '../api';
 import { drafts, type Draft } from '../drafts';
@@ -258,7 +259,13 @@ const workspaces = new Map<string, Workspace>();
 export class Workspace {
   readonly mid: string;
   readonly root: string;
+  /** What the API calls this workbench by: the project id, or "<project>~<part>" for a part
+   * other than the first (ROADMAP #49), so its files, git and settings are its own. */
   readonly pid: string;
+  /** The project's own id. */
+  readonly projectId: string;
+  /** The part this workbench shows. */
+  readonly partId: string;
   name: string;
 
   version = 0;
@@ -358,20 +365,28 @@ export class Workspace {
   private autoSaveTimers = new Map<string, number>();
   private mounted = false;
 
-  static get(project: Project): Workspace {
-    let w = workspaces.get(project.id);
+  /** The workbench of a part of the project; the first part when none is given. */
+  static get(project: Project, part?: ProjectPart): Workspace {
+    const parts = projectParts(project);
+    const pt = part ?? parts[0];
+    const key = pt.id === parts[0].id ? project.id : `${project.id}~${pt.id}`;
+    let w = workspaces.get(key);
+    // a part that moved to another folder is another workbench; a card showing the old one keeps it
+    if (w && (w.mid !== pt.machineId || w.root !== (pt.path.replace(/\/+$/, '') || '/'))) w = undefined;
     if (!w) {
-      w = new Workspace(project);
-      workspaces.set(project.id, w);
+      w = new Workspace(project, pt, key);
+      workspaces.set(key, w);
     }
     w.name = project.name;
     return w;
   }
 
-  private constructor(project: Project) {
-    this.pid = project.id;
-    this.mid = project.machineId;
-    this.root = project.path.replace(/\/+$/, '') || '/';
+  private constructor(project: Project, part: ProjectPart, key: string) {
+    this.pid = key;
+    this.projectId = project.id;
+    this.partId = part.id;
+    this.mid = part.machineId;
+    this.root = part.path.replace(/\/+$/, '') || '/';
     this.name = project.name;
     this.editorPrefs = readJSON('wb.editor', DEFAULT_EDITOR_PREFS);
     this.bookmarks = readJSON(`wb.bookmarks.${this.pid}`, []);
@@ -392,7 +407,7 @@ export class Workspace {
       void this.refreshReview();
     });
     studioStore.onReviewOverlap.add((e) => {
-      if (e.projectId === this.pid) toast.info(`${e.agents.join(' and ')} both changed ${e.path}. Check it in Review.`);
+      if (e.projectId === this.projectId) toast.info(`${e.agents.join(' and ')} both changed ${e.path}. Check it in Review.`);
     });
     void this.refreshReview();
     void this.refreshLaravel();

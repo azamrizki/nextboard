@@ -586,6 +586,8 @@ export interface TokenChart {
 export type StudioEvent =
   | { type: 'git'; projectId: string; status: GitSummary }
   | { type: 'gitRepo'; projectId: string; repo: string; status: GitSummary }
+  /** A part of the project other than the first (ROADMAP #49). */
+  | { type: 'gitPart'; projectId: string; part: string; repo: string; status: GitSummary }
   | { type: 'github'; projectId: string; github: GitHubStatus }
   | { type: 'preview'; preview: Preview }
   | { type: 'previewRemoved'; id: string }

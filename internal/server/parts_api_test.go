@@ -99,3 +99,64 @@ func TestProjectParts(t *testing.T) {
 		t.Fatalf("the folder went: %v", err)
 	}
 }
+
+// TestPartWorkbench: the Code workbench of a part sees that part's files and git, by the project
+// ref "<project>~<part>" or ?part=, and saves inside it (ROADMAP #49).
+func TestPartWorkbench(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	api, web := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(api, "server.go"), []byte("package main\n"), 0o644)
+	os.WriteFile(filepath.Join(web, "index.html"), []byte("<p>hi</p>\n"), 0o644)
+	git(t, web, "init", "-q")
+	st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": api, "name": "Shop"}, nil)
+	if st != 201 {
+		t.Fatalf("project %d %v", st, p)
+	}
+	pid := p["id"].(string)
+	st, p = h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "Web", "machineId": "local", "path": web}, nil)
+	if st != 201 {
+		t.Fatalf("part %d %v", st, p)
+	}
+	part := p["parts"].([]any)[1].(map[string]any)["id"].(string)
+
+	names := func(url string) string {
+		t.Helper()
+		st, l := h.do("GET", url, nil, nil)
+		if st != 200 {
+			t.Fatalf("%s: %d %v", url, st, l)
+		}
+		out := ""
+		for _, it := range l["items"].([]any) {
+			out += it.(string) + " "
+		}
+		return out
+	}
+	if got := names("/api/projects/" + pid + "/files"); got != "server.go " {
+		t.Fatalf("first part %q", got)
+	}
+	for _, url := range []string{"/api/projects/" + pid + "~" + part + "/files", "/api/projects/" + pid + "/files?part=" + part} {
+		if got := names(url); got != "index.html " {
+			t.Fatalf("%s: %q", url, got)
+		}
+	}
+	if st, b := h.do("GET", "/api/projects/"+pid+"~pt_nope/files", nil, nil); st != 404 || b["code"] != "part_not_found" {
+		t.Fatalf("unknown part %d %v", st, b)
+	}
+	// git: the part's own repository, not the first part's (which has none)
+	if _, s := h.do("GET", "/api/projects/"+pid+"/git/status", nil, nil); s["isRepo"] != false {
+		t.Fatalf("first part git %v", s)
+	}
+	if st, s := h.do("GET", "/api/projects/"+pid+"~"+part+"/git/status", nil, nil); st != 200 || s["isRepo"] != true {
+		t.Fatalf("part git %d %v", st, s)
+	}
+	// saving with the project (any part's folder on that machine) or the part ref
+	for _, ref := range []string{pid, pid + "~" + part} {
+		if st, b := h.do("PUT", "/api/machines/local/fs/write", map[string]any{"path": filepath.Join(web, "a.txt"), "content": "x", "projectId": ref}, nil); st != 200 {
+			t.Fatalf("write in the part with %s: %d %v", ref, st, b)
+		}
+	}
+	if st, b := h.do("PUT", "/api/machines/local/fs/write", map[string]any{"path": filepath.Join(t.TempDir(), "b.txt"), "content": "x", "projectId": pid + "~" + part}, nil); st != 403 || b["code"] != "outside_project" {
+		t.Fatalf("write outside %d %v", st, b)
+	}
+}

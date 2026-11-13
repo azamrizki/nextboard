@@ -49,6 +49,8 @@ const (
 // Repo is the repository a request works on.
 type Repo struct {
 	ProjectID string
+	// Part is the part of the project (ROADMAP #49); "" = the first part.
+	Part      string
 	MachineID string
 	Path      string // project folder (may be below the repo root)
 	Sub       string // repository below Path, relative to it ("" = Path's own)
@@ -79,10 +81,14 @@ func (r Repo) Dir() string {
 
 // key identifies the repository in the service's state.
 func (r Repo) key() string {
-	if r.Sub == "" {
-		return r.ProjectID
+	k := r.ProjectID
+	if r.Part != "" {
+		k += "#" + r.Part
 	}
-	return r.ProjectID + "/" + r.Sub
+	if r.Sub == "" {
+		return k
+	}
+	return k + "/" + r.Sub
 }
 
 // Error is a failure with an HTTP status and a stable code.
@@ -388,6 +394,11 @@ func (s *Service) publishStatus(r Repo, st *Status, force bool) {
 	s.last[r.key()] = sum
 	s.mu.Unlock()
 	if ok && prev == sum && !force {
+		return
+	}
+	if r.Part != "" {
+		// a part other than the first: its own event, for clients that know parts
+		s.Publish(map[string]any{"type": "gitPart", "projectId": r.ProjectID, "part": r.Part, "repo": r.Sub, "status": sum})
 		return
 	}
 	if r.Sub != "" {

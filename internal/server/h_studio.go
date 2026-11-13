@@ -436,8 +436,12 @@ func (s *Server) handleFSTrash(w http.ResponseWriter, r *http.Request, p *princi
 	if !decode(w, r, &req) {
 		return
 	}
-	pr, ok := s.projects.Get(req.ProjectID)
-	if !ok || pr.MachineID != h.ID() {
+	pr, part, perr := s.projectRef(req.ProjectID, "")
+	folder, here := partFolder(pr, h.ID(), req.Path)
+	if part != "" && pr.MachineID == h.ID() {
+		folder, here = pr.Path, true
+	}
+	if perr != nil || !here {
 		writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found on this machine")
 		return
 	}
@@ -453,8 +457,8 @@ func (s *Server) handleFSTrash(w http.ResponseWriter, r *http.Request, p *princi
 	if st, err := h.Stat(ctx, req.Path); err == nil {
 		abs = st.Path
 	}
-	root := pr.Path
-	if st, err := h.Stat(ctx, pr.Path); err == nil {
+	root := folder
+	if st, err := h.Stat(ctx, folder); err == nil {
 		root = st.Path
 	}
 	to, err := studio.MoveToTrash(ctx, h, root, abs, time.Now())

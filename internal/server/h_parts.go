@@ -180,6 +180,45 @@ func placeInPart(proj project.Project, cr *session.CreateRequest) error {
 
 var errPartMachine = errors.New("that machine is not the machine of the part")
 
+// projectRef resolves a project id, or "<project>~<part>" for one of its parts, and an optional
+// part named apart (?part=): the project seen through that part (its machine and folder), and the
+// part's id ("" when none was named). Project-scoped routes take either form (docs/API-board.md §1).
+func (s *Server) projectRef(ref, part string) (project.Project, string, error) {
+	id, inRef, cut := strings.Cut(ref, "~")
+	if cut {
+		part = inRef
+	}
+	p, ok := s.projects.Get(id)
+	if !ok {
+		return p, "", project.ErrNotFound
+	}
+	if part == "" {
+		return p, "", nil
+	}
+	pt, ok := p.Part(part)
+	if !ok {
+		return p, "", project.ErrPartNotFound
+	}
+	p.MachineID, p.Path = pt.MachineID, pt.Path
+	return p, pt.ID, nil
+}
+
+// partFolder is the folder of the project's part on machineID that holds p, else the first part
+// on that machine; false when the project has no part there.
+func partFolder(pr project.Project, machineID, p string) (string, bool) {
+	if strings.HasPrefix(p, "/") {
+		if pt, ok := pr.PartAt(machineID, path.Clean(p)); ok {
+			return pt.Path, true
+		}
+	}
+	for _, pt := range pr.Parts {
+		if pt.MachineID == machineID {
+			return pt.Path, true
+		}
+	}
+	return "", false
+}
+
 // partReadOnly is session.Manager.PartReadOnly.
 func (s *Server) partReadOnly(projectID, partID string) bool {
 	pr, ok := s.projects.Get(projectID)

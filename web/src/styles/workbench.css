@@ -3142,3 +3142,9 @@
 .wb.is-narrow .wb-term-list > * {
   flex: 0 0 auto;
 }
+
+/* which part of a project in several parts the editor shows (ROADMAP #49) */
+.wb-part {
+  width: auto;
+  max-width: 10rem;
+}
