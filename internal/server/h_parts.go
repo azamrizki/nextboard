@@ -66,9 +66,10 @@ func (s *Server) statFolder(w http.ResponseWriter, r *http.Request, machineID, d
 	return st.Path, true
 }
 
-// createWithParts makes a project in several parts at once (POST /api/projects with "parts"):
+// createWithParts makes a project from its parts (POST /api/projects with "partName" or "parts"):
 // every folder is checked first, and nothing is made when one is wrong. An error about one folder
-// says which with "part", its index (0 is the project's own folder).
+// says which with "part", its index (0 is the project's own folder). One part whose folder is
+// already in a project opens that project, as a plain add does.
 func (s *Server) createWithParts(w http.ResponseWriter, r *http.Request, name string, parts []project.NewPart) {
 	if len(parts) > project.MaxParts {
 		atPart(w, project.MaxParts, func(w http.ResponseWriter) { partErr(w, project.ErrTooManyParts) })
@@ -81,13 +82,11 @@ func (s *Server) createWithParts(w http.ResponseWriter, r *http.Request, name st
 		}
 	}
 	for i := range parts {
-		pn := parts[i].Name
-		if i == 0 && strings.TrimSpace(pn) == "" {
-			pn = "Main"
-		}
-		if _, err := project.CleanName(pn); err != nil {
-			atPart(w, i, func(w http.ResponseWriter) { projectErr(w, err) })
-			return
+		if pn := strings.TrimSpace(parts[i].Name); pn != "" {
+			if _, err := project.CleanName(pn); err != nil {
+				atPart(w, i, func(w http.ResponseWriter) { projectErr(w, err) })
+				return
+			}
 		}
 		ok := false
 		atPart(w, i, func(w http.ResponseWriter) { parts[i].Path, ok = s.statFolder(w, r, parts[i].MachineID, parts[i].Path) })
@@ -95,7 +94,7 @@ func (s *Server) createWithParts(w http.ResponseWriter, r *http.Request, name st
 			return
 		}
 	}
-	pr, err := s.projects.CreateWithParts(name, parts)
+	pr, created, err := s.projects.CreateWithParts(name, parts)
 	var at *project.AtPart
 	if errors.As(err, &at) {
 		atPart(w, at.Index, func(w http.ResponseWriter) { partErr(w, at.Err) })
@@ -103,6 +102,10 @@ func (s *Server) createWithParts(w http.ResponseWriter, r *http.Request, name st
 	}
 	if err != nil {
 		partErr(w, err)
+		return
+	}
+	if !created {
+		writeJSON(w, http.StatusOK, s.projectView(pr))
 		return
 	}
 	s.emitProject(pr.ID)

@@ -19,16 +19,16 @@ test('a project gets a part, shows it, and a terminal opens there', async ({ pag
 
   // another project's folder is refused, and says which project has it
   const add = dialog.getByRole('form', { name: 'Add a part' });
-  await add.getByLabel('Name').fill('Blog');
+  await add.getByLabel('Part name').fill('Blog');
   await add.getByLabel('Folder').fill(other.path);
   await add.getByRole('button', { name: 'Add part' }).click();
   await expect(add.getByText(`already in project "${other.name}"`)).toBeVisible();
 
-  await add.getByLabel('Name').fill('Frontend');
+  await add.getByLabel('Part name').fill('Frontend');
   await add.getByLabel('Folder').fill(web);
   await add.getByRole('button', { name: 'Add part' }).click();
   await expect(list.getByRole('listitem')).toHaveCount(2);
-  await expect(add.getByLabel('Name')).toHaveValue('');
+  await expect(add.getByLabel('Part name')).toHaveValue('');
 
   // the first part gets a name of its role; the other becomes read-only for agents
   await list.getByLabel('Name of part Main').fill('Backend');
@@ -78,21 +78,23 @@ test('a project is added in several parts at once, and a wrong folder makes noth
   await page.goto('/');
   await page.getByRole('button', { name: 'Add project' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Add project' });
-  await dialog.getByLabel('Folder').fill(api);
-  await dialog.getByRole('button', { name: 'Add a part' }).click();
 
-  // the own folder becomes part 1, with a name; the new part takes focus
+  // one part or several, the same form: a project in one folder is a list of one
   const one = dialog.getByRole('region', { name: 'Part 1' });
   const two = dialog.getByRole('region', { name: 'Part 2' });
-  await expect(one.getByLabel('Folder')).toHaveValue(api);
+  await expect(one).toBeVisible();
+  await expect(one.getByRole('button', { name: 'Remove part 1' })).toHaveCount(0);
+  await one.getByLabel('Folder').fill(api);
+  await dialog.getByRole('button', { name: 'Add a part' }).click();
   await expect(two.getByLabel('Part name')).toBeFocused();
+  await expect(one.getByLabel('Folder')).toHaveValue(api);
   await one.getByLabel('Part name').fill('Api');
   await dialog.getByLabel('Project name').fill(name);
 
   // checked before anything is sent
   await dialog.getByRole('button', { name: 'Add project' }).click();
-  await expect(two.getByText('Name the part')).toBeVisible();
   await expect(two.getByText('Choose a folder.')).toBeVisible();
+  await expect(one.getByText('Choose a folder.')).toHaveCount(0);
 
   // another project's folder: the hub says so at that part, and makes nothing
   await two.getByLabel('Part name').fill('Web');

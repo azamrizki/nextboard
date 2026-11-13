@@ -149,7 +149,6 @@ func TestCreateWithParts(t *testing.T) {
 	}{
 		{"a folder that is not there", extra(part("Web", "local", filepath.Join(web, "nope"))), 400, "", 1},
 		{"a machine that is not there", extra(part("Web", "m_nope", web)), 404, "", 1},
-		{"an unnamed part", extra(part("", "local", web)), 400, "", 1},
 		{"a name twice", extra(part("api", "local", web)), 409, "name_conflict", 1},
 		{"a folder inside another", extra(part("Sub", "local", filepath.Join(api, "sub"))), 409, "part_overlap", 1},
 		{"a folder of another project", extra(part("Web", "local", taken)), 409, "path_in_project", 1},
@@ -173,7 +172,7 @@ func TestCreateWithParts(t *testing.T) {
 	}
 
 	// made: its own folder is the first part, named; the others follow in order
-	st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": api, "name": "Shop", "partName": "Api", "parts": []any{part("Web", "", web + "/./")}}, nil)
+	st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": api, "name": "Shop", "partName": "Api", "parts": []any{part("Web", "", web+"/./")}}, nil)
 	parts, _ := p["parts"].([]any)
 	if st != 201 || p["name"] != "Shop" || p["path"] != api || len(parts) != 2 {
 		t.Fatalf("made %d %v", st, p)
@@ -187,8 +186,18 @@ func TestCreateWithParts(t *testing.T) {
 	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": solo, "partName": "Backend"}, nil); st != 201 || p["parts"].([]any)[0].(map[string]any)["name"] != "Backend" {
 		t.Fatalf("named first part %d %v", st, p)
 	}
-	if _, err := h.srv.projects.CreateWithParts("", []project.NewPart{{MachineID: "local", Path: t.TempDir()}}); err != nil {
-		t.Fatal(err)
+	// an unnamed part takes its folder's name
+	one, two := t.TempDir(), t.TempDir()
+	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": one, "parts": []any{part("", "local", two)}}, nil); st != 201 ||
+		p["parts"].([]any)[0].(map[string]any)["name"] != "Main" || p["parts"].([]any)[1].(map[string]any)["name"] != filepath.Base(two) {
+		t.Fatalf("unnamed parts %d %v", st, p)
+	}
+	// one part whose folder is already a project opens that project, as a plain add does
+	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": taken, "partName": "Backend"}, nil); st != 200 || p["name"] != "Taken" {
+		t.Fatalf("one part in a project's folder %d %v", st, p)
+	}
+	if _, created, err := h.srv.projects.CreateWithParts("", []project.NewPart{{MachineID: "local", Path: t.TempDir()}}); err != nil || !created {
+		t.Fatal(created, err)
 	}
 	// a plain add of a folder already in a project still opens that project
 	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": web}, nil); st != 200 || p["name"] != "Shop" {

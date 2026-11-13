@@ -277,7 +277,7 @@ function AddPart({ project, onAdded }: { project: Project; onAdded: (p: Project)
       <form id={formId} className="form part-add" onSubmit={submit} aria-label="Add a part">
         <h3 className="part-add-title">Add a part</h3>
         <fieldset disabled={busy}>
-          <TextField label="Name" value={name} maxLength={NAME_MAX} placeholder="Backend" onChange={(e) => setName(e.target.value)} />
+          <TextField label="Part name" value={name} maxLength={NAME_MAX} placeholder="Backend" onChange={(e) => setName(e.target.value)} />
           <SelectField
             label="Machine"
             value={machineId}

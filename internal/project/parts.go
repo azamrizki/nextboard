@@ -192,20 +192,21 @@ type AtPart struct {
 func (e *AtPart) Error() string { return e.Err.Error() }
 func (e *AtPart) Unwrap() error { return e.Err }
 
-// CreateWithParts makes a project in several parts at once, parts[0] being its own folder (named
-// "Main" when unnamed). Nothing is made when one part cannot be, and the error is an *AtPart. A
-// folder already in a project is an *InProjectError here, where Create would open that project.
-func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, error) {
+// CreateWithParts makes a project from its parts, parts[0] being its own folder: unnamed, the
+// first is "Main" and the others take their folder's name. Nothing is made when one part cannot
+// be, and the error is an *AtPart. A folder already in a project: with one part, that project is
+// returned (created=false), as Create does; with more, it is an *InProjectError.
+func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, bool, error) {
 	if len(parts) == 0 {
-		return Project{}, ErrPartNotFound
+		return Project{}, false, ErrPartNotFound
 	}
 	if len(parts) > MaxParts {
-		return Project{}, &AtPart{Index: MaxParts, Err: ErrTooManyParts}
+		return Project{}, false, &AtPart{Index: MaxParts, Err: ErrTooManyParts}
 	}
 	if name != "" {
 		var err error
 		if name, err = CleanName(name); err != nil {
-			return Project{}, err
+			return Project{}, false, err
 		}
 	} else {
 		name = truncName(path.Base(parts[0].Path))
@@ -215,13 +216,17 @@ func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, error) {
 	}
 	list := make([]Part, len(parts))
 	for i, np := range parts {
-		pn := np.Name
-		if i == 0 && strings.TrimSpace(pn) == "" {
+		pn := strings.TrimSpace(np.Name)
+		switch {
+		case pn != "":
+		case i == 0:
 			pn = "Main"
+		default:
+			pn = truncName(path.Base(np.Path))
 		}
 		pn, err := CleanName(pn)
 		if err != nil {
-			return Project{}, &AtPart{Index: i, Err: err}
+			return Project{}, false, &AtPart{Index: i, Err: err}
 		}
 		id := MainPart
 		if i > 0 {
@@ -229,10 +234,10 @@ func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, error) {
 		}
 		for _, prev := range list[:i] {
 			if strings.EqualFold(prev.Name, pn) {
-				return Project{}, &AtPart{Index: i, Err: ErrPartName}
+				return Project{}, false, &AtPart{Index: i, Err: ErrPartName}
 			}
 			if prev.MachineID == np.MachineID && overlaps(prev.Path, np.Path) {
-				return Project{}, &AtPart{Index: i, Err: ErrPartOverlap}
+				return Project{}, false, &AtPart{Index: i, Err: ErrPartOverlap}
 			}
 		}
 		list[i] = Part{ID: id, Name: pn, MachineID: np.MachineID, Path: np.Path}
@@ -241,7 +246,10 @@ func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, error) {
 	defer s.mu.Unlock()
 	for i, pt := range list {
 		if x := s.holderLocked(pt.MachineID, pt.Path, ""); x != nil {
-			return Project{}, &AtPart{Index: i, Err: &InProjectError{ProjectID: x.ID, Name: x.Name}}
+			if len(list) == 1 {
+				return x.clone(), false, nil
+			}
+			return Project{}, false, &AtPart{Index: i, Err: &InProjectError{ProjectID: x.ID, Name: x.Name}}
 		}
 	}
 	now := time.Now().UTC()
@@ -251,9 +259,9 @@ func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, error) {
 	s.list = append(s.list, np)
 	if err := s.saveLocked(); err != nil {
 		s.list = s.list[:len(s.list)-1]
-		return Project{}, err
+		return Project{}, false, err
 	}
-	return np.clone(), nil
+	return np.clone(), true, nil
 }
 
 // PartPatch changes a part; nil fields stay.
