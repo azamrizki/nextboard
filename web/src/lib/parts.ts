@@ -3,6 +3,9 @@
 
 import type { Project, ProjectPart } from './types';
 
+/** The most parts a project has (the hub's project.MaxParts). */
+export const MAX_PARTS = 8;
+
 export function projectParts(p: Project): ProjectPart[] {
   return p.parts?.length ? p.parts : [{ id: 'main', name: 'Main', machineId: p.machineId, path: p.path }];
 }

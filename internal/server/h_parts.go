@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"path"
@@ -63,6 +65,78 @@ func (s *Server) statFolder(w http.ResponseWriter, r *http.Request, machineID, d
 	}
 	return st.Path, true
 }
+
+// createWithParts makes a project in several parts at once (POST /api/projects with "parts"):
+// every folder is checked first, and nothing is made when one is wrong. An error about one folder
+// says which with "part", its index (0 is the project's own folder).
+func (s *Server) createWithParts(w http.ResponseWriter, r *http.Request, name string, parts []project.NewPart) {
+	if len(parts) > project.MaxParts {
+		atPart(w, project.MaxParts, func(w http.ResponseWriter) { partErr(w, project.ErrTooManyParts) })
+		return
+	}
+	if name != "" {
+		if _, err := project.CleanName(name); err != nil {
+			projectErr(w, err)
+			return
+		}
+	}
+	for i := range parts {
+		pn := parts[i].Name
+		if i == 0 && strings.TrimSpace(pn) == "" {
+			pn = "Main"
+		}
+		if _, err := project.CleanName(pn); err != nil {
+			atPart(w, i, func(w http.ResponseWriter) { projectErr(w, err) })
+			return
+		}
+		ok := false
+		atPart(w, i, func(w http.ResponseWriter) { parts[i].Path, ok = s.statFolder(w, r, parts[i].MachineID, parts[i].Path) })
+		if !ok {
+			return
+		}
+	}
+	pr, err := s.projects.CreateWithParts(name, parts)
+	var at *project.AtPart
+	if errors.As(err, &at) {
+		atPart(w, at.Index, func(w http.ResponseWriter) { partErr(w, at.Err) })
+		return
+	}
+	if err != nil {
+		partErr(w, err)
+		return
+	}
+	s.emitProject(pr.ID)
+	writeJSON(w, http.StatusCreated, s.projectView(pr))
+}
+
+// atPart runs answer and, when it answered with an error, adds "part": i to that error's body.
+func atPart(w http.ResponseWriter, i int, answer func(http.ResponseWriter)) {
+	rec := &errAnswer{header: http.Header{}}
+	answer(rec)
+	if rec.status == 0 && rec.body.Len() == 0 {
+		return
+	}
+	body := map[string]any{}
+	if json.Unmarshal(rec.body.Bytes(), &body) != nil {
+		body = map[string]any{"error": strings.TrimSpace(rec.body.String())}
+	}
+	body["part"] = i
+	if rec.status == 0 {
+		rec.status = http.StatusOK
+	}
+	writeJSON(w, rec.status, body)
+}
+
+// errAnswer keeps an answer for atPart to add to.
+type errAnswer struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (a *errAnswer) Header() http.Header         { return a.header }
+func (a *errAnswer) Write(b []byte) (int, error) { return a.body.Write(b) }
+func (a *errAnswer) WriteHeader(status int)      { a.status = status }
 
 func (s *Server) handlePartCreate(w http.ResponseWriter, r *http.Request, p *principal) {
 	var req struct {

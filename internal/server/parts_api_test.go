@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/azamrizki/nextboard/internal/orch"
+	"github.com/azamrizki/nextboard/internal/project"
 )
 
 // TestProjectParts: a project spans folders as parts; a terminal opens in a part, and an agent
@@ -117,6 +118,81 @@ func TestProjectParts(t *testing.T) {
 	}
 	if _, err := os.Stat(web); err != nil {
 		t.Fatalf("the folder went: %v", err)
+	}
+}
+
+// TestCreateWithParts: a project made in several parts at once; a wrong folder makes nothing and
+// says which one it is (ROADMAP #49).
+func TestCreateWithParts(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	api, web, taken := t.TempDir(), t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(api, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if st, b := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": taken, "name": "Taken"}, nil); st != 201 {
+		t.Fatalf("other project %d %v", st, b)
+	}
+	count := len(h.srv.projects.List())
+	extra := func(parts ...map[string]any) map[string]any {
+		return map[string]any{"machineId": "local", "path": api, "partName": "Api", "parts": parts}
+	}
+	part := func(name, machineID, dir string) map[string]any {
+		return map[string]any{"name": name, "machineId": machineID, "path": dir}
+	}
+	for _, c := range []struct {
+		why  string
+		body map[string]any
+		st   int
+		code string
+		at   float64
+	}{
+		{"a folder that is not there", extra(part("Web", "local", filepath.Join(web, "nope"))), 400, "", 1},
+		{"a machine that is not there", extra(part("Web", "m_nope", web)), 404, "", 1},
+		{"an unnamed part", extra(part("", "local", web)), 400, "", 1},
+		{"a name twice", extra(part("api", "local", web)), 409, "name_conflict", 1},
+		{"a folder inside another", extra(part("Sub", "local", filepath.Join(api, "sub"))), 409, "part_overlap", 1},
+		{"a folder of another project", extra(part("Web", "local", taken)), 409, "path_in_project", 1},
+		{"its own folder in another project", map[string]any{"machineId": "local", "path": taken, "parts": []any{part("Web", "local", web)}}, 409, "path_in_project", 0},
+		{"its own folder not there", map[string]any{"machineId": "local", "path": filepath.Join(api, "nope"), "parts": []any{part("Web", "local", web)}}, 400, "", 0},
+	} {
+		st, b := h.do("POST", "/api/projects", c.body, nil)
+		if st != c.st || (c.code != "" && b["code"] != c.code) || b["part"] != c.at || b["error"] == nil {
+			t.Fatalf("%s: %d %v", c.why, st, b)
+		}
+	}
+	many := []map[string]any{}
+	for i := range project.MaxParts {
+		many = append(many, part(fmt.Sprintf("P%d", i), "local", t.TempDir()))
+	}
+	if st, b := h.do("POST", "/api/projects", extra(many...), nil); st != 409 || b["code"] != "too_many_parts" {
+		t.Fatalf("too many %d %v", st, b)
+	}
+	if n := len(h.srv.projects.List()); n != count {
+		t.Fatalf("a refused project was made: %d projects, %d before", n, count)
+	}
+
+	// made: its own folder is the first part, named; the others follow in order
+	st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": api, "name": "Shop", "partName": "Api", "parts": []any{part("Web", "", web + "/./")}}, nil)
+	parts, _ := p["parts"].([]any)
+	if st != 201 || p["name"] != "Shop" || p["path"] != api || len(parts) != 2 {
+		t.Fatalf("made %d %v", st, p)
+	}
+	first, second := parts[0].(map[string]any), parts[1].(map[string]any)
+	if first["id"] != "main" || first["name"] != "Api" || second["name"] != "Web" || second["path"] != web || second["machineId"] != "local" {
+		t.Fatalf("parts %v", parts)
+	}
+	// the first part's name alone is enough, and an unnamed one is Main
+	solo := t.TempDir()
+	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": solo, "partName": "Backend"}, nil); st != 201 || p["parts"].([]any)[0].(map[string]any)["name"] != "Backend" {
+		t.Fatalf("named first part %d %v", st, p)
+	}
+	if _, err := h.srv.projects.CreateWithParts("", []project.NewPart{{MachineID: "local", Path: t.TempDir()}}); err != nil {
+		t.Fatal(err)
+	}
+	// a plain add of a folder already in a project still opens that project
+	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": web}, nil); st != 200 || p["name"] != "Shop" {
+		t.Fatalf("a part's folder opens its project %d %v", st, p)
 	}
 }
 

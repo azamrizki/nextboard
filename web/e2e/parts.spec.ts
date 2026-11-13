@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from './hub';
 
 // A project in several folders, on one machine or more (docs/API-board.md §1, ROADMAP #49).
@@ -64,6 +65,56 @@ test('a project gets a part, shows it, and a terminal opens there', async ({ pag
   await expect(list.getByRole('listitem')).toHaveCount(1);
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('list', { name: `Parts of ${p.name}` })).toHaveCount(0);
+});
+
+test('a project is added in several parts at once, and a wrong folder makes nothing', async ({ page, hub }) => {
+  const taken = await hub.project('Taken');
+  const api = mkdtempSync(join(process.env.NEXTBOARD_E2E_ROOT!, 'shop-api-'));
+  const web = mkdtempSync(join(process.env.NEXTBOARD_E2E_ROOT!, 'shop-web-'));
+  const name = `Shop ${Date.now().toString(36)}`;
+  // all tests share one hub: look for this folder, not at how many projects there are
+  const made = async () => (await hub.call('GET', '/api/projects')).find((x: any) => x.path === api);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Add project' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Add project' });
+  await dialog.getByLabel('Folder').fill(api);
+  await dialog.getByRole('button', { name: 'Add a part' }).click();
+
+  // the own folder becomes part 1, with a name; the new part takes focus
+  const one = dialog.getByRole('region', { name: 'Part 1' });
+  const two = dialog.getByRole('region', { name: 'Part 2' });
+  await expect(one.getByLabel('Folder')).toHaveValue(api);
+  await expect(two.getByLabel('Part name')).toBeFocused();
+  await one.getByLabel('Part name').fill('Api');
+  await dialog.getByLabel('Project name').fill(name);
+
+  // checked before anything is sent
+  await dialog.getByRole('button', { name: 'Add project' }).click();
+  await expect(two.getByText('Name the part')).toBeVisible();
+  await expect(two.getByText('Choose a folder.')).toBeVisible();
+
+  // another project's folder: the hub says so at that part, and makes nothing
+  await two.getByLabel('Part name').fill('Web');
+  await two.getByLabel('Folder').fill(taken.path);
+  await dialog.getByRole('button', { name: 'Add project' }).click();
+  await expect(two.getByText(`already in project "${taken.name}"`)).toBeVisible();
+  expect(await made()).toBeUndefined();
+
+  // a third part can go again
+  await dialog.getByRole('button', { name: 'Add a part' }).click();
+  await dialog.getByRole('button', { name: 'Remove part 3' }).click();
+  await expect(dialog.getByRole('region', { name: 'Part 3' })).toHaveCount(0);
+
+  await two.getByLabel('Folder').fill(web);
+  await dialog.getByRole('button', { name: 'Add project' }).click();
+  await expect(dialog).toBeHidden();
+  const shop = await made();
+  expect(shop.name).toBe(name);
+  expect(shop.parts.map((pt: any) => [pt.name, pt.path])).toEqual([
+    ['Api', api],
+    ['Web', web],
+  ]);
 });
 
 test('the editor shows one part at a time', async ({ page, hub }) => {

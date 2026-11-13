@@ -143,6 +143,10 @@ test('the dialogs fit the screen', async ({ page, hub }, info) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Add project' }).first().click();
   await check('add-project');
+  await page.getByRole('button', { name: 'Add project' }).first().click();
+  await page.getByRole('dialog', { name: 'Add project' }).getByRole('button', { name: 'Add a part' }).click();
+  await page.getByRole('dialog', { name: 'Add project' }).getByRole('button', { name: 'Add a part' }).click();
+  await check('add-project-parts');
 
   await page.getByRole('button', { name: /^Credentials/ }).first().click();
   await check('vault');

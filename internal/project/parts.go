@@ -3,8 +3,10 @@ package project
 import (
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Part is one place of a project's code: a folder on a machine, named for its role ("Backend",
@@ -173,6 +175,85 @@ func (s *Store) AddPart(projectID, name, machineID, dir string) (Project, Part, 
 		return Project{}, Part{}, err
 	}
 	return p.clone(), pt, nil
+}
+
+// NewPart is one folder of a project being made: dir already an absolute, cleaned path that was
+// verified to be a folder on MachineID.
+type NewPart struct {
+	Name, MachineID, Path string
+}
+
+// AtPart is an error about one folder of a project being made; Index 0 is its own folder.
+type AtPart struct {
+	Index int
+	Err   error
+}
+
+func (e *AtPart) Error() string { return e.Err.Error() }
+func (e *AtPart) Unwrap() error { return e.Err }
+
+// CreateWithParts makes a project in several parts at once, parts[0] being its own folder (named
+// "Main" when unnamed). Nothing is made when one part cannot be, and the error is an *AtPart. A
+// folder already in a project is an *InProjectError here, where Create would open that project.
+func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, error) {
+	if len(parts) == 0 {
+		return Project{}, ErrPartNotFound
+	}
+	if len(parts) > MaxParts {
+		return Project{}, &AtPart{Index: MaxParts, Err: ErrTooManyParts}
+	}
+	if name != "" {
+		var err error
+		if name, err = CleanName(name); err != nil {
+			return Project{}, err
+		}
+	} else {
+		name = truncName(path.Base(parts[0].Path))
+		if parts[0].Path == "/" {
+			name = "/"
+		}
+	}
+	list := make([]Part, len(parts))
+	for i, np := range parts {
+		pn := np.Name
+		if i == 0 && strings.TrimSpace(pn) == "" {
+			pn = "Main"
+		}
+		pn, err := CleanName(pn)
+		if err != nil {
+			return Project{}, &AtPart{Index: i, Err: err}
+		}
+		id := MainPart
+		if i > 0 {
+			id = randomID("pt_")
+		}
+		for _, prev := range list[:i] {
+			if strings.EqualFold(prev.Name, pn) {
+				return Project{}, &AtPart{Index: i, Err: ErrPartName}
+			}
+			if prev.MachineID == np.MachineID && overlaps(prev.Path, np.Path) {
+				return Project{}, &AtPart{Index: i, Err: ErrPartOverlap}
+			}
+		}
+		list[i] = Part{ID: id, Name: pn, MachineID: np.MachineID, Path: np.Path}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, pt := range list {
+		if x := s.holderLocked(pt.MachineID, pt.Path, ""); x != nil {
+			return Project{}, &AtPart{Index: i, Err: &InProjectError{ProjectID: x.ID, Name: x.Name}}
+		}
+	}
+	now := time.Now().UTC()
+	np := &Project{ID: randomID("p_"), Name: name, CreatedAt: now, LastOpenedAt: now, Parts: list}
+	np.normParts()
+	np.Workspaces = []Workspace{{ID: randomID("w_"), ProjectID: np.ID, Name: "Main", CreatedAt: now}}
+	s.list = append(s.list, np)
+	if err := s.saveLocked(); err != nil {
+		s.list = s.list[:len(s.list)-1]
+		return Project{}, err
+	}
+	return np.clone(), nil
 }
 
 // PartPatch changes a part; nil fields stay.

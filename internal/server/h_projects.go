@@ -137,12 +137,31 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request, p *
 		MachineID string `json:"machineId"`
 		Path      string `json:"path"`
 		Name      string `json:"name"`
+		// PartName and Parts make a project in several parts at once (ROADMAP #49): the name of its
+		// own folder's part, and the other folders.
+		PartName string `json:"partName"`
+		Parts    []struct {
+			Name      string `json:"name"`
+			MachineID string `json:"machineId"`
+			Path      string `json:"path"`
+		} `json:"parts"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	if req.MachineID == "" {
 		req.MachineID = machine.LocalID
+	}
+	if len(req.Parts) > 0 || req.PartName != "" {
+		all := []project.NewPart{{Name: req.PartName, MachineID: req.MachineID, Path: req.Path}}
+		for _, pt := range req.Parts {
+			if pt.MachineID == "" {
+				pt.MachineID = machine.LocalID
+			}
+			all = append(all, project.NewPart{Name: pt.Name, MachineID: pt.MachineID, Path: pt.Path})
+		}
+		s.createWithParts(w, r, req.Name, all)
+		return
 	}
 	h, ok := s.machines.Host(req.MachineID)
 	if !ok {

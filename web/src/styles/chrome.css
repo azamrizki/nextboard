@@ -869,6 +869,37 @@
   display: flex;
   justify-content: flex-end;
 }
+/* Add project in several parts: each folder in its own block */
+.part-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+}
+.part-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 1.75rem;
+}
+.part-block-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.part-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+}
+.part-more-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
 @media (max-width: 599px) {
   .part-row {
     flex-wrap: wrap;
