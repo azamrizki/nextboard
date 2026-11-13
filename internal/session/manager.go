@@ -46,7 +46,7 @@ var (
 	ErrProviderMismatch = errors.New("this agent cannot run on that API provider")
 	ErrProviderBudget   = errors.New("the API provider's budget for this month is spent")
 	ErrAgentThisPC      = errors.New("agents always run on This PC; a server runs only plain shells")
-	ErrPartReadOnly     = errors.New("that part of the project is read-only: agents cannot work in it yet")
+	ErrPartReadOnly     = errors.New("that part of the project is read-only, and this agent cannot be kept to reading it")
 	ErrBadMode          = errors.New("unknown launch mode")
 )
 
@@ -670,7 +670,10 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 	if a.Kind == agent.KindAgent && st.Agents.Disabled[a.ID] {
 		return Info{}, ErrAgentDisabled
 	}
-	if a.Kind == agent.KindAgent && m.partReadOnly(req.ProjectID, req.PartID) {
+	// In a read-only part an agent works as it does on a server, through the hub's tools, which
+	// then only read; a CLI that cannot work that way stays out.
+	readOnly := a.Kind == agent.KindAgent && m.partReadOnly(req.ProjectID, req.PartID)
+	if readOnly && (!st.Agents.RemoteTools || !a.WorksOnServers() || m.RemoteWorkDir == nil) {
 		return Info{}, ErrPartReadOnly
 	}
 	target := req.MachineID
@@ -759,7 +762,7 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		Agent: a.ID, AgentKind: a.Kind, Yolo: yolo, ProfileID: profileID, ProviderID: providerID, AgentSessionID: aid,
 		Model: model, Effort: effort,
 	}
-	if target != req.MachineID {
+	if target != req.MachineID || readOnly {
 		dir, err := m.RemoteWorkDir(target, cwd)
 		if err != nil {
 			return Info{}, err
@@ -926,9 +929,21 @@ func (m *Manager) Restart(id string, req RestartRequest) (Info, error) {
 		}
 		pinned = true
 	}
-	// also a restart of the agent it has: the part may have become read-only since
-	if a.Kind == agent.KindAgent && m.partReadOnly(sp.ProjectID, sp.PartID) {
-		return Info{}, ErrPartReadOnly
+	// also a restart of the agent it has: the part may have become read-only since, and then the
+	// agent works through the hub's tools from now on
+	if a.Kind == agent.KindAgent && m.partReadOnly(sp.ProjectID, sp.PartID) && sp.RemoteMachineID == "" {
+		if sp.MachineID != machine.LocalID || !m.Settings().Agents.RemoteTools || !a.WorksOnServers() || m.RemoteWorkDir == nil {
+			return Info{}, ErrPartReadOnly
+		}
+		dir, err := m.RemoteWorkDir(machine.LocalID, sp.Cwd)
+		if err != nil {
+			return Info{}, err
+		}
+		sp.RemoteMachineID, sp.RemoteCwd, sp.Cwd = machine.LocalID, sp.Cwd, dir
+	}
+	// a shell again: back in the folder itself, when the agent was kept to reading it on This PC
+	if a.Kind != agent.KindAgent && sp.RemoteMachineID == machine.LocalID {
+		sp.Cwd, sp.RemoteMachineID, sp.RemoteCwd = sp.RemoteCwd, "", ""
 	}
 	if req.Model != nil || req.Effort != nil {
 		model, effort, err := chooseModel(a, req.Model, req.Effort, sp.Model, sp.Effort)

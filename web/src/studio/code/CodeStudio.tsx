@@ -28,7 +28,7 @@ import { Modal } from '../../components/Modal';
 import { useUi, type UiStore } from '../../board/ui';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
-import { projectParts } from '../../lib/parts';
+import { partHolding, projectParts } from '../../lib/parts';
 import type { NodeLayout, Op, Project, ProjectPart } from '../../lib/types';
 import { useFullscreen } from '../../lib/useFullscreen';
 import { useRemoteConfirm } from '../confirm';
@@ -1069,6 +1069,14 @@ export default function CodeStudio(props: Props) {
     prefs.set(PART_PREF(props.project.id), id);
     setPartId(id);
   };
+  // a file in another part (the lead's editor.open, a file card): show that part first
+  const openFile = useUi((s) => s.openFile);
+  useEffect(() => {
+    if (!openFile || parts.length < 2) return;
+    const holder = partHolding(props.project, openFile.path);
+    if (holder && holder.id !== part.id) choose(holder.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openFile]);
   return <CodeStudioPart key={`${part.id}:${part.machineId}:${part.path}`} {...props} part={part} onPart={parts.length > 1 ? choose : undefined} />;
 }
 
@@ -1100,6 +1108,8 @@ function CodeStudioPart({ project, ctl, ui, nodeId, viewCenter, filled, part, on
   const openFile = useUi((s) => s.openFile);
   useEffect(() => {
     if (!openFile) return;
+    const holder = partHolding(project, openFile.path);
+    if (holder && holder.id !== ws.partId) return; // the card shows that part first
     ws.open(openFile.path, { pin: true, source: true, line: openFile.line });
     ui.set({ openFile: null });
   }, [ws, ui, openFile]);

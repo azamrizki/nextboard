@@ -49,6 +49,8 @@ type Patch struct {
 	GroupID *string
 	Tags    *[]string
 	Sandbox *string
+	// PartAccess is what agents may do in the parts other than their own: "" read, "full" all.
+	PartAccess *string
 }
 
 // openGroups loads the tree. A hub from before groups has no file yet, and that
@@ -176,6 +178,9 @@ func (s *Store) Patch(id string, in Patch) (Project, error) {
 	if in.Sandbox != nil && *in.Sandbox != "" && *in.Sandbox != SandboxWorkspace && *in.Sandbox != SandboxOffline {
 		return Project{}, ErrBadSandbox
 	}
+	if in.PartAccess != nil && *in.PartAccess != "" && *in.PartAccess != PartAccessFull {
+		return Project{}, ErrBadPartAccess
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, p := s.findLocked(id)
@@ -199,6 +204,9 @@ func (s *Store) Patch(id string, in Patch) (Project, error) {
 	}
 	if in.Sandbox != nil {
 		p.Sandbox = *in.Sandbox
+	}
+	if in.PartAccess != nil {
+		p.PartAccess = *in.PartAccess
 	}
 	return p.clone(), s.saveLocked()
 }

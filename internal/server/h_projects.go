@@ -111,6 +111,8 @@ func projectErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, project.ErrBadSandbox):
 		writeErrCode(w, http.StatusBadRequest, "bad_sandbox", err.Error())
+	case errors.Is(err, project.ErrBadPartAccess):
+		writeErrCode(w, http.StatusBadRequest, "bad_part_access", err.Error())
 	case errors.Is(err, project.ErrGroupNotFound):
 		writeErrCode(w, http.StatusNotFound, "group_not_found", err.Error())
 	case errors.Is(err, project.ErrGroupNameTaken):
@@ -188,11 +190,13 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, p *
 		GroupID *string   `json:"groupId"`
 		Tags    *[]string `json:"tags"`
 		Sandbox *string   `json:"sandbox"`
+		// PartAccess: what agents may do in the parts other than their own (ROADMAP #49)
+		PartAccess *string `json:"partAccess"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	pr, err := s.projects.Patch(r.PathValue("id"), project.Patch{Name: req.Name, Opened: req.Opened, GroupID: req.GroupID, Tags: req.Tags, Sandbox: req.Sandbox})
+	pr, err := s.projects.Patch(r.PathValue("id"), project.Patch{Name: req.Name, Opened: req.Opened, GroupID: req.GroupID, Tags: req.Tags, Sandbox: req.Sandbox, PartAccess: req.PartAccess})
 	if err != nil {
 		projectErr(w, err)
 		return

@@ -22,3 +22,13 @@ export function partNamesOn(p: Project, machineId: string): string {
         .join(', ')
     : '';
 }
+
+/** The part whose folder holds an absolute path: the deepest one. */
+export function partHolding(p: Project, path: string): ProjectPart | undefined {
+  let best: ProjectPart | undefined;
+  for (const pt of projectParts(p)) {
+    const root = pt.path.replace(/\/+$/, '');
+    if ((path === root || path.startsWith(`${root}/`) || root === '') && (!best || root.length > best.path.replace(/\/+$/, '').length)) best = pt;
+  }
+  return best;
+}

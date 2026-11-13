@@ -18,6 +18,7 @@ import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { timeAgo } from '../../lib/format';
 import { useLayout } from '../../lib/layout';
+import { projectParts } from '../../lib/parts';
 import type { Session } from '../../lib/types';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { killSessions, pauseSessions, resumeSessions } from '../actions';
@@ -54,6 +55,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
   const narrow = useMediaQuery('(max-width: 899px)');
   const touch = useLayout().input === 'touch';
   const [filter, setFilter] = useState<Filter>('all');
+  const [partFilter, setPartFilter] = useState('');
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<Sel>(null);
   const [hub, setHub] = useState<Mission | null>(null);
@@ -120,12 +122,16 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
     return { consoles, directors, groups: gs, direct };
   }, [doc, sessions, hub, orders]);
 
+  // a project in several parts: which part each console works in, and a filter by part (ROADMAP #49)
+  const parts = projectParts(ctl.project);
+  const partOf = (s: Session) => (parts.length > 1 ? parts.find((p) => p.id === (s.partId || parts[0].id)) : undefined);
   const match = (c: MConsole) => {
     if (filter !== 'all' && bucket(c.session) !== filter) return false;
+    if (partFilter && partOf(c.session)?.id !== partFilter) return false;
     const n = q.trim().toLowerCase();
     if (!n) return true;
     const agent = agentById(c.session.agent || c.session.preset)?.name ?? c.session.agent ?? '';
-    return [c.session.handle, c.session.name, agent, c.role].some((v) => v && v.toLowerCase().includes(n));
+    return [c.session.handle, c.session.name, agent, c.role, partOf(c.session)?.name].some((v) => v && v.toLowerCase().includes(n));
   };
   const shown = model.consoles.filter(match);
   const shownIds = new Set(shown.map((c) => c.nodeId));
@@ -202,6 +208,16 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
     <Modal title="Mission Map" icon="map" size="lg" className="mission-modal" onClose={onClose}>
       <div className="mm-toolbar">
         <SegmentedControl<Filter> value={filter} onChange={setFilter} options={filterOpts} label="Filter consoles" size="sm" className="mm-filter" />
+        {parts.length > 1 && (
+          <select className="control control-sm mm-part" aria-label="Part of the project" value={partFilter} onChange={(e) => setPartFilter(e.target.value)}>
+            <option value="">All parts</option>
+            {parts.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="input-group has-lead mm-search">
           <span className="ig-lead">
             <Icon name="search" />
@@ -266,6 +282,11 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
                   <span className={`dot dot-${pill.dot}`} aria-hidden="true" />
                   <span className="mm-name">@{s.handle ?? s.name}</span>
                   <span className="mm-sub truncate">{agentById(s.agent || s.preset)?.name ?? s.agent}</span>
+                  {partOf(s) && (
+                    <span className="cap-chip" title="The part of the project it works in">
+                      {partOf(s)!.name}
+                    </span>
+                  )}
                   <span className="spacer" />
                   {c.subagents > 0 && <span className="cap-chip" title="Subagents running">{c.subagents} sub</span>}
                   <span className={`agent-pill tone-${pill.tone}`}>{pill.label}</span>

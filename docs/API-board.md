@@ -30,7 +30,7 @@ Endpoint lama `GET/PUT /api/board` **dihapus** (diganti board per workspace). Ev
 |---|---|---|---|
 | GET | `/api/projects` | — | `Project[]` (urut `lastOpenedAt` desc) |
 | POST | `/api/projects` | `{"machineId","path","name"?}` | `201 Project` dengan satu workspace "Main". Path yang sama di machine yang sama, juga bila folder itu part project lain → `200` project yang sudah ada. `400` path bukan folder. |
-| PATCH | `/api/projects/{id}` | `{"name"?, "opened"?: true, "groupId"?, "tags"?}` | `Project` (`opened` memperbarui `lastOpenedAt`; `groupId: ""` mengeluarkan dari group; satu simpan, ditolak utuh: `404 group_not_found`, `400 bad_tag`) |
+| PATCH | `/api/projects/{id}` | `{"name"?, "opened"?: true, "groupId"?, "tags"?, "sandbox"?, "partAccess"?}` (`partAccess`: `""` atau `"full"`, selain itu `400 bad_part_access`) | `Project` (`opened` memperbarui `lastOpenedAt`; `groupId: ""` mengeluarkan dari group; satu simpan, ditolak utuh: `404 group_not_found`, `400 bad_tag`) |
 | DELETE | `/api/projects/{id}` | — | `{"ok":true}`; semua sesinya dihentikan & dihapus, board diarsipkan, aplikasi desktop yang hanya tampil di board itu ditutup. File di disk tidak disentuh. |
 | POST | `/api/projects/{id}/parts` | `{"name","machineId","path"}` | `201 Project` dengan part baru di akhir. Folder dicek seperti `POST /api/projects`. `409 part_overlap` (folder sama, di dalam, atau berisi part lain di machine yang sama), `409 name_conflict`, `409 path_in_project` dengan `projectId` (folder itu sudah project lain atau part-nya), `409 too_many_parts` (maks 8), `400` nama atau folder |
 | PATCH | `/api/projects/{id}/parts/{part}` | `{"name"?, "readOnly"?, "index"?}` | `Project`. `index` memindah part; part di posisi 0 menjadi `machineId`/`path` project. `404 part_not_found`, `409 name_conflict` |
@@ -62,7 +62,12 @@ Endpoint lama `GET/PUT /api/board` **dihapus** (diganti board per workspace). Ev
 | PATCH | `/api/workspaces/{id}` | `{"name"?, "index"?}` | `Workspace` (`index` = posisi tab baru) |
 | DELETE | `/api/workspaces/{id}` | — | `{"ok":true}`; sesi di workspace dihentikan & dihapus, board diarsipkan, aplikasi desktop yang hanya tampil di board itu ditutup. Workspace terakhir sebuah project tidak bisa dihapus (`409`). |
 
-**Part project (ROADMAP #49).** Satu project bisa mencakup beberapa folder, di satu machine atau lebih: backend di satu server, frontend di server lain. Memory, lead, board, papan tugas, uptime, dan credentials tetap satu per project. Yang sudah per part: terminal dan console (`partId`, folder bawaan per machine), tanda read-only, chip part di Home, dan "+N" di menu project. File, git, dan Code workbench masih memakai part pertama; tool agent ke part lain menyusul. `projects.json` lama mendapat part `main` saat dibuka, jadi klien yang belum tahu part tetap membaca `machineId`/`path`.
+**Part project (ROADMAP #49).** Satu project bisa mencakup beberapa folder, di satu machine atau lebih: backend di satu server, frontend di server lain. Memory, lead, board, papan tugas, uptime, dan credentials tetap satu per project. Yang per part: terminal dan console (`partId`, folder bawaan per machine), file, git, dan Code workbench. `projects.json` lama mendapat part `main` saat dibuka, jadi klien yang belum tahu part tetap membaca `machineId`/`path`.
+
+- **Project ref.** Route `/api/projects/{id}/…` milik workbench (file, search, LSP, DAP, Laravel, Markdown, eslint, git, tasks, review) menerima `{id}` berbentuk `<project>~<part>` atau `?part=<part>`. Project itu lalu dilihat lewat part tersebut: machine dan folder-nya. Ref tanpa part = part pertama. `404 part_not_found` untuk part yang tidak ada. `projectId` di `fs/write` dan `fs/trash` boleh berupa ref, dan tanpa ref folder dicari dari part di machine itu yang memuat file-nya.
+- **Git per part.** State git disimpan per part. Part selain yang pertama menyiarkan `{"type":"gitPart","projectId","part","repo","status"}`, bukan `git`/`gitRepo`, supaya klien lama tidak menganggapnya status part pertama.
+- **Workbench.** Card editor menampilkan satu part, dipilih di judulnya dan diingat per browser (`nb.wb.part.<project>`). Tiap part punya tab dan setting sendiri. File yang dibuka di folder part lain (oleh lead atau card file) memindah card ke part itu.
+- **Agent.** Lihat API-agents §21.1: part sendiri penuh, part lain lewat tool hub, `partAccess` project (`""` hanya baca, `"full"`), part read-only hanya baca untuk semua.
 
 **Migrasi saat start:** kalau `projects.json` belum ada, hub membuat project "Home" (`local`, home dir) dengan workspace "Main", memindahkan semua sesi lama ke sana, dan mengonversi `board.json` lama (posisi per sesi) menjadi node `terminal`. `board.json` lama diganti nama `board.json.migrated`.
 
@@ -75,7 +80,7 @@ Endpoint lama `GET/PUT /api/board` **dihapus** (diganti board per workspace). Ev
 
 - Dengan `partId`: `machineId` default = machine part itu (machine lain → `400 part_machine`), `cwd` default = folder part. `404 part_not_found`.
 - Tanpa `partId`: `machineId` default = machine project; `cwd` kosong = folder part pertama di machine itu (di machine tanpa part: home); `cwd` di dalam folder part mencatat `partId` part itu.
-- Agent di part read-only → `422 part_read_only`, juga saat shell di part itu diganti menjadi agent atau agent-nya di-restart. Shell biasa tetap boleh.
+- Agent di part read-only bekerja seperti di server: CLI di This PC dengan tool lokal mati, dan hanya `read_file`, `grep`, `glob` hub yang bekerja di part itu (`remoteMachineId` = machine part, juga `local`). Begitu juga saat shell di part itu diganti menjadi agent, atau agent di part yang baru dibuat read-only di-restart. Agent yang CLI-nya tidak bisa bekerja lewat tool hub → `422 part_read_only`. Shell biasa tetap boleh.
 - Tanpa `workspaceId` (klien lama/Android): pakai workspace pertama project yang terakhir dibuka; kalau tidak ada project sama sekali, buat "Home".
 - Hub menambahkan node `terminal` ke board workspace itu (posisi `node` atau otomatis di kanan node terakhir) dalam satu operasi, lalu menyiarkan `boardOps`.
 - `DELETE /api/sessions/{id}` juga menghapus node terminalnya (siaran `boardOps`).

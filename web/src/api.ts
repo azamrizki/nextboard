@@ -304,7 +304,7 @@ export const api = {
   // projects & workspaces (API-board §1)
   projects: () => get<Project[] | null>('/api/projects').then((p) => p ?? []),
   createProject: (body: { machineId: string; path: string; name?: string }) => post<Project>('/api/projects', body),
-  updateProject: (id: string, body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; sandbox?: string }) => patch<Project>(`/api/projects/${enc(id)}`, body),
+  updateProject: (id: string, body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; sandbox?: string; partAccess?: string }) => patch<Project>(`/api/projects/${enc(id)}`, body),
   createPart: (id: string, body: { name: string; machineId: string; path: string }) => post<Project>(`/api/projects/${enc(id)}/parts`, body),
   updatePart: (id: string, part: string, body: { name?: string; readOnly?: boolean; index?: number }) => patch<Project>(`/api/projects/${enc(id)}/parts/${enc(part)}`, body),
   deletePart: (id: string, part: string) => del<Project>(`/api/projects/${enc(id)}/parts/${enc(part)}`),

@@ -89,6 +89,8 @@ type Intent struct {
 	Count    int
 	Agent    string
 	Role     string
+	// Part: "spawn 2 claude in Backend", a part of the project (ROADMAP #49)
+	Part     string
 	Name     string
 	All      bool // "kill all", "pause" without who
 	Select   bool // "group these"
@@ -109,6 +111,23 @@ type Intent struct {
 // ParseContext lists the agent ids the spawn grammar accepts.
 type ParseContext struct {
 	Agents []string // agent ids (claude, codex, shell, custom ids…)
+	Parts  []string // the names of the project's parts, when it has more than one
+}
+
+// cutPart takes "in Backend" (on, di, pada; "part" after it may follow) off the end of a spawn,
+// when Backend is one of the parts.
+func cutPart(rest string, parts []string) (string, string) {
+	low := strings.ToLower(strings.TrimSpace(rest))
+	low = strings.TrimSuffix(strings.TrimSuffix(low, " part"), " bagian")
+	for _, name := range parts {
+		for _, prep := range []string{" in ", " on ", " di ", " pada ", " ke "} {
+			suffix := prep + strings.ToLower(name)
+			if strings.HasSuffix(" "+low, suffix) {
+				return name, strings.TrimSpace(low[:max(0, len(low)-len(suffix)+1)])
+			}
+		}
+	}
+	return "", rest
 }
 
 var numberWords = map[string]int{"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
@@ -457,8 +476,9 @@ func parse(text string, ctx ParseContext, tryIndonesian bool) Intent {
 		return in
 	}
 	if m := reSpawn.FindStringSubmatch(t); m != nil {
-		if n, a, r, ok := spawnTokens(m[1], ctx); ok {
-			return Intent{Kind: IntentSpawn, Count: n, Agent: a, Role: r}
+		part, rest := cutPart(m[1], ctx.Parts)
+		if n, a, r, ok := spawnTokens(rest, ctx); ok {
+			return Intent{Kind: IntentSpawn, Count: n, Agent: a, Role: r, Part: part}
 		}
 	}
 	if m := reGroupOf.FindStringSubmatch(t); m != nil {

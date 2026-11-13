@@ -120,6 +120,8 @@ export function readChecklist(n: BoardNode): ChecklistData {
 
 export interface TaskFields {
   assignee?: string;
+  /** The part of the project the task is about (ROADMAP #49): handed out to its consoles. */
+  part?: string;
   sessionId?: string;
   orderId?: string;
   state?: string;

@@ -367,6 +367,8 @@ export interface Project {
   path: string;
   /** The folders it spans, the first being machineId and path. A hub from before parts sends none. */
   parts?: ProjectPart[];
+  /** What agents may do in the parts other than their own: absent = read, "full" = everything. */
+  partAccess?: 'full';
   createdAt: string;
   lastOpenedAt: string;
   /** In tab order. */

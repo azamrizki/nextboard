@@ -269,6 +269,8 @@ export const ORDER_DONE = new Set(['finished', 'failed', 'timeout', 'cancelled',
 export interface SpawnSlot {
   agent?: string;
   machineId?: string;
+  /** The part of the project, by id or name: its machine and folder. */
+  part?: string;
   profileId?: string;
   /** An API provider instead of a login (docs/API-agents.md §10.2). */
   providerId?: string;
@@ -281,6 +283,8 @@ export interface SpawnRequest {
   slots?: SpawnSlot[];
   count?: number;
   agent?: string;
+  /** The part of the project the consoles work in, by id or name (ROADMAP #49). */
+  part?: string;
   group?: { name?: string; role?: Role; color?: GroupColor } | { id: string };
   orchestratorId?: string;
   at?: { x: number; y: number };

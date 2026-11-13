@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"path"
 	"strings"
 	"time"
 
@@ -166,6 +167,18 @@ func (h hubAdapter) AgentOnMachine(machineID, agentID string) bool {
 }
 
 func (h hubAdapter) CreateSession(req session.CreateRequest) (session.Info, error) {
+	// a console started in a part's folder works in that part (ROADMAP #49)
+	if req.PartID == "" && req.ProjectID != "" && strings.HasPrefix(req.Cwd, "/") {
+		if pr, ok := h.s.projects.Get(req.ProjectID); ok {
+			mid := req.MachineID
+			if mid == "" {
+				mid = machine.LocalID
+			}
+			if pt, ok := pr.PartAt(mid, path.Clean(req.Cwd)); ok {
+				req.PartID = pt.ID
+			}
+		}
+	}
 	in, err := h.s.sessions.Create(req)
 	if err == nil {
 		h.s.emitMachine(in.MachineID)

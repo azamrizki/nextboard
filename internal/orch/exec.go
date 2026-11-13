@@ -51,7 +51,7 @@ func (s *Service) runStep(c *execCtx, st Step) error {
 		return s.applyTaskEdit(c, st)
 	case "spawn", "group.add":
 		req := SpawnRequest{WorkspaceID: firstNonEmpty(st.WorkspaceID, c.workspaceID), Count: st.Count, Agent: st.Agent, Role: st.Role,
-			OrchestratorID: st.OrchestratorID, MachineID: st.MachineID, ByLead: true, Account: st.Account}
+			OrchestratorID: st.OrchestratorID, MachineID: st.MachineID, ByLead: true, Account: st.Account, Part: st.Part}
 		if st.NewGroup != nil {
 			req.Group = &SpawnGroup{Name: st.NewGroup.Name, Role: st.NewGroup.Role}
 		}

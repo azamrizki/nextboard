@@ -22,7 +22,9 @@ type Step struct {
 	Count   int      `json:"count,omitempty"`
 	Agent   string   `json:"agent,omitempty"`
 	// Account: spawn on this API provider (its name or id), or "login"; "" = settings lead.providers.
-	Account        string         `json:"account,omitempty"`
+	Account string `json:"account,omitempty"`
+	// Part: spawn in this part of the project, by name or id (ROADMAP #49).
+	Part           string         `json:"part,omitempty"`
 	Role           string         `json:"role,omitempty"`
 	GroupID        string         `json:"groupId,omitempty"`
 	NewGroup       *NewGroup      `json:"newGroup,omitempty"`

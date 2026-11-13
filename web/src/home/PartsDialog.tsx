@@ -53,6 +53,18 @@ export function PartsDialog({ project, onClose }: { project: Project; onClose: (
       <p className="parts-intro">
         One project can span folders on several machines: a backend on one server, a frontend on another. A terminal opens in the part on the machine you pick. Agents work only where a part is not read-only.
       </p>
+      {parts.length > 1 && (
+        <SelectField
+          label="Agents in the other parts"
+          value={project.partAccess ?? ''}
+          disabled={!!busy}
+          hint="An agent works fully in its own part. In the others it reads and searches, or changes and runs commands too. A read-only part stays read only."
+          onChange={(e) => void change('access', () => api.updateProject(project.id, { partAccess: e.target.value }))}
+        >
+          <option value="">Read only</option>
+          <option value="full">Full access</option>
+        </SelectField>
+      )}
       <ul className="part-list" aria-label={`Parts of ${project.name}`}>
         {parts.map((pt, i) => (
           <PartRow

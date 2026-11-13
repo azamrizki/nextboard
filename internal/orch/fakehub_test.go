@@ -211,7 +211,7 @@ func (h *fakeHub) CreateSession(req session.CreateRequest) (session.Info, error)
 	h.mu.Unlock()
 	handle := fmt.Sprintf("N%d", n+1)
 	in := session.Info{Spec: session.Spec{ID: auth.RandomID("s_"), Handle: handle, Agent: req.Agent, AgentKind: agent.KindAgent,
-		MachineID: req.MachineID, Cwd: req.Cwd, ProjectID: p.ID, WorkspaceID: req.WorkspaceID, CreatedAt: t0.Add(time.Duration(n) * time.Second)},
+		MachineID: req.MachineID, Cwd: req.Cwd, ProjectID: p.ID, WorkspaceID: req.WorkspaceID, PartID: req.PartID, CreatedAt: t0.Add(time.Duration(n) * time.Second)},
 		Status: session.StatusRunning}
 	if req.Agent == "shell" {
 		in.AgentKind = agent.KindShell

@@ -150,6 +150,8 @@ func (s *Server) orchErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusBadRequest, "too_many", err.Error())
 	case errors.Is(err, orch.ErrGroupNotFound):
 		writeErrCode(w, http.StatusNotFound, "group_not_found", err.Error())
+	case errors.Is(err, orch.ErrPartNotFound):
+		writeErrCode(w, http.StatusNotFound, "part_not_found", err.Error())
 	case errors.Is(err, orch.ErrMembersMissing):
 		writeErrCode(w, http.StatusBadRequest, "member_conflict", err.Error())
 	case errors.Is(err, orch.ErrHandoffRunning):

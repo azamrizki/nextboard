@@ -388,8 +388,13 @@ function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                         {card.title || 'Untitled'}
                       </span>
                       {card.notes && <span className="kb-card-notes">{card.notes}</span>}
-                      {(due || card.priority || card.assignee || card.state) && (
+                      {(due || card.priority || card.assignee || card.state || card.part) && (
                         <span className="kb-chips">
+                          {card.part && (
+                            <span className="kb-chip task-part" title="The part of the project it is about">
+                              {card.part}
+                            </span>
+                          )}
                           {card.assignee && <span className="kb-chip task-who">@{card.assignee}</span>}
                           {card.state && (
                             <span className={`kb-chip task-state is-${card.state}`} title={card.error}>

@@ -58,6 +58,9 @@ type Project struct {
 	// "" = what each CLI does by itself, SandboxWorkspace = write only in the project
 	// folder (and temp and package caches), SandboxOffline = that and no network.
 	Sandbox string `json:"sandbox,omitempty"`
+	// PartAccess is what its agents may do in the parts other than their own (ROADMAP #49):
+	// "" = only read, PartAccessFull = everything. A read-only part stays read-only either way.
+	PartAccess string `json:"partAccess,omitempty"`
 }
 
 // Sandbox levels of a project.

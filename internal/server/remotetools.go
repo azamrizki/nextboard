@@ -99,7 +99,17 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		}
 		extras := s.remoteExtras(host, sp.RemoteCwd, sp.Cwd, docs, a.CapBase())
 		c.Commands = extras.commands
-		prompt.WriteString(remotePrompt(host.Info().Name, sp.RemoteCwd, s.remoteProjectRules(host, sp.RemoteCwd, docs), claude, extras))
+		name := host.Info().Name
+		if sp.RemoteMachineID == machine.LocalID {
+			name = "" // a read-only part on This PC, reached the same way
+		}
+		prompt.WriteString(remotePrompt(name, sp.RemoteCwd, s.remoteProjectRules(host, sp.RemoteCwd, docs), claude, extras))
+	}
+	if parts := s.partsPrompt(sp); parts != "" {
+		if prompt.Len() > 0 {
+			prompt.WriteString("\n")
+		}
+		prompt.WriteString(parts)
 	}
 	if sp.ProjectID != "" && s.orch != nil {
 		dir, err := s.orch.Memory.Dir(sp.ProjectID)
@@ -172,7 +182,11 @@ func (s *Server) remoteProjectRules(host machine.Host, cwd string, names []strin
 
 func remotePrompt(machineName, cwd, rules string, localMemory bool, x serverExtras) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are working on the server %q, in the folder %s. This CLI runs on another computer, so its local tools cannot see the project.\n", machineName, cwd)
+	if machineName == "" {
+		fmt.Fprintf(&b, "You are working in the folder %s on this computer, which is read only for you. Your own file and shell tools are off for it.\n", cwd)
+	} else {
+		fmt.Fprintf(&b, "You are working on the server %q, in the folder %s. This CLI runs on another computer, so its local tools cannot see the project.\n", machineName, cwd)
+	}
 	b.WriteString("For everything in the project use the tools of the nextboard MCP server: read_file, write_file, edit_file, grep, glob and bash. Relative paths start in that folder. Each bash call starts there in a new shell, so `cd` does not carry over. A command that takes more than a minute runs with bash run_in_background, and bash_output shows what it prints as it goes.\n")
 	if localMemory {
 		b.WriteString("Your local Read, Write and Edit tools are only for your memory folder. Never use them for project files.\n")
@@ -222,15 +236,24 @@ type remoteTarget struct {
 	sessionID, workspaceID string
 	// credentials: the owner shares vault items with agents of this project (credrun.go)
 	credentials bool
+	// homePart names the console's own part, parts are the project's others (remoteparts.go);
+	// inPart is the other part one call works in.
+	homePart, inPart string
+	parts            []partTarget
 }
 
 func (t remoteTarget) tools() []map[string]any {
 	var list []map[string]any
-	if t.machineID != "" {
+	if t.machineID != "" || len(t.parts) > 0 {
+		write := t.writable()
 		for _, x := range remoteToolList {
-			if !t.readOnly || remoteReadTools[x["name"].(string)] {
-				list = append(list, x)
+			if !write && !remoteReadTools[x["name"].(string)] {
+				continue
 			}
+			if len(t.parts) > 0 && x["name"] != "bash_output" && x["name"] != "bash_kill" {
+				x = t.withPartArg(x)
+			}
+			list = append(list, x)
 		}
 	}
 	if t.memory && t.projectID != "" {
@@ -253,6 +276,7 @@ func (s *Server) handleRemoteMCP(w http.ResponseWriter, r *http.Request) {
 	sp := sess.Spec()
 	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true, sessionID: sp.ID, workspaceID: sp.WorkspaceID,
 		credentials: sp.ProjectID != "" && s.credVault != nil && s.credVault.HasAgentEntries(sp.ProjectID)}
+	s.withParts(&t, sp)
 	if len(t.tools()) == 0 {
 		http.Error(w, "this console does not use hub tools", http.StatusNotFound)
 		return
@@ -332,7 +356,21 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 		if strings.HasPrefix(p.Name, "credential_") {
 			return remoteAnswer(s.credentialTool(ctx, t, p.Name, p.Arguments)), nil
 		}
+		// a command started in the background is the console's, wherever it runs
+		if p.Name == "bash_output" || p.Name == "bash_kill" {
+			return remoteAnswer(s.bgTool(ctx, nil, t, p.Name, p.Arguments)), nil
+		}
+		t, wrong := t.forPart(p.Arguments)
+		if wrong != "" {
+			return remoteAnswer(wrong, true), nil
+		}
 		if t.readOnly && !remoteReadTools[p.Name] {
+			switch {
+			case t.inPart != "":
+				return remoteAnswer(fmt.Sprintf("%s is read only for you: read_file, grep and glob work there. Ask the agent of that part, or the owner, for the change.", t.inPart), true), nil
+			case t.homePart != "" && t.sessionID != "":
+				return remoteAnswer("Your part is read only: read_file, grep and glob work here. Say what should change instead.", true), nil
+			}
 			return remoteAnswer("This job may only read.", true), nil
 		}
 		if t.machineID == "" {
@@ -356,7 +394,7 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 			Background bool `json:"run_in_background"`
 		}
 		_ = json.Unmarshal(p.Arguments, &bg)
-		if (p.Name == "bash" && bg.Background) || p.Name == "bash_output" || p.Name == "bash_kill" {
+		if p.Name == "bash" && bg.Background {
 			return remoteAnswer(s.bgTool(ctx, host, t, p.Name, p.Arguments)), nil
 		}
 		start := time.Now()

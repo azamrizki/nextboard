@@ -20,6 +20,7 @@ import { SelectField } from '../../components/form';
 import { Icon } from '../../components/Icon';
 import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
+import { projectParts } from '../../lib/parts';
 import type { Agent, ModelChoice, Project } from '../../lib/types';
 import { useMachines } from '../../store';
 import { orchError } from '../actions';
@@ -44,7 +45,12 @@ export interface ComposeFormProps {
 export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned }: ComposeFormProps) {
   const settings = useEffectiveSettings();
   const machines = useMachines();
-  const [machineId, setMachineId] = useState(project.machineId || 'local');
+  // a project in several parts: the part decides the machine and folder (ROADMAP #49)
+  const parts = projectParts(project);
+  const [partId, setPartId] = useState(parts[0].id);
+  const part = parts.length > 1 ? (parts.find((p) => p.id === partId) ?? parts[0]) : undefined;
+  const [chosenMachine, setMachineId] = useState(project.machineId || 'local');
+  const machineId = part ? part.machineId : chosenMachine;
   const ma = useMachineAgents(machineId);
   const existing = opts.groupId ? ctl.node(opts.groupId) : undefined;
   const card = opts.orchestratorId ? ctl.node(opts.orchestratorId) : undefined;
@@ -98,7 +104,8 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
       const r = await orchApi.spawn(ctl.workspaceId, {
         slots: Array.from({ length: count }, (_, i) => ({
           agent: slotAgent(i),
-          machineId: machineId !== project.machineId ? machineId : undefined,
+          machineId: !part && machineId !== project.machineId ? machineId : undefined,
+          part: part?.id,
           model: modelOf(slotAgent(i)).model ?? '',
           effort: modelOf(slotAgent(i)).effort ?? '',
         })),
@@ -227,7 +234,17 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
           ))}
         </div>
       )}
-      {machines.length > 1 && (
+      {part && (
+        <SelectField label="Part" value={part.id} onChange={(e) => setPartId(e.target.value)} hint={part.readOnly ? 'Read only: agents there only read and investigate.' : undefined}>
+          {parts.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} · {machines.find((m) => m.id === p.machineId)?.name ?? p.machineId}
+              {p.readOnly ? ' (read only)' : ''}
+            </option>
+          ))}
+        </SelectField>
+      )}
+      {!part && machines.length > 1 && (
         <SelectField label="Machine" value={machineId} onChange={(e) => setMachineId(e.target.value)}>
           {machines.map((m) => (
             <option key={m.id} value={m.id} disabled={!machineReady(m)}>

@@ -783,6 +783,22 @@ Diuji dengan CLI sungguhan terhadap model palsu di loopback, HOME kosong, tanpa 
 
 **Batas yang diketahui:** git di server memakai kredensial server; OpenCode belum pernah diamati menjawab dengan provider sungguhan, dan login-nya masih di folder OpenCode sendiri karena config-nya tersebar di beberapa variabel XDG. Agen katalog lain belum didukung karena belum terpasang di mesin uji.
 
+### 21.1 Part project (ROADMAP #49)
+
+Project yang mencakup beberapa part (API-board §1) memberi tiap console satu **part sendiri**: folder tempat ia bekerja (`partId` sesi). Agent menjangkau part lain lewat tool hub yang sama, dengan argumen `part` (nama atau id part, huruf besar kecil tidak dibedakan):
+
+- `read_file`, `grep`, `glob`: selalu boleh di part lain.
+- `write_file`, `edit_file`, `bash` (juga di latar): di part lain hanya bila project `partAccess: "full"` dan part itu tidak read-only. Kalau tidak boleh, jawabannya menyebut part itu read only untuk agent ini.
+- `bash_output`, `bash_kill`: milik console, tanpa `part`.
+- Tanpa `part` = part sendiri. Console di This PC tetap memakai tool lokalnya untuk part sendiri; tool hub hanya untuk part lain. Part yang tidak ada dijawab dengan daftar part yang ada.
+- Daftar tool hanya memuat tool tulis bila ada tempat yang boleh ditulis, dan `part` hanya muncul bila project punya lebih dari satu part.
+
+**Part read-only.** Agent yang part sendirinya read-only bekerja gaya server, juga di This PC: tool lokal CLI mati (Claude Code `--tools` tanpa Bash, Codex `--sandbox read-only` tanpa shell, OpenCode `deny`), dan hanya tool baca hub yang bekerja di part itu. Part read-only juga hanya baca bagi agent di part lain, apa pun `partAccess`.
+
+**Prompt.** Prompt sistem menyebut semua part (nama, machine, folder) dan hak agent di tiap part, cara memakai `part`, dan bila part sendiri read-only, bahwa ia hanya membaca dan menyebut apa yang perlu diubah.
+
+Diuji: `TestPartsForAgents` (Codex palsu di This PC: baca di part lain, tulis ditolak lalu boleh dengan `full`, `bash` di folder part, part read-only tetap ditolak, agent di part read-only tanpa shell lokal dan hanya membaca).
+
 ## 22. Konteks peluncuran
 
 Setiap peluncuran agen di This PC yang CLI-nya menerima konteks (`claude`, `codex`, `opencode`, dan turunannya) mendapat dari hub, tanpa menulis config CLI: instruksi sistem di `<data>/agents/prompts/<sid>.md` (dihapus bersama console), memory project (API-orchestration §12), dan untuk kerja di server, tool hub (§21). Kalau konteks gagal disiapkan, console di This PC tetap jalan dengan catatan di log; console di server gagal, karena tanpa tool itu agen akan bertindak di This PC.

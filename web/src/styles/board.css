@@ -266,6 +266,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* the part of a project in several parts the console works in */
+.node-part {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 var(--s-1);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.node-part svg {
+  flex: none;
+  width: var(--fs-xs);
+  height: var(--fs-xs);
+}
 .node-status {
   color: var(--text-3);
 }

@@ -303,7 +303,11 @@ func (s *Service) translateBoardStep(sc *scope, ps plannerStep, st Step) (Step, 
 			return st, "Planner editor.open has no path; step dropped."
 		}
 		if !strings.HasPrefix(p, "/") {
-			p = path.Join(sc.proj.Path, p)
+			base := sc.proj.Path
+			if pt, ok := partNamed(sc.proj, ps.Part); ok && ps.Part != "" {
+				base = pt.Path // the editor shows that part (ROADMAP #49)
+			}
+			p = path.Join(base, p)
 		}
 		st.UIAction = &UIAction{Action: "openFile", Path: p, Line: ps.Line}
 		st.Op = "ui"

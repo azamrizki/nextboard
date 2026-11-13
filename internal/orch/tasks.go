@@ -58,6 +58,8 @@ type TaskEdit struct {
 	Priority string `json:"priority,omitempty"`
 	Due      string `json:"due,omitempty"`
 	Done     *bool  `json:"done,omitempty"`
+	// Part: the part of the project the task is about (ROADMAP #49); handed out to its consoles.
+	Part string `json:"part,omitempty"`
 }
 
 // taskTile is a task board and the team behind the cards wired to it.
@@ -402,11 +404,19 @@ func (s *Service) runTasks(wid string, t *taskTile) {
 		}
 		pick := -1
 		want := strings.TrimPrefix(taskStr(e.m, "assignee"), "@")
+		// a task about one part goes to a console of that part
+		wantPart := taskStr(e.m, "part")
 		for i, in := range free {
-			if want == "" || strings.EqualFold(in.Handle, want) {
-				pick = i
-				break
+			if want != "" && !strings.EqualFold(in.Handle, want) {
+				continue
 			}
+			if want == "" && wantPart != "" {
+				if pt, ok := proj.Part(in.PartID); !ok || (!strings.EqualFold(pt.Name, wantPart) && pt.ID != wantPart) {
+					continue
+				}
+			}
+			pick = i
+			break
 		}
 		if pick < 0 {
 			continue
@@ -574,6 +584,7 @@ func (s *Service) applyTaskEdit(c *execCtx, st Step) error {
 		}
 	}
 	set("assignee", strings.TrimPrefix(edit.Assignee, "@"))
+	set("part", edit.Part)
 	if edit.Done != nil {
 		card["done"] = *edit.Done
 	}
@@ -592,7 +603,7 @@ func tasksForPlanner(b board.Board, name string) []map[string]any {
 	left := plannerTaskCards
 	row := func(m map[string]any) map[string]any {
 		r := map[string]any{"id": taskStr(m, "id"), "title": firstNonEmpty(taskStr(m, "title"), taskStr(m, "text"))}
-		for _, k := range []string{"assignee", "state", "priority", "due"} {
+		for _, k := range []string{"assignee", "state", "priority", "due", "part"} {
 			if v := taskStr(m, k); v != "" {
 				r[k] = v
 			}
@@ -646,7 +657,7 @@ func (s *Service) translateTaskStep(sc *scope, ps plannerStep, st Step) (Step, s
 	}
 	st.Tile, st.WorkspaceID = n.ID, wid
 	st.Task = &TaskEdit{Card: ps.Card, Title: firstNonEmpty(ps.Title, ps.Name), Notes: ps.Text, Column: ps.Column,
-		Assignee: ps.Assignee, Priority: ps.Priority, Due: ps.Due, Done: ps.Done}
+		Assignee: ps.Assignee, Priority: ps.Priority, Due: ps.Due, Done: ps.Done, Part: ps.Part}
 	if st.Op == "task.add" && st.Task.Title == "" {
 		return st, "A new task needs a title; step dropped."
 	}

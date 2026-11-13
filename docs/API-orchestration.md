@@ -384,6 +384,15 @@ Kolom dicari dari namanya (Inggris dan Indonesia), lalu dari posisinya: pertama,
 
 Thread project = `p_…`, thread kartu = id node orchestrator `n_…`. Riwayat input command bar (↑/↓, 50) disimpan per klien.
 
+### 3.10 Lead dan part project (ROADMAP #49)
+
+- Input planner untuk project dengan lebih dari satu part memuat `parts` (`name`, `machine`: "This PC" atau "a server", `path`, `readOnly`), dan tiap console menyebut `part`-nya.
+- Skema langkah punya `part`. `spawn`/`group.add` dengan `part` membuka console di machine dan folder part itu (nama atau id, huruf besar kecil tidak dibedakan). Part yang tidak ada → tidak ada yang dibuka, catatan "the project has no such part" (API: `404 part_not_found`). `task.add`/`task.update` menyimpan `part` di kartu. Pembagian otomatis memberi kartu ber-part hanya ke console di part itu. `editor.open` dengan `part` menggabung path relatif dengan folder part itu.
+- Aturan prompt: kerja tentang satu part dikirim ke console di part itu; perubahan lintas part dikerjakan bergiliran (part pertama melapor, lalu hasilnya di-forward atau dikirim ke part berikutnya); part read-only hanya untuk pertanyaan dan investigasi.
+- Perintah ketik: `spawn 2 claude in Backend` (juga `on`, `di`, `pada`, `ke`, dan kata `part`/`bagian` di belakang) bila Backend nama part project.
+- `POST /api/workspaces/{id}/spawn` menerima `part` di request dan di tiap slot. Sesi yang dibuat orchestrator di folder part mendapat `partId` part itu.
+- Mission Map menampilkan part tiap console dan filter "All parts"; kartu kanban menampilkan chip part.
+
 ## 5. Grup dan team composer (D14, C2)
 
 `POST /api/workspaces/{id}/spawn`:

@@ -204,7 +204,7 @@ func (s *Service) process(c *execCtx, text string) (string, *Confirmation) {
 	if toLead {
 		text = said
 	}
-	in := Parse(text, ParseContext{Agents: agentIDs(s.hub.Agents())})
+	in := Parse(text, ParseContext{Agents: agentIDs(s.hub.Agents()), Parts: partNames(sc.proj)})
 	in.Text = withReply(in.Text, c.reply)
 	var b built
 	if toLead {
@@ -492,7 +492,7 @@ func (s *Service) build(c *execCtx, sc *scope, in Intent, text string) built {
 			b.notes = append(b.notes, "At most 12 consoles per command.")
 			break
 		}
-		st := Step{Op: "spawn", Count: in.Count, Agent: in.Agent, Role: in.Role}
+		st := Step{Op: "spawn", Count: in.Count, Agent: in.Agent, Role: in.Role, Part: in.Part}
 		if card {
 			st.OrchestratorID = c.cardID
 		}

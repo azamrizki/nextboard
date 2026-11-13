@@ -19,6 +19,9 @@ type Part struct {
 	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
+// PartAccessFull lets agents change the parts other than their own, not only read them.
+const PartAccessFull = "full"
+
 const (
 	// MainPart is the id of the first part of a project made before parts, or with one.
 	MainPart = "main"
@@ -27,11 +30,12 @@ const (
 )
 
 var (
-	ErrPartNotFound = errors.New("part not found")
-	ErrPartOverlap  = errors.New("that folder is inside another part of this project, or holds one")
-	ErrMainPart     = errors.New("the first part is the project's own folder: move another part first to remove it")
-	ErrTooManyParts = fmt.Errorf("a project has at most %d parts", MaxParts)
-	ErrPartName     = errors.New("another part of this project has that name")
+	ErrPartNotFound  = errors.New("part not found")
+	ErrPartOverlap   = errors.New("that folder is inside another part of this project, or holds one")
+	ErrMainPart      = errors.New("the first part is the project's own folder: move another part first to remove it")
+	ErrTooManyParts  = fmt.Errorf("a project has at most %d parts", MaxParts)
+	ErrPartName      = errors.New("another part of this project has that name")
+	ErrBadPartAccess = errors.New(`partAccess must be "" (read only) or "full"`)
 )
 
 // InProjectError: the folder is already another project, or a part of one.

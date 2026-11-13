@@ -10,6 +10,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/agent"
 	"github.com/azamrizki/nextboard/internal/auth"
 	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
 )
 
@@ -22,6 +23,7 @@ var (
 	ErrOrderNotFound   = errors.New("order not found")
 	ErrNothingToResend = errors.New("there is nothing to resend")
 	ErrMembersMissing  = errors.New("group members are not on this board")
+	ErrPartNotFound    = errors.New("the project has no such part")
 )
 
 const (
@@ -35,7 +37,9 @@ const (
 // SpawnSlot is one console of POST /api/workspaces/{id}/spawn.
 type SpawnSlot struct {
 	// Cwd is used when the slot is not on the project's machine (handoff).
-	Cwd       string `json:"cwd,omitempty"`
+	Cwd string `json:"cwd,omitempty"`
+	// Part is the part of the project it works in, by name or id (ROADMAP #49): its machine and folder.
+	Part      string `json:"part,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	MachineID string `json:"machineId,omitempty"`
 	ProfileID string `json:"profileId,omitempty"`
@@ -63,12 +67,14 @@ type Point struct {
 
 // SpawnRequest is the body of POST /api/workspaces/{id}/spawn.
 type SpawnRequest struct {
-	WorkspaceID    string      `json:"-"`
-	Slots          []SpawnSlot `json:"slots"`
-	Count          int         `json:"count,omitempty"`
-	Agent          string      `json:"agent,omitempty"`
-	Role           string      `json:"role,omitempty"`
-	MachineID      string      `json:"machineId,omitempty"`
+	WorkspaceID string      `json:"-"`
+	Slots       []SpawnSlot `json:"slots"`
+	Count       int         `json:"count,omitempty"`
+	Agent       string      `json:"agent,omitempty"`
+	Role        string      `json:"role,omitempty"`
+	MachineID   string      `json:"machineId,omitempty"`
+	// Part is the part of the project every slot without its own works in, by name or id.
+	Part           string      `json:"part,omitempty"`
 	Group          *SpawnGroup `json:"group,omitempty"`
 	OrchestratorID string      `json:"orchestratorId,omitempty"`
 	At             *Point      `json:"at,omitempty"`
@@ -209,6 +215,19 @@ func (s *Service) Spawn(req SpawnRequest) (SpawnResult, error) {
 	var termNodes []*board.Node
 	for i, sl := range slots {
 		mid := sl.MachineID
+		named := sl.Part
+		if named == "" {
+			named = req.Part
+		}
+		var part project.Part
+		if named != "" {
+			pt, ok := partNamed(proj, named)
+			if !ok {
+				rollback()
+				return SpawnResult{}, fmt.Errorf("%w: %q", ErrPartNotFound, named)
+			}
+			part, mid = pt, pt.MachineID
+		}
 		if mid == "" {
 			mid = proj.MachineID
 		}
@@ -226,10 +245,21 @@ func (s *Service) Spawn(req SpawnRequest) (SpawnResult, error) {
 		if sl.ProviderID != "" && sl.Model == nil {
 			cr.Model = nil // the provider's own model, not one the settings name for a login
 		}
-		if mid == proj.MachineID {
+		switch {
+		case part.ID != "":
+			cr.Cwd, cr.PartID = part.Path, part.ID
+		case mid == proj.MachineID:
 			cr.Cwd = proj.Path
-		} else if sl.Cwd != "" {
+		case sl.Cwd != "":
 			cr.Cwd = sl.Cwd
+		default:
+			// another machine of the project: the folder of its part there
+			for _, pt := range proj.Parts {
+				if pt.MachineID == mid {
+					cr.Cwd, cr.PartID = pt.Path, pt.ID
+					break
+				}
+			}
 		}
 		if sl.ProfileID != "" {
 			p := sl.ProfileID
@@ -566,4 +596,27 @@ func (s *Service) handleTaken(name string) bool {
 		}
 	}
 	return false
+}
+
+// partNamed finds a part of the project by id or name, any case.
+func partNamed(proj project.Project, name string) (project.Part, bool) {
+	name = strings.TrimSpace(name)
+	for _, pt := range proj.Parts {
+		if pt.ID == name || strings.EqualFold(pt.Name, name) {
+			return pt, true
+		}
+	}
+	return project.Part{}, false
+}
+
+// partNames are the names of a project's parts, for the typed grammar; none for one part.
+func partNames(proj project.Project) []string {
+	if len(proj.Parts) < 2 {
+		return nil
+	}
+	out := make([]string, 0, len(proj.Parts))
+	for _, pt := range proj.Parts {
+		out = append(out, pt.Name)
+	}
+	return out
 }

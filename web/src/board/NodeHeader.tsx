@@ -22,7 +22,8 @@ import { Menu, type MenuEntry } from '../components/Menu';
 import { toast } from '../components/Toast';
 import type { SocketState } from '../lib/socket';
 import type { Agent, Conversation, LaunchMode, Machine, Session } from '../lib/types';
-import { store, useProfile } from '../store';
+import { projectParts } from '../lib/parts';
+import { store, useProfile, useProject } from '../store';
 import { splitAccount } from '../providers/AccountOptions';
 import { ProviderBadge } from '../providers/ProviderBadge';
 import { rectOf } from './controller';
@@ -273,6 +274,21 @@ interface NodeHeaderProps {
   textScale: number;
 }
 
+/** The part of a project in several parts the console works in (ROADMAP #49). */
+function PartLabel({ session }: { session: Session }) {
+  const project = useProject(session.projectId);
+  if (!project) return null;
+  const parts = projectParts(project);
+  const part = parts.length > 1 ? parts.find((p) => p.id === (session.partId || parts[0].id)) : parts[0]?.readOnly ? parts[0] : undefined;
+  if (!part) return null;
+  return (
+    <span className="node-part" title={`Works in ${part.name} of ${project.name}${part.readOnly ? ', read only' : ''}`}>
+      {part.readOnly && <Icon name="lock" />}
+      {part.name}
+    </span>
+  );
+}
+
 export function NodeHeader({ nodeId, session, machine, socket, actions, textOverride, textScale }: NodeHeaderProps) {
   const { ctl, ui } = useBoardEnv();
   const profile = useProfile(session.profileId || undefined);
@@ -506,9 +522,19 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
               {modelSummary(session.model, session.effort)}
             </span>
           )}
-          <span className="node-at" title={session.remoteMachineId ? 'The agent runs on This PC and works on this server' : undefined}>
+          <span
+            className="node-at"
+            title={
+              session.remoteMachineId === 'local'
+                ? 'This part is read only: the agent reads it through the hub and changes nothing'
+                : session.remoteMachineId
+                  ? 'The agent runs on This PC and works on this server'
+                  : undefined
+            }
+          >
             @ {machine?.name ?? session.machineName}
           </span>
+          <PartLabel session={session} />
         </span>
       )}
 
