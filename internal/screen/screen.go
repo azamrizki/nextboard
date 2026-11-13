@@ -8,6 +8,7 @@
 package screen
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -240,6 +241,7 @@ type Snapshot struct {
 type Screen struct {
 	mu      sync.Mutex
 	m       Model
+	strs    stringStripper // used by loop only
 	stale   bool
 	version uint64
 
@@ -277,6 +279,7 @@ func (s *Screen) Feed(p []byte) {
 		s.qmu.Unlock()
 		s.mu.Lock()
 		s.m.Reset()
+		s.strs = stringStripper{}
 		s.stale = true
 		s.version++
 		s.mu.Unlock()
@@ -316,7 +319,7 @@ func (s *Screen) loop() {
 			}
 			s.mu.Lock()
 			for _, b := range q {
-				lost := !s.m.Write(b)
+				lost := !s.m.Write(s.strs.strip(b))
 				if s.stale && isRedraw(b) {
 					s.stale = false
 				}
@@ -427,4 +430,64 @@ func (s *Screen) Close() {
 // Text returns the non-empty lines joined, for debugging and fixtures.
 func (sn Snapshot) Text() string {
 	return strings.TrimRight(strings.Join(sn.Lines, "\n"), "\n ")
+}
+
+// stringStripper drops the control strings (OSC, DCS, APC, PM, SOS) from the output before the
+// emulator sees it. The hub's screen needs none of them (window titles, hyperlinks, colour
+// queries nobody answers here), and the emulator ends such a string at 0x9C, the 8-bit ST, which
+// in UTF-8 is also a byte inside many characters: Claude Code's title "✳ Claude Code" (E2 9C B3)
+// ended there and the rest was printed onto the screen, over the text of its prompt. A string
+// ends at BEL or ESC \ only, as in a UTF-8 terminal; ESC followed by anything else ends it too,
+// and that ESC starts the next sequence. State carries across writes.
+type stringStripper struct {
+	in  bool // inside a string
+	esc bool // the byte before was ESC
+}
+
+func (f *stringStripper) strip(p []byte) []byte {
+	if !f.in && !f.esc && bytes.IndexByte(p, 0x1b) < 0 {
+		return p
+	}
+	out := make([]byte, 0, len(p))
+	for _, c := range p {
+		if f.in {
+			switch {
+			case c == 0x07:
+				f.in, f.esc = false, false
+			case f.esc && c == '\\':
+				f.in, f.esc = false, false
+			case f.esc:
+				f.in = false // aborted: this ESC begins the next sequence
+				f.esc = false
+				out = f.after(out, c)
+			case c == 0x1b:
+				f.esc = true
+			}
+			continue
+		}
+		if f.esc {
+			f.esc = false
+			out = f.after(out, c)
+			continue
+		}
+		if c == 0x1b {
+			f.esc = true
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// after handles the byte after an ESC outside a string.
+func (f *stringStripper) after(out []byte, c byte) []byte {
+	switch c {
+	case ']', 'P', '_', '^', 'X':
+		f.in = true
+		return out
+	case 0x1b:
+		f.esc = true
+		return append(out, 0x1b)
+	}
+	return append(out, 0x1b, c)
 }
