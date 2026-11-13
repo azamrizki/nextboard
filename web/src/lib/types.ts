@@ -271,6 +271,8 @@ export interface Session extends SessionAgentFields {
   /** Phase 4: the project / workspace (board tab) the session belongs to. */
   projectId?: string;
   workspaceId?: string;
+  /** The part of the project it works in (ROADMAP #49); absent: the first part. */
+  partId?: string;
 }
 
 export interface NodeLayout {
@@ -283,6 +285,8 @@ export interface NodeLayout {
 export interface CreateSession {
   /** Board tab the terminal node lands on (docs/API-board.md §1). */
   workspaceId?: string;
+  /** Opens in this part of the project: its machine and folder. Found from them when absent. */
+  partId?: string;
   /** Defaults to the project's machine. */
   machineId?: string;
   preset: string;
@@ -345,11 +349,24 @@ export interface CloseAllResult {
   loops: number;
 }
 
-export interface Project {
+/** One folder of a project, on one machine, named for its role (docs/API-board.md §1, ROADMAP #49). */
+export interface ProjectPart {
   id: string;
   name: string;
   machineId: string;
   path: string;
+  /** Agents may not work there. */
+  readOnly?: boolean;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  /** Those of the first part. */
+  machineId: string;
+  path: string;
+  /** The folders it spans, the first being machineId and path. A hub from before parts sends none. */
+  parts?: ProjectPart[];
   createdAt: string;
   lastOpenedAt: string;
   /** In tab order. */

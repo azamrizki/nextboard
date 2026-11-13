@@ -46,6 +46,7 @@ var (
 	ErrProviderMismatch = errors.New("this agent cannot run on that API provider")
 	ErrProviderBudget   = errors.New("the API provider's budget for this month is spent")
 	ErrAgentThisPC      = errors.New("agents always run on This PC; a server runs only plain shells")
+	ErrPartReadOnly     = errors.New("that part of the project is read-only: agents cannot work in it yet")
 	ErrBadMode          = errors.New("unknown launch mode")
 )
 
@@ -76,6 +77,9 @@ type CreateRequest struct {
 	// WorkspaceID is resolved by the server, which also sets ProjectID.
 	WorkspaceID string `json:"workspaceId"`
 	ProjectID   string `json:"-"`
+	// PartID is the part of the project the session works in (ROADMAP #49); the server sets
+	// machine and folder from it, or finds it from them.
+	PartID string `json:"partId"`
 	// Panel: no board node (a terminal or agent of the Code workbench).
 	Panel bool `json:"panel"`
 }
@@ -114,6 +118,8 @@ type Manager struct {
 	HookURL func(machineID string) string
 	// RemoteWorkDir is the local folder of an agent that works on a server.
 	RemoteWorkDir func(machineID, cwd string) (string, error)
+	// PartReadOnly: no agent may work in that part of the project (ROADMAP #49). nil = none is.
+	PartReadOnly func(projectID, partID string) bool
 	// OnChannelLost: the channel of a console on a server died.
 	OnChannelLost func(sp Spec)
 	// LaunchContext is what the hub gives an agent's launch on This PC.
@@ -639,6 +645,10 @@ func (m *Manager) plan(s *Session, a agent.Agent, sp Spec, mode string) (agent.P
 	return p, nil
 }
 
+func (m *Manager) partReadOnly(projectID, partID string) bool {
+	return projectID != "" && m.PartReadOnly != nil && m.PartReadOnly(projectID, partID)
+}
+
 // Create adds a session and launches it asynchronously.
 func (m *Manager) Create(req CreateRequest) (Info, error) {
 	id := req.Agent
@@ -659,6 +669,9 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 	st := m.Settings()
 	if a.Kind == agent.KindAgent && st.Agents.Disabled[a.ID] {
 		return Info{}, ErrAgentDisabled
+	}
+	if a.Kind == agent.KindAgent && m.partReadOnly(req.ProjectID, req.PartID) {
+		return Info{}, ErrPartReadOnly
 	}
 	target := req.MachineID
 	if a.Kind == agent.KindAgent && target != machine.LocalID {
@@ -742,7 +755,7 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		Command: a.Command, Args: append([]string{}, a.Args...), ResumeArgs: append([]string{}, a.Resume.ContinueArgs...),
 		Env: append([]string{}, a.Env...), Cwd: cwd,
 		Cols: clamp(req.Cols, 10, 500), Rows: clamp(req.Rows, 4, 300),
-		CreatedAt: time.Now().UTC(), ProjectID: req.ProjectID, WorkspaceID: req.WorkspaceID, Panel: req.Panel,
+		CreatedAt: time.Now().UTC(), ProjectID: req.ProjectID, WorkspaceID: req.WorkspaceID, PartID: req.PartID, Panel: req.Panel,
 		Agent: a.ID, AgentKind: a.Kind, Yolo: yolo, ProfileID: profileID, ProviderID: providerID, AgentSessionID: aid,
 		Model: model, Effort: effort,
 	}
@@ -912,6 +925,10 @@ func (m *Manager) Restart(id string, req RestartRequest) (Info, error) {
 			}
 		}
 		pinned = true
+	}
+	// also a restart of the agent it has: the part may have become read-only since
+	if a.Kind == agent.KindAgent && m.partReadOnly(sp.ProjectID, sp.PartID) {
+		return Info{}, ErrPartReadOnly
 	}
 	if req.Model != nil || req.Effort != nil {
 		model, effort, err := chooseModel(a, req.Model, req.Effort, sp.Model, sp.Effort)
@@ -1165,7 +1182,9 @@ type Placement struct {
 	ID          string
 	ProjectID   string
 	WorkspaceID string
-	Running     bool
+	// PartID: "" for a session from before parts, which works in the first part.
+	PartID  string
+	Running bool
 }
 
 // Placements lists the placement of every session on a board, in creation order.
@@ -1184,7 +1203,7 @@ func (m *Manager) placements(panels bool) []Placement {
 			s.mu.Unlock()
 			continue
 		}
-		out = append(out, Placement{ID: s.spec.ID, ProjectID: s.spec.ProjectID, WorkspaceID: s.spec.WorkspaceID, Running: s.status == StatusRunning})
+		out = append(out, Placement{ID: s.spec.ID, ProjectID: s.spec.ProjectID, WorkspaceID: s.spec.WorkspaceID, PartID: s.spec.PartID, Running: s.status == StatusRunning})
 		s.mu.Unlock()
 	}
 	return out

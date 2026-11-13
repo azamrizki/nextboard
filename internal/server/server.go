@@ -275,6 +275,7 @@ func (s *Server) wire() {
 		s.sessions.CommitHooks = dir
 	}
 	s.sessions.RemoteWorkDir, s.sessions.LaunchContext = s.remoteWorkDir, s.launchContext
+	s.sessions.PartReadOnly = s.partReadOnly
 	s.sessions.Providers = providerHub{s}
 	s.ide = idelink.New(idelink.Options{
 		WorkspaceOf: func(id string) string { w, _ := s.sessions.WorkspaceOf(id); return w },

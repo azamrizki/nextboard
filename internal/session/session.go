@@ -55,6 +55,8 @@ type Spec struct {
 	// ProjectID/WorkspaceID place the terminal on a workspace board.
 	ProjectID   string `json:"projectId"`
 	WorkspaceID string `json:"workspaceId"`
+	// PartID is the part of the project it works in (ROADMAP #49); "" = the first part.
+	PartID string `json:"partId,omitempty"`
 	// Panel: a terminal or agent of the Code workbench, with no board node.
 	Panel bool `json:"panel,omitempty"`
 

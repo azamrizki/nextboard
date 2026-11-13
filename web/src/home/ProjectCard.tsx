@@ -11,11 +11,15 @@ import { NAME_MAX } from '../components/ProjectBar';
 import { toast } from '../components/Toast';
 import { formatDateTime, timeAgoShort } from '../lib/format';
 import { boardPath, lastWorkspace, navigate } from '../lib/router';
+import { projectParts } from '../lib/parts';
 import type { GitInfo, Project } from '../lib/types';
 import { isActive } from '../agents/state';
-import { store, useRunningSessions } from '../store';
+import { machineReady } from '../board/sessionStatus';
+import { store, useMachines, useRunningSessions } from '../store';
 import { gitApi } from '../studio/api';
+import { FolderPath } from './FolderPath';
 import { OrganizeDialog } from './GroupDialogs';
+import { PartsDialog } from './PartsDialog';
 
 /** A folder that is no repository itself but holds some (docs/API-studio.md §3.6). */
 interface NestedRepos {
@@ -91,16 +95,6 @@ function monogramTone(id: string): number {
   return h % MONOGRAM_TONES;
 }
 
-/** The folder with its last part always visible: long paths lose their middle. */
-function FolderPath({ path }: { path: string }) {
-  const cut = path.replace(/\/+$/, '').lastIndexOf('/') + 1;
-  return (
-    <span className="project-path mono">
-      <span className="path-head">{path.slice(0, cut)}</span>
-      <span className="path-tail">{path.slice(cut)}</span>
-    </span>
-  );
-}
 
 function ChangedBadge({ changed }: { changed: number }) {
   return <span className={`badge ${changed ? 'badge-warning' : 'badge-success'}`}>{changed ? `${changed} changed` : 'Clean'}</span>;
@@ -159,6 +153,32 @@ function terminalsText(p: Project, active: number, idle: number): string {
   return 'No terminals';
 }
 
+/** A project on several machines: each part with the machine it is on, and whether it is up. */
+function PartChips({ p }: { p: Project }) {
+  const machines = useMachines();
+  const parts = projectParts(p);
+  if (parts.length < 2) return null;
+  return (
+    <ul className="project-parts" aria-label={`Parts of ${p.name}`}>
+      {parts.map((pt) => {
+        const m = machines.find((x) => x.id === pt.machineId);
+        const down = m && !machineReady(m);
+        return (
+          <li
+            key={pt.id}
+            className={`project-part${down ? ' is-down' : ''}`}
+            title={`${pt.name}: ${m?.name ?? pt.machineId} · ${pt.path}${pt.readOnly ? '\nRead-only for agents' : ''}${down ? `\n${m.name} is not connected` : ''}`}
+          >
+            <Icon name={pt.readOnly ? 'lock' : 'server'} />
+            <span className="project-part-name">{pt.name}</span>
+            <span className="project-part-machine truncate">{m?.name ?? pt.machineId}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** A card shows this many tags, and says how many more there are. */
 const TAGS_SHOWN = 3;
 
@@ -215,6 +235,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
   const [renaming, setRenaming] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [organizing, setOrganizing] = useState(false);
+  const [partsOpen, setPartsOpen] = useState(false);
   const live = useRef(false);
 
   useEffect(() => {
@@ -289,6 +310,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
               </h3>
             )}
             <FolderPath path={p.path} />
+            <PartChips p={p} />
             <ProjectMarks p={p} place={place} activeTag={activeTag} onTag={onTag} />
           </div>
         </div>
@@ -306,6 +328,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
               },
             },
             { label: 'Group and tags…', icon: 'tag', onSelect: () => setOrganizing(true) },
+            { label: 'Parts…', icon: 'layers', onSelect: () => setPartsOpen(true) },
             'sep',
             { label: 'Remove project…', icon: 'trash', danger: true, onSelect: () => setConfirm(true) },
           ]}
@@ -333,6 +356,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
       </footer>
 
       {organizing && <OrganizeDialog project={p} onClose={() => setOrganizing(false)} />}
+      {partsOpen && <PartsDialog project={p} onClose={() => setPartsOpen(false)} />}
       {confirm && (
         <ConfirmDialog title={`Remove “${p.name}”?`} confirmLabel="Remove project" danger onClose={() => setConfirm(false)} onConfirm={remove}>
           <p>

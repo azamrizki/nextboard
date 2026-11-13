@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, errorMessage } from '../api';
 import { groupChain, groupTree, useCollapsedGroups, useMenuSort, type GroupNode } from '../home/groups';
+import { projectParts } from '../lib/parts';
 import { boardPath, navigate } from '../lib/router';
 import type { CloseAllPreview, Project, Workspace } from '../lib/types';
 import { isActive } from '../agents/state';
@@ -126,15 +127,19 @@ function SwitchMenu({
   const { roots, loose } = useMemo(() => groupTree(groups, projects, sort), [groups, projects, sort]);
   const machineName = (id: string) => machines.find((m) => m.id === id)?.name ?? id;
 
-  const projectRow = (p: Project, indent: number): MenuEntry => ({
-    label: p.name,
-    icon: 'folder',
-    meta: machineName(p.machineId),
-    indent,
-    title: `${p.name}\n${machineName(p.machineId)} · ${p.path}`,
-    checked: p.id === project.id ? true : undefined,
-    onSelect: () => navigate(boardPath(p.id)),
-  });
+  const projectRow = (p: Project, indent: number): MenuEntry => {
+    const parts = projectParts(p);
+    return {
+      label: p.name,
+      icon: 'folder',
+      // a project on several machines: its first, and how many more
+      meta: machineName(p.machineId) + (parts.length > 1 ? ` +${parts.length - 1}` : ''),
+      indent,
+      title: parts.length > 1 ? `${p.name}\n${parts.map((pt) => `${pt.name}: ${machineName(pt.machineId)} · ${pt.path}`).join('\n')}` : `${p.name}\n${machineName(p.machineId)} · ${p.path}`,
+      checked: p.id === project.id ? true : undefined,
+      onSelect: () => navigate(boardPath(p.id)),
+    };
+  };
   const groupRows = (n: GroupNode): MenuEntry[] => {
     const open = !collapsed.has(n.group.id);
     return [

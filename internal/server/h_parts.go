@@ -1,0 +1,191 @@
+package server
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/project"
+	"github.com/azamrizki/nextboard/internal/session"
+)
+
+// Parts of a project (docs/API-board.md §1, ROADMAP #49): the folders on other machines that one
+// project spans, each with a name for its role.
+
+func partErr(w http.ResponseWriter, err error) {
+	var in *project.InProjectError
+	switch {
+	case errors.As(err, &in):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "code": "path_in_project", "projectId": in.ProjectID})
+	case errors.Is(err, project.ErrPartNotFound):
+		writeErrCode(w, http.StatusNotFound, "part_not_found", err.Error())
+	case errors.Is(err, project.ErrPartOverlap):
+		writeErrCode(w, http.StatusConflict, "part_overlap", err.Error())
+	case errors.Is(err, project.ErrPartName):
+		writeErrCode(w, http.StatusConflict, "name_conflict", err.Error())
+	case errors.Is(err, project.ErrTooManyParts):
+		writeErrCode(w, http.StatusConflict, "too_many_parts", err.Error())
+	case errors.Is(err, project.ErrMainPart):
+		writeErrCode(w, http.StatusConflict, "main_part", err.Error())
+	default:
+		projectErr(w, err)
+	}
+}
+
+// statFolder resolves path to a folder on machineID, as adding a project does.
+func (s *Server) statFolder(w http.ResponseWriter, r *http.Request, machineID, dir string) (string, bool) {
+	h, ok := s.machines.Host(machineID)
+	if !ok {
+		writeErr(w, http.StatusNotFound, machine.ErrNotFound.Error())
+		return "", false
+	}
+	if strings.TrimSpace(dir) == "" {
+		writeErr(w, http.StatusBadRequest, "path is required")
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	st, err := h.Stat(ctx, strings.TrimSpace(dir))
+	if err != nil {
+		fsErr(w, err)
+		return "", false
+	}
+	if !st.Exists || !st.Dir {
+		writeErr(w, http.StatusBadRequest, "path is not a folder: "+st.Path)
+		return "", false
+	}
+	return st.Path, true
+}
+
+func (s *Server) handlePartCreate(w http.ResponseWriter, r *http.Request, p *principal) {
+	var req struct {
+		Name      string `json:"name"`
+		MachineID string `json:"machineId"`
+		Path      string `json:"path"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.MachineID == "" {
+		req.MachineID = machine.LocalID
+	}
+	if _, ok := s.projects.Get(r.PathValue("id")); !ok {
+		writeErr(w, http.StatusNotFound, project.ErrNotFound.Error())
+		return
+	}
+	if _, err := project.CleanName(req.Name); err != nil {
+		projectErr(w, err)
+		return
+	}
+	dir, ok := s.statFolder(w, r, req.MachineID, req.Path)
+	if !ok {
+		return
+	}
+	pr, _, err := s.projects.AddPart(r.PathValue("id"), req.Name, req.MachineID, dir)
+	if err != nil {
+		partErr(w, err)
+		return
+	}
+	s.emitProject(pr.ID)
+	writeJSON(w, http.StatusCreated, s.projectView(pr))
+}
+
+func (s *Server) handlePartUpdate(w http.ResponseWriter, r *http.Request, p *principal) {
+	var req struct {
+		Name     *string `json:"name"`
+		ReadOnly *bool   `json:"readOnly"`
+		Index    *int    `json:"index"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	pr, err := s.projects.PatchPart(r.PathValue("id"), r.PathValue("part"), project.PartPatch{Name: req.Name, ReadOnly: req.ReadOnly, Index: req.Index})
+	if err != nil {
+		partErr(w, err)
+		return
+	}
+	s.emitProject(pr.ID)
+	writeJSON(w, http.StatusOK, s.projectView(pr))
+}
+
+// handlePartDelete takes a part out of a project. Its folder is not touched; terminals in it
+// must be closed first, since they would work in a folder the project no longer has.
+func (s *Server) handlePartDelete(w http.ResponseWriter, r *http.Request, p *principal) {
+	pid, partID := r.PathValue("id"), r.PathValue("part")
+	if pr, ok := s.projects.Get(pid); ok && len(pr.Parts) > 0 && pr.Parts[0].ID == partID {
+		partErr(w, project.ErrMainPart)
+		return
+	}
+	n := 0
+	for _, pl := range s.sessions.AllPlacements() {
+		if pl.ProjectID == pid && pl.PartID == partID && partID != "" {
+			n++
+		}
+	}
+	if n > 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "close the terminals in that part first", "code": "part_busy", "sessions": n})
+		return
+	}
+	pr, _, err := s.projects.DeletePart(pid, partID)
+	if err != nil {
+		partErr(w, err)
+		return
+	}
+	s.emitProject(pr.ID)
+	writeJSON(w, http.StatusOK, s.projectView(pr))
+}
+
+// placeInPart fills in the machine and folder of a new session from its part, or finds the part
+// from them. An empty folder on a machine of a part is that part's folder.
+func placeInPart(proj project.Project, cr *session.CreateRequest) error {
+	if cr.PartID != "" {
+		pt, ok := proj.Part(cr.PartID)
+		if !ok {
+			return project.ErrPartNotFound
+		}
+		if cr.MachineID == "" {
+			cr.MachineID = pt.MachineID
+		}
+		if cr.MachineID != pt.MachineID {
+			return errPartMachine
+		}
+		if strings.TrimSpace(cr.Cwd) == "" {
+			cr.Cwd = pt.Path
+		}
+		return nil
+	}
+	if cr.MachineID == "" {
+		cr.MachineID = proj.MachineID
+	}
+	if strings.TrimSpace(cr.Cwd) == "" {
+		for _, pt := range proj.Parts {
+			if pt.MachineID == cr.MachineID {
+				cr.Cwd, cr.PartID = pt.Path, pt.ID
+				return nil
+			}
+		}
+		return nil
+	}
+	if c := strings.TrimSpace(cr.Cwd); strings.HasPrefix(c, "/") {
+		if pt, ok := proj.PartAt(cr.MachineID, path.Clean(c)); ok {
+			cr.PartID = pt.ID
+		}
+	}
+	return nil
+}
+
+var errPartMachine = errors.New("that machine is not the machine of the part")
+
+// partReadOnly is session.Manager.PartReadOnly.
+func (s *Server) partReadOnly(projectID, partID string) bool {
+	pr, ok := s.projects.Get(projectID)
+	if !ok {
+		return false
+	}
+	pt, ok := pr.Part(partID)
+	return ok && pt.ReadOnly
+}

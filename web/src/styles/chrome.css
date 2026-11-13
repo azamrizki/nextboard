@@ -718,6 +718,119 @@
   width: var(--fs-xs);
   height: var(--fs-xs);
 }
+/* a project on several machines: one chip per part (ROADMAP #49) */
+.project-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  min-width: 0;
+  margin: var(--s-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.project-part {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 var(--s-2);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  line-height: var(--s-5);
+  color: var(--text-2);
+}
+.project-part svg {
+  flex: none;
+  width: var(--fs-xs);
+  height: var(--fs-xs);
+  color: var(--text-3);
+}
+.project-part-name {
+  flex: none;
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+.project-part-machine {
+  min-width: 0;
+  color: var(--text-3);
+}
+.project-part.is-down {
+  border-style: dashed;
+}
+.project-part.is-down .project-part-machine {
+  color: var(--tint-warning-text);
+}
+
+/* the parts dialog */
+.parts-intro {
+  margin: 0 0 var(--s-3);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.part-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-4);
+  padding: 0;
+  list-style: none;
+}
+.part-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+}
+.part-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.part-name {
+  max-width: 16rem;
+}
+.part-first {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.part-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--s-1);
+}
+.part-add {
+  padding-top: var(--s-3);
+  border-top: var(--hairline) solid var(--glass-border);
+}
+.part-add-title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.part-add-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+@media (max-width: 599px) {
+  .part-row {
+    flex-wrap: wrap;
+  }
+  .part-name {
+    max-width: none;
+  }
+  .part-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
 /* above the button that covers the card */
 .project-marks .project-tag {
   position: relative;
@@ -744,6 +857,11 @@
   flex: 0 0 auto;
   max-width: 75%;
   color: var(--text-2);
+}
+/* the machine before a part's folder */
+.path-lead {
+  flex: none;
+  white-space: pre;
 }
 
 .project-git {

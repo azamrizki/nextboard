@@ -18,6 +18,7 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Popover } from '../components/Popover';
 import { toast } from '../components/Toast';
+import { partNamesOn, partOn } from '../lib/parts';
 import type { Agent, Machine, Project, ModelChoice } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useMachines, useProfiles } from '../store';
@@ -116,12 +117,12 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     setCwd(''); // paths are per machine
   };
 
-  /** The current settings; cwd falls back to the project folder on the project's machine. */
+  /** The current settings; cwd falls back to the folder of the project's part on that machine. */
   const choice = (): TerminalChoice => ({
     machineId,
     preset: agentId,
     name: name.trim(),
-    cwd: cwd.trim() || (machineId === project.machineId ? project.path : ''),
+    cwd: cwd.trim() || (partOn(project, machineId)?.path ?? ''),
     yolo: yoloable && yoloChoice !== undefined ? yoloChoice : undefined,
     profileId: account && !isProviderId(account) ? account : undefined,
     providerId: isProviderId(account) ? account : undefined,
@@ -202,11 +203,16 @@ function MachineOptions({ nt }: { nt: NT }) {
   return (
     <>
       {nt.machines.length === 0 && <option value="local">This PC</option>}
-      {nt.machines.map((m) => (
-        <option key={m.id} value={m.id}>
-          {machineOptionLabel(m)}
-        </option>
-      ))}
+      {nt.machines.map((m) => {
+        // a project on several machines: which of its parts each one holds
+        const parts = partNamesOn(nt.project, m.id);
+        return (
+          <option key={m.id} value={m.id}>
+            {machineOptionLabel(m)}
+            {parts ? ` · ${parts}` : ''}
+          </option>
+        );
+      })}
     </>
   );
 }
@@ -242,9 +248,9 @@ function AgentOptions({ nt }: { nt: NT }) {
   );
 }
 
-/** Placeholder for the cwd field: the project folder when on the project's machine. */
+/** Placeholder for the cwd field: the folder of the project's part on that machine, if any. */
 function cwdPlaceholder(nt: NT): string {
-  return nt.machineId === nt.project.machineId ? nt.project.path : nt.machine?.probe?.home || '~';
+  return partOn(nt.project, nt.machineId)?.path ?? (nt.machine?.probe?.home || '~');
 }
 
 /** Yolo needs a confirmation every time it is switched on for a spawn. */
@@ -277,7 +283,7 @@ export function NewTerminal({ nt }: { nt: NT }) {
     <FolderBrowser
       machineId={nt.machine.id}
       machineName={nt.machine.name}
-      initialPath={nt.cwd.trim() || (nt.machineId === nt.project.machineId ? nt.project.path : '')}
+      initialPath={nt.cwd.trim() || (partOn(nt.project, nt.machineId)?.path ?? '')}
       onClose={() => setBrowsing(false)}
       onChoose={(p) => {
         nt.setCwd(p);
@@ -485,7 +491,7 @@ export function AgentChip({ nt, anchor }: { nt: NT; anchor?: RefObject<HTMLEleme
     <FolderBrowser
       machineId={nt.machine.id}
       machineName={nt.machine.name}
-      initialPath={nt.cwd.trim() || (nt.machineId === nt.project.machineId ? nt.project.path : '')}
+      initialPath={nt.cwd.trim() || (partOn(nt.project, nt.machineId)?.path ?? '')}
       onClose={() => setBrowsing(false)}
       onChoose={(p) => {
         nt.setCwd(p);

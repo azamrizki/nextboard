@@ -42,10 +42,13 @@ type Workspace struct {
 
 // Project is a folder (usually a git repo) on a machine.
 type Project struct {
-	ID           string      `json:"id"`
-	Name         string      `json:"name"`
-	MachineID    string      `json:"machineId"`
-	Path         string      `json:"path"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// MachineID and Path are those of the first part.
+	MachineID string `json:"machineId"`
+	Path      string `json:"path"`
+	// Parts are the folders the project spans, the first one being MachineID and Path (#49).
+	Parts        []Part      `json:"parts"`
 	CreatedAt    time.Time   `json:"createdAt"`
 	LastOpenedAt time.Time   `json:"lastOpenedAt"`
 	Workspaces   []Workspace `json:"workspaces"` // tab order
@@ -98,6 +101,7 @@ func (p Project) View(byProject, byWorkspace map[string]Counts) View {
 func (p Project) clone() Project {
 	p.Workspaces = slices.Clone(p.Workspaces)
 	p.Tags = slices.Clone(p.Tags)
+	p.Parts = slices.Clone(p.Parts)
 	return p
 }
 
@@ -126,6 +130,7 @@ func Open(st *store.Store) (*Store, error) {
 		for i := range p.Workspaces {
 			p.Workspaces[i].ProjectID = p.ID
 		}
+		p.normParts()
 		s.list = append(s.list, p)
 	}
 	if err := s.openGroups(); err != nil {
@@ -197,8 +202,8 @@ func (s *Store) Get(id string) (Project, bool) {
 }
 
 // Create adds a project with one "Main" workspace. path must already be an
-// absolute, cleaned path that was verified to be a folder. The same path on
-// the same machine returns the existing project (created=false).
+// absolute, cleaned path that was verified to be a folder. A folder that is already a project,
+// or a part of one, returns that project (created=false).
 func (s *Store) Create(machineID, dir, name string) (p Project, created bool, err error) {
 	if name != "" {
 		if name, err = CleanName(name); err != nil {
@@ -212,16 +217,16 @@ func (s *Store) Create(machineID, dir, name string) (p Project, created bool, er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, x := range s.list {
-		if x.MachineID == machineID && x.Path == dir {
-			return x.clone(), false, nil
-		}
+	// the folder may be another part of a project already
+	if x := s.holderLocked(machineID, dir, ""); x != nil {
+		return x.clone(), false, nil
 	}
 	now := time.Now().UTC()
 	np := &Project{
-		ID: randomID("p_"), Name: name, MachineID: machineID, Path: dir,
-		CreatedAt: now, LastOpenedAt: now,
+		ID: randomID("p_"), Name: name, CreatedAt: now, LastOpenedAt: now,
+		Parts: []Part{{ID: MainPart, Name: "Main", MachineID: machineID, Path: dir}},
 	}
+	np.normParts()
 	np.Workspaces = []Workspace{{ID: randomID("w_"), ProjectID: np.ID, Name: "Main", CreatedAt: now}}
 	s.list = append(s.list, np)
 	if err := s.saveLocked(); err != nil {

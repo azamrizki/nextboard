@@ -14,8 +14,12 @@ Endpoint lama `GET/PUT /api/board` **dihapus** (diganti board per workspace). Ev
   "createdAt": "…", "lastOpenedAt": "…",
   "workspaces": [Workspace…],                          // urut sesuai tab
   "sessionCount": 3, "runningCount": 2,
-  "groupId": "g_…", "tags": ["backend"]                // keduanya tidak ada bila kosong; tanpa group = All projects
+  "groupId": "g_…", "tags": ["backend"],               // keduanya tidak ada bila kosong; tanpa group = All projects
+  "parts": [ProjectPart…]                              // folder yang dicakup project; yang pertama = machineId + path
 }
+// ProjectPart = satu folder project di satu machine, dengan nama perannya (ROADMAP #49)
+{ "id": "main", "name": "Main", "machineId": "local", "path": "/home/alice/apps/shop-api", "readOnly": true }
+// id part pertama "main" untuk project lama dan baru, part tambahan "pt_…"; readOnly tidak ada bila false
 // Workspace = satu tab board di dalam project
 { "id": "w_9x8y7z6w5v", "projectId": "p_…", "name": "Main", "createdAt": "…", "sessionCount": 2 }
 // GitInfo (read-only, untuk home screen)
@@ -25,9 +29,12 @@ Endpoint lama `GET/PUT /api/board` **dihapus** (diganti board per workspace). Ev
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/projects` | — | `Project[]` (urut `lastOpenedAt` desc) |
-| POST | `/api/projects` | `{"machineId","path","name"?}` | `201 Project` dengan satu workspace "Main". Path yang sama di machine yang sama → `200` project yang sudah ada. `400` path bukan folder. |
+| POST | `/api/projects` | `{"machineId","path","name"?}` | `201 Project` dengan satu workspace "Main". Path yang sama di machine yang sama, juga bila folder itu part project lain → `200` project yang sudah ada. `400` path bukan folder. |
 | PATCH | `/api/projects/{id}` | `{"name"?, "opened"?: true, "groupId"?, "tags"?}` | `Project` (`opened` memperbarui `lastOpenedAt`; `groupId: ""` mengeluarkan dari group; satu simpan, ditolak utuh: `404 group_not_found`, `400 bad_tag`) |
 | DELETE | `/api/projects/{id}` | — | `{"ok":true}`; semua sesinya dihentikan & dihapus, board diarsipkan, aplikasi desktop yang hanya tampil di board itu ditutup. File di disk tidak disentuh. |
+| POST | `/api/projects/{id}/parts` | `{"name","machineId","path"}` | `201 Project` dengan part baru di akhir. Folder dicek seperti `POST /api/projects`. `409 part_overlap` (folder sama, di dalam, atau berisi part lain di machine yang sama), `409 name_conflict`, `409 path_in_project` dengan `projectId` (folder itu sudah project lain atau part-nya), `409 too_many_parts` (maks 8), `400` nama atau folder |
+| PATCH | `/api/projects/{id}/parts/{part}` | `{"name"?, "readOnly"?, "index"?}` | `Project`. `index` memindah part; part di posisi 0 menjadi `machineId`/`path` project. `404 part_not_found`, `409 name_conflict` |
+| DELETE | `/api/projects/{id}/parts/{part}` | — | `Project`. Folder tidak disentuh. `409 main_part` untuk part pertama, `409 part_busy` dengan `sessions` selama masih ada terminal di part itu |
 | GET | `/api/projects/{id}/git` | — | `GitInfo` (git read-only via exec: `rev-parse`, `status --porcelain -b`; timeout 5 dtk; bukan repo → `isRepo:false`) |
 | GET | `/api/projects/{id}/close-all` | — | Yang akan berakhir bila semua board ditutup: `{"boards","tiles","sessions","running","apps","loops"}` (`tiles` tanpa terminal; `apps` hanya aplikasi yang tidak tampil di board lain; `loops` yang sedang berjalan). |
 | POST | `/api/projects/{id}/close-all` | — | `{"workspace": Workspace, "closed","archived","sessions","apps","loops"}`. Semua workspace diganti satu workspace baru kosong "Main" (id baru): loop project dihentikan (definisinya tetap ada), sesi dihentikan & dihapus, aplikasi desktop yang hanya tampil di board itu ditutup, board diarsipkan (board tanpa tile selain terminal tidak masuk arsip). File di disk tidak disentuh. Di luar kewenangan planner, seperti `workspace.close`. |
@@ -55,16 +62,20 @@ Endpoint lama `GET/PUT /api/board` **dihapus** (diganti board per workspace). Ev
 | PATCH | `/api/workspaces/{id}` | `{"name"?, "index"?}` | `Workspace` (`index` = posisi tab baru) |
 | DELETE | `/api/workspaces/{id}` | — | `{"ok":true}`; sesi di workspace dihentikan & dihapus, board diarsipkan, aplikasi desktop yang hanya tampil di board itu ditutup. Workspace terakhir sebuah project tidak bisa dihapus (`409`). |
 
+**Part project (ROADMAP #49).** Satu project bisa mencakup beberapa folder, di satu machine atau lebih: backend di satu server, frontend di server lain. Memory, lead, board, papan tugas, uptime, dan credentials tetap satu per project. Yang sudah per part: terminal dan console (`partId`, folder bawaan per machine), tanda read-only, chip part di Home, dan "+N" di menu project. File, git, dan Code workbench masih memakai part pertama; tool agent ke part lain menyusul. `projects.json` lama mendapat part `main` saat dibuka, jadi klien yang belum tahu part tetap membaca `machineId`/`path`.
+
 **Migrasi saat start:** kalau `projects.json` belum ada, hub membuat project "Home" (`local`, home dir) dengan workspace "Main", memindahkan semua sesi lama ke sana, dan mengonversi `board.json` lama (posisi per sesi) menjadi node `terminal`. `board.json` lama diganti nama `board.json.migrated`.
 
-**Sesi:** `Session` mendapat field `projectId` dan `workspaceId`. `POST /api/sessions` menerima:
+**Sesi:** `Session` mendapat field `projectId`, `workspaceId`, dan `partId`. `POST /api/sessions` menerima:
 
 ```jsonc
-{ "workspaceId": "w_…", "machineId"?: "…", "preset": "claude", "name"?: "…", "cwd"?: "…", "cols"?: 120, "rows"?: 32,
+{ "workspaceId": "w_…", "partId"?: "pt_…", "machineId"?: "…", "preset": "claude", "name"?: "…", "cwd"?: "…", "cols"?: 120, "rows"?: 32,
   "node"?: { "x": 0, "y": 0, "w": 720, "h": 440 } }
 ```
 
-- `machineId` default = machine project; `cwd` default = path project.
+- Dengan `partId`: `machineId` default = machine part itu (machine lain → `400 part_machine`), `cwd` default = folder part. `404 part_not_found`.
+- Tanpa `partId`: `machineId` default = machine project; `cwd` kosong = folder part pertama di machine itu (di machine tanpa part: home); `cwd` di dalam folder part mencatat `partId` part itu.
+- Agent di part read-only → `422 part_read_only`, juga saat shell di part itu diganti menjadi agent atau agent-nya di-restart. Shell biasa tetap boleh.
 - Tanpa `workspaceId` (klien lama/Android): pakai workspace pertama project yang terakhir dibuka; kalau tidak ada project sama sekali, buat "Home".
 - Hub menambahkan node `terminal` ke board workspace itu (posisi `node` atau otomatis di kanan node terakhir) dalam satu operasi, lalu menyiarkan `boardOps`.
 - `DELETE /api/sessions/{id}` juga menghapus node terminalnya (siaran `boardOps`).

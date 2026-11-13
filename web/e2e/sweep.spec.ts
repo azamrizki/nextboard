@@ -155,6 +155,15 @@ test('the dialogs fit the screen', async ({ page, hub }, info) => {
   }
   await check('about');
 
+  // a project in two folders: the parts dialog with both, and the form to add one
+  const part = `${p.path}-web`;
+  mkdirSync(part);
+  await hub.call('POST', `/api/projects/${p.id}/parts`, { name: 'Frontend', machineId: 'local', path: part });
+  await page.goto('/');
+  await page.getByRole('button', { name: `Actions for ${p.name}` }).click();
+  await page.getByRole('menuitem', { name: 'Parts…' }).click();
+  await check('parts');
+
   await page.goto(`/p/${p.id}/w/${p.wid}`);
   await page.getByRole('button', { name: /^Credentials/ }).first().click();
   await check('vault-in-project');

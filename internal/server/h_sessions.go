@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/azamrizki/nextboard/internal/board"
 	"github.com/azamrizki/nextboard/internal/machine"
@@ -33,6 +32,8 @@ func (s *Server) sessionErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusConflict, "agent_disabled", err.Error())
 	case errors.Is(err, session.ErrAgentThisPC):
 		writeErrCode(w, http.StatusUnprocessableEntity, "agent_this_pc_only", err.Error())
+	case errors.Is(err, session.ErrPartReadOnly):
+		writeErrCode(w, http.StatusUnprocessableEntity, "part_read_only", err.Error())
 	case errors.Is(err, session.ErrUnknownPreset):
 		writeErrCode(w, http.StatusBadRequest, "unknown_agent", err.Error())
 	case errors.Is(err, session.ErrBadMode):
@@ -95,11 +96,13 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request, p *
 		}
 	}
 	cr := req.CreateRequest
-	if cr.MachineID == "" {
-		cr.MachineID = proj.MachineID
-	}
-	if strings.TrimSpace(cr.Cwd) == "" && cr.MachineID == proj.MachineID {
-		cr.Cwd = proj.Path
+	if err := placeInPart(proj, &cr); err != nil {
+		if errors.Is(err, errPartMachine) {
+			writeErrCode(w, http.StatusBadRequest, "part_machine", err.Error())
+		} else {
+			partErr(w, err)
+		}
+		return
 	}
 	cr.ProjectID, cr.WorkspaceID = proj.ID, ws.ID
 	in, err := s.sessions.Create(cr)
