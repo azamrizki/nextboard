@@ -1,158 +1,43 @@
 <div align="center">
 
-<img src="web/public/icons/icon.svg" width="72" height="72" alt="">
+<img src="web/public/icons/icon.svg" width="80" height="80" alt="NextBoard logo">
 
 # NextBoard
 
-**A self-hosted board for running and directing AI coding agents.**
+### Your agents. Your machines. One board.
 
-Claude Code, Codex, Gemini CLI or any other agent CLI as live terminal tiles on one canvas,<br>
-on a machine you control, reachable from any browser.
+A self-hosted workspace for running and directing AI coding agents.<br>
+Bring your terminals, code, project memory and live previews onto one canvas.<br>
+Work across local folders and SSH servers, from any browser.
 
-[![Release](https://img.shields.io/github/v/release/azamrizki/nextboard?sort=semver&label=release)](https://github.com/azamrizki/nextboard/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
-![Linux and macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-555)
-![Status: beta](https://img.shields.io/badge/status-beta-orange)
+[![Release](https://img.shields.io/github/v/release/azamrizki/nextboard?sort=semver&label=release&style=flat-square)](https://github.com/azamrizki/nextboard/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white)](go.mod)
+![Linux and macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-555?style=flat-square)
+![Status: beta](https://img.shields.io/badge/status-beta-orange?style=flat-square)
 
-[Why](#why-nextboard) · [How it works](#how-it-works) · [Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [API providers](#api-providers) · [Security](#security) · [Docs](#documentation)
+**[Quick start](#quick-start)** · [Project parts](#projects-with-several-parts) · [Features](#features) · [Screenshots](#screenshots) · [Documentation](#documentation)
 
-<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Handing out work with an @mention: the tester agent's console turns to working, prints its steps and reports done"></a>
+[How it works](#how-it-works) · [API providers](#api-providers) · [Security](#security) · [Development](#development)
 
-▶ **[Watch the whole product tour](docs/media/demo.mp4)** (65 s, MP4)
+<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" width="1200" alt="An @mention sends work to a tester agent, which runs its steps and reports back"></a>
+
+<sub>Send work with an @mention, watch the agent work and read its report.</sub>
+
+**[▶ Watch the product tour](docs/media/demo.mp4)** (65 s, MP4) · [Releases](https://github.com/azamrizki/nextboard/releases) · [Report an issue](https://github.com/azamrizki/nextboard/issues)
 
 </div>
 
 > [!NOTE]
-> **Beta.** All real-world testing so far was on Linux. macOS builds exist but are untested, and APIs and data formats can still change.
+> **Beta.** Real-world testing has been on Linux; macOS builds are available but untested. APIs and data formats may change. This README describes the current source tree, which may include features newer than the latest release.
 
 ## Why NextBoard
 
 - **See every agent at once.** Each console shows whether its agent is working, needs you or is ready, so you do not have to open terminals one by one to find the one that is waiting.
-- **Agents keep running.** They run on your machine or your servers, not in the browser. Close the tab, and pick up later from another computer or your phone.
-- **Everything around the agents in one place.** Hand out work, review the diff, preview the app, share project memory, and give an agent a credential without showing it the value.
+- **Agents keep running.** Their processes live on the hub machine, so closing the browser leaves work running. Pick up later from another computer or your phone.
+- **One project, even across machines.** Keep a frontend, backend and worker together as named parts, each with its own folder, git state and code workbench, sharing one memory and lead agent.
+- **Everything around the agents in one place.** Hand out work, review the diff, preview the app, share project memory, and let an agent use a credential through a command you approve.
 - **Yours.** One Go binary, your machine, your agent subscriptions or your own API keys. No account, no cloud service in between.
-
-## How it works
-
-```mermaid
-flowchart TB
-    browser["Your browser<br/>desktop, tablet or phone"]
-    hub["<b>NextBoard hub</b><br/>one Go binary on your machine<br/>board, command bar, memory, vault, uptime"]
-    data[("~/.nextboard<br/>boards, memory, vault")]
-    local["Agents on This PC<br/>Claude Code, Codex, Gemini CLI, …"]
-    ssh["Agents on SSH servers<br/>agentless, tmux when available"]
-    models["Models<br/>your subscription login,<br/>or an API provider with your key"]
-    browser <-->|"HTTP + WebSocket<br/>localhost, private network or HTTPS"| hub
-    hub --- data
-    hub -->|"terminal (PTY)"| local
-    hub -->|"SSH"| ssh
-    local --> models
-```
-
-The hub starts each agent CLI in a terminal of its own, reads its screen to know its state, and types your orders into it. Nothing is installed on a server: the hub reaches it over SSH with your own keys.
-
-```mermaid
-stateDiagram-v2
-    direction LR
-    state "READY" as ready
-    state "WORKING" as working
-    state "NEEDS YOU" as needs
-    [*] --> ready
-    ready --> working: you send a task
-    working --> needs: it asks a question or for permission
-    needs --> working: you answer in its tile
-    working --> ready: done, the result comes back to the thread
-```
-
-## Features
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-**🖥️ Board**<br>
-Terminals, notes, checklists, kanban, calendar, shapes, pen, images, files and web pages on one infinite canvas. Synced live between clients, with undo, snapshots and auto arrange.
-
-</td>
-<td width="50%" valign="top">
-
-**🤖 Agents**<br>
-Live `WORKING` / `NEEDS YOU` / `READY`, exact conversation resume, and model and effort per console. Claude Code and Codex are the most tested; Gemini CLI, OpenCode and 16 more CLIs from the catalog (Aider, Amp, GitHub Copilot CLI, Goose, Qwen Code, …) work with less testing, and any other CLI can be added. Claude Code, Codex and OpenCode can also run on an **[API provider](#api-providers)** instead of a subscription: any Anthropic- or OpenAI-compatible endpoint (GLM, Kimi, DeepSeek, OpenRouter, a router of your own, Ollama, …), with its cost per console and a monthly budget.
-
-</td>
-</tr>
-<tr>
-<td valign="top">
-
-**🧭 Orchestration**<br>
-A command bar with `@mentions`, and a lead agent that plans on This PC with the runner you pick: Claude Code, Codex, or an API provider. It can start consoles on a provider too (“start two Claude on the API”). Groups, handoffs, result forwarding, loops, task boards and a mission map. 44 layout templates deploy a whole team, with the consoles per group chosen first. Commands work in English and Indonesian.
-
-</td>
-<td valign="top">
-
-**🧠 Project memory**<br>
-One memory per project, shared by every CLI, with required critical notes, sub-memories and a galaxy view. A memory tile stacks memory from other projects, and each agent is only sent what it does not have yet.
-
-</td>
-</tr>
-<tr>
-<td valign="top">
-
-**💻 Code workbench**<br>
-A Monaco editor card with language servers and debuggers (Delve, debugpy, Node.js, attaching to a running process too), git staging, stash and conflicts, pull requests through `gh`, review of agent changes, local history and a Laravel view. Open VSX themes and grammars load as data; extension code never runs.
-
-</td>
-<td valign="top">
-
-**🌐 Git, previews and browsers**<br>
-A git panel and branch cards, localhost previews (from SSH servers too), and a real browser in a tile for sites that refuse to load in a frame: NextBoard Chromium, which the hub downloads and keeps up to date and which loads the passkey extension by itself, or the Chrome, Chromium or Firefox installed on This PC.
-
-</td>
-</tr>
-<tr>
-<td valign="top">
-
-**🔐 Credentials vault**<br>
-Zero-knowledge, like a password manager: encrypted in your browser, ciphertext on the hub. An agent can use a secret through one command you approve, without seeing its value. Passkeys for sites too.
-
-</td>
-<td valign="top">
-
-**📈 Uptime monitors**<br>
-HTTP, TCP, ping, DNS, push, WebSocket, Docker and game-server checks with maintenance windows, alerts and a webhook, and an optional public status page that shows no hosts or errors.
-
-</td>
-</tr>
-<tr>
-<td valign="top">
-
-**🛰️ SSH machines and desktop apps**<br>
-Agentless SSH with tmux when available, so sessions survive disconnects. On Linux, GUI apps run on a virtual display and stream to a tile, with sound, microphone and keyboard shortcuts.
-
-</td>
-<td valign="top">
-
-**📱 Phones and tablets**<br>
-Every page, the board and every card have their own phone and tablet layouts, with a Cards list beside the canvas and key bars for consoles and the editor. Installs as an app over HTTPS.
-
-</td>
-</tr>
-</table>
-
-Also: studios (documents to PDF, diagrams, a Markdown vault with a link graph, a skills manager), usage and token charts, voice input and notifications.
-
-## Screenshots
-
-| | |
-|---|---|
-| ![A board with three agent consoles, a sprint kanban, a sticky note and a live preview of a web shop](docs/media/board-light.png)<br>Agents, cards and a live preview on one board | ![The same board in the dark theme](docs/media/board-dark.png)<br>The same board in the dark theme |
-| ![An agent console asking whether to apply a change](docs/media/console.png)<br>An agent that needs you, answered in its own tile | ![The code card showing an agent's change as a diff](docs/media/code.png)<br>The code card on an agent's change |
-| ![The layout library with a template's groups resized](docs/media/layouts.png)<br>Layouts, with the consoles per group set before deploying | ![The memory galaxy of a project](docs/media/memory.jpg)<br>Project memory as a galaxy |
-| ![The credentials vault in the dark theme](docs/media/vault.png)<br>The credentials vault | ![An uptime card with three monitors](docs/media/uptime.png)<br>Uptime monitors |
-| ![A public status page](docs/media/status-page.png)<br>The public status page | ![The board's Cards list and a console on a phone](docs/media/phone.png)<br>On a phone: the Cards list, and a console with its key bar |
-
-Every screenshot and the video come from a demo hub with made-up projects and scripted agents, which `make demo` records again ([web/demo](web/demo)).
 
 ## Quick start
 
@@ -168,17 +53,28 @@ This puts the binary in `~/.local/bin`, checks its checksum, sets up a service (
 
 **3. Open the setup link**, choose the admin password and name your hub. Lost the link? `nextboard setup-link` makes a new one.
 
-**4. Add a project and start consoles.** The hub listens on `http://127.0.0.1:12312` and keeps its data in `~/.nextboard`. To reach it from other devices, see [Security](#security).
+**4. Add a project and start consoles.** Choose one folder, or add several named parts across your machines. Start an agent in the part you want it to work on, then send it a task from its tile or the command bar.
+
+| Default | Value |
+|---|---|
+| Hub address | `http://127.0.0.1:12312` |
+| Data directory | `~/.nextboard` |
+| Browser access | Desktop, tablet or phone; see [Security](#security) for remote access |
 
 `nextboard update` installs newer stable releases.
 
-**Betas** are published as GitHub pre-releases, and `nextboard update` never installs one by itself. To try one, pick its tag (`vX.Y.Z-beta.N`) on the [releases page](https://github.com/azamrizki/nextboard/releases):
+<details>
+<summary><b>Try a beta release</b></summary>
+
+Betas are GitHub pre-releases; `nextboard update` never installs one automatically. Replace `vX.Y.Z-beta.N` below with a tag from the [releases page](https://github.com/azamrizki/nextboard/releases):
 
 ```bash
 nextboard update --version vX.Y.Z-beta.N
 # or, for a new install
 curl -fsSL https://raw.githubusercontent.com/azamrizki/nextboard/main/install.sh | sh -s -- --version=vX.Y.Z-beta.N
 ```
+
+</details>
 
 <details>
 <summary><b>Build from source</b></summary>
@@ -212,6 +108,199 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 
 </details>
 
+## Projects with several parts
+
+A project can span **up to eight named parts**, each a folder on This PC or an SSH machine. Keep a product together even when its repositories live in different places:
+
+| Part | Machine | Folder |
+|---|---|---|
+| Frontend | This PC | `~/apps/shop-web` |
+| Backend | API server | `/srv/shop-api` |
+| Worker | Worker server | `/srv/shop-worker` |
+
+**Shared across the project:** memory, critical notes, lead agent, boards, tasks and credentials. **Scoped to each part:** consoles, files, git, workbench tabs, review and local history. Uptime monitors can target a part while staying on the project's monitoring page.
+
+- **Start together.** The Add project form accepts one or several parts. For an existing project, open its menu → **Parts…** to add, rename or reorder them.
+- **Direct work by part.** For example, `spawn 2 claude in Backend` opens consoles for that part. The lead knows each console's part, and Mission Map can filter by part.
+- **Choose agent access.** An agent can edit its assigned part and other writable parts on the same machine. Access to parts on other machines starts read-only; enable full access when needed. Mark individual parts read-only or add commands that require approval. These hub rules have [security limits](#security).
+- **Merge without restarting consoles.** Bring another project's parts, boards, terminals, monitors, loops, memory, review history and lead thread into one project. The dialog previews what moves and lets you include its critical notes. Unlock the vault before merging to transfer its agent credential permissions too.
+- **Split a part out.** Close its terminals, then make it a project of its own with an empty board, its review and local history. Existing boards, memory and monitors stay with the original project.
+
+Merge and split leave folders and files in place. See [project and part contracts](docs/API-board.md) for the exact behavior.
+
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**🖥️ An infinite workspace**
+
+Terminals, notes, checklists, kanban, calendars, drawings, images, files and web pages. Live sync, undo, snapshots and auto arrange keep the board usable as it grows.
+
+</td>
+<td width="50%" valign="top">
+
+**🤖 Agents at a glance**
+
+Live `WORKING` / `NEEDS YOU` / `READY` states, conversation resume for supported CLIs, and model and effort selection per console. Use your subscription or an API provider with cost tracking and monthly budgets.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**🧭 A lead for your team**
+
+Direct agents with `@mentions` or ask the lead to plan by project part. Groups, handoffs, result forwarding, loops, task boards and a Mission Map keep work connected. Deploy teams from layout templates. Commands work in English and Indonesian.
+
+</td>
+<td valign="top">
+
+**🧠 Shared project memory**
+
+One memory across agents and project parts, with critical notes, sub-memories and a galaxy view. Stack memory from other projects in a tile; send each agent only the context it does not have yet.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**💻 A code workbench per part**
+
+Monaco, language servers, debuggers, git staging, stash, conflicts and pull requests through `gh`. Review agent changes and local history per part. Includes a Laravel view and Open VSX themes and grammars loaded as data; extension code never runs.
+
+</td>
+<td valign="top">
+
+**🌐 Live previews and browsers**
+
+Preview dev servers on This PC or over SSH. For sites that refuse iframes, use a real browser tile: hub-managed NextBoard Chromium, or an installed Chrome, Chromium or Firefox. GUI tiles require Linux.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**🔐 A credentials vault**
+
+Encrypt credentials in your browser; store only ciphertext on the hub. Approve a command that uses a secret without putting its value in the agent's prompt. Includes passkeys for websites.
+
+</td>
+<td valign="top">
+
+**📈 Uptime beside your code**
+
+HTTP, TCP, ping, DNS, push, WebSocket, Docker and game-server checks. Attach monitors to parts, schedule maintenance and receive alerts. Publish a separate status page without exposing hosts or error details.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**🛰️ Local and remote machines**
+
+Reach server files, git and commands over agentless SSH. Keep logins on This PC. On Linux, stream desktop apps from a virtual display into tiles, with sound, microphone and keyboard shortcuts.
+
+</td>
+<td valign="top">
+
+**📱 A workspace that travels**
+
+Phone and tablet layouts, a Cards list alongside the canvas, and key bars for terminals and the editor. Install the web UI as an app over HTTPS and reconnect to work that keeps running on the hub.
+
+</td>
+</tr>
+</table>
+
+Also included: document-to-PDF and diagram studios, a Markdown vault with a link graph, a skills manager, usage and token charts, voice input and notifications.
+
+### Agent support
+
+| Agent | Integration |
+|---|---|
+| **Claude Code · Codex** | Most tested; live status, exact conversation resume, project memory, remote tools and API providers |
+| **OpenCode** | Remote tools and API providers; less real-world testing |
+| **Gemini CLI** | Built-in preset with screen-based status; less real-world testing |
+| **Catalog and custom CLIs** | Aider, Amp, GitHub Copilot CLI, Goose, Qwen Code and more; capabilities vary by CLI |
+
+See [agent contracts and verification notes](docs/API-agents.md) for individual capabilities and limits.
+
+## How it works
+
+```mermaid
+flowchart TB
+    browser["Browser · desktop, tablet or phone"]
+    hub["NextBoard hub<br/>one Go binary + embedded web UI"]
+    data[("~/.nextboard<br/>boards, memory, encrypted secrets")]
+    local["Agent CLIs on This PC<br/>Claude Code, Codex, Gemini CLI, …"]
+    files["Local project parts<br/>files, git, dev servers"]
+    ssh["SSH project parts<br/>files, commands, git, dev servers"]
+    models["Models<br/>subscription login or your API provider"]
+    browser <-->|"HTTP + WebSocket<br/>localhost, private network or HTTPS"| hub
+    hub --- data
+    hub -->|"terminal (PTY)"| local
+    hub --> files
+    hub -->|"SSH / SFTP · no remote agent install"| ssh
+    local -->|"remote and cross-part tools"| hub
+    local --> models
+```
+
+The hub starts each agent CLI in its own terminal on **This PC**, tracks its state and delivers your orders. For remote projects, Claude Code, Codex and OpenCode use hub tools to read files and run commands over SSH; their CLI, login and memory stay on the hub machine. Servers need SSH access, with no NextBoard service or agent CLI to install. Plain SSH shells can use tmux to survive disconnects.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "READY" as ready
+    state "WORKING" as working
+    state "NEEDS YOU" as needs
+    [*] --> ready
+    ready --> working: you send a task
+    working --> needs: it asks a question or for permission
+    needs --> working: you answer in its tile
+    working --> ready: done, the result comes back to the thread
+```
+
+## Screenshots
+
+| Direct your agents | Review their work |
+|:---:|:---:|
+| ![An agent console asking whether to apply a change](docs/media/console.png) | ![The code workbench showing an agent's change as a diff](docs/media/code.png) |
+| Answer an agent in its own tile | Inspect changes in the code workbench |
+
+| Deploy a team | Share project context |
+|:---:|:---:|
+| ![The layout library with adjustable console counts per group](docs/media/layouts.png) | ![Project memory shown as a galaxy](docs/media/memory.jpg) |
+| Choose a layout and size each group | Explore shared memory and its connections |
+
+<details>
+<summary><b>More views — vault, uptime, public status and mobile</b></summary>
+
+| Credentials vault | Uptime monitors |
+|:---:|:---:|
+| ![The encrypted credentials vault](docs/media/vault.png) | ![An uptime tile with three monitors](docs/media/uptime.png) |
+
+| Public status page | On your phone |
+|:---:|:---:|
+| ![A public status page](docs/media/status-page.png) | ![The Cards list and a console with its key bar on a phone](docs/media/phone.png) |
+
+</details>
+
+<details>
+<summary><b>The board — light and dark themes</b></summary>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/board-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/media/board-light.png">
+  <img src="docs/media/board-light.png" width="1200" alt="NextBoard workspace with three agent consoles, a sprint kanban, notes and a live web preview">
+</picture>
+
+[View light theme](docs/media/board-light.png) · [View dark theme](docs/media/board-dark.png)
+
+</details>
+
+These captures use a demo hub with fictional projects and scripted agents. Recreate them with `make demo` ([web/demo](web/demo)); they illustrate the core workflow and may not show the latest additions.
+
 ## API providers
 
 Run Claude Code, Codex or OpenCode on an API key of your own instead of a subscription login. Claude Code and Codex get a config folder of their own per provider, so your logins are neither used nor changed.
@@ -235,7 +324,8 @@ Once a month's budget is spent, new consoles, restarts and hidden runs on that p
 
 - The hub speaks plain HTTP and binds to `127.0.0.1` by default. For remote access, put it behind HTTPS with nginx (`deploy/nginx.conf.example`) or use a private network such as Tailscale. `tailscale serve` only forwards the main port, so web tiles do not work through it.
 - `make dev` binds to `0.0.0.0` by default. On an untrusted network, use `make dev LISTEN=127.0.0.1:12312`.
-- Agents run as your user and can read everything your user can, including NextBoard's data folder. Critical notes are instructions to agents, not a technical lock. Blocked commands make the CLI itself ask you first, but they are not a sandbox: an agent with a shell can still write a script that does the same. For a lock, a project's **Sandbox** (in its critical notes) keeps the commands of Codex and Claude Code to the project folder, the temp folder and package caches, with or without network. Codex needs nothing more; Claude Code needs bubblewrap, and on Ubuntu the AppArmor step from its sandboxing docs, without which its commands fail rather than run unsandboxed.
+- **Agent access.** Agents run as your user and can read everything that user can, including NextBoard's data folder. Critical notes, blocked commands and read-only part settings are not an OS security boundary: a CLI's own local tools may reach other folders on the same machine. Read the [agent access rules](docs/API-agents.md#211-part-project-roadmap-49) before relying on these controls.
+- **Project sandbox.** In Memory › Critical notes › Sandbox, restrict local Codex and Claude Code commands to the working folder, temporary folders and package caches, with or without network. Codex needs no extra tool; Claude Code needs bubblewrap and, on affected Ubuntu systems, an AppArmor configuration step. Other CLIs, SSH work and tools outside the CLI's shell sandbox have different limits; see [sandbox behavior and limitations](docs/API-agents.md#27-sandbox-agen-2026-11-11).
 - The credentials vault encrypts in the browser and the hub stores only ciphertext. If you forget the master password, the contents are gone. Letting agents use a credential guards against accidents, not against an agent set on stealing it. See [docs/API-vault.md](docs/API-vault.md) for what it does not protect against.
 - API provider keys are sealed with the hub's master key and given only to the agent process that uses them, never to a browser, a command line or a log. The commands an agent runs do not get the key with Codex, nor with Claude Code when `bubblewrap` is installed; OpenCode's commands still do. An agent set on finding it can still read it from its own CLI's process.
 - Only the status page may face the internet, on a listener of its own (`--status-listen`). It shows the names you chose for your monitors and their uptime, and never a host, an address or an error message.
@@ -262,9 +352,18 @@ All commands accept `--data-dir` (default `~/.nextboard`, or `$NEXTBOARD_HOME`).
 
 ## Development
 
+Use **Go 1.26+**, **Node.js 22+** and git. From a source checkout, install the frontend dependencies and the Go reloader:
+
 ```bash
-make dev        # hub and Vite together; needs air (go install github.com/air-verse/air@latest)
-                # web http://localhost:15173, hub http://localhost:12312, data in ./.devdata
+npm ci --prefix web
+go install github.com/air-verse/air@latest
+make dev
+```
+
+The web UI runs at `http://localhost:15173`, the hub at `http://localhost:12312`, and development data lives in `./.devdata`.
+
+```bash
+make dev        # hub and Vite together, with live reload
 make dev-hub    # hub only
 make dev-web    # Vite only
 make test       # go vet + go test -race
@@ -297,6 +396,7 @@ cmd/nextboard/      entry point
 internal/server/    router, auth middleware, REST, WebSocket
 internal/session/   terminals, scrollback, resume
 internal/machine/   local PTY and agentless SSH
+internal/project/   projects, groups, parts, merge and split
 internal/agent/     agent catalog, status, hooks
 internal/orch/      command bar, lead and planner, orders, loops, memory
 internal/jobs/      hidden runs of the agent CLIs (planner, summaries, commit messages)
@@ -307,6 +407,7 @@ internal/gitsvc/    git panel and GitHub
 internal/preview/   web tile proxy
 internal/gui/       desktop apps in a tile
 internal/vault/     credentials vault storage
+internal/uptime/    monitors, alerts and public status pages
 web/                React + TypeScript + Vite UI
 web/demo/           the made-up hub behind the screenshots and the video
 docs/               specification and API contracts
@@ -319,7 +420,7 @@ Android and desktop clients exist as separate projects. They are paused while th
 
 ## Documentation
 
-The detailed docs are written in Indonesian. Start with [docs/PROJECT.md](docs/PROJECT.md).
+The detailed docs are written in **Indonesian**. Start with [PROJECT.md](docs/PROJECT.md) for an overview; use the API contracts for current endpoint behavior.
 
 | Document | Contents |
 |---|---|
@@ -327,7 +428,14 @@ The detailed docs are written in Indonesian. Start with [docs/PROJECT.md](docs/P
 | [SPEC.md](docs/SPEC.md) | Original specification: network, auth, SSH |
 | [ROADMAP.md](docs/ROADMAP.md) | Phases and design decisions |
 | [DESIGN.md](docs/DESIGN.md) | Design system |
-| [API.md](docs/API.md), [API-board.md](docs/API-board.md), [API-agents.md](docs/API-agents.md), [API-orchestration.md](docs/API-orchestration.md), [API-studio.md](docs/API-studio.md), [API-gui.md](docs/API-gui.md), [API-vault.md](docs/API-vault.md), [API-uptime.md](docs/API-uptime.md) | HTTP and WebSocket contracts |
+| [API.md](docs/API.md) | Core API, authentication, devices and machines |
+| [API-board.md](docs/API-board.md) | Projects, parts, merge/split, workspaces, board operations and assets |
+| [API-agents.md](docs/API-agents.md) | Agent catalog, sessions, remote tools, access rules, providers and sandboxing |
+| [API-orchestration.md](docs/API-orchestration.md) | Lead agent, orders, handoffs, loops, memory and layouts |
+| [API-studio.md](docs/API-studio.md) | Workbench, git, previews, language servers, debuggers and studios |
+| [API-gui.md](docs/API-gui.md) | Desktop apps, browser tiles and media streaming |
+| [API-vault.md](docs/API-vault.md) | Encrypted credentials, agent access and passkeys |
+| [API-uptime.md](docs/API-uptime.md) | Monitors, alerts, maintenance and public status pages |
 
 ## Contributing
 
@@ -340,3 +448,9 @@ Issues and pull requests are welcome. Please run `make test` and `make test-web`
 Third-party components keep their own licenses. Most dependencies are MIT, ISC, BSD or Apache-2.0. Others include noVNC (MPL-2.0), DOMPurify (MPL-2.0 or Apache-2.0), and the Geist, Geist Mono, JetBrains Mono and Caveat fonts (OFL-1.1).
 
 Agent names and logos belong to their owners and are used only to identify those tools. NextBoard is not affiliated with or endorsed by any of them.
+
+<div align="center">
+
+[Back to top ↑](#nextboard)
+
+</div>
