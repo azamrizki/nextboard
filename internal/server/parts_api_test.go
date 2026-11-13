@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/azamrizki/nextboard/internal/orch"
 )
 
 // TestProjectParts: a project spans folders as parts; a terminal opens in a part, and an agent
@@ -184,13 +186,7 @@ func TestPartWorkbench(t *testing.T) {
 func TestPartsForAgents(t *testing.T) {
 	h := newTestHub(t)
 	h.setup()
-	bin := filepath.Join(t.TempDir(), "spycodex")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+bin+".argv\nenv > "+bin+".env\nexec sleep 120\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if st, a := h.do("POST", "/api/agents", map[string]any{"id": "spycodex", "name": "Spy", "command": bin, "base": "codex"}, nil); st != 201 {
-		t.Fatalf("agent %d %v", st, a)
-	}
+	bin := spyCodex(t, h)
 	api, web, ops := t.TempDir(), t.TempDir(), t.TempDir()
 	os.WriteFile(filepath.Join(web, "index.html"), []byte("<p>shop</p>\n"), 0o644)
 	os.WriteFile(filepath.Join(ops, "deploy.sh"), []byte("echo deploy\n"), 0o644)
@@ -207,59 +203,8 @@ func TestPartsForAgents(t *testing.T) {
 		t.Fatalf("bad access %d %v", st, b)
 	}
 
-	start := func(body map[string]any) (string, string, string, string) {
-		t.Helper()
-		body["agent"], body["workspaceId"] = "spycodex", wid
-		st, in := h.do("POST", "/api/sessions", body, nil)
-		if st != 201 {
-			t.Fatalf("console %d %v", st, in)
-		}
-		var argv, env string
-		waitTrue(t, "started", 20*time.Second, func() bool {
-			a, _ := os.ReadFile(bin + ".argv")
-			e, _ := os.ReadFile(bin + ".env")
-			argv, env = string(a), string(e)
-			return strings.Contains(env, "NB_TOKEN=")
-		})
-		os.Remove(bin + ".argv")
-		os.Remove(bin + ".env")
-		tok := ""
-		for _, l := range strings.Split(env, "\n") {
-			if v, ok := strings.CutPrefix(l, "NB_TOKEN="); ok {
-				tok = v
-			}
-		}
-		return in["id"].(string), tok, argv, env
-	}
-	url := strings.TrimSuffix(h.srv.hookURL, "/nb/hook") + "/nb/mcp/"
-	rpc := func(sid, tok, method string, params any) map[string]any {
-		t.Helper()
-		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-		req, _ := http.NewRequest("POST", url+sid, bytes.NewReader(body))
-		req.Header.Set("Authorization", "Bearer "+tok)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		var out map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&out)
-		return out
-	}
-	tools := func(sid, tok string) map[string]map[string]any {
-		t.Helper()
-		out := map[string]map[string]any{}
-		for _, x := range rpc(sid, tok, "tools/list", nil)["result"].(map[string]any)["tools"].([]any) {
-			m := x.(map[string]any)
-			out[m["name"].(string)] = m
-		}
-		return out
-	}
-	call := func(sid, tok, name string, args map[string]any) string {
-		t.Helper()
-		return fmt.Sprint(rpc(sid, tok, "tools/call", map[string]any{"name": name, "arguments": args}))
-	}
-
+	sa := newSpyAgents(t, h, bin, wid)
+	start, tools, call := sa.start, sa.tools, sa.call
 	// an agent in the first part, on This PC: the other parts through the hub, read only
 	sid, tok, _, env := start(map[string]any{})
 	if !strings.Contains(env, "This project spans several parts") || !strings.Contains(env, "- Web: This PC, "+web+" (read only for you)") || !strings.Contains(env, "(yours, where you work)") {
@@ -475,6 +420,7 @@ func TestMergeAndSplit(t *testing.T) {
 	h.do("PUT", "/api/projects/"+bid+"/memory", map[string]any{"scope": "project", "content": "- the web build runs on node 22\n"}, nil)
 	h.do("PUT", "/api/memory/docs/design?projectId="+bid, map[string]any{"title": "Design", "content": "- buttons are square\n"}, nil)
 	h.do("PUT", "/api/memory/docs/critical?projectId="+bid, map[string]any{"content": "- never deploy on friday\n"}, nil)
+	h.srv.orch.Threads.Add(orch.ThreadMessage{ThreadID: bid, Role: "user", Kind: "order", Text: "build the web shop", At: time.Now().UTC().Add(-time.Hour)})
 
 	if st, v := h.do("GET", "/api/projects/"+aid+"/merge?from="+aid, nil, nil); st != 200 || v["code"] != "merge_self" {
 		t.Fatalf("preview of itself %d %v", st, v)
@@ -520,8 +466,12 @@ func TestMergeAndSplit(t *testing.T) {
 	if c, _ := mem.Sub(aid, "critical"); !strings.Contains(c.Content, "## From Shop Web") || !strings.Contains(c.Content, "never deploy on friday") {
 		t.Fatalf("critical %q", c.Content)
 	}
-	if last := h.srv.orch.Threads.Last(aid, 3); len(last) == 0 || !strings.Contains(last[len(last)-1].Text, "Shop Web is now part of this project") {
+	last := h.srv.orch.Threads.Last(aid, 5)
+	if len(last) < 2 || !strings.Contains(last[len(last)-1].Text, "Shop Web is now part of this project") || !strings.Contains(fmt.Sprint(last), "build the web shop") {
 		t.Fatalf("thread %+v", last)
+	}
+	if len(h.srv.orch.Threads.Last(bid, 5)) != 0 {
+		t.Fatal("the merged project's thread is still there")
 	}
 
 	// split it again: not while a terminal works in it
@@ -539,5 +489,177 @@ func TestMergeAndSplit(t *testing.T) {
 	np, from := sp["project"].(map[string]any), sp["from"].(map[string]any)
 	if np["path"] != web || np["name"] != "Shop Web" || len(from["parts"].([]any)) != 1 || len(np["workspaces"].([]any)) != 1 {
 		t.Fatalf("split %v", sp)
+	}
+}
+
+// spyAgents starts consoles of a fake Codex that records its launch, and calls the hub's tools
+// as that console.
+type spyAgents struct {
+	t        *testing.T
+	h        *testHub
+	bin, wid string
+}
+
+func newSpyAgents(t *testing.T, h *testHub, bin, wid string) *spyAgents {
+	return &spyAgents{t: t, h: h, bin: bin, wid: wid}
+}
+
+// start opens a console with body's fields and returns its id, token, argv and environment.
+func (a *spyAgents) start(body map[string]any) (string, string, string, string) {
+	t := a.t
+	t.Helper()
+	body["agent"], body["workspaceId"] = "spycodex", a.wid
+	st, in := a.h.do("POST", "/api/sessions", body, nil)
+	if st != 201 {
+		t.Fatalf("console %d %v", st, in)
+	}
+	var argv, env string
+	waitTrue(t, "started", 20*time.Second, func() bool {
+		b, _ := os.ReadFile(a.bin + ".argv")
+		e, _ := os.ReadFile(a.bin + ".env")
+		argv, env = string(b), string(e)
+		return strings.Contains(env, "NB_TOKEN=")
+	})
+	os.Remove(a.bin + ".argv")
+	os.Remove(a.bin + ".env")
+	tok := ""
+	for _, l := range strings.Split(env, "\n") {
+		if v, ok := strings.CutPrefix(l, "NB_TOKEN="); ok {
+			tok = v
+		}
+	}
+	return in["id"].(string), tok, argv, env
+}
+
+func (a *spyAgents) rpc(sid, tok, method string, params any) map[string]any {
+	t := a.t
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+	req, _ := http.NewRequest("POST", strings.TrimSuffix(a.h.srv.hookURL, "/nb/hook")+"/nb/mcp/"+sid, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return out
+}
+
+func (a *spyAgents) tools(sid, tok string) map[string]map[string]any {
+	a.t.Helper()
+	out := map[string]map[string]any{}
+	for _, x := range a.rpc(sid, tok, "tools/list", nil)["result"].(map[string]any)["tools"].([]any) {
+		m := x.(map[string]any)
+		out[m["name"].(string)] = m
+	}
+	return out
+}
+
+func (a *spyAgents) call(sid, tok, name string, args map[string]any) string {
+	a.t.Helper()
+	return fmt.Sprint(a.rpc(sid, tok, "tools/call", map[string]any{"name": name, "arguments": args}))
+}
+
+// spyCodex registers the fake Codex and returns its path.
+func spyCodex(t *testing.T, h *testHub) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "spycodex")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+bin+".argv\nenv > "+bin+".env\nexec sleep 120\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if st, a := h.do("POST", "/api/agents", map[string]any{"id": "spycodex", "name": "Spy", "command": bin, "base": "codex"}, nil); st != 201 {
+		t.Fatalf("agent %d %v", st, a)
+	}
+	return bin
+}
+
+// TestPartsOnAServer: a project with a part on This PC and parts on a real (throwaway) sshd. An
+// agent on This PC reaches the server's part, one on the server reaches This PC's, the workbench
+// and a terminal open in the server's part, and the read-only part there stays read only.
+func TestPartsOnAServer(t *testing.T) {
+	port, key := startSSHServer(t)
+	h := newTestHub(t)
+	h.setup()
+	mid := h.connectMachine(port, key)
+	bin := spyCodex(t, h)
+	local, api, prod := t.TempDir(), t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(local, "index.html"), []byte("<p>shop</p>\n"), 0o644)
+	os.WriteFile(filepath.Join(api, "routes.php"), []byte("<?php // routes\n"), 0o644)
+	os.WriteFile(filepath.Join(prod, ".env"), []byte("APP_ENV=production\n"), 0o644)
+	st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": local, "name": "Shop"}, nil)
+	if st != 201 {
+		t.Fatalf("project %d %v", st, p)
+	}
+	pid, wid := p["id"].(string), p["workspaces"].([]any)[0].(map[string]any)["id"].(string)
+	if st, b := h.do("PATCH", "/api/projects/"+pid+"/parts/main", map[string]any{"name": "Web"}, nil); st != 200 {
+		t.Fatalf("rename %d %v", st, b)
+	}
+	st, p = h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "Api", "machineId": mid, "path": api}, nil)
+	if st != 201 {
+		t.Fatalf("server part %d %v", st, p)
+	}
+	_, p = h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "Prod", "machineId": mid, "path": prod}, nil)
+	apiID := p["parts"].([]any)[1].(map[string]any)["id"].(string)
+	prodID := p["parts"].([]any)[2].(map[string]any)["id"].(string)
+	h.do("PATCH", "/api/projects/"+pid+"/parts/"+prodID, map[string]any{"readOnly": true}, nil)
+	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": "full"}, nil)
+
+	// the workbench and a terminal in the server's part
+	st, l := h.do("GET", "/api/projects/"+pid+"~"+apiID+"/files", nil, nil)
+	if st != 200 || fmt.Sprint(l["items"]) != "[routes.php]" {
+		t.Fatalf("files over SSH %d %v", st, l)
+	}
+	st, sh := h.do("POST", "/api/sessions", map[string]any{"preset": "shell", "workspaceId": wid, "partId": apiID}, nil)
+	if st != 201 || sh["machineId"] != mid || sh["cwd"] != api || sh["partId"] != apiID {
+		t.Fatalf("terminal in the server's part %d %v", st, sh)
+	}
+	h.do("DELETE", "/api/sessions/"+sh["id"].(string), nil, nil)
+
+	sa := newSpyAgents(t, h, bin, wid)
+	// an agent on This PC: the server's part through the hub, over SSH
+	sid, tok, _, env := sa.start(map[string]any{})
+	if !strings.Contains(env, "- Api: srv, "+api) {
+		t.Fatalf("prompt names the server's part:\n%s", env)
+	}
+	if out := sa.call(sid, tok, "read_file", map[string]any{"part": "api", "path": "routes.php"}); !strings.Contains(out, "// routes") {
+		t.Fatalf("read on the server: %s", out)
+	}
+	if out := sa.call(sid, tok, "write_file", map[string]any{"part": "Api", "path": "new.php", "content": "<?php\n"}); strings.Contains(out, "isError:true") {
+		t.Fatalf("write on the server: %s", out)
+	}
+	if b, err := os.ReadFile(filepath.Join(api, "new.php")); err != nil || string(b) != "<?php\n" {
+		t.Fatalf("written over SSH %q %v", b, err)
+	}
+	if out := sa.call(sid, tok, "bash", map[string]any{"part": "Api", "command": "pwd"}); !strings.Contains(out, api) {
+		t.Fatalf("bash on the server: %s", out)
+	}
+	if out := sa.call(sid, tok, "write_file", map[string]any{"part": "Prod", "path": ".env", "content": "APP_ENV=oops\n"}); !strings.Contains(out, "Prod is read only for you") {
+		t.Fatalf("write in the read-only part: %s", out)
+	}
+
+	// an agent on the server's part: its own part over SSH, This PC's part through the hub
+	rid, rtok, argv, _ := sa.start(map[string]any{"partId": apiID})
+	if !strings.Contains(argv, "shell_tool") {
+		t.Fatalf("a server's agent keeps local tools:\n%s", argv)
+	}
+	if out := sa.call(rid, rtok, "read_file", map[string]any{"path": "routes.php"}); !strings.Contains(out, "// routes") {
+		t.Fatalf("its own part: %s", out)
+	}
+	if out := sa.call(rid, rtok, "read_file", map[string]any{"part": "Web", "path": "index.html"}); !strings.Contains(out, "<p>shop</p>") {
+		t.Fatalf("This PC's part from the server's agent: %s", out)
+	}
+
+	// an agent in the read-only part on the server only reads there
+	oid, otok, _, _ := sa.start(map[string]any{"partId": prodID})
+	if out := sa.call(oid, otok, "read_file", map[string]any{"path": ".env"}); !strings.Contains(out, "production") {
+		t.Fatalf("read in its read-only part: %s", out)
+	}
+	if out := sa.call(oid, otok, "bash", map[string]any{"command": "rm .env"}); !strings.Contains(out, "Your part is read only") {
+		t.Fatalf("a command in its read-only part: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(prod, ".env")); err != nil {
+		t.Fatalf("the file went: %v", err)
 	}
 }

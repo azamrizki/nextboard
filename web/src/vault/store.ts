@@ -667,6 +667,24 @@ export async function saveItem(item: VaultItem, opts: { force?: boolean } = {}):
   }
 }
 
+/**
+ * A project merged into another (ROADMAP #49): items its agents could ask for are now for the
+ * project it joined. Only the open vault can do it, since the list is inside each blob.
+ */
+export async function moveAgentShares(from: string, into: string): Promise<number> {
+  let n = 0;
+  for (const it of state.items) {
+    const ps = it.agents?.projects;
+    if (!ps?.includes(from) || it.deletedAt) continue;
+    await saveItem({ ...it, agents: { ...it.agents!, projects: [...new Set(ps.map((p) => (p === from ? into : p)))] } });
+    n++;
+  }
+  return n;
+}
+
+/** How many open items a project's agents may ask for. */
+export const sharedWith = (projectId: string) => state.items.filter((it) => !it.deletedAt && it.agents?.projects.includes(projectId)).length;
+
 export const toggleFavorite = (item: VaultItem) => saveItem({ ...item, favorite: !item.favorite });
 export const trashItem = (item: VaultItem) => saveItem({ ...item, deletedAt: new Date().toISOString() });
 export const restoreItem = (item: VaultItem) => saveItem({ ...item, deletedAt: undefined });

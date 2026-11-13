@@ -3,6 +3,9 @@ package orch
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // TestLeadKnowsParts: the lead sees the parts of a project in several and the part of each
@@ -68,5 +71,40 @@ func TestParseSpawnInPart(t *testing.T) {
 	}
 	if got := Parse("spawn 2 codex in frontend", ctx); got.Kind == IntentSpawn {
 		t.Errorf("an unknown part is not a spawn: %+v", got)
+	}
+}
+
+// TestThreadsMerge: a merged project's thread joins the other's in time order, with its replies.
+func TestThreadsMerge(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := newThreads(st)
+	at := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	th.Add(ThreadMessage{ThreadID: "p_aaaaaaaaaa", Role: "user", Kind: "order", Text: "a1", At: at})
+	th.Add(ThreadMessage{ThreadID: "p_aaaaaaaaaa", Role: "user", Kind: "order", Text: "a2", At: at.Add(2 * time.Minute)})
+	b := th.Add(ThreadMessage{ThreadID: "p_bbbbbbbbbb", Role: "agent", Kind: "report", Text: "b1", At: at.Add(time.Minute), Report: &Report{State: TFinished, Chars: 15}})
+	th.SaveOutput(ReplyOutput{MessageID: b.ID, ThreadID: "p_bbbbbbbbbb", Text: "the whole reply"})
+	if n := th.Merge("p_aaaaaaaaaa", "p_bbbbbbbbbb"); n != 1 {
+		t.Fatalf("moved %d", n)
+	}
+	var got []string
+	for _, m := range th.Last("p_aaaaaaaaaa", 10) {
+		got = append(got, m.Text+"@"+m.ThreadID)
+	}
+	if strings.Join(got, " ") != "a1@p_aaaaaaaaaa b1@p_aaaaaaaaaa a2@p_aaaaaaaaaa" {
+		t.Fatalf("order %v", got)
+	}
+	if o, err := th.Output("p_aaaaaaaaaa", b.ID); err != nil || o.Text != "the whole reply" {
+		t.Fatalf("reply %+v %v", o, err)
+	}
+	if len(th.Last("p_bbbbbbbbbb", 10)) != 0 {
+		t.Fatal("the merged thread is not empty")
+	}
+	// read back from disk too
+	again := newThreads(st)
+	if len(again.Last("p_aaaaaaaaaa", 10)) != 3 || len(again.Last("p_bbbbbbbbbb", 10)) != 0 {
+		t.Fatalf("on disk %v %v", again.Last("p_aaaaaaaaaa", 10), again.Last("p_bbbbbbbbbb", 10))
 	}
 }

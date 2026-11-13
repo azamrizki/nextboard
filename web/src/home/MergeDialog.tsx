@@ -12,6 +12,7 @@ import { toast } from '../components/Toast';
 import { boardPath, navigate } from '../lib/router';
 import type { MergePreview, Project } from '../lib/types';
 import { store, useMachines, useProjects } from '../store';
+import { moveAgentShares, sharedWith, useVault } from '../vault/store';
 import { FolderPath } from './FolderPath';
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -28,6 +29,10 @@ export function MergeDialog({ project, onClose }: { project: Project; onClose: (
   const [error, setError] = useState('');
   const formId = useId();
   const other = projects.find((p) => p.id === from);
+  // credentials its agents may ask for: only the open vault can move them, they are in each blob
+  const vault = useVault();
+  const vaultOpen = vault.status === 'unlocked';
+  const shared = vaultOpen && from ? sharedWith(from) : 0;
 
   useEffect(() => {
     setPreview(null);
@@ -55,6 +60,14 @@ export function MergeDialog({ project, onClose }: { project: Project; onClose: (
       store.upsertProject(p);
       store.removeProject(from);
       toast.success(`${other.name} is now part of ${project.name}.`);
+      if (vaultOpen && shared > 0) {
+        try {
+          const n = await moveAgentShares(from, project.id);
+          toast.info(`${n === 1 ? '1 credential' : `${n} credentials`} its agents could ask for ${n === 1 ? 'is' : 'are'} now for ${project.name}.`);
+        } catch (err) {
+          toast.error(`Could not move the credentials its agents could ask for: ${errorMessage(err)}`);
+        }
+      }
       onClose();
       // someone looking at its board goes on there
       if (window.location.pathname.startsWith(`/p/${from}`)) navigate(boardPath(project.id), true);
@@ -148,7 +161,15 @@ export function MergeDialog({ project, onClose }: { project: Project; onClose: (
                       Its memory becomes a sub-memory named after it{preview.subMemories ? `, with ${count(preview.subMemories, 'page')} of its own` : ''}.
                     </li>
                   )}
-                  <li>Credentials limited to {other.name} stay limited to it: open Credentials and allow them for {project.name} too.</li>
+                  {vaultOpen ? (
+                    shared > 0 && (
+                      <li>
+                        <strong>{shared === 1 ? '1 credential' : `${shared} credentials`}</strong> its agents may ask for will be for {project.name} instead, saved in your open vault.
+                      </li>
+                    )
+                  ) : (
+                    <li>Credentials its agents may ask for stay limited to it while the vault is locked: unlock Credentials first to move them along, or allow them for {project.name} later.</li>
+                  )}
                 </ul>
                 {preview.criticalChars > 0 && (
                   <SelectField

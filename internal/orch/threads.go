@@ -337,6 +337,42 @@ func (t *Threads) Last(tid string, n int) []ThreadMessage {
 	return l
 }
 
+// Merge moves one thread's messages into another, in time order, with the replies they keep; the
+// other thread is then empty (a project merged into another, ROADMAP #49). The oldest go first
+// when both together are more than a thread keeps.
+func (t *Threads) Merge(into, from string) int {
+	if into == from || !ValidThreadID(into) || !ValidThreadID(from) {
+		return 0
+	}
+	t.mu.Lock()
+	dst, src := t.loadLocked(into), t.loadLocked(from)
+	n := len(src.msgs)
+	if n > 0 {
+		all := slices.Clone(dst.msgs)
+		for _, m := range src.msgs {
+			m.ThreadID = into
+			all = append(all, m)
+		}
+		slices.SortStableFunc(all, func(a, b ThreadMessage) int { return a.At.Compare(b.At) })
+		if max := threadMax(into); len(all) > max {
+			all = all[len(all)-max:]
+		}
+		_ = os.MkdirAll(t.outputsDir(into), 0o700)
+		if ents, err := os.ReadDir(t.outputsDir(from)); err == nil {
+			for _, e := range ents {
+				_ = os.Rename(filepath.Join(t.outputsDir(from), e.Name()), filepath.Join(t.outputsDir(into), e.Name()))
+			}
+		}
+		dst.msgs = all
+		t.compactLocked(into, dst)
+	}
+	t.th[from] = &thread{}
+	_ = os.Remove(t.path(from))
+	_ = os.RemoveAll(t.outputsDir(from))
+	t.mu.Unlock()
+	return n
+}
+
 // Clear empties a thread (DELETE /api/threads/{tid}).
 func (t *Threads) Clear(tid string) {
 	t.mu.Lock()

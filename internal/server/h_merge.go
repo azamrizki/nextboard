@@ -20,20 +20,20 @@ import (
 
 // mergePreview is GET /api/projects/{id}/merge?from=: what merging would do, or why it cannot.
 type mergePreview struct {
-	From       string               `json:"from"`
-	Parts      []project.Part       `json:"parts"`
-	Workspaces []project.Workspace  `json:"workspaces"`
-	Sessions   int                  `json:"sessions"`
-	Running    int                  `json:"running"`
-	Monitors   int                  `json:"monitors"`
-	Loops      int                  `json:"loops"`
-	Memory     int                  `json:"memoryChars"`
-	Subs       int                  `json:"subMemories"`
-	Critical   int                  `json:"criticalChars"`
-	CriticalOK bool                 `json:"criticalFits"`
-	PublicPage bool                 `json:"publicPage"`
-	Problem    string               `json:"problem,omitempty"`
-	Code       string               `json:"code,omitempty"`
+	From       string              `json:"from"`
+	Parts      []project.Part      `json:"parts"`
+	Workspaces []project.Workspace `json:"workspaces"`
+	Sessions   int                 `json:"sessions"`
+	Running    int                 `json:"running"`
+	Monitors   int                 `json:"monitors"`
+	Loops      int                 `json:"loops"`
+	Memory     int                 `json:"memoryChars"`
+	Subs       int                 `json:"subMemories"`
+	Critical   int                 `json:"criticalChars"`
+	CriticalOK bool                `json:"criticalFits"`
+	PublicPage bool                `json:"publicPage"`
+	Problem    string              `json:"problem,omitempty"`
+	Code       string              `json:"code,omitempty"`
 	partIDs    map[string]string
 	fromProj   project.Project
 }
@@ -173,6 +173,7 @@ func (s *Server) handleMerge(w http.ResponseWriter, r *http.Request, p *principa
 		s.review.Rename(reviewKey(b, pt.ID), reviewKey(a, part(pt.ID)))
 	}
 	if s.orch != nil {
+		s.orch.Threads.Merge(a.ID, b.ID) // its lead's thread joins this one's, in time order
 		s.orch.Threads.Add(orch.ThreadMessage{ThreadID: a.ID, At: time.Now().UTC(), Role: "hub", Kind: "note",
 			Text: fmt.Sprintf("%s is now part of this project: %s. Its boards, %d terminals, %d monitors and %d loops came along, and its memory is the sub-memory %q.",
 				b.Name, partList(plan.Parts), sessions, monitors, loops, mergeSlug(b.Name))})

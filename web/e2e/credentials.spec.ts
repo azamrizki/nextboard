@@ -166,3 +166,28 @@ test('the owner says no, and an entry the vault does not back opens nothing', as
   await openVault(page);
   await expect.poll(async () => ((await hub.call('GET', '/api/vault/agents')).items as any[]).some((e) => e.id === private_)).toBe(false);
 });
+
+test('a merge moves the credentials the merged project’s agents may ask for, with the vault open', async ({ page, hub }) => {
+  const a = await hub.project('Shop');
+  const b = await hub.project('Shop Web');
+  await hub.ops(b.wid, [{ op: 'put', node: { id: 'n_cred0000003', kind: 'credentials', x: 40, y: 500, w: 960, h: 640, data: { title: 'Credentials' } } }]);
+  await page.goto(`/p/${b.id}`);
+  await openVault(page);
+  const id = await addLogin(page, hub, `Deploy ${b.name}`, `deploy-CANARY-${b.id}`, b.name);
+  // to Home without a reload: the vault stays open
+  await page.evaluate(() => {
+    history.pushState({}, '', '/');
+    dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await page.getByRole('button', { name: `Actions for ${a.name}` }).click();
+  await page.getByRole('menuitem', { name: 'Parts…' }).click();
+  await page.getByRole('button', { name: 'Merge another project into this one…' }).click();
+  const dialog = page.getByRole('dialog', { name: `Merge into ${a.name}` });
+  await dialog.getByLabel('Project to merge in').selectOption({ label: b.name });
+  await expect(dialog).toContainText(`1 credential its agents may ask for will be for ${a.name} instead`);
+  await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect
+    .poll(async () => ((await hub.call('GET', '/api/vault/agents')).items as any[]).find((e) => e.id === id)?.projects)
+    .toEqual([a.id]);
+});
