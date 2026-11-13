@@ -377,6 +377,23 @@ func (l *Loops) save() {
 	_ = l.st.Save(loopsFile, list)
 }
 
+// MoveProject gives one project's loops to another, as when projects merge (ROADMAP #49).
+func (l *Loops) MoveProject(from, to string) int {
+	l.mu.Lock()
+	n := 0
+	for _, rt := range l.loops {
+		if rt.def.ProjectID == from {
+			rt.def.ProjectID = to
+			n++
+		}
+	}
+	l.mu.Unlock()
+	if n > 0 {
+		l.save()
+	}
+	return n
+}
+
 // List returns loops of a project ("" = all).
 func (l *Loops) List(projectID string) []LoopDef {
 	l.mu.Lock()

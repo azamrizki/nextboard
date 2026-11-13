@@ -6,6 +6,7 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/azamrizki/nextboard/internal/agent"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
@@ -14,6 +15,19 @@ import (
 // The parts of a project to an agent (ROADMAP #49): its own part, where it works as before, and
 // the others, which the hub's file tools reach with a `part` argument. The others are read-only
 // unless the project's partAccess is "full"; a part marked read-only is read-only for everyone.
+
+// blockedAnswer refuses a command blocked in the part the call works in: the hub's list, the
+// project's, and that part's own (memguard.go's words).
+func (s *Server) blockedAnswer(t remoteTarget, command string) string {
+	if s.orch == nil {
+		return ""
+	}
+	part := t.homePartID
+	if t.inPartID != "" {
+		part = t.inPartID
+	}
+	return s.orch.BlockedAnswerFor(agent.CommandBlocked(s.blockedIn(t.projectID, part), command))
+}
 
 // partTarget is one other part of the console's project.
 type partTarget struct {
@@ -40,7 +54,7 @@ func (s *Server) withParts(t *remoteTarget, sp session.Spec) {
 	if !ok {
 		home, _ = pr.Part("")
 	}
-	t.homePart = home.Name
+	t.homePart, t.homePartID = home.Name, home.ID
 	t.reviewKey = reviewKey(pr, home.ID)
 	if home.ReadOnly {
 		t.readOnly = true
@@ -113,7 +127,7 @@ func (t remoteTarget) forPart(args json.RawMessage) (remoteTarget, string) {
 		if strings.EqualFold(p.name, name) || p.id == name {
 			c := t
 			c.machineID, c.cwd, c.readOnly = p.machineID, p.cwd, p.readOnly
-			c.inPart, c.reviewKey = p.name, p.reviewKey
+			c.inPart, c.inPartID, c.reviewKey = p.name, p.id, p.reviewKey
 			return c, ""
 		}
 	}

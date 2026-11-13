@@ -3,6 +3,7 @@ package project
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -17,10 +18,39 @@ type Part struct {
 	Path      string `json:"path"`
 	// ReadOnly: agents get only the read tools there, whichever part they work from.
 	ReadOnly bool `json:"readOnly,omitempty"`
+	// Blocked are commands that need the owner's approval there, on top of the hub's and the
+	// project's lists (ROADMAP #38).
+	Blocked []string `json:"blocked,omitempty"`
 }
 
 // PartAccessFull lets agents change the parts other than their own, not only read them.
 const PartAccessFull = "full"
+
+const (
+	maxBlocked    = 50
+	maxBlockedLen = 200
+)
+
+// cleanBlocked trims a part's blocked commands and drops empty and repeated ones.
+func cleanBlocked(in []string) ([]string, error) {
+	var out []string
+	for _, c := range in {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if len(c) > maxBlockedLen || strings.ContainsAny(c, "\r\n") {
+			return nil, ErrBadBlocked
+		}
+		if !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	if len(out) > maxBlocked {
+		return nil, ErrBadBlocked
+	}
+	return out, nil
+}
 
 const (
 	// MainPart is the id of the first part of a project made before parts, or with one.
@@ -36,6 +66,7 @@ var (
 	ErrTooManyParts  = fmt.Errorf("a project has at most %d parts", MaxParts)
 	ErrPartName      = errors.New("another part of this project has that name")
 	ErrBadPartAccess = errors.New(`partAccess must be "" (read only) or "full"`)
+	ErrBadBlocked    = fmt.Errorf("blocked takes at most %d commands of at most %d characters, one line each", maxBlocked, maxBlockedLen)
 )
 
 // InProjectError: the folder is already another project, or a part of one.
@@ -147,6 +178,7 @@ func (s *Store) AddPart(projectID, name, machineID, dir string) (Project, Part, 
 type PartPatch struct {
 	Name     *string
 	ReadOnly *bool
+	Blocked  *[]string
 	// Index moves the part; moving one to 0 makes it the project's own folder.
 	Index *int
 }
@@ -184,6 +216,13 @@ func (s *Store) PatchPart(projectID, partID string, in PartPatch) (Project, erro
 	}
 	if in.ReadOnly != nil {
 		pt.ReadOnly = *in.ReadOnly
+	}
+	if in.Blocked != nil {
+		list, err := cleanBlocked(*in.Blocked)
+		if err != nil {
+			return Project{}, err
+		}
+		pt.Blocked = list
 	}
 	next.Parts[i] = pt
 	if in.Index != nil {

@@ -1183,6 +1183,27 @@ func (m *Manager) Assign(id, projectID, workspaceID string) error {
 	return nil
 }
 
+// MoveProject gives one project's sessions to another, as when projects merge (ROADMAP #49), and
+// puts each in the part part maps its old one to. Nothing restarts.
+func (m *Manager) MoveProject(from, to string, part func(string) string) int {
+	var moved []*Session
+	for _, s := range m.all() {
+		s.mu.Lock()
+		if s.spec.ProjectID == from {
+			s.spec.ProjectID, s.spec.PartID = to, part(s.spec.PartID)
+			moved = append(moved, s)
+		}
+		s.mu.Unlock()
+	}
+	if len(moved) > 0 {
+		m.saveNow()
+	}
+	for _, s := range moved {
+		m.changed(s)
+	}
+	return len(moved)
+}
+
 // WorkspaceOf returns the workspace a live session belongs to.
 func (m *Manager) WorkspaceOf(id string) (string, bool) {
 	s, ok := m.Get(id)

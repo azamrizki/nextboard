@@ -61,6 +61,8 @@ type Project struct {
 	// PartAccess is what its agents may do in the parts other than their own (ROADMAP #49):
 	// "" = only read, PartAccessFull = everything. A read-only part stays read-only either way.
 	PartAccess string `json:"partAccess,omitempty"`
+	// Aliases are the ids of projects merged into this one (ROADMAP #49): an old link still finds it.
+	Aliases []string `json:"aliases,omitempty"`
 }
 
 // Sandbox levels of a project.
@@ -105,6 +107,10 @@ func (p Project) clone() Project {
 	p.Workspaces = slices.Clone(p.Workspaces)
 	p.Tags = slices.Clone(p.Tags)
 	p.Parts = slices.Clone(p.Parts)
+	p.Aliases = slices.Clone(p.Aliases)
+	for i := range p.Parts {
+		p.Parts[i].Blocked = slices.Clone(p.Parts[i].Blocked)
+	}
 	return p
 }
 

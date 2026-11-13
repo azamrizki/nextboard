@@ -136,9 +136,13 @@ func (s *Service) AllBlocked() []string {
 
 // BlockedAnswer is what the hub's bash tool says instead of running a command, "" to run it.
 func (s *Service) BlockedAnswer(pid, command string) string {
-	p := agent.CommandBlocked(s.BlockedCommands(pid), command)
-	if p == "" {
+	return s.BlockedAnswerFor(agent.CommandBlocked(s.BlockedCommands(pid), command))
+}
+
+// BlockedAnswerFor is the answer to a command a blocked pattern matched ("" = none did).
+func (s *Service) BlockedAnswerFor(pattern string) string {
+	if pattern == "" {
 		return ""
 	}
-	return "Not run: the owner blocked this command (`" + p + "`). Do not look for another way to do the same thing. Stop, say what you wanted to run and why, and ask the owner: they can run it themselves or lift the block."
+	return "Not run: the owner blocked this command (`" + pattern + "`). Do not look for another way to do the same thing. Stop, say what you wanted to run and why, and ask the owner: they can run it themselves or lift the block."
 }

@@ -759,6 +759,41 @@ func (s *Service) RemoveProject(projectID string) {
 	}
 }
 
+// MoveProject gives one project's monitors to another, as when projects merge (ROADMAP #49): each
+// keeps its history and its checks. None stays on a public page, which was the old project's, and
+// the old project's settings go with it. part maps a monitor's part to its id in the new project.
+func (s *Service) MoveProject(from, to string, part func(string) string) int {
+	s.admin.Lock()
+	defer s.admin.Unlock()
+	defer s.dropPublicCache()
+	s.mu.Lock()
+	var moved []*entry
+	for _, e := range s.entries {
+		e.mu.Lock()
+		if e.m.ProjectID == from {
+			e.m.ProjectID, e.m.Public, e.m.PartID = to, false, part(e.m.PartID)
+			moved = append(moved, e)
+		}
+		e.mu.Unlock()
+	}
+	_, had := s.settings[from]
+	delete(s.settings, from)
+	s.mu.Unlock()
+	if len(moved) > 0 {
+		s.saveMonitors()
+	}
+	if had {
+		s.saveSettings()
+	}
+	for _, e := range moved {
+		e.mu.Lock()
+		v := s.viewLocked(e, true)
+		e.mu.Unlock()
+		s.Publish(map[string]any{"type": "uptimeMonitor", "monitor": v})
+	}
+	return len(moved)
+}
+
 func (s *Service) deleteLocked(id string, save bool) error {
 	defer s.dropPublicCache()
 	e := s.entry(id)

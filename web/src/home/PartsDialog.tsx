@@ -15,13 +15,17 @@ import { toast } from '../components/Toast';
 import { projectParts } from '../lib/parts';
 import type { Project, ProjectPart } from '../lib/types';
 import { store, useMachines } from '../store';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { FolderPath } from './FolderPath';
+import { MergeDialog } from './MergeDialog';
 
 export function PartsDialog({ project, onClose }: { project: Project; onClose: () => void }) {
   const machines = useMachines();
   const parts = projectParts(project);
   const machineName = (id: string) => machines.find((m) => m.id === id)?.name ?? id;
   const [busy, setBusy] = useState('');
+  const [merging, setMerging] = useState(false);
+  const [splitting, setSplitting] = useState<ProjectPart | null>(null);
 
   /** Runs one change and takes the project the hub answers with. */
   const change = async (what: string, run: () => Promise<Project>) => {
@@ -51,7 +55,7 @@ export function PartsDialog({ project, onClose }: { project: Project; onClose: (
       }
     >
       <p className="parts-intro">
-        One project can span folders on several machines: a backend on one server, a frontend on another. A terminal opens in the part on the machine you pick. Agents work only where a part is not read-only.
+        One project can span folders on several machines: a backend on one server, a frontend on another. A terminal opens in the part on the machine you pick. In a read-only part agents only read and search.
       </p>
       {parts.length > 1 && (
         <SelectField
@@ -78,11 +82,36 @@ export function PartsDialog({ project, onClose }: { project: Project; onClose: (
             onReadOnly={(readOnly) => change('readOnly', () => api.updatePart(project.id, pt.id, { readOnly }))}
             onMove={(index) => void change('move', () => api.updatePart(project.id, pt.id, { index }))}
             onRemove={() => void change('remove', () => api.deletePart(project.id, pt.id))}
+            onBlocked={(blocked) => change('blocked', () => api.updatePart(project.id, pt.id, { blocked }))}
+            onSplit={() => setSplitting(pt)}
             index={i}
           />
         ))}
       </ul>
+      <div className="parts-merge">
+        <Button variant="ghost" size="sm" icon="layers" onClick={() => setMerging(true)}>
+          Merge another project into this one…
+        </Button>
+      </div>
       <AddPart project={project} onAdded={(p) => store.upsertProject(p)} />
+      {merging && <MergeDialog project={project} onClose={() => setMerging(false)} />}
+      {splitting && (
+        <ConfirmDialog
+          title={`Make ${splitting.name} a project of its own?`}
+          confirmLabel="Split it off"
+          onClose={() => setSplitting(null)}
+          onConfirm={async () => {
+            const r = await api.splitPart(project.id, splitting.id);
+            store.upsertProject(r.from);
+            store.upsertProject(r.project);
+            toast.success(`${r.project.name} is a project of its own now.`);
+          }}
+        >
+          <p>
+            <strong>{splitting.name}</strong> becomes a project with one empty board, in the same group and with the same tags. Its review and local history go with it. Boards, memory and monitors stay here. Close the terminals in it first.
+          </p>
+        </ConfirmDialog>
+      )}
     </Modal>
   );
 }
@@ -98,6 +127,8 @@ function PartRow({
   onReadOnly,
   onMove,
   onRemove,
+  onBlocked,
+  onSplit,
 }: {
   part: ProjectPart;
   first: boolean;
@@ -109,7 +140,15 @@ function PartRow({
   onReadOnly: (on: boolean) => Promise<boolean>;
   onMove: (index: number) => void;
   onRemove: () => void;
+  onBlocked: (list: string[]) => Promise<boolean>;
+  onSplit: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const blocked = part.blocked ?? [];
+  const saveBlocked = async () => {
+    if (await onBlocked(draft.split('\n').map((l) => l.trim()).filter(Boolean))) setEditing(false);
+  };
   const [name, setName] = useState(part.name);
   // shown at once, and back if the hub refuses
   const [readOnly, setReadOnly] = useState(!!part.readOnly);
@@ -145,11 +184,26 @@ function PartRow({
         {first && <span className="part-first">The project's own folder</span>}
       </div>
       <div className="part-actions">
-        <span title="Agents may not work in this part. Your own terminals still can.">
+        <span title="Agents only read and search here. Your own terminals can do anything.">
           <Checkbox label="Read-only" checked={readOnly} disabled={busy} onChange={(on) => void toggleReadOnly(on)} />
         </span>
         <Button variant="ghost" size="sm" icon="arrowUp" iconOnly aria-label={`Move ${part.name} up`} title={index === 1 ? `Make ${part.name} the project's own folder` : `Move ${part.name} up`} disabled={busy || first} onClick={() => onMove(index - 1)} />
         <Button variant="ghost" size="sm" icon="chevronDown" iconOnly aria-label={`Move ${part.name} down`} disabled={busy || last} onClick={() => onMove(index + 1)} />
+        <Button
+          variant={blocked.length ? 'secondary' : 'ghost'}
+          size="sm"
+          icon="lock"
+          iconOnly
+          aria-label={`Blocked commands of ${part.name}`}
+          aria-expanded={editing}
+          title={blocked.length ? `Blocked here: ${blocked.join(', ')}` : 'Commands that need your approval in this part'}
+          disabled={busy}
+          onClick={() => {
+            setDraft(blocked.join('\n'));
+            setEditing(!editing);
+          }}
+        />
+        <Button variant="ghost" size="sm" icon="arrowUpRight" iconOnly aria-label={`Split ${part.name} off`} title={first ? "The project's own folder stays" : `Make ${part.name} a project of its own`} disabled={busy || first} onClick={onSplit} />
         <Button
           variant="danger-ghost"
           size="sm"
@@ -161,6 +215,30 @@ function PartRow({
           onClick={onRemove}
         />
       </div>
+      {editing && (
+        <div className="part-blocked">
+          <label className="part-add-title" htmlFor={`blocked-${part.id}`}>
+            Blocked commands in {part.name}
+          </label>
+          <textarea
+            id={`blocked-${part.id}`}
+            className="control mono"
+            rows={3}
+            placeholder={'git push\nphp artisan migrate'}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <span className="field-hint">One per line. An agent that runs one there stops and asks you, on top of the commands blocked for the whole hub and project.</span>
+          <div className="part-add-foot">
+            <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => void saveBlocked()}>
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
     </li>
   );
 }

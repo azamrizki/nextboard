@@ -1276,6 +1276,25 @@ func writeFile(abs string, b []byte, mode string) error {
 }
 
 // Forget drops everything kept for a project.
+// Rename moves what review keeps of one project (its snapshots, local history and server copies)
+// to another name, as when a project becomes a part of another (ROADMAP #49). Nothing there is
+// overwritten: when the new name has something already, the old one is forgotten.
+func (m *Manager) Rename(from, to string) {
+	if from == to {
+		return
+	}
+	m.mu.Lock()
+	delete(m.projects, from)
+	delete(m.projects, to)
+	m.mu.Unlock()
+	src, dst := filepath.Join(m.cfg.Dir, from), filepath.Join(m.cfg.Dir, to)
+	if _, err := os.Stat(dst); err == nil {
+		_ = os.RemoveAll(src)
+		return
+	}
+	_ = os.Rename(src, dst)
+}
+
 func (m *Manager) Forget(projectID string) {
 	m.mu.Lock()
 	delete(m.projects, projectID)

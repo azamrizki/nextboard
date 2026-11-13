@@ -355,8 +355,28 @@ export interface ProjectPart {
   name: string;
   machineId: string;
   path: string;
-  /** Agents may not work there. */
+  /** Agents only read there. */
   readOnly?: boolean;
+  /** Commands that need the owner's approval there, on top of the hub's and the project's. */
+  blocked?: string[];
+}
+
+/** GET /api/projects/{id}/merge?from=: what merging another project into this one would do. */
+export interface MergePreview {
+  from: string;
+  parts: ProjectPart[];
+  workspaces: { id: string; name: string }[];
+  sessions: number;
+  running: number;
+  monitors: number;
+  loops: number;
+  memoryChars: number;
+  subMemories: number;
+  criticalChars: number;
+  criticalFits: boolean;
+  publicPage: boolean;
+  problem?: string;
+  code?: string;
 }
 
 export interface Project {
@@ -369,6 +389,8 @@ export interface Project {
   parts?: ProjectPart[];
   /** What agents may do in the parts other than their own: absent = read, "full" = everything. */
   partAccess?: 'full';
+  /** Ids of projects merged into this one: their old links still find it. */
+  aliases?: string[];
   createdAt: string;
   lastOpenedAt: string;
   /** In tab order. */

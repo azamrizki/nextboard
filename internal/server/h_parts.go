@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,6 +32,8 @@ func partErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusConflict, "too_many_parts", err.Error())
 	case errors.Is(err, project.ErrMainPart):
 		writeErrCode(w, http.StatusConflict, "main_part", err.Error())
+	case errors.Is(err, project.ErrBadBlocked):
+		writeErrCode(w, http.StatusBadRequest, "bad_blocked", err.Error())
 	default:
 		projectErr(w, err)
 	}
@@ -96,14 +99,15 @@ func (s *Server) handlePartCreate(w http.ResponseWriter, r *http.Request, p *pri
 
 func (s *Server) handlePartUpdate(w http.ResponseWriter, r *http.Request, p *principal) {
 	var req struct {
-		Name     *string `json:"name"`
-		ReadOnly *bool   `json:"readOnly"`
-		Index    *int    `json:"index"`
+		Name     *string   `json:"name"`
+		ReadOnly *bool     `json:"readOnly"`
+		Blocked  *[]string `json:"blocked"`
+		Index    *int      `json:"index"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	pr, err := s.projects.PatchPart(r.PathValue("id"), r.PathValue("part"), project.PartPatch{Name: req.Name, ReadOnly: req.ReadOnly, Index: req.Index})
+	pr, err := s.projects.PatchPart(r.PathValue("id"), r.PathValue("part"), project.PartPatch{Name: req.Name, ReadOnly: req.ReadOnly, Blocked: req.Blocked, Index: req.Index})
 	if err != nil {
 		partErr(w, err)
 		return
@@ -262,4 +266,42 @@ func (s *Server) reviewKeyAt(ref, machineID, p string) string {
 		}
 	}
 	return reviewKey(pr, part)
+}
+
+// blockedIn is what needs the owner's approval in a part: the hub's list, the project's, and the
+// part's own.
+func (s *Server) blockedIn(projectID, partID string) []string {
+	var out []string
+	if s.orch != nil {
+		out = s.orch.BlockedCommands(projectID)
+	}
+	if pr, ok := s.projects.Get(projectID); ok {
+		if pt, ok := pr.Part(partID); ok {
+			for _, c := range pt.Blocked {
+				if !slices.Contains(out, c) {
+					out = append(out, c)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// allBlocked is every list, for a CLI that keeps its rules in a config folder all projects share.
+func (s *Server) allBlocked() []string {
+	var out []string
+	if s.orch != nil {
+		out = s.orch.AllBlocked()
+	}
+	for _, pr := range s.projects.List() {
+		for _, pt := range pr.Parts {
+			for _, c := range pt.Blocked {
+				if !slices.Contains(out, c) {
+					out = append(out, c)
+				}
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }

@@ -787,7 +787,7 @@
 }
 .part-main {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   flex-direction: column;
   gap: var(--s-1);
   min-width: 0;
@@ -804,6 +804,57 @@
   flex: none;
   align-items: center;
   gap: var(--s-1);
+}
+.part-row {
+  flex-wrap: wrap;
+}
+.part-blocked {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.parts-merge {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0 0 var(--s-3);
+}
+.merge-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.merge-parts,
+.merge-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+.merge-parts li {
+  display: flex;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.merge-parts li {
+  align-items: baseline;
+}
+.merge-parts strong {
+  flex: none;
+}
+.merge-facts li {
+  color: var(--text-2);
+}
+.merge-problem {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  color: var(--tint-danger-text);
+  font-size: var(--fs-sm);
 }
 .part-add {
   padding-top: var(--s-3);

@@ -17,7 +17,7 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { prefs } from '../lib/format';
 import { boardPath, lastWorkspace, navigate, takeSearchParam } from '../lib/router';
-import { store, useProject, useProjectsReady } from '../store';
+import { store, useProject, useProjects, useProjectsReady } from '../store';
 
 export function BoardPage({ projectId, workspaceId }: { projectId: string; workspaceId: string }) {
   const project = useProject(projectId);
@@ -52,6 +52,14 @@ export function BoardPage({ projectId, workspaceId }: { projectId: string; works
       .then((p) => store.upsertProject(p))
       .catch(() => undefined);
   }, [projectId]);
+
+  // a project merged into another (ROADMAP #49): its old link opens the same board there
+  const projects = useProjects();
+  useEffect(() => {
+    if (project || !ready) return;
+    const into = projects.find((p) => p.aliases?.includes(projectId));
+    if (into) navigate(boardPath(into.id, workspaceId) + window.location.search, true);
+  }, [project, ready, projects, projectId, workspaceId]);
 
   const workspaces = useMemo(() => project?.workspaces ?? [], [project]);
   const ws = workspaces.find((w) => w.id === workspaceId);

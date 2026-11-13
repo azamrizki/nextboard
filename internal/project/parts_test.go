@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,49 @@ func TestPartsLimit(t *testing.T) {
 	}
 	if _, _, err := s.AddPart(p.ID, "One more", "local", "/srv/more"); !errors.Is(err, ErrTooManyParts) {
 		t.Fatalf("limit %v", err)
+	}
+}
+
+func TestMergeNames(t *testing.T) {
+	s := openStore(t, t.TempDir())
+	a := addProject(t, s, "/srv/shop", "Shop")
+	b := addProject(t, s, "/srv/web", "Web")
+	if _, _, err := s.AddPart(b.ID, "Docs", "local", "/srv/web-docs"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.AddPart(a.ID, "Web · Main", "m_x", "/srv/taken"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PlanMerge(a.ID, a.ID); !errors.Is(err, ErrMergeSelf) {
+		t.Fatalf("self %v", err)
+	}
+	got, gone, plan, err := s.Merge(a.ID, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, pt := range got.Parts {
+		names = append(names, pt.Name)
+	}
+	// a project in several parts: "<project> · <part>", and a taken name gets a number
+	if want := "Main,Web · Main,Web · Main 2,Web · Docs"; strings.Join(names, ",") != want {
+		t.Fatalf("names %s", strings.Join(names, ","))
+	}
+	if got.Workspaces[1].Name != "Web · Main" || got.Workspaces[1].ProjectID != a.ID {
+		t.Fatalf("workspace %+v", got.Workspaces[1])
+	}
+	if len(got.Aliases) != 1 || got.Aliases[0] != b.ID || gone.ID != b.ID {
+		t.Fatalf("aliases %v", got.Aliases)
+	}
+	if plan.PartIDs[MainPart] != got.Parts[2].ID || plan.PartIDs[""] != got.Parts[2].ID {
+		t.Fatalf("part ids %v", plan.PartIDs)
+	}
+	if _, ok := s.Get(b.ID); ok {
+		t.Fatal("the merged project is still there")
+	}
+	// overlap: a folder inside one of the project's parts
+	c := addProject(t, s, "/srv/shop/sub", "Sub")
+	if _, err := s.PlanMerge(a.ID, c.ID); !errors.Is(err, ErrPartOverlap) {
+		t.Fatalf("overlap %v", err)
 	}
 }

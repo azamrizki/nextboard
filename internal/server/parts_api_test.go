@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -301,6 +302,31 @@ func TestPartsForAgents(t *testing.T) {
 	if out := call(sid, tok, "write_file", map[string]any{"part": "Ops", "path": "x.txt", "content": "x"}); !strings.Contains(out, "Ops is read only for you") {
 		t.Fatalf("write in the read-only part: %s", out)
 	}
+	// a part's own blocked commands hold in that part, not in the others
+	webID := ""
+	for _, x := range p["parts"].([]any) {
+		if x.(map[string]any)["name"] == "Web" {
+			webID = x.(map[string]any)["id"].(string)
+		}
+	}
+	if st, b := h.do("PATCH", "/api/projects/"+pid+"/parts/"+webID, map[string]any{"blocked": []string{"two\nlines"}}, nil); st != 400 || b["code"] != "bad_blocked" {
+		t.Fatalf("bad blocked %d %v", st, b)
+	}
+	if st, b := h.do("PATCH", "/api/projects/"+pid+"/parts/"+webID, map[string]any{"blocked": []string{" touch ", "touch", ""}}, nil); st != 200 || len(b["parts"].([]any)[1].(map[string]any)["blocked"].([]any)) != 1 {
+		t.Fatalf("blocked %d %v", st, b)
+	}
+	if out := call(sid, tok, "bash", map[string]any{"part": "Web", "command": "touch made.txt"}); !strings.Contains(out, "the owner blocked this command") {
+		t.Fatalf("a blocked command in Web: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(web, "made.txt")); err == nil {
+		t.Fatal("the blocked command ran")
+	}
+	if got := h.srv.blockedIn(pid, webID); !slices.Contains(got, "touch") {
+		t.Fatalf("launch list of the part %v", got)
+	}
+	if got := h.srv.blockedIn(pid, ""); slices.Contains(got, "touch") {
+		t.Fatalf("the first part takes the other part's list %v", got)
+	}
 	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": ""}, nil)
 
 	// an agent whose own part is read only: no local tools, the hub's read tools only
@@ -424,5 +450,94 @@ func TestMonitorPart(t *testing.T) {
 		if strings.Contains(page.String(), secret) {
 			t.Errorf("%q is on the public page", secret)
 		}
+	}
+}
+
+// TestMergeAndSplit: a project kept apart becomes a part of another with its boards, terminals,
+// monitors and memory; its critical notes join only when asked; a part becomes a project again.
+func TestMergeAndSplit(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	api, web := t.TempDir(), t.TempDir()
+	st, a := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": api, "name": "Shop"}, nil)
+	if st != 201 {
+		t.Fatalf("project %d %v", st, a)
+	}
+	st, b := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": web, "name": "Shop Web"}, nil)
+	if st != 201 {
+		t.Fatalf("project %d %v", st, b)
+	}
+	aid, bid := a["id"].(string), b["id"].(string)
+	bws := b["workspaces"].([]any)[0].(map[string]any)["id"].(string)
+	_, sh := h.do("POST", "/api/sessions", map[string]any{"preset": "shell", "workspaceId": bws}, nil)
+	_, mon := h.do("POST", "/api/projects/"+bid+"/uptime", map[string]any{"name": "web", "type": "http", "url": "http://127.0.0.1:9/", "public": true, "publicName": "Website", "active": false}, nil)
+	h.do("PUT", "/api/projects/"+bid+"/uptime/public", map[string]any{"enabled": true, "title": "Status"}, nil)
+	h.do("PUT", "/api/projects/"+bid+"/memory", map[string]any{"scope": "project", "content": "- the web build runs on node 22\n"}, nil)
+	h.do("PUT", "/api/memory/docs/design?projectId="+bid, map[string]any{"title": "Design", "content": "- buttons are square\n"}, nil)
+	h.do("PUT", "/api/memory/docs/critical?projectId="+bid, map[string]any{"content": "- never deploy on friday\n"}, nil)
+
+	if st, v := h.do("GET", "/api/projects/"+aid+"/merge?from="+aid, nil, nil); st != 200 || v["code"] != "merge_self" {
+		t.Fatalf("preview of itself %d %v", st, v)
+	}
+	st, v := h.do("GET", "/api/projects/"+aid+"/merge?from="+bid, nil, nil)
+	if st != 200 || v["problem"] != nil || len(v["parts"].([]any)) != 1 || v["parts"].([]any)[0].(map[string]any)["name"] != "Shop Web" ||
+		v["sessions"] != float64(1) || v["monitors"] != float64(1) || v["publicPage"] != true || v["criticalChars"].(float64) == 0 || v["criticalFits"] != true || v["subMemories"] != float64(1) {
+		t.Fatalf("preview %d %v", st, v)
+	}
+	if st, e := h.do("POST", "/api/projects/"+aid+"/merge", map[string]any{"from": "p_nope"}, nil); st != 404 {
+		t.Fatalf("unknown %d %v", st, e)
+	}
+	st, m := h.do("POST", "/api/projects/"+aid+"/merge", map[string]any{"from": bid, "critical": "append"}, nil)
+	if st != 200 || len(m["parts"].([]any)) != 2 || len(m["workspaces"].([]any)) != 2 || fmt.Sprint(m["aliases"]) != "["+bid+"]" {
+		t.Fatalf("merge %d %v", st, m)
+	}
+	part := m["parts"].([]any)[1].(map[string]any)
+	if part["path"] != web || part["name"] != "Shop Web" {
+		t.Fatalf("part %v", part)
+	}
+	pid := part["id"].(string)
+	if _, list := h.do("GET", "/api/projects", nil, nil); strings.Contains(fmt.Sprint(list), bid+" ") {
+		t.Fatalf("the merged project is still listed")
+	}
+	// the terminal moved, in its part, without a restart
+	if _, s := h.do("GET", "/api/sessions/"+sh["id"].(string), nil, nil); s["projectId"] != aid || s["partId"] != pid || s["workspaceId"] != bws {
+		t.Fatalf("session %v", s)
+	}
+	// the monitor moved, off the public page, in the part
+	_, ups := h.do("GET", "/api/projects/"+aid+"/uptime", nil, nil)
+	mons := ups["items"].([]any)
+	if len(mons) != 1 || mons[0].(map[string]any)["id"] != mon["id"] || mons[0].(map[string]any)["public"] == true || mons[0].(map[string]any)["partId"] != pid {
+		t.Fatalf("monitors %v", ups)
+	}
+	// the memory: a sub-memory of its own, its pages, and the critical notes as asked
+	mem := h.srv.orch.Memory
+	if sub, err := mem.Sub(aid, "shop-web"); err != nil || !strings.Contains(sub.Content, "node 22") {
+		t.Fatalf("memory %v %v", sub, err)
+	}
+	if sub, err := mem.Sub(aid, "shop-web-design"); err != nil || !strings.Contains(sub.Content, "square") {
+		t.Fatalf("its page %v %v", sub, err)
+	}
+	if c, _ := mem.Sub(aid, "critical"); !strings.Contains(c.Content, "## From Shop Web") || !strings.Contains(c.Content, "never deploy on friday") {
+		t.Fatalf("critical %q", c.Content)
+	}
+	if last := h.srv.orch.Threads.Last(aid, 3); len(last) == 0 || !strings.Contains(last[len(last)-1].Text, "Shop Web is now part of this project") {
+		t.Fatalf("thread %+v", last)
+	}
+
+	// split it again: not while a terminal works in it
+	if st, e := h.do("POST", "/api/projects/"+aid+"/parts/"+pid+"/split", nil, nil); st != 409 || e["code"] != "part_busy" {
+		t.Fatalf("busy %d %v", st, e)
+	}
+	h.do("DELETE", "/api/sessions/"+sh["id"].(string), nil, nil)
+	if st, e := h.do("POST", "/api/projects/"+aid+"/parts/main/split", nil, nil); st != 409 || e["code"] != "main_part" {
+		t.Fatalf("first part %d %v", st, e)
+	}
+	st, sp := h.do("POST", "/api/projects/"+aid+"/parts/"+pid+"/split", nil, nil)
+	if st != 201 {
+		t.Fatalf("split %d %v", st, sp)
+	}
+	np, from := sp["project"].(map[string]any), sp["from"].(map[string]any)
+	if np["path"] != web || np["name"] != "Shop Web" || len(from["parts"].([]any)) != 1 || len(np["workspaces"].([]any)) != 1 {
+		t.Fatalf("split %v", sp)
 	}
 }

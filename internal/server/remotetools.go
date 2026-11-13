@@ -132,10 +132,10 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		prompt.WriteString(s.orch.LaunchMemory(sp.ID, sp.WorkspaceID, sp.ProjectID, claude))
 	}
 	if s.orch != nil {
-		c.Blocked = s.orch.BlockedCommands(sp.ProjectID)
+		c.Blocked = s.blockedIn(sp.ProjectID, sp.PartID)
 		// Codex keeps its rules in its config folder: only in one the hub made, never the user's own.
 		if a.CapBase() == "codex" && hasProfile && pf.CreatedByHub && !c.Remote {
-			if err := agent.WriteCodexRules(pf.Dir, s.orch.AllBlocked()); err != nil {
+			if err := agent.WriteCodexRules(pf.Dir, s.allBlocked()); err != nil {
 				log.Printf("codex rules: %v", err)
 			}
 		}
@@ -238,8 +238,9 @@ type remoteTarget struct {
 	credentials bool
 	// homePart names the console's own part, parts are the project's others (remoteparts.go);
 	// inPart is the other part one call works in.
-	homePart, inPart string
-	parts            []partTarget
+	homePart, inPart     string
+	homePartID, inPartID string
+	parts                []partTarget
 	// reviewKey: the review of the part the call works in (h_parts.go)
 	reviewKey string
 }
@@ -387,7 +388,7 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 				Command string `json:"command"`
 			}
 			if json.Unmarshal(p.Arguments, &a) == nil {
-				if answer := s.orch.BlockedAnswer(t.projectID, a.Command); answer != "" {
+				if answer := s.blockedAnswer(t, a.Command); answer != "" {
 					return remoteAnswer(answer, true), nil
 				}
 			}
