@@ -27,6 +27,8 @@ Monitor milik **project**, bukan milik kartu. Semua kartu Uptime di satu project
 
 Semua: `name`, `intervalSec` (20 sampai 86400, bawaan 60), `retries` (0 sampai 10, bawaan 1), `retryIntervalSec` (bawaan sama dengan interval), `timeoutSec` (1 sampai 60, bawaan 80 % interval maks 30), `active`, `notify`. Maksimal 100 monitor per project; paling banyak 32 cek berjalan bersamaan.
 
+**`partId`**: part project yang dipantau monitor ini (API-board §1, ROADMAP #49), hanya label: tampil sebagai chip di card Uptime. Harus part project itu (`404 part_not_found`). Tidak pernah sampai ke halaman status publik.
+
 **`machineId`** (`http`, `tcp`, `ping`): dicek dari server lewat koneksi SSH yang sudah ada, tanpa memasang apa pun, jadi bisa menjangkau yang hanya terlihat dari server itu (localhost-nya sendiri, jaringan privatnya). `http` dan `tcp` lewat channel `direct-tcpip`, `ping` lewat exec. Kosong berarti This PC.
 
 ## Status

@@ -57,17 +57,17 @@ func (s *Server) setupReview() {
 		if in.Handle == "" {
 			name = in.Name
 		}
-		s.review.SessionChanged(in.ProjectID, in.ID, name, in.Preset, working, in.StateSource == agentstate.SrcHooks)
+		s.review.SessionChanged(s.reviewKeyOf(in.ProjectID, in.PartID), in.ID, name, in.Preset, working, in.StateSource == agentstate.SrcHooks)
 	}
 	s.sessions.OnFileTool = func(sp session.Spec, path string) {
-		s.review.Hint(sp.ProjectID, sp.ID, path)
+		s.review.Hint(s.reviewKeyOf(sp.ProjectID, sp.PartID), sp.ID, path)
 	}
 	onRemove := s.sessions.OnRemove
 	s.sessions.OnRemove = func(sp session.Spec) {
 		if onRemove != nil {
 			onRemove(sp)
 		}
-		s.review.SessionChanged(sp.ProjectID, sp.ID, "", "", false, false)
+		s.review.SessionChanged(s.reviewKeyOf(sp.ProjectID, sp.PartID), sp.ID, "", "", false, false)
 	}
 }
 
@@ -157,13 +157,19 @@ func reviewErr(w http.ResponseWriter, err error) {
 	writeErrCode(w, http.StatusBadGateway, "review_failed", err.Error())
 }
 
+// reviewProject is the review a request is about: the project's first part, or the part its ref
+// or ?part= names (ROADMAP #49).
 func (s *Server) reviewProject(w http.ResponseWriter, r *http.Request) (string, bool) {
-	id := r.PathValue("id")
-	if _, ok := s.projects.Get(id); !ok {
+	pr, part, err := s.projectRef(r.PathValue("id"), r.URL.Query().Get("part"))
+	switch {
+	case errors.Is(err, project.ErrPartNotFound):
+		writeErrCode(w, http.StatusNotFound, "part_not_found", err.Error())
+		return "", false
+	case err != nil:
 		writeErrCode(w, http.StatusNotFound, "project_not_found", project.ErrNotFound.Error())
 		return "", false
 	}
-	return id, true
+	return reviewKey(pr, part), true
 }
 
 func (s *Server) handleReview(w http.ResponseWriter, r *http.Request, p *principal) {

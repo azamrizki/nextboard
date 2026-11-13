@@ -429,7 +429,11 @@ func (s *Server) handleGitCommitOp(w http.ResponseWriter, r *http.Request, p *pr
 	}
 	// a hard reset throws away what is not committed: the local history keeps it
 	if req.Op == "reset" && req.Mode == "hard" {
-		_ = s.review.Snapshot(rp.ProjectID)
+		key := rp.ProjectID
+		if rp.Part != "" {
+			key += "~" + rp.Part
+		}
+		_ = s.review.Snapshot(key)
 	}
 	st, err := s.gitPrev.git.DoCommitOp(r.Context(), rp, req)
 	gitStatusReply(w, st, err)

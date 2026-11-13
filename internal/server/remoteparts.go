@@ -19,6 +19,15 @@ import (
 type partTarget struct {
 	id, name, machineID, cwd string
 	readOnly                 bool
+	reviewKey                string
+}
+
+// review is the review the call's changes go to: its part's, else the project's.
+func (t remoteTarget) review() string {
+	if t.reviewKey != "" {
+		return t.reviewKey
+	}
+	return t.projectID
 }
 
 // withParts fills in a console's parts: whether its own part is read-only, and the others.
@@ -32,6 +41,7 @@ func (s *Server) withParts(t *remoteTarget, sp session.Spec) {
 		home, _ = pr.Part("")
 	}
 	t.homePart = home.Name
+	t.reviewKey = reviewKey(pr, home.ID)
 	if home.ReadOnly {
 		t.readOnly = true
 	}
@@ -40,7 +50,7 @@ func (s *Server) withParts(t *remoteTarget, sp session.Spec) {
 			continue
 		}
 		t.parts = append(t.parts, partTarget{id: pt.ID, name: pt.Name, machineID: pt.MachineID, cwd: pt.Path,
-			readOnly: pt.ReadOnly || pr.PartAccess != project.PartAccessFull})
+			readOnly: pt.ReadOnly || pr.PartAccess != project.PartAccessFull, reviewKey: reviewKey(pr, pt.ID)})
 	}
 }
 
@@ -103,7 +113,7 @@ func (t remoteTarget) forPart(args json.RawMessage) (remoteTarget, string) {
 		if strings.EqualFold(p.name, name) || p.id == name {
 			c := t
 			c.machineID, c.cwd, c.readOnly = p.machineID, p.cwd, p.readOnly
-			c.inPart = p.name
+			c.inPart, c.reviewKey = p.name, p.reviewKey
 			return c, ""
 		}
 	}

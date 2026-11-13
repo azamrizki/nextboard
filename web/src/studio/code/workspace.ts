@@ -407,7 +407,7 @@ export class Workspace {
       void this.refreshReview();
     });
     studioStore.onReviewOverlap.add((e) => {
-      if (e.projectId === this.projectId) toast.info(`${e.agents.join(' and ')} both changed ${e.path}. Check it in Review.`);
+      if (e.projectId === this.pid) toast.info(`${e.agents.join(' and ')} both changed ${e.path}. Check it in Review.`);
     });
     void this.refreshReview();
     void this.refreshLaravel();

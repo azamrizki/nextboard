@@ -240,6 +240,8 @@ type remoteTarget struct {
 	// inPart is the other part one call works in.
 	homePart, inPart string
 	parts            []partTarget
+	// reviewKey: the review of the part the call works in (h_parts.go)
+	reviewKey string
 }
 
 func (t remoteTarget) tools() []map[string]any {
@@ -421,13 +423,13 @@ func (s *Server) noteRemoteChange(t remoteTarget, tool string, args json.RawMess
 			Path string `json:"path"`
 		}
 		if json.Unmarshal(args, &a) == nil && a.Path != "" {
-			s.review.Hint(t.projectID, t.sessionID, path.Clean(remotePath(t.cwd, a.Path)))
+			s.review.Hint(t.review(), t.sessionID, path.Clean(remotePath(t.cwd, a.Path)))
 		}
 	case "bash":
 	default:
 		return
 	}
-	go s.review.Soon(t.projectID)
+	go s.review.Soon(t.review())
 }
 
 // remoteSlowCall: a file call this long says something about the link. Commands

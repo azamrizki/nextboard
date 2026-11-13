@@ -324,7 +324,7 @@ func (s *Server) handleFSWrite(w http.ResponseWriter, r *http.Request, p *princi
 		return
 	}
 	if req.ProjectID != "" {
-		s.review.Soon(req.ProjectID)
+		s.review.Soon(s.reviewKeyAt(req.ProjectID, h.ID(), req.Path))
 	}
 	writeJSON(w, http.StatusOK, st)
 }

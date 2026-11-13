@@ -324,3 +324,105 @@ func TestPartsForAgents(t *testing.T) {
 		t.Fatalf("changed: %q", b)
 	}
 }
+
+// TestReviewPerPart: each part has its own review and local history, reached by its project ref;
+// changes in one part's folder show in that part's review only (ROADMAP #49).
+func TestReviewPerPart(t *testing.T) {
+	h := newP7Hub(t)
+	api, web := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(api, "a.txt"), []byte("one\n"), 0o644)
+	os.WriteFile(filepath.Join(web, "b.txt"), []byte("bee\n"), 0o644)
+	st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": api, "name": "Shop"}, nil)
+	if st != 201 {
+		t.Fatalf("project %d %v", st, p)
+	}
+	pid := p["id"].(string)
+	_, p = h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "Web", "machineId": "local", "path": web}, nil)
+	part := p["parts"].([]any)[1].(map[string]any)["id"].(string)
+	key := pid + "~" + part
+	if got := h.srv.reviewKeyOf(pid, part); got != key {
+		t.Fatalf("key %q", got)
+	}
+	if got := h.srv.reviewKeyOf(pid, ""); got != pid {
+		t.Fatalf("first part key %q", got)
+	}
+	if got := h.srv.reviewKeyAt(pid, "local", filepath.Join(web, "b.txt")); got != key {
+		t.Fatalf("key of a file in the part %q", got)
+	}
+	if err := h.srv.review.Snapshot(key); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.srv.review.Snapshot(pid); err != nil {
+		t.Fatal(err)
+	}
+	rv := h.srv.review
+	rv.SessionChanged(key, "s_web", "@Bayu", "claude", true, true)
+	time.Sleep(300 * time.Millisecond)
+	os.WriteFile(filepath.Join(web, "b.txt"), []byte("bee!\n"), 0o644)
+	rv.SessionChanged(key, "s_web", "", "", false, false)
+
+	files := func(ref string) int {
+		var sum struct {
+			Supported bool `json:"supported"`
+			Agents    []struct {
+				Files []struct {
+					Path string `json:"path"`
+				} `json:"files"`
+			} `json:"agents"`
+		}
+		h.getJSON("/api/projects/"+ref+"/review", &sum)
+		n := 0
+		for _, a := range sum.Agents {
+			n += len(a.Files)
+		}
+		return n
+	}
+	waitTrue(t, "the part's change", 10*time.Second, func() bool { return files(key) == 1 })
+	if n := files(pid); n != 0 {
+		t.Fatalf("the first part's review shows the other part's change: %d", n)
+	}
+	if st, b := h.do("GET", "/api/projects/"+pid+"~pt_nope/review", nil, nil); st != 404 || b["code"] != "part_not_found" {
+		t.Fatalf("unknown part %d %v", st, b)
+	}
+}
+
+// TestMonitorPart: a monitor names the part of the project it watches; the part must be the
+// project's, and nothing of it reaches the public status page.
+func TestMonitorPart(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": t.TempDir(), "name": "Shop"}, nil)
+	if st != 201 {
+		t.Fatalf("project %d %v", st, p)
+	}
+	pid := p["id"].(string)
+	_, p = h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "SECRET-PART", "machineId": "local", "path": t.TempDir()}, nil)
+	part := p["parts"].([]any)[1].(map[string]any)["id"].(string)
+	if st, b := h.do("POST", "/api/projects/"+pid+"/uptime", map[string]any{"name": "api", "type": "http", "url": "http://a.example/", "partId": "pt_nope"}, nil); st != 404 || b["code"] != "part_not_found" {
+		t.Fatalf("unknown part %d %v", st, b)
+	}
+	st, m := h.do("POST", "/api/projects/"+pid+"/uptime", map[string]any{"name": "api", "type": "http", "url": "http://127.0.0.1:9/", "partId": part, "public": true, "publicName": "Website", "active": false}, nil)
+	if st != 201 || m["partId"] != part {
+		t.Fatalf("monitor %d %v", st, m)
+	}
+	if st, b := h.do("PATCH", "/api/uptime/"+m["id"].(string), map[string]any{"partId": "pt_gone"}, nil); st != 404 || b["code"] != "part_not_found" {
+		t.Fatalf("update to an unknown part %d %v", st, b)
+	}
+	_, c := h.do("PUT", "/api/projects/"+pid+"/uptime/public", map[string]any{"enabled": true, "title": "Status"}, nil)
+	req, _ := http.NewRequest("GET", h.ts.URL+"/status/"+c["token"].(string), nil)
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var page bytes.Buffer
+	page.ReadFrom(resp.Body)
+	if resp.StatusCode != 200 || !strings.Contains(page.String(), "Website") {
+		t.Fatalf("%d %s", resp.StatusCode, page.String())
+	}
+	for _, secret := range []string{"SECRET-PART", part, "partId"} {
+		if strings.Contains(page.String(), secret) {
+			t.Errorf("%q is on the public page", secret)
+		}
+	}
+}

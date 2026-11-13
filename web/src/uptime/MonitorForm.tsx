@@ -5,7 +5,8 @@ import { errorMessage } from '../api';
 import { Button } from '../components/Button';
 import { Checkbox, Field, FormSection, SelectField, TextField } from '../components/form';
 import { Modal } from '../components/Modal';
-import { useMachines } from '../store';
+import { projectParts } from '../lib/parts';
+import { useMachines, useProject } from '../store';
 import { uptimeApi, type JsonOp, type Monitor, type MonitorConfig, type MonitorType } from './api';
 import { putMonitor } from './store';
 
@@ -64,6 +65,10 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
   const [type, setType] = useState<MonitorType>(m?.type ?? 'http');
   const [name, setName] = useState(m?.name ?? '');
   const [machineId, setMachineId] = useState(m?.machineId ?? '');
+  // a project in several parts: which one this watches
+  const project = useProject(projectId);
+  const parts = project ? projectParts(project) : [];
+  const [partId, setPartId] = useState(m?.partId ?? '');
   const [url, setUrl] = useState(m?.url ?? '');
   const [method, setMethod] = useState(m?.method ?? 'GET');
   const [accepted, setAccepted] = useState(m?.accepted ?? '200-299');
@@ -100,6 +105,7 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
       name: name.trim() || nameFrom({ type, url, host, port, container }),
       type,
       machineId,
+      partId,
       notify,
       public: isPublic,
       publicName,
@@ -231,6 +237,16 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
             <TextField label="Answer must contain" optional mono value={dnsExpect} onChange={(e) => setDnsExpect(e.target.value)} fieldClassName="up-grow" />
             <TextField label="Resolver" optional mono placeholder="1.1.1.1" value={dnsServer} onChange={(e) => setDnsServer(e.target.value)} fieldClassName="up-grow" />
           </div>
+        )}
+        {parts.length > 1 && (
+          <SelectField label="Part" optional hint="The part of the project this watches." value={partId} onChange={(e) => setPartId(e.target.value)}>
+            <option value="">None</option>
+            {parts.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </SelectField>
         )}
         {fromMachine && (
           <SelectField label="Check from" hint="From a server, this reaches what only that server can see, such as its own localhost." value={machineId} onChange={(e) => setMachineId(e.target.value)}>

@@ -60,6 +60,8 @@ type Monitor struct {
 	// MachineID is where http, tcp and ping checks run from; "" is This PC. From a server
 	// they reach what only that server can see, such as its own loopback.
 	MachineID string `json:"machineId,omitempty"`
+	// PartID ties it to a part of the project (ROADMAP #49), the service it watches: a label only.
+	PartID string `json:"partId,omitempty"`
 
 	// http
 	URL           string   `json:"url,omitempty"`

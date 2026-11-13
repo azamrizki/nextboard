@@ -18,6 +18,8 @@ export interface MonitorConfig {
   name: string;
   type: MonitorType;
   machineId?: string;
+  /** The part of the project it watches (ROADMAP #49): a label. */
+  partId?: string;
   url?: string;
   method?: string;
   accepted?: string;

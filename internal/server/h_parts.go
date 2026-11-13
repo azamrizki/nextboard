@@ -130,11 +130,13 @@ func (s *Server) handlePartDelete(w http.ResponseWriter, r *http.Request, p *pri
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "close the terminals in that part first", "code": "part_busy", "sessions": n})
 		return
 	}
+	before, _ := s.projects.Get(pid)
 	pr, _, err := s.projects.DeletePart(pid, partID)
 	if err != nil {
 		partErr(w, err)
 		return
 	}
+	s.review.Forget(reviewKey(before, partID))
 	s.emitProject(pr.ID)
 	writeJSON(w, http.StatusOK, s.projectView(pr))
 }
@@ -227,4 +229,37 @@ func (s *Server) partReadOnly(projectID, partID string) bool {
 	}
 	pt, ok := pr.Part(partID)
 	return ok && pt.ReadOnly
+}
+
+// reviewKey is what review knows a part by (review is per part, from its own folder): the project
+// id for the first part, as before parts, and "<project>~<part>" for another.
+func reviewKey(pr project.Project, partID string) string {
+	if partID == "" || len(pr.Parts) == 0 || pr.Parts[0].ID == partID {
+		return pr.ID
+	}
+	return pr.ID + "~" + partID
+}
+
+// reviewKeyOf is reviewKey for a session's project and part.
+func (s *Server) reviewKeyOf(projectID, partID string) string {
+	pr, ok := s.projects.Get(projectID)
+	if !ok {
+		return projectID
+	}
+	return reviewKey(pr, partID)
+}
+
+// reviewKeyAt is the review of the part a file is in: the one a project ref names, else the part
+// of the project on that machine whose folder holds it.
+func (s *Server) reviewKeyAt(ref, machineID, p string) string {
+	pr, part, err := s.projectRef(ref, "")
+	if err != nil {
+		return ref
+	}
+	if part == "" && strings.HasPrefix(p, "/") {
+		if pt, ok := pr.PartAt(machineID, path.Clean(p)); ok {
+			part = pt.ID
+		}
+	}
+	return reviewKey(pr, part)
 }

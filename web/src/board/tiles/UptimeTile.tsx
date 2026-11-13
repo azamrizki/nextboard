@@ -12,6 +12,7 @@ import type { MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
 import { copyText } from '../../lib/clipboard';
 import { formatDateTime } from '../../lib/format';
+import { projectParts } from '../../lib/parts';
 import { useMachine } from '../../store';
 import { AlertsDialog } from '../../uptime/AlertsDialog';
 import { MaintenanceDialog } from '../../uptime/MaintenanceDialog';
@@ -218,12 +219,16 @@ function Detail({ m, onBack, onEdit, onDelete }: { m: Monitor; onBack: () => voi
 }
 
 function Row({ m, active, onPick }: { m: Monitor; active: boolean; onPick: () => void }) {
+  const { project } = useBoardEnv();
+  // the part of a project in several parts it watches (ROADMAP #49)
+  const part = m.partId ? projectParts(project).find((p) => p.id === m.partId) : undefined;
   return (
     <li>
       <button type="button" className={`up-row ${active ? 'is-selected' : ''}`} aria-current={active || undefined} onClick={onPick}>
         <span className="up-row-top">
           <span className={`dot dot-${STATUS_DOT[m.status]}`} aria-hidden="true" />
           <span className="up-row-name truncate">{m.name}</span>
+          {part && <span className="cap-chip up-row-part">{part.name}</span>}
           <span className="sr-only"> {STATUS_LABEL[m.status]}</span>
           <span className="up-row-pct tabular" title="Uptime, 24 hours">
             {m.status === 'paused' ? 'Paused' : percent(m.uptime24h)}

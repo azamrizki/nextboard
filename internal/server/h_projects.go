@@ -219,7 +219,9 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request, p *
 	}
 	s.closeBoards(pr.Name, pr.Workspaces)
 	s.uptime.RemoveProject(pr.ID)
-	s.review.Forget(pr.ID)
+	for _, pt := range pr.Parts {
+		s.review.Forget(reviewKey(pr, pt.ID))
+	}
 	s.deleteSessions(func(pl session.Placement) bool { return pl.ProjectID == pr.ID || inProject[pl.WorkspaceID] })
 	s.events.Publish(map[string]any{"type": "projectRemoved", "id": pr.ID})
 	writeJSON(w, http.StatusOK, okBody)

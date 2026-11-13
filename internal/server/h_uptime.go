@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/uptime"
 )
 
@@ -71,6 +72,10 @@ func (s *Server) handleUptimeCreate(w http.ResponseWriter, r *http.Request, p *p
 		return
 	}
 	m.ProjectID = id
+	if err := s.monitorPart(&m); err != nil {
+		writeErrCode(w, http.StatusNotFound, "part_not_found", err.Error())
+		return
+	}
 	v, err := s.uptime.Create(m)
 	if err != nil {
 		uptimeErr(w, err)
@@ -85,7 +90,16 @@ func (s *Server) handleUptimeUpdate(w http.ResponseWriter, r *http.Request, p *p
 		return
 	}
 	// Merged over what is there: what the body leaves out stays.
-	v, err := s.uptime.Update(r.PathValue("id"), func(m *uptime.Monitor) error { return json.Unmarshal(raw, m) })
+	v, err := s.uptime.Update(r.PathValue("id"), func(m *uptime.Monitor) error {
+		if err := json.Unmarshal(raw, m); err != nil {
+			return err
+		}
+		return s.monitorPart(m)
+	})
+	if errors.Is(err, project.ErrPartNotFound) {
+		writeErrCode(w, http.StatusNotFound, "part_not_found", err.Error())
+		return
+	}
 	if err != nil {
 		uptimeErr(w, err)
 		return
@@ -292,4 +306,19 @@ func (s *Server) serveStatusOnly() (stop func()) {
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 	}
+}
+
+// monitorPart checks that a monitor's part is one of its project's parts.
+func (s *Server) monitorPart(m *uptime.Monitor) error {
+	if m.PartID == "" {
+		return nil
+	}
+	pr, ok := s.projects.Get(m.ProjectID)
+	if !ok {
+		return project.ErrPartNotFound
+	}
+	if _, ok := pr.Part(m.PartID); !ok {
+		return project.ErrPartNotFound
+	}
+	return nil
 }
