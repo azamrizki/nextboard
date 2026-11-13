@@ -13,8 +13,9 @@ import (
 )
 
 // The parts of a project to an agent (ROADMAP #49): its own part, where it works as before, and
-// the others, which the hub's file tools reach with a `part` argument. The others are read-only
-// unless the project's partAccess is "full"; a part marked read-only is read-only for everyone.
+// the others, which the hub's file tools reach with a `part` argument. The others on its own machine
+// it may change too; those on other machines are read-only unless the project's partAccess is
+// "full". A part marked read-only is read-only for everyone.
 
 // blockedAnswer refuses a command blocked in the part the call works in: the hub's list, the
 // project's, and that part's own (memguard.go's words).
@@ -64,8 +65,14 @@ func (s *Server) withParts(t *remoteTarget, sp session.Spec) {
 			continue
 		}
 		t.parts = append(t.parts, partTarget{id: pt.ID, name: pt.Name, machineID: pt.MachineID, cwd: pt.Path,
-			readOnly: pt.ReadOnly || pr.PartAccess != project.PartAccessFull, reviewKey: reviewKey(pr, pt.ID)})
+			readOnly: !mayChange(pr, home, pt), reviewKey: reviewKey(pr, pt.ID)})
 	}
+}
+
+// mayChange reports whether an agent at home in one part may change another: never a read-only
+// part; one on the same machine always; one on another machine only with full access.
+func mayChange(pr project.Project, home, pt project.Part) bool {
+	return !pt.ReadOnly && (pt.MachineID == home.MachineID || pr.PartAccess == project.PartAccessFull)
 }
 
 // writable reports whether any write tool can do something for this token.
@@ -165,6 +172,7 @@ func (s *Server) partsPrompt(sp session.Spec) string {
 	if len(pr.Parts) > 1 {
 		b.WriteString("This project spans several parts, each a folder on a machine:\n")
 	}
+	changes := false
 	for _, pt := range pr.Parts {
 		if len(pr.Parts) < 2 {
 			break
@@ -175,14 +183,15 @@ func (s *Server) partsPrompt(sp session.Spec) string {
 			access = "yours, where you work"
 		case pt.ID == home.ID:
 			access = "yours, read only"
-		case !pt.ReadOnly && pr.PartAccess == project.PartAccessFull:
+		case mayChange(pr, home, pt):
 			access = "you may change it too"
+			changes = true
 		}
 		fmt.Fprintf(&b, "- %s: %s (%s)\n", pt.Name, where(pt), access)
 	}
 	if len(pr.Parts) > 1 {
 		b.WriteString("Reach another part with the nextboard tools read_file, grep and glob")
-		if pr.PartAccess == project.PartAccessFull {
+		if changes {
 			b.WriteString(" (and write_file, edit_file and bash where you may change it)")
 		}
 		b.WriteString(", giving part: \"<name>\". Paths there start in that part's folder. Your own part needs no part argument.\n")

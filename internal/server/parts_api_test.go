@@ -181,8 +181,9 @@ func TestPartWorkbench(t *testing.T) {
 	}
 }
 
-// TestPartsForAgents: an agent reaches the other parts of its project through the hub's tools,
-// read only unless the project gives full access; a read-only part stays read only (ROADMAP #49).
+// TestPartsForAgents: an agent reaches the other parts of its project through the hub's tools. Those
+// on its own machine it may change; those on another machine it only reads unless the project gives
+// full access; a read-only part stays read only (ROADMAP #49).
 func TestPartsForAgents(t *testing.T) {
 	h := newTestHub(t)
 	h.setup()
@@ -205,14 +206,22 @@ func TestPartsForAgents(t *testing.T) {
 
 	sa := newSpyAgents(t, h, bin, wid)
 	start, tools, call := sa.start, sa.tools, sa.call
-	// an agent in the first part, on This PC: the other parts through the hub, read only
+	// a part on another machine (never reached here: refusals come before the machine is)
+	if _, _, err := h.srv.projects.AddPart(pid, "Edge", "m_far", "/srv/edge"); err != nil {
+		t.Fatal(err)
+	}
+	// an agent in the first part, on This PC: the other parts through the hub; those on This PC it
+	// may change too, the one on another machine it only reads
 	sid, tok, _, env := start(map[string]any{})
-	if !strings.Contains(env, "This project spans several parts") || !strings.Contains(env, "- Web: This PC, "+web+" (read only for you)") || !strings.Contains(env, "(yours, where you work)") {
-		t.Fatalf("prompt:\n%s", env)
+	for _, want := range []string{"This project spans several parts", "(yours, where you work)", "- Web: This PC, " + web + " (you may change it too)",
+		"- Ops: This PC, " + ops + " (read only for you)", "- Edge: m_far, /srv/edge (read only for you)", "write_file, edit_file and bash where you may change it"} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("prompt without %q:\n%s", want, env)
+		}
 	}
 	ts := tools(sid, tok)
-	if ts["write_file"] != nil || ts["read_file"] == nil {
-		t.Fatalf("read tools only: %v", ts)
+	if ts["write_file"] == nil || ts["bash"] == nil || ts["read_file"] == nil {
+		t.Fatalf("write tools for the parts on This PC: %v", ts)
 	}
 	if props := ts["read_file"]["inputSchema"].(map[string]any)["properties"].(map[string]any); props["part"] == nil {
 		t.Fatalf("no part argument: %v", props)
@@ -223,18 +232,10 @@ func TestPartsForAgents(t *testing.T) {
 	if out := call(sid, tok, "read_file", map[string]any{"part": "Docs", "path": "x"}); !strings.Contains(out, `no part \"Docs\"`) && !strings.Contains(out, "no part") {
 		t.Fatalf("unknown part: %s", out)
 	}
-	if out := call(sid, tok, "write_file", map[string]any{"part": "Web", "path": "x.txt", "content": "x"}); !strings.Contains(out, "Web is read only for you") {
-		t.Fatalf("write in a read-only part: %s", out)
-	}
 	if out := call(sid, tok, "read_file", map[string]any{"path": "index.html"}); !strings.Contains(out, "use your own tools") {
 		t.Fatalf("its own part on This PC: %s", out)
 	}
-
-	// full access: the other parts take changes and commands too, except the read-only one
-	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": "full"}, nil)
-	if ts := tools(sid, tok); ts["write_file"] == nil || ts["bash"] == nil {
-		t.Fatalf("write tools with full access: %v", ts)
-	}
+	// the same machine: changes and commands without full access
 	if out := call(sid, tok, "write_file", map[string]any{"part": "Web", "path": "new.txt", "content": "hi"}); strings.Contains(out, "isError:true") {
 		t.Fatalf("write in Web: %s", out)
 	}
@@ -244,9 +245,30 @@ func TestPartsForAgents(t *testing.T) {
 	if out := call(sid, tok, "bash", map[string]any{"part": "Web", "command": "pwd"}); !strings.Contains(out, web) {
 		t.Fatalf("bash in Web: %s", out)
 	}
+	// another machine, and a read-only part: read only
+	if out := call(sid, tok, "write_file", map[string]any{"part": "Edge", "path": "x.txt", "content": "x"}); !strings.Contains(out, "Edge is read only for you") {
+		t.Fatalf("write on another machine: %s", out)
+	}
+	if out := call(sid, tok, "bash", map[string]any{"part": "Edge", "command": "pwd"}); !strings.Contains(out, "Edge is read only for you") {
+		t.Fatalf("a command on another machine: %s", out)
+	}
 	if out := call(sid, tok, "write_file", map[string]any{"part": "Ops", "path": "x.txt", "content": "x"}); !strings.Contains(out, "Ops is read only for you") {
 		t.Fatalf("write in the read-only part: %s", out)
 	}
+
+	// full access: the part on another machine takes changes too, the read-only one still not
+	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": "full"}, nil)
+	fid, ftok, _, fenv := start(map[string]any{})
+	if !strings.Contains(fenv, "- Edge: m_far, /srv/edge (you may change it too)") || !strings.Contains(fenv, "- Ops: This PC, "+ops+" (read only for you)") {
+		t.Fatalf("prompt with full access:\n%s", fenv)
+	}
+	if out := call(fid, ftok, "write_file", map[string]any{"part": "Edge", "path": "x.txt", "content": "x"}); strings.Contains(out, "read only") {
+		t.Fatalf("write on another machine with full access: %s", out)
+	}
+	if out := call(fid, ftok, "write_file", map[string]any{"part": "Ops", "path": "x.txt", "content": "x"}); !strings.Contains(out, "Ops is read only for you") {
+		t.Fatalf("write in the read-only part with full access: %s", out)
+	}
+	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": ""}, nil)
 	// a part's own blocked commands hold in that part, not in the others
 	webID := ""
 	for _, x := range p["parts"].([]any) {
@@ -272,9 +294,8 @@ func TestPartsForAgents(t *testing.T) {
 	if got := h.srv.blockedIn(pid, ""); slices.Contains(got, "touch") {
 		t.Fatalf("the first part takes the other part's list %v", got)
 	}
-	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": ""}, nil)
 
-	// an agent whose own part is read only: no local tools, the hub's read tools only
+	// an agent whose own part is read only: no local tools; there the hub's read tools only
 	rid, rtok, argv, env := start(map[string]any{"partId": opsID})
 	if !strings.Contains(argv, "shell_tool") || !strings.Contains(argv, "read-only") {
 		t.Fatalf("local tools stay on:\n%s", argv)
@@ -282,8 +303,8 @@ func TestPartsForAgents(t *testing.T) {
 	if !strings.Contains(env, "Your own part is read only") || !strings.Contains(env, "on this computer, which is read only for you") {
 		t.Fatalf("prompt:\n%s", env)
 	}
-	if ts := tools(rid, rtok); ts["write_file"] != nil || ts["bash"] != nil || ts["grep"] == nil {
-		t.Fatalf("read tools only: %v", ts)
+	if ts := tools(rid, rtok); ts["grep"] == nil || ts["write_file"] == nil {
+		t.Fatalf("read tools, and write tools for the other parts on This PC: %v", ts)
 	}
 	if out := call(rid, rtok, "read_file", map[string]any{"path": "deploy.sh"}); !strings.Contains(out, "echo deploy") {
 		t.Fatalf("read its own part: %s", out)
@@ -576,15 +597,16 @@ func spyCodex(t *testing.T, h *testHub) string {
 }
 
 // TestPartsOnAServer: a project with a part on This PC and parts on a real (throwaway) sshd. An
-// agent on This PC reaches the server's part, one on the server reaches This PC's, the workbench
-// and a terminal open in the server's part, and the read-only part there stays read only.
+// agent on This PC reads the server's part, and changes it with full access; one on the server
+// changes the server's other part and reads This PC's; the workbench and a terminal open in the
+// server's part, and the read-only part there stays read only.
 func TestPartsOnAServer(t *testing.T) {
 	port, key := startSSHServer(t)
 	h := newTestHub(t)
 	h.setup()
 	mid := h.connectMachine(port, key)
 	bin := spyCodex(t, h)
-	local, api, prod := t.TempDir(), t.TempDir(), t.TempDir()
+	local, api, jobs, prod := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
 	os.WriteFile(filepath.Join(local, "index.html"), []byte("<p>shop</p>\n"), 0o644)
 	os.WriteFile(filepath.Join(api, "routes.php"), []byte("<?php // routes\n"), 0o644)
 	os.WriteFile(filepath.Join(prod, ".env"), []byte("APP_ENV=production\n"), 0o644)
@@ -600,11 +622,11 @@ func TestPartsOnAServer(t *testing.T) {
 	if st != 201 {
 		t.Fatalf("server part %d %v", st, p)
 	}
+	h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "Jobs", "machineId": mid, "path": jobs}, nil)
 	_, p = h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "Prod", "machineId": mid, "path": prod}, nil)
 	apiID := p["parts"].([]any)[1].(map[string]any)["id"].(string)
-	prodID := p["parts"].([]any)[2].(map[string]any)["id"].(string)
+	prodID := p["parts"].([]any)[3].(map[string]any)["id"].(string)
 	h.do("PATCH", "/api/projects/"+pid+"/parts/"+prodID, map[string]any{"readOnly": true}, nil)
-	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": "full"}, nil)
 
 	// the workbench and a terminal in the server's part
 	st, l := h.do("GET", "/api/projects/"+pid+"~"+apiID+"/files", nil, nil)
@@ -618,14 +640,23 @@ func TestPartsOnAServer(t *testing.T) {
 	h.do("DELETE", "/api/sessions/"+sh["id"].(string), nil, nil)
 
 	sa := newSpyAgents(t, h, bin, wid)
-	// an agent on This PC: the server's part through the hub, over SSH
+	// an agent on This PC: the server's parts through the hub, over SSH, read only at first
 	sid, tok, _, env := sa.start(map[string]any{})
-	if !strings.Contains(env, "- Api: srv, "+api) {
+	if !strings.Contains(env, "- Api: srv, "+api+" (read only for you)") {
 		t.Fatalf("prompt names the server's part:\n%s", env)
 	}
 	if out := sa.call(sid, tok, "read_file", map[string]any{"part": "api", "path": "routes.php"}); !strings.Contains(out, "// routes") {
 		t.Fatalf("read on the server: %s", out)
 	}
+	if out := sa.call(sid, tok, "write_file", map[string]any{"part": "Api", "path": "new.php", "content": "<?php\n"}); !strings.Contains(out, "Api is read only for you") {
+		t.Fatalf("write on another machine without full access: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(api, "new.php")); err == nil {
+		t.Fatal("written without full access")
+	}
+	// full access: it changes the server's part too
+	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": "full"}, nil)
+	sid, tok, _, _ = sa.start(map[string]any{})
 	if out := sa.call(sid, tok, "write_file", map[string]any{"part": "Api", "path": "new.php", "content": "<?php\n"}); strings.Contains(out, "isError:true") {
 		t.Fatalf("write on the server: %s", out)
 	}
@@ -638,6 +669,7 @@ func TestPartsOnAServer(t *testing.T) {
 	if out := sa.call(sid, tok, "write_file", map[string]any{"part": "Prod", "path": ".env", "content": "APP_ENV=oops\n"}); !strings.Contains(out, "Prod is read only for you") {
 		t.Fatalf("write in the read-only part: %s", out)
 	}
+	h.do("PATCH", "/api/projects/"+pid, map[string]any{"partAccess": ""}, nil)
 
 	// an agent on the server's part: its own part over SSH, This PC's part through the hub
 	rid, rtok, argv, _ := sa.start(map[string]any{"partId": apiID})
@@ -649,6 +681,22 @@ func TestPartsOnAServer(t *testing.T) {
 	}
 	if out := sa.call(rid, rtok, "read_file", map[string]any{"part": "Web", "path": "index.html"}); !strings.Contains(out, "<p>shop</p>") {
 		t.Fatalf("This PC's part from the server's agent: %s", out)
+	}
+	if out := sa.call(rid, rtok, "write_file", map[string]any{"part": "Web", "path": "x.html", "content": "x"}); !strings.Contains(out, "Web is read only for you") {
+		t.Fatalf("write in This PC's part from the server's agent: %s", out)
+	}
+	// the server's other part, on its own machine: changes and commands without full access
+	if out := sa.call(rid, rtok, "write_file", map[string]any{"part": "Jobs", "path": "job.php", "content": "<?php // job\n"}); strings.Contains(out, "isError:true") {
+		t.Fatalf("write in Jobs: %s", out)
+	}
+	if b, err := os.ReadFile(filepath.Join(jobs, "job.php")); err != nil || string(b) != "<?php // job\n" {
+		t.Fatalf("written over SSH %q %v", b, err)
+	}
+	if out := sa.call(rid, rtok, "bash", map[string]any{"part": "Jobs", "command": "pwd"}); !strings.Contains(out, jobs) {
+		t.Fatalf("bash in Jobs: %s", out)
+	}
+	if out := sa.call(rid, rtok, "write_file", map[string]any{"part": "Prod", "path": ".env", "content": "APP_ENV=oops\n"}); !strings.Contains(out, "Prod is read only for you") {
+		t.Fatalf("write in the read-only part from the server's agent: %s", out)
 	}
 
 	// an agent in the read-only part on the server only reads there

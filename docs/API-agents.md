@@ -788,12 +788,12 @@ Diuji dengan CLI sungguhan terhadap model palsu di loopback, HOME kosong, tanpa 
 Project yang mencakup beberapa part (API-board §1) memberi tiap console satu **part sendiri**: folder tempat ia bekerja (`partId` sesi). Agent menjangkau part lain lewat tool hub yang sama, dengan argumen `part` (nama atau id part, huruf besar kecil tidak dibedakan):
 
 - `read_file`, `grep`, `glob`: selalu boleh di part lain.
-- `write_file`, `edit_file`, `bash` (juga di latar): di part lain hanya bila project `partAccess: "full"` dan part itu tidak read-only. Kalau tidak boleh, jawabannya menyebut part itu read only untuk agent ini.
+- `write_file`, `edit_file`, `bash` (juga di latar): di part lain pada machine yang sama dengan part sendiri selalu boleh; di part pada machine lain hanya bila project `partAccess: "full"`. Part read-only tidak pernah. Kalau tidak boleh, jawabannya menyebut part itu read only untuk agent ini. Prompt agent menandai tiap part: "yours, where you work", "you may change it too", atau "read only for you".
 - `bash_output`, `bash_kill`: milik console, tanpa `part`.
 - Tanpa `part` = part sendiri. Console di This PC tetap memakai tool lokalnya untuk part sendiri; tool hub hanya untuk part lain. Part yang tidak ada dijawab dengan daftar part yang ada.
 - Daftar tool hanya memuat tool tulis bila ada tempat yang boleh ditulis, dan `part` hanya muncul bila project punya lebih dari satu part.
 
-**Part read-only.** Agent yang part sendirinya read-only bekerja gaya server, juga di This PC: tool lokal CLI mati (Claude Code `--tools` tanpa Bash, Codex `--sandbox read-only` tanpa shell, OpenCode `deny`), dan hanya tool baca hub yang bekerja di part itu. Part read-only juga hanya baca bagi agent di part lain, apa pun `partAccess`.
+**Part read-only.** Agent yang part sendirinya read-only bekerja gaya server, juga di This PC: tool lokal CLI mati (Claude Code `--tools` tanpa Bash, Codex `--sandbox read-only` tanpa shell, OpenCode `deny`), dan hanya tool baca hub yang bekerja di part itu. Part read-only juga hanya baca bagi agent di part lain, apa pun `partAccess`. Di machine yang sama, read-only ini aturan hub, bukan kunci: tool hub menolak, tapi tool lokal CLI agent di part lain masih bisa menjangkau foldernya. Sandbox project menutup sebagian celah ini: Codex hanya bisa menulis di folder kerjanya, dan perintah shell Claude Code juga; Edit/Write milik Claude Code tetap di luar sandbox (lihat batas sandbox di bawah).
 
 **Prompt.** Prompt sistem menyebut semua part (nama, machine, folder) dan hak agent di tiap part, cara memakai `part`, dan bila part sendiri read-only, bahwa ia hanya membaca dan menyebut apa yang perlu diubah.
 

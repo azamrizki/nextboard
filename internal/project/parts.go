@@ -23,7 +23,8 @@ type Part struct {
 	Blocked []string `json:"blocked,omitempty"`
 }
 
-// PartAccessFull lets agents change the parts other than their own, not only read them.
+// PartAccessFull lets agents change the parts on other machines than their own, not only read
+// them. The other parts on their own machine they may always change.
 const PartAccessFull = "full"
 
 const (
@@ -65,7 +66,7 @@ var (
 	ErrMainPart      = errors.New("the first part is the project's own folder: move another part first to remove it")
 	ErrTooManyParts  = fmt.Errorf("a project has at most %d parts", MaxParts)
 	ErrPartName      = errors.New("another part of this project has that name")
-	ErrBadPartAccess = errors.New(`partAccess must be "" (read only) or "full"`)
+	ErrBadPartAccess = errors.New(`partAccess must be "" (read only on other machines) or "full"`)
 	ErrBadBlocked    = fmt.Errorf("blocked takes at most %d commands of at most %d characters, one line each", maxBlocked, maxBlockedLen)
 )
 

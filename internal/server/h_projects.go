@@ -190,7 +190,7 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, p *
 		GroupID *string   `json:"groupId"`
 		Tags    *[]string `json:"tags"`
 		Sandbox *string   `json:"sandbox"`
-		// PartAccess: what agents may do in the parts other than their own (ROADMAP #49)
+		// PartAccess: what agents may do in the parts on other machines than their own (ROADMAP #49)
 		PartAccess *string `json:"partAccess"`
 	}
 	if !decode(w, r, &req) {

@@ -49,7 +49,7 @@ type Patch struct {
 	GroupID *string
 	Tags    *[]string
 	Sandbox *string
-	// PartAccess is what agents may do in the parts other than their own: "" read, "full" all.
+	// PartAccess is what agents may do in the parts on other machines: "" read, "full" all.
 	PartAccess *string
 }
 

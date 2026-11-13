@@ -59,10 +59,10 @@ export function PartsDialog({ project, onClose }: { project: Project; onClose: (
       </p>
       {parts.length > 1 && (
         <SelectField
-          label="Agents in the other parts"
+          label="Agents in parts on other machines"
           value={project.partAccess ?? ''}
           disabled={!!busy}
-          hint="An agent works fully in its own part. In the others it reads and searches, or changes and runs commands too. A read-only part stays read only."
+          hint="An agent works fully in its own part and in the other parts on its machine. In parts on other machines it reads and searches, or changes and runs commands too. A read-only part stays read only."
           onChange={(e) => void change('access', () => api.updateProject(project.id, { partAccess: e.target.value }))}
         >
           <option value="">Read only</option>

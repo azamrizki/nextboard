@@ -36,6 +36,9 @@ test('a project gets a part, shows it, and a terminal opens there', async ({ pag
   await list.getByRole('listitem').nth(1).getByLabel('Read-only').check();
   await expect.poll(async () => (await hub.call('GET', '/api/projects')).find((x: any) => x.id === p.id).parts[1].readOnly).toBe(true);
   await expect(list.getByRole('button', { name: 'Remove part Backend' })).toBeDisabled();
+  // only parts on other machines are read only for agents, unless the project gives full access
+  await dialog.getByLabel('Agents in parts on other machines').selectOption('full');
+  await expect.poll(async () => (await hub.call('GET', '/api/projects')).find((x: any) => x.id === p.id).partAccess).toBe('full');
   await dialog.getByRole('button', { name: 'Done' }).click();
 
   // the card shows each part with its machine
