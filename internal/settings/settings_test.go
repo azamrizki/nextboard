@@ -81,6 +81,8 @@ func TestValidation(t *testing.T) {
 		`{"agents":{"nope":1}}`:                      "bad_setting",
 		`{"agents":{"hookChannel":"pigeon"}}`:        "bad_setting",
 		`{"agents":{"resumeOnRestart":"maybe"}}`:     "bad_setting",
+		`{"agents":{"sleepAfterMin":-1}}`:            "bad_setting",
+		`{"agents":{"sleepAfterMin":1441}}`:          "bad_setting",
 		`{"agents":{"defaults":{"local":"Bad ID"}}}`: "bad_setting",
 		`{"notifications":{"finishedMinSec":-1}}`:    "bad_setting",
 		`{"schemaVersion":2}`:                        "bad_setting",
@@ -95,6 +97,13 @@ func TestValidation(t *testing.T) {
 		if _, err := s.Patch([]byte(patch)); code(err) != want {
 			t.Errorf("%s: got %v", patch, err)
 		}
+	}
+	// sleeping agents (ROADMAP #50): on by default, and 0 turns the idle sleep off
+	if d := Defaults().Agents; d.SleepAfterMin != 30 || !d.LazyStart {
+		t.Fatalf("defaults %+v", d)
+	}
+	if got, err := s.Patch([]byte(`{"agents":{"sleepAfterMin":0,"lazyStart":false}}`)); err != nil || got.Agents.SleepAfterMin != 0 || got.Agents.LazyStart {
+		t.Fatalf("off %v %+v", err, got.Agents)
 	}
 	if got, err := s.Patch([]byte(`{"shortcuts":{"pen":"9","eraser":";"}}`)); err != nil || got.Shortcuts.Pen != "9" {
 		t.Fatalf("valid shortcuts %v", err)

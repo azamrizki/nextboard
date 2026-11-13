@@ -436,6 +436,17 @@ func sessionCreate(preset string) session.CreateRequest {
 	return session.CreateRequest{MachineID: "local", Preset: preset}
 }
 
+// scrollbackOf reads a console's scrollback without opening its terminal (which would wake an
+// asleep agent).
+func scrollbackOf(srv *Server, id string) []byte {
+	s, ok := srv.sessions.Get(id)
+	if !ok {
+		return nil
+	}
+	return []byte(s.ScrollbackText(10000))
+}
+
+// waitScrollback opens the console's terminal until want shows: an asleep agent wakes.
 func waitScrollback(t *testing.T, srv *Server, id, want string) []byte {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)

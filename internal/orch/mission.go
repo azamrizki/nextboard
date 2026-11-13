@@ -66,6 +66,8 @@ type MissionCounts struct {
 	NeedsYou int `json:"needsYou"`
 	Idle     int `json:"idle"`
 	Done     int `json:"done"`
+	// Asleep counts the idle ones whose process the hub ended to free memory (ROADMAP #50).
+	Asleep int `json:"asleep"`
 }
 
 // Mission is GET /api/workspaces/{id}/mission.
@@ -162,6 +164,9 @@ func BuildMission(wid string, boards []board.Board, sessions []session.Info, ord
 			switch {
 			case in.Paused:
 				m.Counts.Idle++
+			case in.AgentState == agentstate.Asleep:
+				m.Counts.Idle++
+				m.Counts.Asleep++
 			case in.AgentState == agentstate.Working || in.AgentState == agentstate.Starting || in.AgentState == agentstate.Reconnecting:
 				m.Counts.Working++
 			case in.AgentState == agentstate.NeedsYou || in.AgentState == agentstate.Error:

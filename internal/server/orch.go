@@ -32,6 +32,7 @@ func (c consoleAdapter) AgentForeground(ctx context.Context) (bool, error) {
 	return c.s.AgentForeground(ctx)
 }
 func (c consoleAdapter) Write(p []byte) error { return c.s.WriteDelivery(p) }
+func (c consoleAdapter) Wake() bool           { return c.s.Wake() }
 
 // setupOrchestration creates the delivery engine and the service and
 // connects them to sessions, boards and events.
@@ -53,6 +54,7 @@ func (s *Server) setupOrchestration() {
 		s.orch.OnDelivery(dl)
 	}
 	s.sessions.QueueLen = d.ActiveCount
+	s.sessions.StayAwake = s.orch.Holds
 	s.sessions.OnOutput = s.orch.OnOutput
 	s.sessions.HandleConflict = func(wid, h string) bool {
 		b, err := s.boards.Get(wid)

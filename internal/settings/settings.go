@@ -40,6 +40,11 @@ type Agents struct {
 	RemoteTools bool `json:"remoteTools"`
 	// CoAuthor lets agents sign their commits and pull requests (API-agents §26).
 	CoAuthor bool `json:"coAuthor"`
+	// SleepAfterMin puts an agent to sleep after that many idle minutes with its terminal
+	// closed (0 = never); LazyStart keeps agents asleep after a hub restart until they are
+	// opened or get work (ROADMAP #50, API-agents §28).
+	SleepAfterMin int  `json:"sleepAfterMin"`
+	LazyStart     bool `json:"lazyStart"`
 }
 
 // ModelChoice is a model and an effort ("" = the CLI's own choice).
@@ -186,6 +191,7 @@ func Defaults() Settings {
 			RoleAgents: map[string]string{"frontend": "claude", "backend": "codex", "testers": "gemini", "reviewers": "claude",
 				"design": "claude", "docs": "claude", "security": "codex", "general": ""},
 			LiveStatus: true, IDELink: true, HookChannel: "auto", ResumeOnRestart: "auto",
+			SleepAfterMin: 30, LazyStart: true,
 			// out of preview on 2026-11-08 (ROADMAP #44): a hub that saved false keeps it
 			RemoteTools: true,
 		},
@@ -467,6 +473,9 @@ func validate(s *Settings) error {
 	case "auto", "ask", "never":
 	default:
 		return badSetting(`agents.resumeOnRestart must be "auto", "ask" or "never"`)
+	}
+	if a.SleepAfterMin < 0 || a.SleepAfterMin > 1440 {
+		return badSetting("agents.sleepAfterMin must be 0–1440")
 	}
 	if n := s.Notifications.FinishedMinSec; n < 0 || n > 86400 {
 		return badSetting("notifications.finishedMinSec must be 0–86400")

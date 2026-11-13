@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/azamrizki/nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 // fakeClaude behaves like Claude Code for the hub: it parses
@@ -273,20 +274,30 @@ func TestHookHTTPFallbackNeedsToken(t *testing.T) {
 	}
 }
 
+// TestHubRestartResumeModes: how consoles come back after a hub restart. With lazyStart (the
+// default, ROADMAP #50) an agent that would resume waits asleep until its terminal is opened;
+// the other cases turn it off to see each mode start at once.
 func TestHubRestartResumeModes(t *testing.T) {
 	const hook, config = "hook", "config"
 	for _, c := range []struct {
 		setting, saved, wantMode string
 		offer                    bool
+		lazy                     bool
 	}{
-		{"auto", hook, "resume", false},
-		{"auto", config, "resume", false}, // the hook's path is gone, the file is in another project folder
-		{"auto", "", "fresh", false},      // no message yet: Claude would answer "No conversation found"
-		{"ask", hook, "shell", true},
-		{"ask", "", "shell", false},
-		{"never", hook, "shell", false},
+		{"auto", hook, "resume", false, false},
+		{"auto", config, "resume", false, false}, // the hook's path is gone, the file is in another project folder
+		{"auto", "", "fresh", false, false},      // no message yet: Claude would answer "No conversation found"
+		{"ask", hook, "shell", true, false},
+		{"ask", "", "shell", false, false},
+		{"never", hook, "shell", false, false},
+		{"auto", hook, "resume", false, true}, // asleep, then resumed when its terminal opens
+		{"auto", "", "fresh", false, true},    // asleep, then a fresh start when its terminal opens
 	} {
-		t.Run(c.setting+"/"+c.wantMode+"/"+c.saved, func(t *testing.T) {
+		name := c.setting + "/" + c.wantMode + "/" + c.saved
+		if c.lazy {
+			name += "/lazy"
+		}
+		t.Run(name, func(t *testing.T) {
 			dir := hubDataDir(t)
 			srv1, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0"})
 			if err != nil {
@@ -300,7 +311,7 @@ func TestHubRestartResumeModes(t *testing.T) {
 			if _, err := srv1.agents.Create(map[string]json.RawMessage{"id": raw(`"fake-claude"`), "name": raw(`"F"`), "command": raw(`"` + bin + `"`), "base": raw(`"claude"`)}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := srv1.settings.Patch([]byte(`{"agents":{"resumeOnRestart":"` + c.setting + `"}}`)); err != nil {
+			if _, err := srv1.settings.Patch([]byte(`{"agents":{"resumeOnRestart":"` + c.setting + `","lazyStart":` + fmt.Sprint(c.lazy) + `}}`)); err != nil {
 				t.Fatal(err)
 			}
 			in, err := srv1.sessions.Create(sessionCreate("fake-claude"))
@@ -340,12 +351,24 @@ func TestHubRestartResumeModes(t *testing.T) {
 			defer srv2.sessions.Shutdown()
 			defer srv2.boards.Close()
 			srv2.sessions.Start()
+			if c.lazy {
+				time.Sleep(time.Second)
+				if i, _ := srv2.sessions.Info(in.ID); i.Status != session.StatusAsleep || !i.Asleep {
+					t.Fatalf("not asleep after the restart: %+v", i)
+				}
+				if bytes.Contains(scrollbackOf(srv2, in.ID), []byte("FAKE-START mode=resume")) {
+					t.Fatal("started before its terminal was opened")
+				}
+				s2, _ := srv2.sessions.Get(in.ID)
+				_, sub := s2.Subscribe() // its terminal opens
+				defer s2.Unsubscribe(sub)
+			}
 			switch c.wantMode {
 			case "resume":
 				waitScrollback(t, srv2, in.ID, "FAKE-START mode=resume sid="+uuid)
 				return
 			case "fresh":
-				deadline = time.Now().Add(10 * time.Second)
+				deadline = time.Now().Add(15 * time.Second)
 				for time.Now().Before(deadline) {
 					i, _ := srv2.sessions.Info(in.ID)
 					if i.AgentState == "ready" && i.AgentSessionID != uuid {

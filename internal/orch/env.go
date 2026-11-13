@@ -437,7 +437,7 @@ func (s *Service) deliverContext(res *PushResult, targets []string, text, source
 			res.Skipped++
 			continue
 		}
-		if in.AgentState == agentstate.Ready {
+		if idle(in) {
 			res.Delivered++
 		} else {
 			res.Busy++

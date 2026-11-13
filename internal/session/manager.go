@@ -150,6 +150,9 @@ type Manager struct {
 	OnOutput func(sessionID string, clean []byte)
 	// QueueLen returns the number of active deliveries of a session.
 	QueueLen func(sessionID string) int
+	// StayAwake reports whether work of the lead holds a console awake: an order, a handoff or
+	// a loop on it (ROADMAP #50). nil = none does.
+	StayAwake func(sessionID string) bool
 	// HandleConflict reports whether a handle equals a group name in the
 	// workspace (phase 6 rename rule, API-agents §2).
 	HandleConflict func(workspaceID, handle string) bool
@@ -293,9 +296,10 @@ func (m *Manager) restartMode(s *Session) (mode string, offer bool) {
 // Start relaunches restored sessions and starts background tickers.
 // Local sessions start immediately; remote ones as soon as their machine
 // connects (MachineConnected).
+// Agents that would resume stay asleep instead (settings.agents.lazyStart, ROADMAP #50).
 func (m *Manager) Start() {
 	for _, s := range m.all() {
-		if s.Spec().MachineID == machine.LocalID {
+		if s.Spec().MachineID == machine.LocalID && !m.startAsleep(s) {
 			go m.relaunch(s)
 		}
 	}
@@ -322,8 +326,10 @@ func (m *Manager) relaunch(s *Session) {
 func (m *Manager) tick() {
 	t := time.NewTicker(250 * time.Millisecond)
 	flush := time.NewTicker(30 * time.Second)
+	sleepy := time.NewTicker(sleepCheckEvery)
 	defer t.Stop()
 	defer flush.Stop()
+	defer sleepy.Stop()
 	for {
 		select {
 		case <-m.stopTicker:
@@ -337,6 +343,8 @@ func (m *Manager) tick() {
 			}
 		case <-flush.C:
 			m.flushScrollback(false)
+		case now := <-sleepy.C:
+			go m.sleepIdle(now)
 		}
 	}
 }
@@ -1122,12 +1130,14 @@ func (m *Manager) Kill(id string) (Info, error) {
 	s.stop()
 	s.launchMu.Unlock()
 	s.mu.Lock()
-	if s.status == StatusReconnecting || s.status == StatusStarting {
+	if s.status == StatusReconnecting || s.status == StatusStarting || s.status == StatusAsleep {
 		s.gen++ // cancel pending relaunch
 		s.status = StatusExited
 		s.eng.SetProc(StatusExited, time.Now())
 	}
+	s.spec.Asleep, s.spec.AsleepAt = false, nil // stopped: it does not wake by itself
 	s.mu.Unlock()
+	m.saveSoon()
 	m.changed(s)
 	return m.SessionInfo(s), nil
 }

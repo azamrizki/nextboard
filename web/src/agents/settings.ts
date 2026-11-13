@@ -31,6 +31,8 @@ export const DEFAULT_SETTINGS: Settings = {
     liveStatus: true, ideLink: true,
     hookChannel: 'auto',
     resumeOnRestart: 'auto',
+    sleepAfterMin: 30,
+    lazyStart: true,
   },
   notifications: { needsYou: true, finished: true, error: true, finishedMinSec: 30 },
   shortcuts: DEFAULT_SHORTCUTS,

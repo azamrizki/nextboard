@@ -117,6 +117,30 @@ export function AgentsPane() {
             ]}
           />
         </SettingRow>
+        <SwitchRow
+          title="Start agents when they are needed"
+          hint="After a hub restart, agents wait asleep until you open their board, type into them or the lead sends them work, instead of all starting at once. Each agent takes 120–250 MB while it runs. Applies with Resume."
+          checked={ag.lazyStart ?? true}
+          onChange={(v) => void save({ agents: { lazyStart: v } }, 'starting agents when needed').catch(() => undefined)}
+        />
+        <SettingRow
+          title="Idle agents sleep after"
+          hint="An agent at its prompt with its terminal closed, no work from the lead and no command running is stopped to free memory. It resumes its conversation when you open it, type into it or send it work, and what you had typed but not sent is put back."
+        >
+          <SegmentedControl
+            label="Idle agents sleep after"
+            size="sm"
+            value={String(ag.sleepAfterMin ?? 30)}
+            onChange={(v) => void save({ agents: { sleepAfterMin: Number(v) } }, 'the sleep setting').catch(() => undefined)}
+            options={[
+              { value: '0', label: 'Never', title: 'Agents keep running until you stop them' },
+              { value: '15', label: '15 min' },
+              { value: '30', label: '30 min' },
+              { value: '60', label: '1 h' },
+              { value: '240', label: '4 h' },
+            ]}
+          />
+        </SettingRow>
         <SettingRow title="Status channel" hint="How hooks reach the hub. Auto uses the terminal and falls back to a loopback HTTP port.">
           <SegmentedControl
             label="Status channel"

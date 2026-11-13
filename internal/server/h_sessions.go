@@ -11,7 +11,12 @@ import (
 )
 
 func (s *Server) sessionErr(w http.ResponseWriter, err error) {
+	var sleepy *session.SleepError
 	switch {
+	case errors.As(err, &sleepy):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "code": "cannot_sleep", "reason": sleepy.Reason})
+	case errors.Is(err, session.ErrNotAsleep):
+		writeErrCode(w, http.StatusConflict, "not_asleep", err.Error())
 	case errors.Is(err, session.ErrNotFound), errors.Is(err, machine.ErrNotFound):
 		writeErr(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, session.ErrBadHandle):
@@ -134,11 +139,52 @@ func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request, p *
 	var req struct {
 		Name   *string `json:"name"`
 		Handle *string `json:"handle"`
+		// KeepAwake: never put this agent to sleep (ROADMAP #50).
+		KeepAwake *bool `json:"keepAwake"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	in, err := s.sessions.Update(r.PathValue("id"), req.Name, req.Handle)
+	id := r.PathValue("id")
+	var in session.Info
+	var err error
+	if req.Name != nil || req.Handle != nil || req.KeepAwake == nil {
+		if in, err = s.sessions.Update(id, req.Name, req.Handle); err != nil {
+			s.sessionErr(w, err)
+			return
+		}
+	}
+	if req.KeepAwake != nil {
+		if in, err = s.sessions.SetKeepAwake(id, *req.KeepAwake); err != nil {
+			s.sessionErr(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, in)
+}
+
+// Sleeping agents (ROADMAP #50, docs/API-agents.md §28).
+
+func (s *Server) handleSessionSleep(w http.ResponseWriter, r *http.Request, p *principal) {
+	in, err := s.sessions.Sleep(r.PathValue("id"))
+	if err != nil {
+		s.sessionErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, in)
+}
+
+func (s *Server) handleSessionWake(w http.ResponseWriter, r *http.Request, p *principal) {
+	in, err := s.sessions.Wake(r.PathValue("id"))
+	if err != nil {
+		s.sessionErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, in)
+}
+
+func (s *Server) handleSessionDraftDismiss(w http.ResponseWriter, r *http.Request, p *principal) {
+	in, err := s.sessions.DismissDraft(r.PathValue("id"))
 	if err != nil {
 		s.sessionErr(w, err)
 		return

@@ -360,6 +360,12 @@ export function useRunningSessions(): Session[] {
   );
 }
 
+/** Agents whose process the hub ended to free memory (ROADMAP #50). */
+export function useAsleepCount(): number {
+  const rec = useSlice((s) => s.sessions);
+  return useMemo(() => Object.values(rec).filter((s) => s.status === 'asleep').length, [rec]);
+}
+
 export function useSettings(): Settings | null {
   return useSlice((s) => s.settings);
 }

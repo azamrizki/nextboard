@@ -75,6 +75,7 @@ func (s *Session) WriteDelivery(p []byte) error {
 	r := s.cur
 	if r != nil {
 		s.eng.Input(p, time.Now())
+		s.trackLocked(p)
 	}
 	notify, ev := s.afterLocked(time.Now(), false)
 	s.mu.Unlock()

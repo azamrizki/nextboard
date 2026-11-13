@@ -35,6 +35,9 @@ const (
 	StatusExited       = "exited"
 	StatusReconnecting = "reconnecting"
 	StatusError        = "error"
+	// StatusAsleep: the agent's process was ended to free memory, or not started after a hub
+	// restart; it resumes when woken (ROADMAP #50).
+	StatusAsleep = "asleep"
 )
 
 // Spec is the persisted definition of a terminal (sessions.json).
@@ -87,6 +90,13 @@ type Spec struct {
 	// by a hub restart come back unpaused.
 	Paused   bool       `json:"paused"`
 	PausedAt *time.Time `json:"pausedAt"`
+
+	// Asleep (ROADMAP #50, docs/API-agents.md §28): the hub ended the agent's process to free
+	// memory, or did not start it after a restart. It resumes its conversation when someone
+	// opens its terminal, types into it or sends it work. KeepAwake: never put to sleep.
+	Asleep    bool       `json:"asleep,omitempty"`
+	AsleepAt  *time.Time `json:"asleepAt,omitempty"`
+	KeepAwake bool       `json:"keepAwake,omitempty"`
 }
 
 // private is persisted in sessions.json but never sent to clients.
@@ -97,6 +107,10 @@ type private struct {
 	WrapperPid     int    `json:"wrapperPid,omitempty"`
 	// ModelAt: what a transcript says before this no longer counts.
 	ModelAt time.Time `json:"modelAt,omitempty"`
+	// Draft is what was typed at the agent's prompt and not sent when it went to sleep; it is
+	// typed back when it wakes. DraftFailed: that did not work, so the owner gets it to copy.
+	Draft       string `json:"draft,omitempty"`
+	DraftFailed bool   `json:"draftFailed,omitempty"`
 }
 
 // PastRun is an agent's conversation that was left when the console switched.
@@ -146,6 +160,8 @@ type Info struct {
 	// is really processing (docs/API-agents.md §6.1).
 	Job    string `json:"job"`
 	Active bool   `json:"active"`
+	// UnsentDraft is what was typed before the console slept and could not be typed back.
+	UnsentDraft string `json:"unsentDraft,omitempty"`
 }
 
 // StatusMsg is pushed to terminal subscribers when status changes.
@@ -240,6 +256,15 @@ type Session struct {
 	codexTry    time.Time
 	refreshing  bool
 	subagents   int
+
+	// Sleeping (sleep.go): what is typed at the prompt, the process being ended to sleep, and
+	// a wake in progress with the keys typed meanwhile.
+	draft    draftTrack
+	sleeping bool
+	waking   bool
+	wakeIn   []byte
+	// wakeAfter: its terminal was opened while it went to sleep.
+	wakeAfter bool
 }
 
 func newSession(m *Manager, spec Spec) *Session {
@@ -293,20 +318,33 @@ func (s *Session) infoLocked() Info {
 	if s.reply != nil {
 		in.Reply = &ReplyInfo{At: s.reply.At, Chars: s.reply.Chars, Paragraphs: s.reply.Paragraphs}
 	}
+	if s.priv.DraftFailed {
+		in.UnsentDraft = s.priv.Draft
+	}
 	return in
 }
 
 // Subscribe returns the scrollback snapshot and a live subscriber.
+// An asleep agent wakes: its terminal is open.
 func (s *Session) Subscribe() ([]byte, *Sub) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	sub := &Sub{C: make(chan Msg, SubBuffer)}
 	if s.deleted {
+		s.mu.Unlock()
 		sub.close()
 		return nil, sub
 	}
 	s.subs[sub] = struct{}{}
-	return s.ring.Bytes(), sub
+	snap := s.ring.Bytes()
+	asleep := s.spec.Asleep
+	if s.sleeping {
+		s.wakeAfter = true
+	}
+	s.mu.Unlock()
+	if asleep {
+		s.Wake()
+	}
+	return snap, sub
 }
 
 // Unsubscribe removes a subscriber.
@@ -373,6 +411,12 @@ func (s *Session) output(p []byte, gen int) {
 	}
 	now := time.Now()
 	clean, ms := s.strip.Feed(p, now)
+	if s.sleeping {
+		// going to sleep: what it prints on the way out is kept, its state changes are not
+		s.emitLocked(clean, now)
+		s.mu.Unlock()
+		return
+	}
 	becameBusy := s.emitLocked(clean, now)
 	for _, mk := range ms {
 		s.markerLocked(mk, now)
@@ -564,7 +608,9 @@ func (s *Session) launch(mode string) {
 	s.job, s.jobKnown, s.jobAt, s.panePid = "", false, time.Time{}, 0
 	if !reattach {
 		s.spec.Paused, s.spec.PausedAt = false, nil // a new process is never stopped
+		s.draft.reset()
 	}
+	s.spec.Asleep, s.spec.AsleepAt = false, nil
 	s.subagents = 0
 	if s.ag.ID != a.ID || s.ag.Kind != a.Kind {
 		s.setAgentLocked(a)
@@ -599,6 +645,7 @@ func (s *Session) launch(mode string) {
 	if len(early) > 0 {
 		s.lastInput = now
 		s.eng.Input(early, now)
+		s.draft.unsure = true // typed before its prompt was there
 	}
 	cols, rows := s.spec.Cols, s.spec.Rows
 	s.mu.Unlock()
@@ -651,6 +698,19 @@ func (s *Session) exited(r *run, code int, werr error) {
 	if held := s.strip.Flush(time.Now().Add(marker.HoldMax)); len(held) > 0 {
 		s.emitLocked(held, time.Now())
 	}
+	if s.sleeping {
+		s.sleeping = false
+		s.asleepLocked(asleepNote)
+		back := s.wakeAfter || len(s.wakeIn) > 0 // someone came back while it went
+		s.wakeAfter = false
+		s.mu.Unlock()
+		s.setStatus(StatusAsleep, 0, "")
+		s.m.saveNow()
+		if back {
+			s.Wake()
+		}
+		return
+	}
 	killed := s.killing
 	disconnected := errors.Is(werr, machine.ErrDisconnected) && !killed
 	if disconnected {
@@ -702,6 +762,26 @@ func (s *Session) Input(p []byte) error {
 	s.inMu.Lock()
 	defer s.inMu.Unlock()
 	s.mu.Lock()
+	if s.spec.Asleep || s.sleeping || s.waking {
+		// it wakes, and gets the keys at its prompt (after what it had there)
+		typed := TypedInput(p)
+		if len(s.wakeIn)+len(typed) <= maxEarlyInput {
+			s.wakeIn = append(s.wakeIn, typed...)
+		}
+		asleep := s.spec.Asleep
+		s.mu.Unlock()
+		if asleep {
+			s.Wake()
+		}
+		return nil
+	}
+	s.mu.Unlock()
+	return s.inputLocked(p)
+}
+
+// inputLocked is Input with inMu held.
+func (s *Session) inputLocked(p []byte) error {
+	s.mu.Lock()
 	r := s.cur
 	if r == nil && s.status == StatusStarting {
 		// keys only: a terminal's own reports answer a process that is gone
@@ -716,6 +796,7 @@ func (s *Session) Input(p []byte) error {
 		now := time.Now()
 		s.lastInput = now
 		s.eng.Input(p, now)
+		s.trackLocked(TypedInput(p))
 	}
 	notify, ev := s.afterLocked(time.Now(), false)
 	s.mu.Unlock()
@@ -725,6 +806,14 @@ func (s *Session) Input(p []byte) error {
 	}
 	_, err := r.proc.Write(p)
 	return err
+}
+
+// trackLocked follows what reaches the agent's prompt; keys for a dialog do not.
+func (s *Session) trackLocked(p []byte) {
+	if len(p) == 0 || s.eng.Snapshot().AgentState == agentstate.NeedsYou {
+		return
+	}
+	s.draft.feed(p)
 }
 
 // Resize applies the latest size from any client.

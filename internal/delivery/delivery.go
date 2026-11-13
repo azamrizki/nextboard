@@ -129,6 +129,8 @@ type Console interface {
 	AgentForeground(ctx context.Context) (bool, error)
 	// Write types bytes (not counted as human input).
 	Write(p []byte) error
+	// Wake starts an asleep agent (ROADMAP #50); false when it was not asleep.
+	Wake() bool
 }
 
 // Engine queues and types deliveries, one active per session (FIFO).
@@ -514,9 +516,13 @@ func blocked(v session.DeliveryView, hadAgent bool, st settings.Delivery, now ti
 		return Failed, "not_agent", ErrNotAgent.Error(), ""
 	case v.Paused:
 		return "", "", "", WaitPaused
+	case v.Status == session.StatusAsleep:
+		return "", "", "", WaitStarting // the gate wakes it
+	case v.Status == session.StatusStarting:
+		return "", "", "", WaitStarting // also before its process is there (waking)
 	case v.Status == session.StatusReconnecting || v.AgentState == agentstate.Reconnecting || !v.Running:
 		return "", "", "", WaitReconnecting
-	case v.Status == session.StatusStarting || v.AgentState == agentstate.Starting:
+	case v.AgentState == agentstate.Starting:
 		return "", "", "", WaitStarting
 	case v.AgentState == agentstate.NeedsYou:
 		return "", "", "", WaitNeedsYou
@@ -536,6 +542,9 @@ func (e *Engine) gate(it *item, c Console, now time.Time) {
 	}
 	st := e.Settings()
 	v := c.View()
+	if v.Status == session.StatusAsleep {
+		c.Wake() // text for it: it starts with its conversation
+	}
 	final, code, msg, reason := blocked(v, it.hadAgent, st, now, false)
 	if final != "" {
 		e.fail(it, final, code, msg)

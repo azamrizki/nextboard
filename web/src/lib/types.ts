@@ -237,7 +237,7 @@ export interface AddMachine {
   persistMode?: PersistMode;
 }
 
-export type SessionStatus = 'starting' | 'running' | 'exited' | 'reconnecting' | 'error';
+export type SessionStatus = 'starting' | 'running' | 'exited' | 'reconnecting' | 'error' | 'asleep';
 
 export interface Session extends SessionAgentFields {
   id: string;
@@ -601,7 +601,7 @@ export interface AgentInput {
   resume?: Partial<AgentResume>;
 }
 
-export type AgentState = 'starting' | 'working' | 'needsYou' | 'ready' | 'shell' | 'exited' | 'reconnecting' | 'error';
+export type AgentState = 'starting' | 'working' | 'needsYou' | 'ready' | 'shell' | 'exited' | 'reconnecting' | 'error' | 'asleep';
 
 /** Session fields added by Phase 5 (§7). Optional: Phase-4 hubs don't send them. */
 /** A model and an effort ('' = what the CLI does when told nothing). */
@@ -659,6 +659,13 @@ export interface SessionAgentFields {
   paused?: boolean;
   pausedAt?: string | null;
   queue?: number;
+  /** ROADMAP #50 (API-agents §28): its process was ended to free memory; it resumes when opened,
+   *  typed into or sent work. keepAwake: never put to sleep. unsentDraft: what was typed before
+   *  it slept and could not be typed back. */
+  asleep?: boolean;
+  asleepAt?: string | null;
+  keepAwake?: boolean;
+  unsentDraft?: string;
 }
 
 export interface Reply {
@@ -739,6 +746,10 @@ export interface Settings {
     ideLink: boolean;
     hookChannel: 'auto' | 'tty' | 'http';
     resumeOnRestart: 'auto' | 'ask' | 'never';
+    /** Idle minutes before an agent with its terminal closed goes to sleep (0 = never). */
+    sleepAfterMin?: number;
+    /** After a hub restart, agents stay asleep until opened or given work. */
+    lazyStart?: boolean;
   };
   notifications: { needsYou: boolean; finished: boolean; error: boolean; finishedMinSec: number };
   shortcuts: ShortcutMap;

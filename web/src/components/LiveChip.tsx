@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 import { jumpToSession } from '../agents/jump';
 import { agentPill, isActive, isIdle } from '../agents/state';
 import type { Session } from '../lib/types';
-import { useProjects, useRunningSessions } from '../store';
+import { useAsleepCount, useProjects, useRunningSessions } from '../store';
 import { Icon } from './Icon';
 
 const RANK: Record<string, number> = { needsYou: 0, error: 1, working: 2, starting: 3, reconnecting: 3, connecting: 5, legacy: 5, ready: 6, shell: 6, exited: 7 };
@@ -16,6 +16,7 @@ const rankOf = (s: Session) => (isActive(s) ? RANK.working : (RANK[agentPill(s).
 
 export function LiveChip() {
   const running = useRunningSessions();
+  const asleep = useAsleepCount();
   const projects = useProjects();
   const [open, setOpen] = useState(false);
   const [showIdle, setShowIdle] = useState(false);
@@ -58,6 +59,7 @@ export function LiveChip() {
     needsYou ? `${needsYou} need${needsYou === 1 ? 's' : ''} you` : '',
     active ? `${active} active` : '',
     idle ? `${idle} idle` : '',
+    asleep ? `${asleep} asleep` : '',
   ].filter(Boolean);
   const listed = showIdle ? running : running.filter((s) => !isIdle(s));
 
@@ -104,6 +106,11 @@ export function LiveChip() {
           <span className="live-chip-label">active</span>
         </span>
         {idle > 0 && <span className="live-chip-sub tabular">· {idle} idle</span>}
+        {asleep > 0 && (
+          <span className="live-chip-sub tabular" title="Stopped to free memory; they resume when opened or sent work">
+            · {asleep} asleep
+          </span>
+        )}
       </button>
       {open &&
         createPortal(

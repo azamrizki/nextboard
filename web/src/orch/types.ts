@@ -331,7 +331,7 @@ export interface Mission {
   directors: MissionDirector[] | null;
   groups: MissionGroup[] | null;
   consoles: MissionConsole[] | null;
-  counts: { working: number; needsYou: number; idle: number; done: number };
+  counts: { working: number; needsYou: number; idle: number; done: number; asleep?: number };
 }
 
 // ---- §9 handoff / §10 forward -----------------------------------------------------------

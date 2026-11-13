@@ -234,9 +234,9 @@ func (s *Session) tick(now time.Time) {
 	if held := s.strip.Flush(now); len(held) > 0 {
 		s.emitLocked(held, now)
 	}
-	if s.spec.Paused {
+	if s.spec.Paused || s.sleeping {
 		// agentState is frozen while the process group is stopped
-		// (docs/API-orchestration.md §8): no screen rules, no timers.
+		// (docs/API-orchestration.md §8), or while it is ended to sleep: no screen rules, no timers.
 		s.mu.Unlock()
 		return
 	}

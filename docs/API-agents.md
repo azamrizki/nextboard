@@ -933,3 +933,43 @@ Kunci, bukan instruksi: `project.sandbox` membatasi perintah yang dijalankan age
 - **CLI lain** (OpenCode, Gemini, …) tidak punya sandbox: perintahnya tidak dibatasi; UI mengatakannya.
 - Agen diberi tahu di prompt peluncuran ("Your shell commands run in a sandbox…") supaya tidak mencoba jalan lain.
 - Batas: alat CLI di luar shell (Edit/Write milik Claude Code, MCP, hook) tidak berada di sandbox ini; cache paket bisa ditulis, jadi perintah bisa meninggalkan sesuatu yang dipakai build di luar sandbox nanti. Project di server lewat SSH tidak memakai sandbox ini (agennya bekerja lewat tool hub).
+
+## 28. Agen tidur (ROADMAP #50, 2026-11-13)
+
+Tiap CLI agen memakai 120–250 MB walau diam di prompt-nya. Diukur di PC pemilik: 25 agen idle ≈ 3,96 GB, 20 di antaranya milik project yang tidak dibuka lebih dari sehari. Setelah hub restart, semuanya hidup sekaligus dan memenuhi swap. Pause (§ API-orchestration 8, SIGSTOP) tidak membebaskan memori.
+
+**Tidur.** Hub mengakhiri proses agen (HUP ke grup prosesnya, KILL setelah 3 s) dan menyimpan id percakapan, scrollback, dan teks di prompt yang belum dikirim. Console lalu `status: "asleep"`, `agentState: "asleep"`, `asleep: true`, `asleepAt`, dan terminalnya mendapat baris "── asleep to free memory · wakes when you open it or type ──". Event selama proses berhenti (agent-exit dan sejenisnya) tidak diteruskan, jadi lead dan notifikasi tidak melihatnya sebagai agen yang keluar.
+
+**Tidur otomatis** (`settings.agents.sleepAfterMin`, bawaan 30, `0` = tidak pernah, maks 1440; dicek tiap 30 s). Semua harus benar:
+- console agen yang dijalankan hub (bukan agen yang diketik sendiri di shell), prosesnya di This PC (termasuk agen gaya server, §21);
+- berjalan, `agentState: ready`, tidak di-pause, tidak `keepAwake`;
+- tidak ada terminal yang terbuka (WebSocket terminal), dan tidak ada input, output, atau perubahan state selama waktu idle;
+- tidak ada delivery aktif, order yang belum selesai, atau handoff dari/ke console ini;
+- id percakapannya diketahui: Codex yang hanya bisa `resume --last` tetap bangun, karena bisa melanjutkan percakapan lain;
+- tidak menjalankan perintah: tidak ada shell di bawah proses agen (`ps`), misalnya perintah Bash yang masih jalan atau dev server yang dijalankan dari sana;
+- teks di prompt diketahui persis (Draft di bawah).
+
+**Tidur sekarang.** `POST /api/sessions/{id}/sleep` → `Session`. Mengabaikan terminal yang terbuka, waktu idle, dan output 2 detik terakhir; syarat lain tetap. `409 cannot_sleep` dengan `reason`: `not_agent`, `remote`, `not_running`, `keep_awake`, `paused`, `busy`, `watched`, `recent`, `queued`, `held`, `no_conversation`, `draft_unsure`, `command_running`.
+
+**Bangun.** Resume percakapannya, atau mulai baru bila percakapannya belum pernah tersimpan:
+- terminalnya dibuka (board dibuka);
+- diketik (WebSocket atau `POST …/input`): tombolnya disimpan dan diketik setelah draft;
+- teks untuknya (order lead, loop, handoff, kirim dari UI atau API): delivery engine membangunkannya dan menunggu dengan alasan `starting`;
+- grup ketik bersama: peer yang tidur ikut bangun;
+- `POST /api/sessions/{id}/wake` → `Session` (`409 not_asleep`).
+
+Kill pada console yang tidur → `exited`, dan ia tidak bangun sendiri. Restart menjalankan proses baru seperti biasa.
+
+**Draft.** Hub mengikuti input ke prompt sejak Enter terakhir: ketikan, backspace, dan paste berbingkai (`ESC[200~ … ESC[201~`). Tombol yang tidak bisa diikuti persis (panah, riwayat, Tab, Ctrl-U, Escape, Alt+tombol) membuatnya tidak pasti sampai Enter berikutnya, dan console itu tidak ditidurkan. Tombol saat agen menampilkan dialog (`needsYou`) bukan untuk prompt dan tidak dihitung. Sebelum tidur, layar harus menunjukkan akhir draft, atau "[Pasted text …]" untuk paste panjang yang dilipat Claude.
+
+Saat bangun, hub menunggu `ready` dan layar yang menunjukkan prompt input (pemeriksaan yang sama dengan delivery, jadi tidak pernah ke dialog update atau trust), lalu mem-paste draft dalam bracketed paste tanpa Enter dan memeriksa bahwa ia muncul. Kalau gagal, tidak ada yang diketik: draft, ditambah tombol yang diketik selama bangun, tersedia di `unsentDraft`, dan tile menampilkan bar dengan Copy dan Dismiss. `DELETE /api/sessions/{id}/draft` → `Session` membuangnya. Draft disimpan di `sessions.json` (data hub) dan tidak ada di API kecuali sebagai `unsentDraft`.
+
+**Mulai saat dibutuhkan** (`settings.agents.lazyStart`, bawaan `true`). Setelah hub restart, console agen di This PC yang akan di-resume (`resumeOnRestart: "auto"`, id percakapan diketahui, tidak `keepAwake`) dibiarkan tidur, dengan baris "── asleep since the hub restarted · wakes when you open it or type ──". Yang tidur sebelum restart tetap tidur. `ask` dan `never` tidak berubah.
+
+**Keep awake.** `PATCH /api/sessions/{id}` `{"keepAwake": true}`: console ini tidak pernah ditidurkan.
+
+**Lead dan delivery.** `asleep` dihitung seperti `ready` untuk memilih console yang bebas, pemicu loop `agentIdle`, handoff, dan kirim ke banyak console; teks untuknya membangunkannya. Mission Map menghitungnya sebagai `idle`, dan juga di `counts.asleep`. Order dan handoff yang sedang berjalan menahan console tetap bangun.
+
+**UI.** Pill "Asleep" (abu-abu); menu console: Sleep now atau Wake now, dan Keep awake; header: "· N asleep"; Settings › Agents: "Start agents when they are needed" dan "Idle agents sleep after" (Never, 15 min, 30 min, 1 h, 4 h).
+
+**Diuji**: unit (pelacak draft, cek layar, deteksi perintah), server dengan agen palsu bergaya Claude (tidur saat idle, terminal terbuka, keep awake, draft tidak pasti, draft kembali bersama tombol yang diketik saat bangun, bangun lewat terminal, API, dan delivery, kill saat tidur, lazy start pada hub kedua dari data yang sama, bangun ke dialog update tanpa mengetik apa pun), dan e2e (menu, pill, header, bangun saat diketik, setting). **Belum**: Claude Code dan Codex sungguhan tidur lalu resume dengan draft. MCP server yang dijalankan lewat shell (`command: "sh"`) terlihat seperti perintah yang jalan, jadi agen itu tidak tidur.

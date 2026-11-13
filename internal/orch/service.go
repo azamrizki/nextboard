@@ -584,10 +584,36 @@ func joinAnd(l []string) string {
 	return strings.Join(l[:len(l)-1], ", ") + " and " + l[len(l)-1]
 }
 
-// free reports whether a console can take an order now (§3.11): ready,
+// idle reports whether a console waits at its prompt: ready, or asleep (ROADMAP #50) — text
+// for it wakes it.
+func idle(in session.Info) bool {
+	return in.AgentState == agentstate.Ready || in.AgentState == agentstate.Asleep
+}
+
+// Holds reports whether work of the lead is on a console, so the hub keeps it awake
+// (ROADMAP #50): an order it has not finished, or a handoff from or to it.
+func (s *Service) Holds(sessionID string) bool {
+	for _, o := range s.Orders.List(func(o Order) bool { return o.Active() }) {
+		for _, t := range o.Targets {
+			if t.SessionID == sessionID && !TargetFinal(t.State) {
+				return true
+			}
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, h := range s.handoffs {
+		if !h.final() && (h.SourceSessionID == sessionID || (h.TargetSessionID != nil && *h.TargetSessionID == sessionID)) {
+			return true
+		}
+	}
+	return false
+}
+
+// free reports whether a console can take an order now (§3.11): ready (or asleep),
 // no active delivery or order.
 func (s *Service) free(in session.Info) bool {
-	if !isAgent(in) || in.AgentState != agentstate.Ready || in.Paused || in.Queue > 0 {
+	if !isAgent(in) || !idle(in) || in.Paused || in.Queue > 0 {
 		return false
 	}
 	for _, o := range s.Orders.List(func(o Order) bool { return o.Active() }) {

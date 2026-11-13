@@ -4,6 +4,7 @@
 
 import { memo, useRef, type CSSProperties } from 'react';
 import { AgentBar } from '../agents/AgentBar';
+import { DraftBar } from '../agents/DraftBar';
 import { fontPx, overrideOf, useGlobalTextScale } from '../agents/textSize';
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
 import { Icon } from '../components/Icon';
@@ -93,6 +94,7 @@ function TerminalCard({ nodeId, session, selected, textOverride }: TerminalCardP
         <NodeHeader nodeId={nodeId} session={session} machine={workplace} socket={socket} actions={actions} textOverride={textOverride} textScale={textScale} />
         {session.error && session.status === 'error' && <div className="node-error">{session.error}</div>}
         <AgentBar session={session} agent={actions.agent} onRestart={actions.restartAgent} onResume={actions.resume} onPick={actions.pick} />
+        <DraftBar session={session} />
         <div className="nb-node-body nodrag nowheel nopan" data-theme={consoleTheme}>
           <div ref={termRef} className="nb-term" />
         </div>

@@ -61,6 +61,15 @@ export function agentPill(s: Session, socket: SocketState = 'open'): Pill {
         detail: `The console process ended with code ${s.exitCode}. Restart to start it again.`,
       };
     }
+    case 'asleep':
+      return {
+        state,
+        label: 'Asleep',
+        dot: 'grey',
+        tone: 'grey',
+        activity: '',
+        detail: 'Its process was stopped to free memory. It resumes its conversation when you open it, type into it or send it work.',
+      };
     case 'starting':
       return { state, label: 'Starting', dot: 'warning', tone: 'warning', activity: '', detail: 'Launching…' };
     case 'needsYou':

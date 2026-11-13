@@ -300,6 +300,11 @@ export const api = {
   attention: (since?: number, limit = 50) =>
     get<AttentionList>(`/api/attention?limit=${limit}${since !== undefined ? `&since=${since}` : ''}`),
   killSession: (id: string) => post<Session>(`/api/sessions/${enc(id)}/kill`),
+  /** Sleeping agents (ROADMAP #50, API-agents §28). 409 cannot_sleep says why ("reason"). */
+  sleepSession: (id: string) => post<Session>(`/api/sessions/${enc(id)}/sleep`),
+  wakeSession: (id: string) => post<Session>(`/api/sessions/${enc(id)}/wake`),
+  keepAwake: (id: string, keepAwake: boolean) => patch<Session>(`/api/sessions/${enc(id)}`, { keepAwake }),
+  dismissDraft: (id: string) => del<Session>(`/api/sessions/${enc(id)}/draft`),
   sendInput: (id: string, data: string) => post<Ok>(`/api/sessions/${enc(id)}/input`, { data }),
 
   // projects & workspaces (API-board §1)

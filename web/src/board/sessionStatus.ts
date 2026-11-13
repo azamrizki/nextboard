@@ -19,6 +19,7 @@ export function sessionStatus(s: Session, socket: SocketState): StatusInfo {
       : { color: 'danger', label: `Exited (${s.exitCode})`, detail: `Process exited with code ${s.exitCode}` };
   }
   if (s.status === 'reconnecting') return { color: 'warning', label: 'Reconnecting', detail: 'Reconnecting to the machine' };
+  if (s.status === 'asleep') return { color: 'grey', label: 'Asleep', detail: 'Stopped to free memory; it resumes when opened or typed into' };
   if (s.status === 'starting') return { color: 'warning', label: 'Starting' };
   if (socket !== 'open') return { color: 'warning', label: 'Connecting', detail: 'Connecting to the hub' };
   return s.busy

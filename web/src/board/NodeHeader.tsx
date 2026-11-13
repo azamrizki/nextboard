@@ -78,6 +78,23 @@ function switchStep(state: string, to: string): string {
 }
 
 /** Agent actions of one console + the dialogs they open. */
+// Sleeping agents (ROADMAP #50, API-agents §28).
+async function sleep(session: Session) {
+  try {
+    store.upsertSession(await api.sleepSession(session.id));
+  } catch (err) {
+    toast.error(`${who(session)} stays awake: ${errorMessage(err).replace(/^the console cannot sleep now: /, '')}.`);
+  }
+}
+
+async function wake(session: Session) {
+  try {
+    store.upsertSession(await api.wakeSession(session.id));
+  } catch (err) {
+    toast.error(`Could not wake ${who(session)}: ${errorMessage(err)}`);
+  }
+}
+
 export function useConsoleActions(nodeId: string, session: Session, machine: Machine | undefined) {
   const { ctl } = useBoardEnv();
   const agent = useAgent(session.agent || session.preset);
@@ -408,6 +425,31 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
         : { label: 'Pause', icon: 'pause', disabled: exited || atShell, title: 'Stop the process until you resume it (state is kept)', onSelect: () => void pauseSessions([session]) },
       { label: 'Hand off…', icon: 'handoff', disabled: exited || atShell, title: 'Continue this task in a new console of another agent', onSelect: () => ui.set({ handoff: session.id }) },
     );
+    // ROADMAP #50: an idle agent's process ends to free memory and resumes when needed
+    if (session.machineId === 'local') {
+      items.push(
+        session.asleep
+          ? { label: 'Wake now', icon: 'sun', title: 'Start it again with its conversation', onSelect: () => void wake(session) }
+          : {
+              label: 'Sleep now',
+              icon: 'moon',
+              disabled: session.agentState !== 'ready' || !!session.keepAwake || !!session.paused,
+              title: 'End its process to free memory; it resumes its conversation when you type into it or send it work',
+              onSelect: () => void sleep(session),
+            },
+        {
+          label: 'Keep awake',
+          icon: 'eye',
+          checked: !!session.keepAwake,
+          title: 'Never put this agent to sleep when it is idle',
+          onSelect: () =>
+            void api
+              .keepAwake(session.id, !session.keepAwake)
+              .then((s) => store.upsertSession(s))
+              .catch((err) => toast.error(`Could not change ${who(session)}: ${errorMessage(err)}`)),
+        },
+      );
+    }
   }
   items.push({ label: 'Forward results to…', icon: 'forward', title: 'Then click the console or group that should receive them', onSelect: () => ui.set({ connectFrom: nodeId }) });
   const group = groupOf(ctl.nodes, nodeId);

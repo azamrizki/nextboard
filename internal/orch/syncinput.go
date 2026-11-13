@@ -45,7 +45,8 @@ func (s *Service) SyncPeers(sid string) []string {
 			if peer == "" || peer == sid {
 				continue
 			}
-			if p, ok := s.hub.SessionInfo(peer); ok && p.Status == session.StatusRunning && !p.Paused {
+			// an asleep peer wakes and gets the keys once it is at its prompt (ROADMAP #50)
+			if p, ok := s.hub.SessionInfo(peer); ok && (p.Status == session.StatusRunning || p.Status == session.StatusAsleep) && !p.Paused {
 				peers = append(peers, peer)
 			}
 		}

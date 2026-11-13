@@ -718,7 +718,7 @@ func (l *Loops) Tick(now time.Time) {
 			for sid := range rt.idlePend {
 				in, ok := l.env.sessionInfo(sid)
 				delete(rt.idlePend, sid)
-				if ok && in.AgentState == agentstate.Ready && !in.Paused {
+				if ok && idle(in) && !in.Paused {
 					starts = append(starts, due{id, "run", sid})
 					break
 				}
@@ -729,7 +729,7 @@ func (l *Loops) Tick(now time.Time) {
 					delete(rt.outPend, sid)
 					continue
 				}
-				if in.AgentState == agentstate.Ready && !in.Paused {
+				if idle(in) && !in.Paused {
 					delete(rt.outPend, sid)
 					starts = append(starts, due{id, "run", sid})
 					break

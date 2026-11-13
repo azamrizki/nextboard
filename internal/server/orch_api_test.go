@@ -19,7 +19,8 @@ import (
 // fakeOrchAgent behaves like Claude Code for the delivery engine: it fires
 // hooks through NB_HOOK_SH (real marker protocol), enables bracketed
 // paste, draws Claude's bordered input box with the cursor in it, and
-// logs every line it receives. FAKE_MODE=update shows a Codex-like update
+// logs every line it receives. FAKE_ECHO=1 keeps the terminal's echo, so what is
+// typed shows at its prompt. FAKE_MODE=update shows a Codex-like update
 // dialog instead and touches UPDATED if anything is ever typed into it.
 const fakeOrchAgent = `#!/bin/sh
 sid=""
@@ -27,7 +28,7 @@ while [ $# -gt 0 ]; do case "$1" in --session-id|--resume) sid="$2"; shift;; esa
 tp="$FAKE_DIR/$sid.jsonl"
 esc=$(printf '\033')
 hook() { printf '%s' "$2" | sh -c "set -- hook $1; eval \"\$NB_HOOK_SH\""; }
-stty -echo 2>/dev/null
+[ -n "$FAKE_ECHO" ] || stty -echo 2>/dev/null
 box() { printf '\r\n──────────────────────\r\n❯ \r\n──────────────────────\r\n  ⏸ manual mode on\033[2A\033[3G'; }
 if [ "$FAKE_MODE" = update ]; then
   hook SessionStart "{\"session_id\":\"$sid\",\"transcript_path\":\"$tp\",\"hook_event_name\":\"SessionStart\"}"

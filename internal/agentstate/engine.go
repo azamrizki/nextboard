@@ -24,6 +24,9 @@ const (
 	Exited       = "exited"
 	Reconnecting = "reconnecting"
 	Error        = "error"
+	// Asleep: the hub ended the agent's process to free memory, or did not start it after a
+	// restart; it resumes its conversation when woken (ROADMAP #50).
+	Asleep = "asleep"
 )
 
 // Sources (stateSource).
@@ -75,6 +78,7 @@ const (
 	ProcExited       = "exited"
 	ProcReconnecting = "reconnecting"
 	ProcError        = "error"
+	ProcAsleep       = "asleep"
 )
 
 // Config describes the console the engine follows.
@@ -648,6 +652,8 @@ func (e *Engine) effective() (string, string) {
 		return Exited, SrcProcess
 	case ProcStarting:
 		return Starting, SrcProcess
+	case ProcAsleep:
+		return Asleep, SrcProcess
 	}
 	if e.cfg.Shell {
 		return Shell, SrcProcess

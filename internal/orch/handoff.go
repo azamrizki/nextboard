@@ -587,7 +587,7 @@ func (s *Service) handoffsTick(now time.Time) {
 				continue
 			}
 			switch {
-			case in.AgentState == agentstate.Ready && !in.Paused:
+			case idle(in) && !in.Paused:
 				text := h.Brief + "\n\n" + HandoffContinue
 				if h.Returning {
 					text = "You are back on this work; another agent had it in the meantime. What it did:\n\n" + text

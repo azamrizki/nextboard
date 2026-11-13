@@ -26,6 +26,7 @@ type fakeConsole struct {
 	writes []string
 	fgOK   bool
 	fgErr  error
+	woken  int
 }
 
 func (f *fakeConsole) View() session.DeliveryView {
@@ -47,6 +48,18 @@ func (f *fakeConsole) Write(p []byte) error {
 	defer f.mu.Unlock()
 	f.writes = append(f.writes, string(p))
 	return nil
+}
+
+// Wake is an asleep console starting: it becomes ready when the test says so.
+func (f *fakeConsole) Wake() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.v.Status != session.StatusAsleep {
+		return false
+	}
+	f.woken++
+	f.v.Status, f.v.AgentState, f.v.Running = session.StatusStarting, agentstate.Starting, false
+	return true
 }
 
 func (f *fakeConsole) set(fn func(v *session.DeliveryView)) {
@@ -434,6 +447,31 @@ func TestDeliveryQueueAndWhileWorking(t *testing.T) {
 
 // TestDeliveryPausedStartingReconnectingDeadline covers the remaining
 // rows of the §2 table and cancel.
+// TestDeliveryWakesAsleep: text for an asleep agent wakes it and is typed once it is ready
+// (ROADMAP #50).
+func TestDeliveryWakesAsleep(t *testing.T) {
+	h := newHarness()
+	c := h.add("s_a", readyClaude())
+	c.set(func(v *session.DeliveryView) {
+		v.Status, v.AgentState, v.Running = session.StatusAsleep, agentstate.Asleep, false
+	})
+	d, err := h.e.Submit("s_a", Request{Text: "look at the logs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.run(0, 2*time.Second)
+	if got := h.get(t, d.ID); got.State != Waiting || got.WaitReason != WaitStarting || c.written() != "" || c.woken != 1 {
+		t.Fatalf("woken %d %+v", c.woken, got)
+	}
+	c.set(func(v *session.DeliveryView) {
+		v.Status, v.AgentState, v.Running = session.StatusRunning, agentstate.Ready, true
+	})
+	h.run(2100*time.Millisecond, 4*time.Second)
+	if !strings.Contains(c.written(), "look at the logs") || !strings.HasSuffix(c.written(), "\r") || c.woken != 1 {
+		t.Fatalf("woken %d, written %q", c.woken, c.written())
+	}
+}
+
 func TestDeliveryPausedStartingReconnectingDeadline(t *testing.T) {
 	h := newHarness()
 	c := h.add("s_a", readyClaude())

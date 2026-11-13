@@ -8,6 +8,7 @@ import { PORT, STATE_FILE } from './playwright.config';
 
 const FAKE_AGENT = fileURLToPath(new URL('./fake-agent.sh', import.meta.url));
 const FAKE_WORKER = fileURLToPath(new URL('./fake-worker.sh', import.meta.url));
+const FAKE_CLAUDE = fileURLToPath(new URL('./fake-claude.sh', import.meta.url));
 
 /** Starts the hub, sets it up, and gives back how to stop it. */
 export default async function globalSetup() {
@@ -57,6 +58,9 @@ export default async function globalSetup() {
     if (!agent.ok()) throw new Error(`agent: ${agent.status()}`);
     const worker = await ctx.post('/api/agents', { data: { id: 'fakeworker', name: 'Fake Worker', command: FAKE_WORKER } });
     if (!worker.ok()) throw new Error(`worker: ${worker.status()}`);
+    // like Claude Code: the hub gives it its conversation id, so it can sleep and resume (ROADMAP #50)
+    const claude = await ctx.post('/api/agents', { data: { id: 'fakeclaude', name: 'Fake Claude', command: FAKE_CLAUDE, base: 'claude' } });
+    if (!claude.ok()) throw new Error(`fake claude: ${claude.status()}`);
     writeFileSync(STATE_FILE, JSON.stringify(await ctx.storageState()));
     await ctx.dispose();
   } catch (err) {
