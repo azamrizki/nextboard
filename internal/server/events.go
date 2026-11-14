@@ -40,6 +40,13 @@ func (b *Broker) Subscribe(topics ...string) *eventSub {
 	return sub
 }
 
+// Count is the number of subscribers.
+func (b *Broker) Count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subs)
+}
+
 func (b *Broker) Unsubscribe(sub *eventSub) {
 	b.mu.Lock()
 	delete(b.subs, sub)

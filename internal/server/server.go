@@ -57,6 +57,8 @@ type Options struct {
 	DevWebPort int
 	// PrintSetup prints a fresh setup link to stdout when setup is needed.
 	PrintSetup bool
+	// DebugListen serves the Go profiles of the hub on this loopback address; "" means none.
+	DebugListen string
 }
 
 // Server wires every component together.
@@ -174,7 +176,7 @@ func New(opts Options) (*Server, error) {
 		log.Printf("connection log not available: %v", err)
 	}
 	mgr := session.NewManager(st, reg)
-	mgr.Settings, mgr.Profiles = sets.Get, profs
+	mgr.Settings, mgr.Profiles = sets.View, profs
 	if err := mgr.Load(); err != nil {
 		return nil, err
 	}
@@ -258,7 +260,7 @@ func (s *Server) wire() {
 	s.machines.SessionCount = s.sessions.CountByMachine
 	s.machines.PresetCommands = s.detectCommands
 	s.machines.HookHandler = s.sessions.HookHandler()
-	s.machines.WantForward = func() bool { return s.settings.Get().Agents.HookChannel != "tty" }
+	s.machines.WantForward = func() bool { return s.settings.View().Agents.HookChannel != "tty" }
 	s.sessions.HookURL = s.hookURLFor
 	s.machines.Log = s.connLog.Write
 	s.sessions.OnChannelLost = func(sp session.Spec) {
@@ -353,6 +355,11 @@ func (s *Server) urlsFor(r *http.Request) []string {
 
 // Run serves until ctx is cancelled, then shuts down gracefully.
 func (s *Server) Run(ctx context.Context, opts Options) error {
+	stopDebug, err := s.serveDebug(opts.DebugListen)
+	if err != nil {
+		return err
+	}
+	defer stopDebug()
 	ln, err := net.Listen("tcp", s.listen)
 	if err != nil {
 		return err
@@ -365,7 +372,7 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 	s.noteHubStart()
 	s.machines.Start()
 	s.sessions.Start()
-	if s.settings.Get().Agents.LazyStart {
+	if s.settings.View().Agents.LazyStart {
 		s.wakeLastProject()
 	}
 	s.startOrchestration()
@@ -377,6 +384,7 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 	stopStatus := s.serveStatusOnly()
 	defer stopStatus()
 	go s.watchBudgets(ctx)
+	go s.returnMemory(ctx)
 
 	log.Printf("NextBoard %s running at http://%s", version.Version, s.listen)
 	if !isLoopbackListen(s.listen) {
@@ -550,7 +558,7 @@ func (s *Server) ensureAgentHomes() error {
 		if err != nil {
 			return err
 		}
-		if !created || s.settings.Get().Agents.Profiles[machine.LocalID][a.ID] != "" {
+		if !created || s.settings.View().Agents.Profiles[machine.LocalID][a.ID] != "" {
 			continue
 		}
 		patch, _ := json.Marshal(map[string]any{"agents": map[string]any{"profiles": map[string]any{machine.LocalID: map[string]string{a.ID: pf.ID}}}})
@@ -579,7 +587,7 @@ func (s *Server) noLSPOffer(pf profiles.Profile) {
 
 // defaultProfileEnv is the env of the default profile of an agent on This PC.
 func (s *Server) defaultProfileEnv(agentID string) []string {
-	id := s.settings.Get().Agents.Profiles[machine.LocalID][agentID]
+	id := s.settings.View().Agents.Profiles[machine.LocalID][agentID]
 	pf, ok := s.profiles.Get(id)
 	a, aok := s.agents.Get(agentID)
 	if !ok || !aok || pf.MachineID != machine.LocalID || a.ProfileEnv == "" {
@@ -602,7 +610,7 @@ func (s *Server) hookURLFor(machineID string) string {
 // command plus path overrides from settings.
 func (s *Server) detectCommands() []string {
 	var over []string
-	for _, per := range s.settings.Get().Agents.Paths {
+	for _, per := range s.settings.View().Agents.Paths {
 		for _, p := range per {
 			over = append(over, p)
 		}

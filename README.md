@@ -350,6 +350,8 @@ Please report security problems through a [private security advisory](https://gi
 
 All commands accept `--data-dir` (default `~/.nextboard`, or `$NEXTBOARD_HOME`).
 
+`serve --debug-listen 127.0.0.1:6060` serves the hub's Go profiles and a few counts (`/debug/pprof/`, `/debug/hub`) for looking into its memory. It is off unless given, takes only a loopback address, and answers no request from a web page.
+
 ## Development
 
 Use **Go 1.26+**, **Node.js 22+** and git. From a source checkout, install the frontend dependencies and the Go reloader:

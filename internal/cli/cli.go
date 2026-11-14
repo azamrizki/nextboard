@@ -111,11 +111,12 @@ func cmdServe(args []string) error {
 	statusListen := fs.String("status-listen", "", "second address that serves only the public status page (default from config.json)")
 	dev := fs.Bool("dev", false, "dev mode: allow the Origin of the local Vite server")
 	devWebPort := fs.Int("dev-web-port", 5173, "dev mode: Vite server port")
+	debugListen := fs.String("debug-listen", "", "loopback address that serves the hub's Go profiles (/debug/pprof, /debug/hub), e.g. 127.0.0.1:6060; off when empty")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	opts := server.Options{
-		DataDir: *dir, Listen: *listen, StatusListen: *statusListen, Dev: *dev, DevWebPort: *devWebPort,
+		DataDir: *dir, Listen: *listen, StatusListen: *statusListen, Dev: *dev, DevWebPort: *devWebPort, DebugListen: *debugListen,
 		PrintSetup: term.IsTerminal(int(os.Stdout.Fd())),
 	}
 	srv, err := server.New(opts)
