@@ -1377,7 +1377,7 @@ func (m *Manager) saveNow() {
 func (m *Manager) flushScrollback(all bool) {
 	for _, s := range m.all() {
 		s.mu.Lock()
-		if !s.dirty && !all {
+		if (!s.dirty && !all) || s.ringOff { // a let-go scrollback is its file already
 			s.mu.Unlock()
 			continue
 		}

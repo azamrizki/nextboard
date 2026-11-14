@@ -222,7 +222,7 @@ func (m *Manager) Changed(id string) {
 // sequences removed (handoff without transcript).
 func (s *Session) ScrollbackText(lines int) string {
 	s.mu.Lock()
-	b := s.ring.Bytes()
+	b := s.ringBytesLocked()
 	s.mu.Unlock()
 	text := stripANSI(b)
 	l := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")

@@ -731,7 +731,7 @@ func (s *Session) syncModel() {
 // screenReplyLocked is the reply of an agent without transcript: the last
 // lines printed since the turn started, ANSI removed.
 func (s *Session) screenReplyLocked() *Reply {
-	b := s.ring.Bytes()
+	b := s.ringBytesLocked()
 	since := s.outTotal - s.turnOut
 	if since > 0 && since < int64(len(b)) {
 		b = b[int64(len(b))-since:]

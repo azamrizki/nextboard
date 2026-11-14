@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/marker"
 	"github.com/azamrizki/nextboard/internal/screen"
+	"github.com/azamrizki/nextboard/internal/store"
 	"github.com/azamrizki/nextboard/internal/transcript"
 )
 
@@ -229,8 +231,11 @@ type Session struct {
 	gen        int
 	killing    bool
 	deleted    bool
-	dirty      bool   // scrollback changed since last flush
-	early      []byte // typed while the process was starting; it gets this once it exists
+	dirty      bool // scrollback changed since last flush
+	// ringOff: the scrollback is only in its file (parkRingLocked); ring is empty until
+	// ringLocked reads it back.
+	ringOff bool
+	early   []byte // typed while the process was starting; it gets this once it exists
 
 	// Phase 5: status engine, marker stripper and VT model.
 	ag          agent.Agent // agent of the current launch
@@ -324,6 +329,51 @@ func (s *Session) infoLocked() Info {
 	return in
 }
 
+// ringLocked is the scrollback, read back from its file if it was let go.
+func (s *Session) ringLocked() *Ring {
+	if s.ringOff {
+		s.ringOff = false
+		r := NewRing(ScrollbackSize)
+		if b, err := os.ReadFile(s.m.scrollbackPath(s.spec.ID)); err == nil {
+			r.Write(b)
+		}
+		s.ring = r
+	}
+	return s.ring
+}
+
+// ringBytesLocked is what the scrollback holds, without taking it back into memory.
+func (s *Session) ringBytesLocked() []byte {
+	if s.ringOff {
+		b, _ := os.ReadFile(s.m.scrollbackPath(s.spec.ID))
+		return b
+	}
+	return s.ring.Bytes()
+}
+
+// parkRingLocked writes the scrollback to its file and lets it go, for a console whose process
+// has ended (asleep, exited): up to ScrollbackSize each, for consoles nobody may open for days.
+// Opened, or running again, it is read back.
+func (s *Session) parkRingLocked() {
+	if s.ringOff || s.deleted || s.ring.Len() == 0 || s.m.isShuttingDown() {
+		return
+	}
+	if store.WriteFileAtomic(s.m.scrollbackPath(s.spec.ID), s.ring.Bytes()) != nil {
+		return // kept in memory, as before
+	}
+	s.dirty = false
+	s.ring, s.ringOff = NewRing(ScrollbackSize), true
+}
+
+// InMemory reports whether the console's screen emulator and its scrollback are held in
+// memory; neither is while it sleeps or after it ended.
+func (s *Session) InMemory() (screen, scrollback bool) {
+	s.mu.Lock()
+	scrollback = !s.ringOff
+	s.mu.Unlock()
+	return !s.scr.Parked(), scrollback
+}
+
 // Subscribe returns the scrollback snapshot and a live subscriber.
 // An asleep agent wakes: its terminal is open.
 func (s *Session) Subscribe() ([]byte, *Sub) {
@@ -335,7 +385,7 @@ func (s *Session) Subscribe() ([]byte, *Sub) {
 		return nil, sub
 	}
 	s.subs[sub] = struct{}{}
-	snap := s.ring.Bytes()
+	snap := s.ringLocked().Bytes()
 	asleep := s.spec.Asleep
 	if s.sleeping {
 		s.wakeAfter = true
@@ -371,7 +421,7 @@ func (s *Session) fanoutLocked(msg Msg) {
 // writeLocked appends hub-generated text to scrollback and subscribers.
 func (s *Session) writeLocked(text string) {
 	b := []byte(text)
-	s.ring.Write(b)
+	s.ringLocked().Write(b)
 	s.dirty = true
 	s.scr.Feed(b)
 	s.fanoutLocked(Msg{Data: b})
@@ -397,6 +447,16 @@ func (s *Session) setStatus(status string, code int, errMsg string) {
 	s.fanoutLocked(s.statusMsgLocked())
 	ev := s.eng.TakeEvents()
 	s.mu.Unlock()
+	if status == StatusAsleep || status == StatusExited {
+		// nothing draws on its screen until it runs again: the emulator goes, the text stays,
+		// and its scrollback waits in its file
+		s.scr.Park()
+		s.mu.Lock()
+		if s.status == status {
+			s.parkRingLocked()
+		}
+		s.mu.Unlock()
+	}
 	s.m.changed(s)
 	s.m.attention(s, ev)
 }
@@ -435,7 +495,7 @@ func (s *Session) emitLocked(clean []byte, now time.Time) bool {
 	if len(clean) == 0 {
 		return false
 	}
-	s.ring.Write(clean)
+	s.ringLocked().Write(clean)
 	s.dirty = true
 	s.outTotal += int64(len(clean))
 	s.lastOutput = now

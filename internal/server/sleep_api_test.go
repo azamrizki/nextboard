@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,8 +123,22 @@ func TestSleepWake(t *testing.T) {
 	if st, b := h.do("POST", "/api/sessions/"+id+"/sleep", nil, nil); st != 409 || b["reason"] != session.SleepNotRunning {
 		t.Fatalf("asleep twice %d %v", st, b)
 	}
-	_, sub = sess.Subscribe()
+	// asleep, it holds neither its screen's emulator nor its scrollback; the text stays
+	waitTrue(t, "let go", 5*time.Second, func() bool { scr, sb := sess.InMemory(); return !scr && !sb })
+	if !strings.Contains(strings.Join(sess.Screen().Lines, ""), "and more") {
+		t.Fatalf("the parked screen lost its text: %q", sess.Screen().Lines)
+	}
+	if !strings.Contains(sess.ScrollbackText(10000), "half typed") {
+		t.Fatal("the scrollback in its file lost its text")
+	}
+	snap, sub := sess.Subscribe()
+	if !bytes.Contains(snap, []byte("half typed")) {
+		t.Fatal("its terminal opens without its scrollback")
+	}
 	h.waitInfo(id, "woken by its terminal", quiet)
+	if _, sb := sess.InMemory(); !sb {
+		t.Fatal("awake without its scrollback in memory")
+	}
 	sess.Unsubscribe(sub)
 
 	// text for it wakes it, and goes in

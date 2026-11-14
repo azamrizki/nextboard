@@ -12,9 +12,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
@@ -39,8 +42,40 @@ type Model interface {
 	Reset()
 }
 
-// screenScrollback is the least the emulator accepts as history.
+// screenScrollback is the least the emulator accepts as history, for when slim cannot turn its
+// history off.
 const screenScrollback = 1
+
+// parserData bounds what the emulator's parser keeps of one control string. None reaches it:
+// stringStripper drops them first.
+const parserData = 1 << 10
+
+// slim takes from a new emulator what the hub's screen never reads, and what cost most of a
+// console's memory in the hub:
+//
+//   - the history of both screens. Each line that scrolls off was copied into it, and only the
+//     main screen's history has a size that can be set: a program in the alternate screen that
+//     scrolled (tmux, a pager, a full-screen agent) grew the other to 10 000 lines, over 100 MB
+//     for one console. The history lives in the session's ring; here it is turned off.
+//   - the parser's 4 MB buffer for control strings, which never reach it.
+//
+// The emulator offers neither, so its fields are reached by name; where a later version names
+// them differently this does nothing but keep the main screen's history at one line, and
+// TestScreenMemoryIsBounded says so.
+func slim(e *vt.Emulator) {
+	e.SetScrollbackSize(screenScrollback)
+	v := reflect.ValueOf(e).Elem()
+	if f := v.FieldByName("scrs"); f.IsValid() && f.CanAddr() && f.Type() == reflect.TypeFor[[2]vt.Screen]() {
+		scrs := (*[2]vt.Screen)(unsafe.Pointer(f.UnsafeAddr()))
+		scrs[0].SetScrollback(nil)
+		scrs[1].SetScrollback(nil)
+	}
+	if f := v.FieldByName("parser"); f.IsValid() && f.CanAddr() && f.Type() == reflect.TypeFor[*ansi.Parser]() {
+		if p := *(**ansi.Parser)(unsafe.Pointer(f.UnsafeAddr())); p != nil {
+			p.SetDataSize(parserData)
+		}
+	}
+}
 
 const (
 	writeChunk   = 32 << 10
@@ -83,7 +118,7 @@ func (m *vtModel) Reset() {
 	e := vt.NewEmulator(max(m.cols, 1), max(m.rows, 1))
 	// Only the visible screen is read here; the history lives in the session's
 	// ring. Left at its default, this keeps 10 000 lines per console, ~150 MB.
-	e.SetScrollbackSize(screenScrollback)
+	slim(e)
 	e.SetCallbacks(vt.Callbacks{
 		EnableMode: func(mode ansi.Mode) {
 			if mode == ansi.ModeBracketedPaste {
@@ -238,12 +273,19 @@ type Snapshot struct {
 
 // Screen feeds a Model from a bounded queue on its own goroutine, so the
 // terminal reader never waits for parsing.
+//
+// A screen whose program is gone can be parked (Park): the emulator, most of a console's
+// memory in the hub, is let go and the screen as it was is kept as text. The next output or
+// Reset starts a new emulator from that text.
 type Screen struct {
-	mu      sync.Mutex
-	m       Model
-	strs    stringStripper // used by loop only
-	stale   bool
-	version uint64
+	mu         sync.Mutex
+	m          Model // nil while parked
+	cols, rows int
+	respond    func([]byte)
+	parked     *Snapshot      // the screen as it was, while m is nil
+	strs       stringStripper // used by loop only
+	stale      bool
+	version    uint64
 
 	qmu      sync.Mutex
 	queue    [][]byte
@@ -258,9 +300,70 @@ type Screen struct {
 // New starts a screen of cols×rows. respond (may be nil) receives the
 // model's answers to terminal queries.
 func New(cols, rows int, respond func([]byte)) *Screen {
-	s := &Screen{m: NewModel(cols, rows, respond), wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{})}
+	s := &Screen{cols: cols, rows: rows, respond: respond, wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{})}
+	s.m = NewModel(cols, rows, respond)
 	go s.loop()
 	return s
+}
+
+// modelLocked is the emulator, started again from the parked screen when there is none: its
+// text where it was, the cursor, and the two modes the hub reads. Colours and the like went with
+// the program that set them.
+func (s *Screen) modelLocked() Model {
+	if s.m != nil {
+		return s.m
+	}
+	s.m = NewModel(s.cols, s.rows, s.respond)
+	if sn := s.parked; sn != nil {
+		var b bytes.Buffer
+		if sn.Alt {
+			b.WriteString("\x1b[?1049h")
+		}
+		if sn.BracketedPaste {
+			b.WriteString("\x1b[?2004h")
+		}
+		lines := sn.Lines
+		for len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		for i, l := range lines {
+			if i >= s.rows {
+				break
+			}
+			fmt.Fprintf(&b, "\x1b[%d;1H%s", i+1, l)
+		}
+		fmt.Fprintf(&b, "\x1b[%d;%dH", min(sn.CursorY, s.rows-1)+1, min(sn.CursorX, s.cols-1)+1)
+		s.m.Write(b.Bytes())
+	}
+	s.parked = nil
+	return s.m
+}
+
+// Park lets the emulator go and keeps the screen as text, for a console whose program has
+// ended (asleep, exited). Everything fed so far is applied first. It is safe to call again.
+func (s *Screen) Park() {
+	s.Sync()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.qmu.Lock()
+	busy := s.closed || s.queued > 0
+	s.qmu.Unlock()
+	if s.m == nil || busy {
+		return
+	}
+	sn := s.snapshotLocked()
+	s.parked = &sn
+	if c, ok := s.m.(interface{ close() }); ok {
+		c.close()
+	}
+	s.m = nil
+}
+
+// Parked reports whether the emulator was let go.
+func (s *Screen) Parked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.m == nil
 }
 
 // Feed queues p (copied). When the queue is over QueueMax the pending data
@@ -278,7 +381,7 @@ func (s *Screen) Feed(p []byte) {
 		s.queue, s.queued = nil, 0
 		s.qmu.Unlock()
 		s.mu.Lock()
-		s.m.Reset()
+		s.resetLocked()
 		s.strs = stringStripper{}
 		s.stale = true
 		s.version++
@@ -318,8 +421,9 @@ func (s *Screen) loop() {
 				break
 			}
 			s.mu.Lock()
+			m := s.modelLocked()
 			for _, b := range q {
-				lost := !s.m.Write(s.strs.strip(b))
+				lost := !m.Write(s.strs.strip(b))
 				if s.stale && isRedraw(b) {
 					s.stale = false
 				}
@@ -367,9 +471,15 @@ func isRedraw(b []byte) bool {
 
 // Resize follows the session size.
 func (s *Screen) Resize(cols, rows int) {
+	if cols < 1 || rows < 1 {
+		return
+	}
 	s.Sync()
 	s.mu.Lock()
-	s.m.Resize(cols, rows)
+	s.cols, s.rows = cols, rows
+	if s.m != nil {
+		s.m.Resize(cols, rows)
+	}
 	s.version++
 	s.mu.Unlock()
 }
@@ -380,16 +490,36 @@ func (s *Screen) Reset() {
 	s.queue, s.queued = nil, 0
 	s.qmu.Unlock()
 	s.mu.Lock()
-	s.m.Reset()
+	s.resetLocked()
 	s.stale = false
 	s.version++
 	s.mu.Unlock()
+}
+
+// resetLocked empties the screen: a new emulator, or nothing kept of a parked one.
+func (s *Screen) resetLocked() {
+	if s.m != nil {
+		s.m.Reset()
+		return
+	}
+	s.parked = nil
 }
 
 // Snapshot copies the visible screen.
 func (s *Screen) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.snapshotLocked()
+}
+
+func (s *Screen) snapshotLocked() Snapshot {
+	if s.m == nil {
+		sn := Snapshot{Stale: s.stale, Version: s.version}
+		if p := s.parked; p != nil {
+			sn.Lines, sn.CursorX, sn.CursorY, sn.Alt, sn.BracketedPaste = slices.Clone(p.Lines), p.CursorX, p.CursorY, p.Alt, p.BracketedPaste
+		}
+		return sn
+	}
 	x, y := s.m.Cursor()
 	return Snapshot{
 		Lines: s.m.Lines(), CursorX: x, CursorY: y, Alt: s.m.AltScreen(),
@@ -424,6 +554,7 @@ func (s *Screen) Close() {
 	if c, ok := s.m.(interface{ close() }); ok {
 		c.close()
 	}
+	s.m = nil
 	s.mu.Unlock()
 }
 
