@@ -4,7 +4,8 @@
 // layout and the tab list also survive a reload (localStorage, drafts in IndexedDB).
 
 import { api, ApiError, errorMessage, fsRawUrl, isCode } from '../../api';
-import { fileToBase64, sendPasted } from '../../board/files';
+import { sendPasted } from '../../board/files';
+import { packUpload } from '../../lib/pack';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { limiter } from '../../lib/limiter';
@@ -1791,8 +1792,8 @@ export class Workspace {
   /** Files from the computer, into this folder. What already has the name stays. */
   async pasteFiles(dir: string, files: File[]) {
     const sent = await sendPasted(files, async (f) => {
-      const content = await fileToBase64(f);
-      return this.run((c) => fsApi.write(this.mid, { path: `${dir === '/' ? '' : dir}/${f.name}`, content, encoding: 'base64', unique: true, projectId: this.pid, ...c }));
+      const packed = await packUpload(f);
+      return this.run((c) => api.fsUpload(this.mid, packed, { path: `${dir === '/' ? '' : dir}/${f.name}`, unique: true, projectId: this.pid, ...c }));
     });
     if (sent.length) this.showAdded(sent[sent.length - 1].path);
     return sent;

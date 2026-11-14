@@ -1,8 +1,7 @@
 package server
 
 import (
-	"bytes"
-	"errors"
+	"bufio"
 	"image"
 	_ "image/gif" // DecodeConfig formats
 	_ "image/jpeg"
@@ -16,7 +15,6 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"github.com/azamrizki/nextboard/internal/auth"
-	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const maxAssetBytes = 20 << 20
@@ -35,27 +33,28 @@ func (s *Server) handleAssetUpload(w http.ResponseWriter, r *http.Request, p *pr
 		writeErr(w, http.StatusUnsupportedMediaType, "image type not supported (png, jpeg, gif, webp)")
 		return
 	}
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			writeErr(w, http.StatusRequestEntityTooLarge, "image larger than 20 MB")
-			return
-		}
-		writeErr(w, http.StatusBadRequest, "could not read the body")
+	f, size, ok := s.spool(w, r, maxAssetBytes)
+	if !ok {
 		return
 	}
-	if len(data) == 0 {
+	defer dropSpool(f)
+	if size == 0 {
 		writeErr(w, http.StatusBadRequest, "empty body")
 		return
 	}
 	// Trust the bytes, not the header.
-	typ := http.DetectContentType(data)
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(f, head)
+	typ := http.DetectContentType(head[:n])
 	if !assetTypes[typ] {
 		writeErr(w, http.StatusUnsupportedMediaType, "the file content is not a png, jpeg, gif or webp image")
 		return
 	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	cfg, _, err := image.DecodeConfig(bufio.NewReader(f))
 	if err != nil {
 		writeErr(w, http.StatusUnsupportedMediaType, "the image cannot be read")
 		return
@@ -65,12 +64,17 @@ func (s *Server) handleAssetUpload(w http.ResponseWriter, r *http.Request, p *pr
 		return
 	}
 	id := auth.RandomID("a_")
-	if err := store.WriteFileAtomic(s.assetPath(id), data); err != nil {
+	// the spooled file is in the same data folder: it moves into place whole
+	if err := f.Sync(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.Rename(f.Name(), s.assetPath(id)); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id": id, "url": "/api/assets/" + id, "type": typ, "size": len(data), "w": cfg.Width, "h": cfg.Height,
+		"id": id, "url": "/api/assets/" + id, "type": typ, "size": size, "w": cfg.Width, "h": cfg.Height,
 	})
 }
 

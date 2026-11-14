@@ -103,19 +103,17 @@ func (s *Server) attachDir(ctx context.Context, h machine.Host, key string) (str
 	return strings.TrimSpace(string(res.Stdout)), nil
 }
 
+// attachMaxBytes bounds one pasted file, as the body limit of its route does.
+const attachMaxBytes = 20 << 20
+
 // attachTo stores the request body in key's folder on h.
 func (s *Server) attachTo(w http.ResponseWriter, r *http.Request, h machine.Host, key string) {
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			writeErr(w, http.StatusRequestEntityTooLarge, "file larger than 20 MB")
-			return
-		}
-		writeErr(w, http.StatusBadRequest, "could not read the body")
+	f, size, ok := s.spool(w, r, attachMaxBytes)
+	if !ok {
 		return
 	}
-	if len(data) == 0 {
+	defer dropSpool(f)
+	if size == 0 {
 		writeErr(w, http.StatusBadRequest, "empty file")
 		return
 	}
@@ -126,7 +124,7 @@ func (s *Server) attachTo(w http.ResponseWriter, r *http.Request, h machine.Host
 		fsErr(w, err)
 		return
 	}
-	st, err := h.WriteFile(ctx, path.Join(dir, attachName(r.URL.Query().Get("name"))), data, machine.WriteOptions{Unique: true})
+	st, err := h.WriteFrom(ctx, path.Join(dir, attachName(r.URL.Query().Get("name"))), f, machine.WriteOptions{Unique: true})
 	if err != nil {
 		fsErr(w, err)
 		return

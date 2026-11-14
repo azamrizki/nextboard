@@ -173,6 +173,9 @@ type Host interface {
 	ReadAt(ctx context.Context, path string, off, n int64) ([]byte, *FileStat, error)
 	OpenRaw(ctx context.Context, path string) (io.ReadCloser, *FileStat, error)
 	WriteFile(ctx context.Context, path string, data []byte, opt WriteOptions) (*FileStat, error)
+	// WriteFrom is WriteFile from a stream, which is read once, a piece at a time. A file it
+	// made (Unique) is removed again when the stream fails.
+	WriteFrom(ctx context.Context, path string, r io.Reader, opt WriteOptions) (*FileStat, error)
 	// Mkdir creates one folder (parent must exist; an existing folder is
 	// fine). Only for explicit user actions such as reply/save.
 	Mkdir(ctx context.Context, path string) error

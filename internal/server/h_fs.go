@@ -2,11 +2,13 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -260,18 +262,14 @@ func (s *Server) handleFSWrite(w http.ResponseWriter, r *http.Request, p *princi
 		writeErr(w, http.StatusNotFound, machine.ErrNotFound.Error())
 		return
 	}
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "application/octet-stream" {
+		s.fsWriteRaw(w, r, h)
+		return
+	}
 	var req struct {
-		Path     string  `json:"path"`
-		Content  string  `json:"content"`
-		Encoding string  `json:"encoding"`
-		IfMtime  *string `json:"ifMtime"`
-		Unique   bool    `json:"unique"`
-		// Code studio (API-studio §7): with projectId, a file whose real
-		// path is outside the project needs allowOutside; writes into a
-		// Claude config folder of an SSH machine need confirm (§9.2).
-		ProjectID    string       `json:"projectId"`
-		AllowOutside bool         `json:"allowOutside"`
-		Confirm      *confirmBody `json:"confirm"`
+		fsWriteReq
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -297,10 +295,58 @@ func (s *Server) handleFSWrite(w http.ResponseWriter, r *http.Request, p *princi
 		writeErr(w, http.StatusBadRequest, `encoding must be "utf8" or "base64"`)
 		return
 	}
+	req.Content = "" // the decoded copy is the one that goes on
 	if len(data) > machine.MaxFileBytes {
 		fsErr(w, machine.ErrFileTooLarge)
 		return
 	}
+	s.writeFSFile(w, r, h, req.fsWriteReq, bytes.NewReader(data))
+}
+
+type fsWriteReq struct {
+	Path    string  `json:"path"`
+	IfMtime *string `json:"ifMtime"`
+	Unique  bool    `json:"unique"`
+	// Code studio (API-studio §7): with projectId, a file whose real
+	// path is outside the project needs allowOutside; writes into a
+	// Claude config folder of an SSH machine need confirm (§9.2).
+	ProjectID    string       `json:"projectId"`
+	AllowOutside bool         `json:"allowOutside"`
+	Confirm      *confirmBody `json:"confirm"`
+}
+
+// fsWriteRaw is fs/write with the file as the body, gzip-compressed or not, and the rest in the
+// query: path, unique, ifMtime, projectId, allowOutside, and confirm once per path. The body is
+// read whole before anything is refused, so the browser always gets to read the answer.
+func (s *Server) fsWriteRaw(w http.ResponseWriter, r *http.Request, h machine.Host) {
+	f, _, ok := s.spool(w, r, machine.MaxFileBytes)
+	if !ok {
+		return
+	}
+	defer dropSpool(f)
+	q := r.URL.Query()
+	req := fsWriteReq{Path: q.Get("path"), ProjectID: q.Get("projectId")}
+	req.Unique, _ = strconv.ParseBool(q.Get("unique"))
+	req.AllowOutside, _ = strconv.ParseBool(q.Get("allowOutside"))
+	if q.Has("ifMtime") {
+		v := q.Get("ifMtime")
+		req.IfMtime = &v
+	}
+	if q.Has("confirm") {
+		req.Confirm = &confirmBody{Paths: q["confirm"]}
+	}
+	if req.Path == "" {
+		writeErr(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	if s.hubPrivate(w, h, req.Path) {
+		return
+	}
+	s.writeFSFile(w, r, h, req, f)
+}
+
+// writeFSFile is the end of both ways of fs/write.
+func (s *Server) writeFSFile(w http.ResponseWriter, r *http.Request, h machine.Host, req fsWriteReq, src io.Reader) {
 	opt := machine.WriteOptions{Unique: req.Unique}
 	if req.IfMtime != nil && *req.IfMtime != "" {
 		t, err := time.Parse(time.RFC3339Nano, *req.IfMtime)
@@ -318,7 +364,7 @@ func (s *Server) handleFSWrite(w http.ResponseWriter, r *http.Request, p *princi
 	if req.ProjectID != "" {
 		s.review.UserWrote(req.Path)
 	}
-	st, err := h.WriteFile(ctx, req.Path, data, opt)
+	st, err := h.WriteFrom(ctx, req.Path, src, opt)
 	if err != nil {
 		fsErr(w, err)
 		return

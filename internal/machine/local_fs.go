@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -97,7 +98,12 @@ func (l *Local) openRegular(p string) (*os.File, *FileStat, error) {
 
 // WriteFile writes data in place (explicit user action only). The parent
 // folder must exist; nothing else is created.
-func (l *Local) WriteFile(_ context.Context, p string, data []byte, opt WriteOptions) (*FileStat, error) {
+func (l *Local) WriteFile(ctx context.Context, p string, data []byte, opt WriteOptions) (*FileStat, error) {
+	return l.WriteFrom(ctx, p, bytes.NewReader(data), opt)
+}
+
+// WriteFrom is WriteFile from a stream.
+func (l *Local) WriteFrom(_ context.Context, p string, r io.Reader, opt WriteOptions) (*FileStat, error) {
 	abs, err := l.resolve(p)
 	if err != nil {
 		return nil, err
@@ -115,7 +121,11 @@ func (l *Local) WriteFile(_ context.Context, p string, data []byte, opt WriteOpt
 			if err != nil {
 				return nil, err
 			}
-			return l.finishWrite(f, cand, data)
+			st, err := l.finishWrite(f, cand, r)
+			if err != nil {
+				_ = os.Remove(cand) // half a file under a new name is no file
+			}
+			return st, err
 		}
 		return nil, fmt.Errorf("no free name for %s", path.Base(abs))
 	}
@@ -135,11 +145,11 @@ func (l *Local) WriteFile(_ context.Context, p string, data []byte, opt WriteOpt
 	if err != nil {
 		return nil, err
 	}
-	return l.finishWrite(f, abs, data)
+	return l.finishWrite(f, abs, r)
 }
 
-func (l *Local) finishWrite(f *os.File, p string, data []byte) (*FileStat, error) {
-	if _, err := f.Write(data); err != nil {
+func (l *Local) finishWrite(f *os.File, p string, r io.Reader) (*FileStat, error) {
+	if _, err := io.Copy(f, r); err != nil {
 		f.Close()
 		return nil, err
 	}

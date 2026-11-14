@@ -625,8 +625,8 @@ Berlaku untuk console (tile dan panel terminal workbench), input order (kartu or
 
 | Method | Path | Body | Respons |
 |---|---|---|---|
-| POST | `/api/sessions/{id}/attach?name=` | byte mentah (maks 20 MB) | `Stat` di machine tempat console berjalan |
-| POST | `/api/projects/{id}/attach?name=` | byte mentah (maks 20 MB) | `Stat` di This PC, tempat agent berjalan |
+| POST | `/api/sessions/{id}/attach?name=` | byte mentah, boleh `Content-Encoding: gzip` (maks 20 MB) | `Stat` di machine tempat console berjalan |
+| POST | `/api/projects/{id}/attach?name=` | byte mentah, boleh `Content-Encoding: gzip` (maks 20 MB) | `Stat` di This PC, tempat agent berjalan |
 | GET | `/api/projects/{id}/attach/{name}` | — | byte file itu, untuk thread. `Content-Security-Policy: sandbox`; hanya nama yang bisa diberikan hub, di folder project itu, tanpa mengikuti symlink keluar. File API biasa tetap tertutup untuk folder data hub. |
 
 `400` file kosong, `404` session/project tidak ada, `413` lebih dari 20 MB.
@@ -641,7 +641,7 @@ Berlaku untuk console (tile dan panel terminal workbench), input order (kartu or
 - **Input order:** path masuk ke teks di posisi caret saat upload selesai, jadi bisa dibaca dan diedit; Enter dan Send menunggu upload selesai. Agent menerima path itu dalam order dan membacanya sendiri.
 - **Clipboard mana yang file:** teks plus gambar dari spreadsheet dianggap teks; file plus namanya dari file manager dianggap file; folder ditolak dengan pesan.
 
-**Explorer (Code workbench):** Ctrl+C, Ctrl+X, Ctrl+V dan menu konteks untuk file dan folder, seperti VS Code. Yang dicopy disimpan per tab browser, jadi bisa pindah antar project di machine yang sama (antar-machine ditolak dengan pesan); path-nya juga masuk clipboard, jadi Ctrl+V di console atau order menghasilkan path. Paste masuk ke folder terpilih atau folder dari file terpilih; folder yang dipaste ke dirinya sendiri mendarat di sebelahnya; cut ke dirinya sendiri ditolak; Esc membatalkan cut. Ctrl+V juga menerima file dari komputer (`fs/write` base64, `unique`). Paste file saat mengetik di editor menaruhnya di sebelah file itu dan menyisipkan namanya; di Markdown jadi `![nama](nama)` atau `[nama](nama)`. Klik sekali pada file (preview) tidak lagi memindahkan fokus ke editor, supaya Ctrl+C setelah klik berarti file-nya, seperti VS Code; double click dan Enter tetap pindah.
+**Explorer (Code workbench):** Ctrl+C, Ctrl+X, Ctrl+V dan menu konteks untuk file dan folder, seperti VS Code. Yang dicopy disimpan per tab browser, jadi bisa pindah antar project di machine yang sama (antar-machine ditolak dengan pesan); path-nya juga masuk clipboard, jadi Ctrl+V di console atau order menghasilkan path. Paste masuk ke folder terpilih atau folder dari file terpilih; folder yang dipaste ke dirinya sendiri mendarat di sebelahnya; cut ke dirinya sendiri ditolak; Esc membatalkan cut. Ctrl+V juga menerima file dari komputer (`fs/write` byte mentah, `unique`; teks dikompres gzip oleh browser bila jadi jelas lebih kecil, gambar/video/arsip apa adanya). Paste file saat mengetik di editor menaruhnya di sebelah file itu dan menyisipkan namanya; di Markdown jadi `![nama](nama)` atau `[nama](nama)`. Klik sekali pada file (preview) tidak lagi memindahkan fokus ke editor, supaya Ctrl+C setelah klik berarti file-nya, seperti VS Code; double click dan Enter tetap pindah.
 
 `fs/copy` memakai `cp -a` milik machine itu sendiri (lokal dan SSH), jadi tidak ada byte yang lewat hub, link, mode dan waktu ikut. Tidak pernah menimpa; `cp` yang gagal tidak meninggalkan salinan setengah jadi; batas waktu 5 menit.
 

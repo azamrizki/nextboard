@@ -354,6 +354,11 @@ func openRegularSFTP(sc *sftp.Client, home, p string) (*sftp.File, *FileStat, er
 // the hub performs, and only on an explicit user action (save, copy into
 // project). There is no exec fallback for writes.
 func (m *SSH) WriteFile(ctx context.Context, p string, data []byte, opt WriteOptions) (*FileStat, error) {
+	return m.WriteFrom(ctx, p, bytes.NewReader(data), opt)
+}
+
+// WriteFrom is WriteFile from a stream.
+func (m *SSH) WriteFrom(ctx context.Context, p string, r io.Reader, opt WriteOptions) (*FileStat, error) {
 	sc, home, done, err := m.sftpClient(ctx)
 	if err != nil {
 		return nil, err
@@ -377,7 +382,11 @@ func (m *SSH) WriteFile(ctx context.Context, p string, data []byte, opt WriteOpt
 				}
 				return nil, err
 			}
-			return finishSFTPWrite(sc, f, cand, data)
+			st, err := finishSFTPWrite(sc, f, cand, r)
+			if err != nil {
+				_ = sc.Remove(cand) // half a file under a new name is no file
+			}
+			return st, err
 		}
 		return nil, fmt.Errorf("no free name for %s", path.Base(abs))
 	}
@@ -397,7 +406,7 @@ func (m *SSH) WriteFile(ctx context.Context, p string, data []byte, opt WriteOpt
 	if err != nil {
 		return nil, err
 	}
-	return finishSFTPWrite(sc, f, abs, data)
+	return finishSFTPWrite(sc, f, abs, r)
 }
 
 // Mkdir creates one remote folder over SFTP (explicit user action only;
@@ -421,8 +430,8 @@ func (m *SSH) Mkdir(ctx context.Context, p string) error {
 	return sc.Mkdir(abs)
 }
 
-func finishSFTPWrite(sc *sftp.Client, f *sftp.File, p string, data []byte) (*FileStat, error) {
-	if _, err := f.Write(data); err != nil {
+func finishSFTPWrite(sc *sftp.Client, f *sftp.File, p string, r io.Reader) (*FileStat, error) {
+	if _, err := io.Copy(f, r); err != nil {
 		f.Close()
 		return nil, err
 	}

@@ -93,18 +93,6 @@ export async function addPath(ctl: BoardController, machineId: string, path: str
 export const ASSET_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 export const MAX_UPLOAD = 20 * 1024 * 1024;
 
-export function fileToBase64(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => {
-      const s = String(r.result);
-      resolve(s.slice(s.indexOf(',') + 1));
-    };
-    r.onerror = () => reject(r.error ?? new Error('Could not read the file'));
-    r.readAsDataURL(file);
-  });
-}
-
 /** Upload an image blob as a hub asset and make an image node for it. */
 export async function imageNodeFromBlob(ctl: BoardController, blob: Blob, at: At, alt = '', centre = true): Promise<BoardNode | null> {
   if (!ASSET_TYPES.has(blob.type)) {

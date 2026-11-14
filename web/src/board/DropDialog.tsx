@@ -9,9 +9,10 @@ import { RadioCards } from '../components/form';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { toast } from '../components/Toast';
+import { packUpload } from '../lib/pack';
 import type { BoardNode, Project } from '../lib/types';
 import type { BoardController } from './controller';
-import { ASSET_TYPES, fileToBase64, imageNodeFromBlob, looksLikeText, MAX_UPLOAD, nodeForPath, snapshotNodeFromFile } from './files';
+import { ASSET_TYPES, imageNodeFromBlob, looksLikeText, MAX_UPLOAD, nodeForPath, snapshotNodeFromFile } from './files';
 import { joinPath } from './kinds';
 import { formatBytes } from './tiles/FileTile';
 
@@ -47,13 +48,7 @@ export function DropDialog({
         const pos = { x, y: at.y };
         let node: BoardNode | null = null;
         if (mode === 'copy') {
-          const content = await fileToBase64(f);
-          const stat = await api.fsWrite(project.machineId, {
-            path: joinPath(project.path, f.name),
-            content,
-            encoding: 'base64',
-            unique: true,
-          });
+          const stat = await api.fsUpload(project.machineId, await packUpload(f), { path: joinPath(project.path, f.name), unique: true });
           node = await nodeForPath(ctl, project.machineId, stat.path, pos, { centre: false });
         } else if (ASSET_TYPES.has(f.type)) {
           node = await imageNodeFromBlob(ctl, f, pos, f.name, false);

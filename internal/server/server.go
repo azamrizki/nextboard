@@ -370,6 +370,7 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 		IdleTimeout:       120 * time.Second,
 	}
 	s.noteHubStart()
+	_ = os.RemoveAll(s.st.Path(uploadDir)) // what a hub that stopped mid-upload left
 	s.machines.Start()
 	s.sessions.Start()
 	if s.settings.View().Agents.LazyStart {

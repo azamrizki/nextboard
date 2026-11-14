@@ -6,6 +6,7 @@
 // - Non-2xx responses throw an ApiError carrying the status and the `error` message.
 
 import { limiter } from './lib/limiter';
+import { packUpload, type Packed } from './lib/pack';
 import { ReconnectingSocket, type ReconnectingSocketOptions } from './lib/socket';
 import type {
   AddMachine,
@@ -113,6 +114,8 @@ interface RequestOptions {
   signal?: AbortSignal;
   /** Send `body` as-is (Blob) with this Content-Type instead of JSON. */
   rawType?: string;
+  /** Content-Encoding of a raw body (lib/pack.ts). */
+  encoding?: string;
 }
 
 /**
@@ -136,6 +139,7 @@ async function send<T>(method: Method, path: string, body?: unknown, opts: Reque
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (method !== 'GET') headers['X-NextBoard'] = '1';
   if (body !== undefined) headers['Content-Type'] = opts.rawType ?? 'application/json';
+  if (opts.encoding) headers['Content-Encoding'] = opts.encoding;
 
   let res: Response;
   try {
@@ -351,16 +355,40 @@ export const api = {
   fsRead: (machineId: string, path: string, max?: number, signal?: AbortSignal) =>
     get<FsRead>(`/api/machines/${enc(machineId)}/fs/read?path=${enc(path)}${max ? `&max=${max}` : ''}`, { signal }),
   fsWrite: (machineId: string, body: FsWrite) => put<FsStat>(`/api/machines/${enc(machineId)}/fs/write`, body),
+  /** A file from the computer, as raw bytes (packed by lib/pack.ts), not base64 in JSON. */
+  fsUpload: (machineId: string, file: Packed, o: FsUpload) => {
+    const q = new URLSearchParams({ path: o.path });
+    if (o.unique) q.set('unique', '1');
+    if (o.ifMtime) q.set('ifMtime', o.ifMtime);
+    if (o.projectId) q.set('projectId', o.projectId);
+    if (o.allowOutside) q.set('allowOutside', '1');
+    for (const p of o.confirm?.paths ?? []) q.append('confirm', p);
+    return request<FsStat>('PUT', `/api/machines/${enc(machineId)}/fs/write?${q}`, file.body, { rawType: 'application/octet-stream', encoding: file.encoding });
+  },
 
   // assets (API-board §5)
   uploadAsset: (blob: Blob, type: string) => request<Asset>('POST', '/api/assets', blob, { rawType: type }),
   /** A file pasted into a console lands on its machine (docs/API-studio.md §7.9). */
-  attachToSession: (id: string, file: File) =>
-    request<FsStat>('POST', `/api/sessions/${enc(id)}/attach?name=${enc(file.name)}`, file, { rawType: file.type || 'application/octet-stream' }),
+  attachToSession: async (id: string, file: File) => {
+    const p = await packUpload(file);
+    return request<FsStat>('POST', `/api/sessions/${enc(id)}/attach?name=${enc(file.name)}`, p.body, { rawType: file.type || 'application/octet-stream', encoding: p.encoding });
+  },
   /** A file pasted into an order lands on This PC, where agents run. */
-  attachToProject: (id: string, file: File) =>
-    request<FsStat>('POST', `/api/projects/${enc(id)}/attach?name=${enc(file.name)}`, file, { rawType: file.type || 'application/octet-stream' }),
+  attachToProject: async (id: string, file: File) => {
+    const p = await packUpload(file);
+    return request<FsStat>('POST', `/api/projects/${enc(id)}/attach?name=${enc(file.name)}`, p.body, { rawType: file.type || 'application/octet-stream', encoding: p.encoding });
+  },
 };
+
+/** Where an upload goes; confirm echoes the paths of a 428 (§9.2). */
+export interface FsUpload {
+  path: string;
+  unique?: boolean;
+  ifMtime?: string;
+  projectId?: string;
+  allowOutside?: boolean;
+  confirm?: { paths: string[] };
+}
 
 /** URL of the raw bytes of a file on a machine (images, downloads). */
 export function fsRawUrl(machineId: string, path: string): string {

@@ -196,6 +196,7 @@ Semua path absolut; `~` dan `~/…` diperluas ke home machine. Lokal memakai fil
 | GET | `/api/machines/{id}/fs/read?path=&max=` | `max` default 800000 | `{ "path", "size", "mtime", "binary": bool, "truncated": bool, "content": "…" }` (UTF-8; `binary:true` → content kosong) |
 | GET | `/api/machines/{id}/fs/raw?path=` | — | byte mentah ≤ 20 MB, `Content-Type` dari ekstensi (gambar/pdf/teks), `Content-Security-Policy: sandbox`, `nosniff` |
 | PUT | `/api/machines/{id}/fs/write` | `{ "path", "content", "encoding": "utf8"\|"base64", "ifMtime"?: "…", "unique"?: bool }` (maks 20 MB) | `Stat`; `409` bila `ifMtime` tidak cocok; `unique:true` → kalau nama sudah ada, hub memakai `name-2.ext`, `name-3.ext`, … dan mengembalikan path akhirnya |
+| PUT | `/api/machines/{id}/fs/write?path=&unique=&ifMtime=&projectId=&allowOutside=&confirm=` | byte mentah, `Content-Type: application/octet-stream`, boleh `Content-Encoding: gzip` (maks 20 MB sesudah dibuka) | sama dengan bentuk JSON; `confirm` sekali per path. Untuk upload dari komputer: tanpa base64, hub menampung body ke file sementara di folder datanya (bukan di memori) lalu menulisnya, jadi upload yang terputus tidak meninggalkan setengah file. `400` gzip rusak / body terpotong, `413` lewat 20 MB (juga body kecil yang membuka jadi besar), `415` encoding lain |
 | GET | `/api/machines/{id}/ls?path=` | (sudah ada) | ditambah `size` dan `mtime` per entri |
 
 Tulis hanya terjadi atas aksi eksplisit user (simpan, salin file ke project) — sesuai aturan agentless kategori (a).
@@ -204,7 +205,7 @@ Tulis hanya terjadi atas aksi eksplisit user (simpan, salin file ke project) —
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| POST | `/api/assets` | body mentah, `Content-Type: image/png\|image/jpeg\|image/gif\|image/webp` (maks 20 MB) | `201 { "id": "a_…", "url": "/api/assets/a_…", "type", "size", "w", "h" }` |
+| POST | `/api/assets` | body mentah, `Content-Type: image/png\|image/jpeg\|image/gif\|image/webp`, boleh `Content-Encoding: gzip` (maks 20 MB) | `201 { "id": "a_…", "url": "/api/assets/a_…", "type", "size", "w", "h" }` |
 | GET | `/api/assets/{id}` | — | byte, `Cache-Control: private, max-age=31536000, immutable`, `nosniff`, `Content-Security-Policy: sandbox` |
 
 SVG ditolak (risiko skrip). Disimpan di `<data>/assets/` (0600).
