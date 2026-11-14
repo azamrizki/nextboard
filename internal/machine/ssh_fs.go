@@ -685,3 +685,13 @@ func (l *limitBuffer) Bytes() []byte {
 	defer l.mu.Unlock()
 	return append([]byte(nil), l.b.Bytes()...)
 }
+
+// take hands over what was written without copying it, for when the writer is done: a copy
+// of output of up to tens of MB doubled what an exec held. Anything written later is dropped.
+func (l *limitBuffer) take() []byte {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b := l.b.Bytes()
+	l.b, l.max = bytes.Buffer{}, 0
+	return b
+}

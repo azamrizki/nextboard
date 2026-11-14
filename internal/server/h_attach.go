@@ -257,6 +257,7 @@ func (s *Server) setupAttachments() {
 	s.sweepAttachments(time.Now())
 	onRemove := s.sessions.OnRemove
 	s.sessions.OnRemove = func(sp session.Spec) {
+		s.bg.consoleGone(sp.ID)
 		if onRemove != nil {
 			onRemove(sp)
 		}

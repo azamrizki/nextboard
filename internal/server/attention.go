@@ -78,7 +78,7 @@ func (r *attentionRing) since(seq int64, limit int) ([]Attention, int64) {
 // emitted on entering needsYou, finished once per turn, error once per
 // occurrence.
 func (s *Server) onAttention(in session.Info, ev agentstate.Event) {
-	n := s.settings.Get().Notifications
+	n := s.settings.View().Notifications
 	a := Attention{SessionID: in.ID, Handle: in.Handle, Agent: in.Agent, MachineName: in.MachineName,
 		ProjectID: in.ProjectID, WorkspaceID: in.WorkspaceID}
 	who := in.Handle

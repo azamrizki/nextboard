@@ -127,7 +127,7 @@ func ParseMarkdown(name, text string) (string, []rawLink) {
 	}
 	var links []rawLink
 	for _, m := range wikiRe.FindAllStringSubmatch(body, -1) {
-		links = append(links, rawLink{kind: "wiki", target: strings.TrimSpace(m[1]), heading: strings.TrimPrefix(m[2], "#")})
+		links = append(links, rawLink{kind: "wiki", target: strings.Clone(strings.TrimSpace(m[1])), heading: strings.Clone(strings.TrimPrefix(m[2], "#"))})
 	}
 	for _, m := range mdLinkRe.FindAllStringSubmatch(body, -1) {
 		t := m[1]
@@ -147,9 +147,10 @@ func ParseMarkdown(name, text string) (string, []rawLink) {
 		if !IsMarkdown(t) {
 			continue
 		}
-		links = append(links, rawLink{kind: "md", target: t, heading: heading})
+		links = append(links, rawLink{kind: "md", target: strings.Clone(t), heading: strings.Clone(heading)})
 	}
-	return title, links
+	// cached per file: pieces of the text would keep all of it
+	return strings.Clone(title), links
 }
 
 // walkMarkdown lists vault files below root.
@@ -209,8 +210,10 @@ func (v *Vaults) Index(ctx context.Context, h machine.Host, root, memDir string,
 	v.mu.Unlock()
 	var budget int64
 	entries := map[string]*mdEntry{}
+	seen := make(map[string]bool, len(files))
 	for i := range files {
 		f := &files[i]
+		seen[f.Path] = true
 		v.mu.Lock()
 		e := cache[f.Path]
 		v.mu.Unlock()
@@ -239,6 +242,14 @@ func (v *Vaults) Index(ctx context.Context, h machine.Host, root, memDir string,
 			f.Title = strings.TrimSuffix(path.Base(f.Path), path.Ext(f.Path))
 		}
 	}
+	// files gone since the last walk leave the cache
+	v.mu.Lock()
+	for p := range cache {
+		if !seen[p] {
+			delete(cache, p)
+		}
+	}
+	v.mu.Unlock()
 	vault := &Vault{Files: files, Links: resolveLinks(files, entries), Truncated: truncated, ScannedAt: time.Now().UTC()}
 	if vault.Files == nil {
 		vault.Files = []MDFile{}

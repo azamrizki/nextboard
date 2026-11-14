@@ -48,15 +48,20 @@ func (r *logRing) add(e LogEntry) LogEntry {
 	r.seq++
 	e.Seq = r.seq
 	r.items = append(r.items, e)
-	if len(r.items) > maxLogs {
+	// Trimmed to the last maxLogs once there are twice as many, not at each entry past it:
+	// that copied all of them for every line a page logged.
+	if len(r.items) >= 2*maxLogs {
 		r.items = append([]LogEntry(nil), r.items[len(r.items)-maxLogs:]...)
 	}
 	return e
 }
 
+// last are the entries kept: the last maxLogs.
+func (r *logRing) last() []LogEntry { return r.items[max(0, len(r.items)-maxLogs):] }
+
 func (r *logRing) since(seq int64) []LogEntry {
 	out := []LogEntry{}
-	for _, e := range r.items {
+	for _, e := range r.last() {
 		if e.Seq > seq {
 			out = append(out, e)
 		}

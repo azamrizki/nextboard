@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -90,12 +91,38 @@ func (s *Store) Reload() {
 }
 
 func builtinByID(id string) (Agent, bool) {
+	a, ok := builtinIndex()[id]
+	if !ok {
+		return Agent{}, false
+	}
+	return a.clone(), true
+}
+
+// builtinIndex is the built-in and catalog agents by id, made once: they never change, and one
+// was looked up for each console every time the consoles were listed (every few seconds).
+var builtinIndex = sync.OnceValue(func() map[string]Agent {
+	m := map[string]Agent{}
 	for _, a := range append(Builtins(), Catalog()...) {
-		if a.ID == id {
-			return a, true
+		if _, dup := m[a.ID]; !dup {
+			m[a.ID] = a
 		}
 	}
-	return Agent{}, false
+	return m
+})
+
+// clone is a copy whose lists are its own, so that a caller changing one changes nobody else's.
+func (a Agent) clone() Agent {
+	for _, p := range []*[]string{&a.Args, &a.Env, &a.YoloArgs, &a.YoloEnv, &a.ResumeArgs, &a.Resume.LaunchArgs,
+		&a.Resume.ResumeArgs, &a.Resume.ContinueArgs, &a.Resume.PickerArgs} {
+		if *p != nil {
+			*p = slices.Clone(*p)
+		}
+	}
+	if a.Available != nil {
+		v := *a.Available
+		a.Available = &v
+	}
+	return a
 }
 
 // resolve turns a stored entry into an Agent, inheriting capabilities
@@ -177,14 +204,27 @@ func (s *Store) All() []Agent {
 	return out
 }
 
-// Get looks an agent up by id.
+// Get looks an agent up by id, as All would list it, without building the whole list: it is
+// asked for every console each time the consoles are listed.
 func (s *Store) Get(id string) (Agent, bool) {
-	for _, a := range s.All() {
-		if a.ID == id {
-			return a, true
+	s.mu.Lock()
+	s.loadLocked()
+	var custom *entry
+	for i := range s.entries {
+		if s.entries[i].ID == id {
+			e := s.entries[i] // the last one wins, as in All
+			custom = &e
 		}
 	}
-	return Agent{}, false
+	s.mu.Unlock()
+	b, ok := builtinByID(id)
+	if ok && b.Source == SourceCatalog {
+		return b, true // catalog ids cannot be shadowed
+	}
+	if custom != nil {
+		return resolve(*custom), true
+	}
+	return b, ok
 }
 
 // Request is the body of POST/PATCH /api/agents, decoded strictly.

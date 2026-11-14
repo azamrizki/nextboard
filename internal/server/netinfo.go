@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -67,6 +68,25 @@ func detectTailscale() *tailscaleInfo {
 	return &tailscaleInfo{DNSName: strings.TrimSuffix(st.Self.DNSName, "."), IPs: st.Self.TailscaleIPs}
 }
 
+// tsSeen keeps the answer of detectTailscale for a minute: HubURLs is asked for on every
+// response of a previewed page (its frame-ancestors), and each ask ran the tailscale CLI.
+var tsSeen struct {
+	sync.Mutex
+	at time.Time
+	v  *tailscaleInfo
+}
+
+const tsSeenFor = time.Minute
+
+func tailscaleNow() *tailscaleInfo {
+	tsSeen.Lock()
+	defer tsSeen.Unlock()
+	if tsSeen.at.IsZero() || time.Since(tsSeen.at) > tsSeenFor {
+		tsSeen.v, tsSeen.at = detectTailscale(), time.Now()
+	}
+	return tsSeen.v
+}
+
 // HubURLs lists every address a client may reach the hub at, best first:
 // configured extras, Tailscale name, Tailscale IPs, then LAN IPs.
 func HubURLs(listen string, extra []string) []string {
@@ -91,7 +111,7 @@ func HubURLs(listen string, extra []string) []string {
 		add(hp(host))
 		return out
 	}
-	ts := detectTailscale()
+	ts := tailscaleNow()
 	tsIPs := map[string]bool{}
 	if ts != nil {
 		add(hp(ts.DNSName))

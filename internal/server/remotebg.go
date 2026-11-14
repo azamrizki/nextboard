@@ -118,9 +118,28 @@ func (c *bgCommand) signalLocked() {
 	c.changed = make(chan struct{})
 }
 
+// consoleGone stops the commands of a deleted console and forgets them.
+func (b *bgCommands) consoleGone(session string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id, c := range b.byID {
+		if c.session == session {
+			c.cancel()
+			delete(b.byID, id)
+		}
+	}
+}
+
 func (b *bgCommands) get(session, id string) (*bgCommand, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	for id, c := range b.byID { // the finished ones go here too, not only when another starts
+		c.mu.Lock()
+		if c.done && time.Since(c.ended) > bgKeepDone {
+			delete(b.byID, id)
+		}
+		c.mu.Unlock()
+	}
 	c, ok := b.byID[id]
 	if !ok || c.session != session {
 		return nil, false
@@ -150,6 +169,9 @@ func (c *bgCommand) read(ctx context.Context, wait time.Duration) string {
 	take := min(len(c.out), remoteOutputMax)
 	b.Write(c.out[:take])
 	c.out = c.out[take:]
+	if len(c.out) == 0 {
+		c.out = nil // not the read array: it stays until the command is forgotten
+	}
 	more := len(c.out) > 0
 	if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n") {
 		b.WriteByte('\n')

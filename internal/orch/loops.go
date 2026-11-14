@@ -955,6 +955,19 @@ func (l *Loops) TurnFinished(sid string, now time.Time) {
 }
 
 // Output feeds output triggers and stop.outputPattern.
+// WatchesOutput reports whether a running loop reads consoles' output (an output trigger or
+// a stop pattern).
+func (l *Loops) WatchesOutput() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, rt := range l.loops {
+		if rt.def.State.Status == "running" && (rt.def.Stop.OutputPattern != "" || rt.def.Trigger.Kind == "output") {
+			return true
+		}
+	}
+	return false
+}
+
 func (l *Loops) Output(sid, text string, now time.Time) {
 	var stops []string
 	l.mu.Lock()

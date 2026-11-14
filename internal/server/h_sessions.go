@@ -210,7 +210,7 @@ func (s *Server) handleProjectWake(w http.ResponseWriter, r *http.Request, p *pr
 // recentProjects are the projects whose agents stay awake when idle and start right after a
 // restart: the settings.agents.keepRecentProjects opened last, opened within a day (ROADMAP #50).
 func (s *Server) recentProjects() []string {
-	k := s.settings.Get().Agents.KeepRecentProjects
+	k := s.settings.View().Agents.KeepRecentProjects
 	var out []string
 	for _, p := range s.projects.List() { // most recently opened first
 		if len(out) >= k || time.Since(p.LastOpenedAt) > recentWarm {

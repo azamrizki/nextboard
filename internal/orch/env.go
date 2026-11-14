@@ -153,6 +153,9 @@ func (s *Service) loopAttention(kind string, l LoopDef, in *session.Info, body s
 
 // OnOutput feeds loop output triggers (clean output of a console).
 func (s *Service) OnOutput(sid string, clean []byte) {
+	if !s.Loops.WatchesOutput() {
+		return // the usual case: every piece of every console's output went through here for nothing
+	}
 	t := stripControl(clean)
 	if strings.TrimSpace(t) == "" {
 		return

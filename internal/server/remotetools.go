@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/azamrizki/nextboard/internal/agent"
 	"github.com/azamrizki/nextboard/internal/connlog"
@@ -149,7 +150,7 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 			prompt.WriteString(sandboxRule(c.Sandbox.Network) + "\n")
 		}
 	}
-	if !s.settings.Get().Agents.CoAuthor {
+	if !s.settings.View().Agents.CoAuthor {
 		if prompt.Len() > 0 {
 			prompt.WriteString("\n")
 		}
@@ -480,7 +481,7 @@ func (s *Server) submitRunner(req jobs.RunnerRequest) (jobs.Job, error) {
 	if a, ok := s.agents.Get(req.Agent); ok && s.agentOff(a) {
 		return jobs.Job{}, session.ErrAgentDisabled
 	}
-	if req.MachineID != "" && req.MachineID != machine.LocalID && s.settings.Get().Agents.RemoteTools {
+	if req.MachineID != "" && req.MachineID != machine.LocalID && s.settings.View().Agents.RemoteTools {
 		return s.submitRemoteRunner(req)
 	}
 	if len(req.Env) == 0 && (req.MachineID == "" || req.MachineID == machine.LocalID) {
@@ -508,7 +509,7 @@ func (s *Server) submitRemoteRunner(req jobs.RunnerRequest) (jobs.Job, error) {
 		}
 		req.Cwd = dir
 	}
-	req.Agent, req.Command, req.MachineID = "claude", s.settings.Get().Agents.Paths[machine.LocalID]["claude"], machine.LocalID
+	req.Agent, req.Command, req.MachineID = "claude", s.settings.View().Agents.Paths[machine.LocalID]["claude"], machine.LocalID
 	req.Env = s.defaultProfileEnv("claude")
 	if err := s.withRunnerProvider(&req); err != nil {
 		return jobs.Job{}, err
@@ -555,12 +556,25 @@ func remoteAnswer(text string, isError bool) map[string]any {
 
 // clipOutput keeps the start and the end: errors usually sit at the end.
 func clipOutput(text string) string {
-	r := []rune(text)
-	if len(r) <= remoteOutputMax {
+	n := utf8.RuneCountInString(text)
+	if n <= remoteOutputMax {
 		return text
 	}
+	// cut at character boundaries without a copy of the text in runes, 4 bytes for each
 	half := remoteOutputMax / 2
-	return string(r[:half]) + fmt.Sprintf("\n[… %d characters left out …]\n", len(r)-remoteOutputMax) + string(r[len(r)-half:])
+	head, tail := 0, len(text)
+	for i := range text {
+		if half == 0 {
+			head = i
+			break
+		}
+		half--
+	}
+	for k := remoteOutputMax / 2; k > 0 && tail > 0; k-- {
+		_, size := utf8.DecodeLastRuneInString(text[:tail])
+		tail -= size
+	}
+	return text[:head] + fmt.Sprintf("\n[… %d characters left out …]\n", n-remoteOutputMax) + text[tail:]
 }
 
 func toolSchema(required []string, props map[string]any) map[string]any {

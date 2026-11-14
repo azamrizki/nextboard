@@ -168,7 +168,7 @@ func supervise(ctx context.Context, spec ExecSpec, w *execWatch, done <-chan str
 }
 
 func (r *ExecResult) fill(w *execWatch, timedOut, idle, cancelled bool) {
-	r.Stdout, r.Stderr = w.stdout.Bytes(), w.stderr.Bytes()
+	r.Stdout, r.Stderr = w.stdout.take(), w.stderr.take()
 	r.Truncated = w.stdout.dropped() || w.stderr.dropped()
 	r.TimedOut, r.IdleKilled, r.Cancelled = timedOut, idle, cancelled
 	if timedOut || idle || cancelled {

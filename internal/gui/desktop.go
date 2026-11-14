@@ -89,7 +89,7 @@ func readEntry(path string) (*entry, error) {
 	e := &entry{}
 	in := false
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
+	sc.Buffer(nil, 1<<20) // starts small and grows: hundreds of entries are read for each list of apps
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || line[0] == '#' {

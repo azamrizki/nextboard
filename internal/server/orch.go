@@ -45,7 +45,7 @@ func (s *Server) setupOrchestration() {
 		}
 		return consoleAdapter{sess}, true
 	}
-	d.Settings = func() settings.Delivery { return s.settings.Get().Delivery }
+	d.Settings = func() settings.Delivery { return s.settings.View().Delivery }
 	s.deliver = d
 	s.orch = orch.New(hubAdapter{s}, s.st)
 	d.OnChange = func(dl delivery.Delivery) {
@@ -86,7 +86,7 @@ func (s *Server) stopOrchestration() {
 // hubAdapter implements orch.Hub.
 type hubAdapter struct{ s *Server }
 
-func (h hubAdapter) Settings() settings.Settings { return h.s.settings.Get() }
+func (h hubAdapter) Settings() settings.Settings { return h.s.settings.View() }
 func (h hubAdapter) Publish(v any)               { h.s.events.Publish(v) }
 func (h hubAdapter) Sessions() []session.Info    { return h.s.sessions.List() }
 func (h hubAdapter) SessionInfo(id string) (session.Info, bool) {

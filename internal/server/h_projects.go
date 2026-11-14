@@ -236,6 +236,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request, p *
 	for _, ws := range pr.Workspaces {
 		inProject[ws.ID] = true
 	}
+	s.orch.Loops.StopProject(pr.ID, time.Now()) // they would go on firing at consoles that are gone
 	s.closeBoards(pr.Name, pr.Workspaces)
 	s.uptime.RemoveProject(pr.ID)
 	for _, pt := range pr.Parts {

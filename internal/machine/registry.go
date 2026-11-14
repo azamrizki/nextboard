@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -66,6 +67,7 @@ type Registry struct {
 
 	saveMu    sync.Mutex
 	saveTimer *time.Timer
+	saved     []byte         // what the file holds, as JSON
 	saving    sync.WaitGroup // a save saveSoon scheduled and has not finished
 	closed    bool           // Close ran: nothing more is saved later
 }
@@ -197,7 +199,15 @@ func (r *Registry) saveLocked() {
 	for _, id := range r.order {
 		cfgs = append(cfgs, r.ssh[id].Config())
 	}
-	_ = r.st.Save(machinesFile, cfgs)
+	// A change of state saves too (each reconnect attempt to a server that is down, every
+	// 30 s or so), and the state is not in the file: write only what differs.
+	b, err := json.Marshal(cfgs)
+	if err == nil && bytes.Equal(b, r.saved) {
+		return
+	}
+	if r.st.Save(machinesFile, cfgs) == nil && err == nil {
+		r.saved = b
+	}
 }
 
 // RefreshForwards re-evaluates the hook forward of every SSH machine.

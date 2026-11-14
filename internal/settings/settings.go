@@ -233,6 +233,8 @@ type Store struct {
 
 	mu  sync.Mutex
 	cur Settings
+	// view is a copy of cur that nobody changes, for View.
+	view Settings
 }
 
 // Open loads settings.json (missing or unreadable keys use defaults).
@@ -256,6 +258,7 @@ func Open(st *store.Store) (*Store, error) {
 			}
 		}
 	}
+	s.view = clone(s.cur)
 	return s, nil
 }
 
@@ -277,11 +280,20 @@ func settleHandKey(sc *Shortcuts) {
 	}
 }
 
-// Get returns a copy of the current document.
+// Get returns a copy of the current document, the caller's to change.
 func (s *Store) Get() Settings {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return clone(s.cur)
+}
+
+// View returns the current document without copying it, for the many places that read a
+// setting or two, some of them for every piece of a console's output or several times a
+// second. Its maps and slices are shared with every other reader: nothing may change them.
+func (s *Store) View() Settings {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.view
 }
 
 func clone(v Settings) Settings {
@@ -328,6 +340,7 @@ func (s *Store) Patch(patch []byte) (Settings, error) {
 		return Settings{}, err
 	}
 	s.cur = next
+	s.view = clone(next)
 	out := clone(next)
 	if s.OnChange != nil {
 		go s.OnChange(clone(next))

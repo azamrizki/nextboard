@@ -88,7 +88,7 @@ func (g *gzipAssets) serve(w http.ResponseWriter, r *http.Request, p string) boo
 		var b bytes.Buffer
 		zw, _ := gzip.NewWriterLevel(&b, gzip.BestCompression)
 		if _, err := zw.Write(raw); err == nil && zw.Close() == nil {
-			a.body = b.Bytes()
+			a.body = bytes.Clone(b.Bytes()) // kept for the life of the hub: without the buffer's spare room
 		}
 	})
 	if a.body == nil {

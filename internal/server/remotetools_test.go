@@ -392,6 +392,25 @@ func TestClipOutput(t *testing.T) {
 	if len(s) > remoteOutputMax+60 || s[0] != 'A' || s[len(s)-1] != 'Z' || !strings.Contains(s, "left out") {
 		t.Fatalf("clipped %d", len(s))
 	}
+	// characters of several bytes are cut whole, as by counting runes
+	byRunes := func(text string) string {
+		r := []rune(text)
+		if len(r) <= remoteOutputMax {
+			return text
+		}
+		half := remoteOutputMax / 2
+		return string(r[:half]) + fmt.Sprintf("\n[… %d characters left out …]\n", len(r)-remoteOutputMax) + string(r[len(r)-half:])
+	}
+	for _, text := range []string{
+		strings.Repeat("é✳x🙂", remoteOutputMax/2),
+		strings.Repeat("🙂", remoteOutputMax+1),
+		strings.Repeat("ü", remoteOutputMax),
+		"z" + strings.Repeat("✳", remoteOutputMax),
+	} {
+		if got, want := clipOutput(text), byRunes(text); got != want {
+			t.Fatalf("clip of %d bytes: %d bytes, want %d", len(text), len(got), len(want))
+		}
+	}
 }
 
 // TestRemoteRunnerReadsThroughHub: a hidden job on a server's project runs on

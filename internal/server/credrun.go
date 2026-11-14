@@ -416,7 +416,7 @@ func (s *Server) credPublish(id, state string) {
 
 // credAttention tells the owner, like a console that needs them.
 func (s *Server) credAttention(in session.Info, r *credRequest) {
-	if !s.settings.Get().Notifications.NeedsYou {
+	if !s.settings.View().Notifications.NeedsYou {
 		return
 	}
 	who := in.Handle

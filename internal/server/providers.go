@@ -165,7 +165,7 @@ func seedClaudeConfig(dir string, p providers.Provider, key string, trusted []st
 // profile's config and the owner's own (~/.claude.json). Only the trust is taken, nothing else.
 func (s *Server) loginTrusted() []string {
 	var files []string
-	if id := s.settings.Get().Agents.Profiles[machine.LocalID]["claude"]; id != "" {
+	if id := s.settings.View().Agents.Profiles[machine.LocalID]["claude"]; id != "" {
 		if pf, ok := s.profiles.Get(id); ok && pf.Dir != "" {
 			files = append(files, filepath.Join(pf.Dir, ".claude.json"))
 		}
@@ -243,9 +243,20 @@ func (s *Server) providerTurns(id string) []usage.Turn {
 	if c.files == nil {
 		c.files = map[string]cachedTurns{}
 	}
+	dir := s.st.Path("providers", id) + string(os.PathSeparator)
+	listed := map[string]bool{}
+	defer func() {
+		// transcripts gone from the provider's folders leave the cache
+		for path := range c.files {
+			if strings.HasPrefix(path, dir) && !listed[path] {
+				delete(c.files, path)
+			}
+		}
+	}()
 	for _, base := range []string{"claude", "codex"} {
 		for _, fi := range usage.TranscriptFiles(s.st.Path("providers", id, base), base) {
 			path := usage.PathOf(fi)
+			listed[path] = true
 			if ct, ok := c.files[path]; ok && ct.size == fi.Size() && ct.mtime.Equal(fi.ModTime()) {
 				out = append(out, ct.turns...)
 				continue
@@ -545,7 +556,7 @@ func (s *Server) handleProviderDelete(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	// nothing may keep naming it: the hidden runs, the lead, the lead's consoles (broadcast by the store)
-	set := s.settings.Get()
+	set := s.settings.View()
 	patch := map[string]any{}
 	if set.Runner.Provider == id {
 		patch["runner"] = map[string]any{"provider": nil}
@@ -609,11 +620,34 @@ func (s *Server) handleSessionCost(w http.ResponseWriter, r *http.Request, p *pr
 	defer cancel()
 	out := costOf(pv, "", nil)
 	if _, kind, path, err := sess.TranscriptLocation(ctx); err == nil && path != "" {
-		if turns, err := usage.FileTurns(path, kind); err == nil {
+		if turns, ok := s.spend.turnsOf(path, kind); ok {
 			out = costOf(pv, "", turns)
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// turnsOf reads a transcript's turns once per change of it: the tile of each console on a
+// provider asks every minute, and a conversation's transcript can be tens of MB.
+func (c *spendCache) turnsOf(path, kind string) ([]usage.Turn, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.files == nil {
+		c.files = map[string]cachedTurns{}
+	}
+	if ct, ok := c.files[path]; ok && ct.size == st.Size() && ct.mtime.Equal(st.ModTime()) {
+		return ct.turns, true
+	}
+	turns, err := usage.FileTurns(path, kind)
+	if err != nil {
+		return nil, false
+	}
+	c.files[path] = cachedTurns{size: st.Size(), mtime: st.ModTime(), turns: turns}
+	return turns, true
 }
 
 // ---- testing a connection
@@ -812,7 +846,7 @@ func (s *Server) providerRunner(id string) (string, string, error) {
 
 // providerInfos lists the providers with the agents that are on and can run on each, for the lead.
 func (s *Server) providerInfos() []orch.ProviderInfo {
-	off := s.settings.Get().Agents.Disabled
+	off := s.settings.View().Agents.Disabled
 	out := []orch.ProviderInfo{}
 	for _, p := range s.providers.List() {
 		pi := orch.ProviderInfo{ID: p.ID, Name: p.Name, Agents: []string{}}
@@ -839,7 +873,7 @@ func (s *Server) withRunnerProvider(req *jobs.RunnerRequest) error {
 	case jobs.ProviderLogin:
 		return nil
 	case "":
-		id = s.settings.Get().Runner.Provider
+		id = s.settings.View().Runner.Provider
 	}
 	if id == "" {
 		return nil

@@ -166,7 +166,7 @@ func (s *Server) handleFilesOnSave(w http.ResponseWriter, r *http.Request, p *pr
 	if !decode(w, r, &req) {
 		return
 	}
-	saved := s.settings.Get().Editor.OnSave
+	saved := s.settings.View().Editor.OnSave
 	rules := make([]studio.OnSaveRule, 0, len(saved))
 	for _, x := range saved {
 		rules = append(rules, studio.OnSaveRule{Pattern: x.Pattern, Command: x.Command})

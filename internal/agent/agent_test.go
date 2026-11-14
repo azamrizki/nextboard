@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -502,4 +503,27 @@ func TestTrustDialogNarrow(t *testing.T) {
 func readFixture(t *testing.T, f string) ([]string, int) {
 	lines, cy, _, _ := readScreen(t, f)
 	return lines, cy
+}
+
+// Get answers as All lists: built-ins, catalog, custom agents and overrides of a built-in.
+func TestGetMatchesAll(t *testing.T) {
+	s := newStore(t)
+	for _, v := range []map[string]any{
+		{"name": "My Bot", "command": "mybot", "args": []string{"--x"}},
+		{"name": "Based", "command": "based", "base": "claude"},
+	} {
+		if _, err := s.Create(req(t, v)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all := s.All()
+	for _, a := range all {
+		got, ok := s.Get(a.ID)
+		if !ok || !reflect.DeepEqual(got, a) {
+			t.Fatalf("Get(%q) = %+v, %v; All has %+v", a.ID, got, ok, a)
+		}
+	}
+	if _, ok := s.Get("no-such-agent"); ok {
+		t.Fatal("found an agent that is not there")
+	}
 }

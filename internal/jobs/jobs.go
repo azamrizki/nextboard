@@ -369,6 +369,10 @@ func (m *Manager) finish(j *job, state, code, msg string, result json.RawMessage
 	}
 	close(j.done)
 	onFinish := j.req.OnFinish
+	// The last finished jobs stay listed; what they were asked (the prompt, the environment with
+	// a provider's key, the closures and all they hold) is not needed once they end. finish runs
+	// on the job's own goroutine, or for a queued job that never started.
+	j.req = RunnerRequest{}
 	snap := j.view(now)
 	m.pruneLocked()
 	m.mu.Unlock()

@@ -373,7 +373,7 @@ type Summary struct {
 
 // summary is the compact form of a status.
 func (st *Status) summary() Summary {
-	sum := Summary{Branch: st.Branch, Ahead: st.Ahead, Behind: st.Behind, Changed: len(st.Files)}
+	sum := Summary{Branch: strings.Clone(st.Branch), Ahead: st.Ahead, Behind: st.Behind, Changed: len(st.Files)} // kept per repo: not a piece of the whole status output
 	if st.Truncated {
 		sum.Changed = st.Changed
 	}

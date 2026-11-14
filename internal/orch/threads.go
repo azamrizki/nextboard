@@ -536,9 +536,9 @@ func (o *Orders) List(keep func(Order) bool) []Order {
 	o.mu.Lock()
 	out := []Order{}
 	for _, x := range o.all {
-		c := cloneOrder(x)
-		if keep == nil || keep(c) {
-			out = append(out, c)
+		// asked first, then copied: the tick lists the active ones four times a second
+		if keep == nil || keep(*x) {
+			out = append(out, cloneOrder(x))
 		}
 	}
 	o.mu.Unlock()

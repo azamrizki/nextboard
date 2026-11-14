@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -251,13 +252,13 @@ func (s *Server) handleGUIWS(w http.ResponseWriter, r *http.Request, p *principa
 	frames := make(chan []byte, 8)
 	go func() {
 		defer close(frames)
+		buf := make([]byte, wsMaxBatch) // one read buffer; each frame takes only what was read
 		for {
-			buf := make([]byte, wsMaxBatch)
 			n, err := vnc.Read(buf)
 			if n > 0 {
 				rfbBytes.Add(int64(n))
 				select {
-				case frames <- buf[:n]:
+				case frames <- bytes.Clone(buf[:n]):
 				case <-readerDone:
 					return
 				}
@@ -598,8 +599,8 @@ func (s *Server) handleGUIAudio(w http.ResponseWriter, r *http.Request, p *princ
 	frames := make(chan []byte, 8)
 	go func() {
 		defer close(frames)
+		buf := make([]byte, gui.AudioFrameBytes) // reused while it is silence, which is mostly
 		for {
-			buf := make([]byte, gui.AudioFrameBytes)
 			if _, err := io.ReadFull(st.Out, buf); err != nil {
 				return
 			}
@@ -607,7 +608,7 @@ func (s *Server) handleGUIAudio(w http.ResponseWriter, r *http.Request, p *princ
 				continue
 			}
 			select {
-			case frames <- buf:
+			case frames <- bytes.Clone(buf):
 			case <-readerDone:
 				return
 			default:

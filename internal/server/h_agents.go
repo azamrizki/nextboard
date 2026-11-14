@@ -28,7 +28,7 @@ func agentErr(w http.ResponseWriter, err error) {
 
 // agentOff reports an agent the owner turned off. A shell is no agent: it stays.
 func (s *Server) agentOff(a agent.Agent) bool {
-	return a.Kind == agent.KindAgent && s.settings.Get().Agents.Disabled[a.ID]
+	return a.Kind == agent.KindAgent && s.settings.View().Agents.Disabled[a.ID]
 }
 
 // available reports whether an agent is there to be offered on machine h.
@@ -44,12 +44,12 @@ func (s *Server) installed(h machine.Host, a agent.Agent) bool {
 	}
 	if h.ID() != machine.LocalID {
 		// Agents run on This PC; a server takes those that can work on it (§21).
-		if !s.settings.Get().Agents.RemoteTools || !a.WorksOnServers() {
+		if !s.settings.View().Agents.RemoteTools || !a.WorksOnServers() {
 			return false
 		}
 		h = s.machines.Local()
 	}
-	override := s.settings.Get().Agents.Paths[h.ID()][a.ID]
+	override := s.settings.View().Agents.Paths[h.ID()][a.ID]
 	if h.ID() == machine.LocalID {
 		if override != "" {
 			return s.machines.Local().Has(override)
@@ -75,7 +75,7 @@ func (s *Server) machineAgents(h machine.Host) ([]agent.Agent, string) {
 		all[i].Available = &v
 		all[i].Disabled = s.agentOff(all[i])
 	}
-	def := agent.DefaultFor(all, s.settings.Get().Agents.Defaults[h.ID()], func(a agent.Agent) bool { return *a.Available && !a.Disabled })
+	def := agent.DefaultFor(all, s.settings.View().Agents.Defaults[h.ID()], func(a agent.Agent) bool { return *a.Available && !a.Disabled })
 	return all, def
 }
 
@@ -123,7 +123,7 @@ func (s *Server) handleAgentModels(w http.ResponseWriter, r *http.Request, p *pr
 	}
 	id := r.URL.Query().Get("profileId")
 	if id == "" {
-		id = s.settings.Get().Agents.Profiles[machine.LocalID][a.ID]
+		id = s.settings.View().Agents.Profiles[machine.LocalID][a.ID]
 	}
 	dir := ""
 	if pf, ok := s.profiles.Get(id); ok && pf.MachineID == machine.LocalID {
@@ -142,7 +142,7 @@ func (s *Server) handleAgentModels(w http.ResponseWriter, r *http.Request, p *pr
 		}
 		dir = transcript.CodexHome(home, dir)
 	}
-	writeJSON(w, http.StatusOK, agent.ListModels(r.Context(), a, s.settings.Get().Agents.Paths[machine.LocalID][a.ID], dir))
+	writeJSON(w, http.StatusOK, agent.ListModels(r.Context(), a, s.settings.View().Agents.Paths[machine.LocalID][a.ID], dir))
 }
 
 func (s *Server) handleMachinePresets(w http.ResponseWriter, r *http.Request, p *principal) {

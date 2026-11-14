@@ -35,14 +35,14 @@ func (s *Server) setupGitPreview() {
 	g.git.Publish = s.events.Publish
 	g.git.Runner = s.submitRunner
 	g.git.RunnerAgent = func(machineID string) (string, string) {
-		set := s.settings.Get()
+		set := s.settings.View()
 		a := set.Runner.DefaultAgent
 		if a == "" {
 			a = "claude"
 		}
 		return a, set.Agents.Paths[machineID][a]
 	}
-	pr := s.settings.Get().Previews.PortRange
+	pr := s.settings.View().Previews.PortRange
 	hubPort := listenPort(s.listen)
 	g.previews = preview.New(preview.Config{
 		BindHost: listenHost(s.listen),
@@ -63,7 +63,7 @@ func (s *Server) setupGitPreview() {
 		Referenced: s.previewReferenced,
 	})
 	g.detect = &preview.Detector{
-		Enabled: func() bool { return s.settings.Get().Previews.Auto },
+		Enabled: func() bool { return s.settings.View().Previews.Auto },
 		Session: func(sid string) (string, string, bool) {
 			in, ok := s.sessions.Info(sid)
 			if !ok {

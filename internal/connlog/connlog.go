@@ -154,6 +154,11 @@ func (l *Log) Read(q Query) []Event {
 				continue
 			}
 			out = append(out, e)
+			// the files are in the order things happened, the newest last: keep only the
+			// newest limit of them, not every event of both files before cutting
+			if len(out) >= 2*limit {
+				out = append([]Event(nil), out[len(out)-limit:]...)
+			}
 		}
 		f.Close()
 	}

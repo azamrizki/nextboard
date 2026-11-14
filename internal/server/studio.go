@@ -157,7 +157,7 @@ var (
 // when only Codex is on the machine), profile (request → settings default
 // profile → default login) and the path override for a project job.
 func (s *Server) runnerFor(p project.Project, agentID, profileID string) (runnerTarget, error) {
-	st := s.settings.Get()
+	st := s.settings.View()
 	h, ok := s.machines.Host(p.MachineID)
 	if !ok {
 		return runnerTarget{}, machine.ErrNotFound
@@ -229,7 +229,7 @@ func (s *Server) projectByID(w http.ResponseWriter, r *http.Request) (project.Pr
 // the default Claude profile of settings, else ~/.claude (absolute).
 func (s *Server) claudeCfg(ctx context.Context, h machine.Host, profileID string) (string, error) {
 	if profileID == "" {
-		profileID = s.settings.Get().Agents.Profiles[h.ID()]["claude"]
+		profileID = s.settings.View().Agents.Profiles[h.ID()]["claude"]
 	}
 	if profileID != "" {
 		if pf, ok := s.profiles.Get(profileID); ok && pf.MachineID == h.ID() && pf.Agent == "claude" {
@@ -322,7 +322,7 @@ type usageHub struct{ s *Server }
 func (u usageHub) Host(id string) (machine.Host, bool) { return u.s.machines.Host(id) }
 func (u usageHub) Publish(v any)                       { u.s.events.Publish(v) }
 func (u usageHub) Settings() usage.Settings {
-	st := u.s.settings.Get().Usage
+	st := u.s.settings.View().Usage
 	off := map[string]bool{}
 	for a, on := range st.Agents {
 		if !on {
@@ -337,7 +337,7 @@ func (u usageHub) Settings() usage.Settings {
 // profile must belong to machine and agent.
 func (u usageHub) Profile(machineID, agentID, profileID string) (usage.Profile, error) {
 	if profileID == "" {
-		profileID = u.s.settings.Get().Agents.Profiles[machineID][agentID]
+		profileID = u.s.settings.View().Agents.Profiles[machineID][agentID]
 		if _, ok := u.s.profiles.Get(profileID); !ok {
 			return usage.Profile{}, nil
 		}
@@ -351,7 +351,7 @@ func (u usageHub) Profile(machineID, agentID, profileID string) (usage.Profile, 
 }
 
 func (u usageHub) Command(machineID, agentID string) string {
-	return u.s.settings.Get().Agents.Paths[machineID][agentID]
+	return u.s.settings.View().Agents.Paths[machineID][agentID]
 }
 
 func (u usageHub) ProfileDirs(machineID string) map[string][]string {
