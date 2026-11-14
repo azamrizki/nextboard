@@ -279,7 +279,7 @@ func (m *Mirror) Pull(ctx context.Context) error {
 	var todo []string
 	var total int64
 	for rel, e := range files {
-		if excludedFolder(rel) {
+		if excludedFolder(rel) || isAsset(rel) {
 			delete(files, rel)
 			continue
 		}
@@ -393,7 +393,12 @@ func (m *Mirror) extract(r io.Reader, want map[string]bool, files map[string]mir
 			continue
 		}
 		e := files[rel]
-		if err := m.writeLocal(rel, b, e.Mode); err != nil {
+		if looksBinary(b) {
+			// no code: it stays off the copy, and this listing of it says it was looked at
+			if err := m.removeLocal(rel); err != nil {
+				return got, err
+			}
+		} else if err := m.writeLocal(rel, b, e.Mode); err != nil {
 			return got, err
 		}
 		m.index[rel] = e

@@ -323,8 +323,9 @@ func (sh shadow) ready(ctx context.Context, nested []string) error {
 		if _, err := sh.git(ctx, nil, "init", "-q"); err != nil {
 			return err
 		}
+		sh.markCodeOnly() // made with the assets left out, so nothing to clean
 	}
-	excl := append([]string{}, defaultExcludes...)
+	excl := append(append([]string{}, defaultExcludes...), assetExcludes...)
 	for _, n := range nested {
 		excl = append(excl, "/"+n+"/")
 	}
@@ -352,7 +353,8 @@ func (sh shadow) take(ctx context.Context, who string, nested []string) (string,
 	if err != nil {
 		return "", nil, false, err
 	}
-	var paths bytes.Buffer
+	var paths, drop bytes.Buffer
+	dropped := map[string]bool{}
 	count := 0
 	for _, e := range strings.Split(string(out), "\x00") {
 		if len(e) < 4 || count >= MaxPaths {
@@ -362,12 +364,25 @@ func (sh shadow) take(ctx context.Context, who string, nested []string) (string,
 		if strings.HasSuffix(rel, "/") {
 			continue // a repository inside this one
 		}
-		if st, err := os.Lstat(filepath.Join(sh.root, rel)); err == nil && st.Size() > MaxFile {
+		st, err := os.Lstat(filepath.Join(sh.root, rel))
+		if err == nil && st.Size() > MaxFile {
+			continue
+		}
+		// no code: an untracked one stays out, a tracked one leaves the snapshots
+		if isAsset(rel) || err == nil && st.Mode().IsRegular() && binaryFile(filepath.Join(sh.root, rel)) {
+			if e[:2] != "??" {
+				drop.WriteString(rel)
+				drop.WriteByte(0)
+				dropped[rel] = true
+			}
 			continue
 		}
 		paths.WriteString(rel)
 		paths.WriteByte(0)
 		count++
+	}
+	if drop.Len() > 0 {
+		_, _ = sh.git(ctx, drop.Bytes(), "rm", "--cached", "-f", "-q", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul")
 	}
 	if count > 0 {
 		// a file that vanishes meanwhile must not cost the rest
@@ -401,6 +416,16 @@ func (sh shadow) take(ctx context.Context, who string, nested []string) (string,
 		return "", nil, false, err
 	}
 	changes := parseRaw(string(raw))
+	if len(dropped) > 0 {
+		// what left the snapshots is no change anyone made
+		kept := changes[:0]
+		for _, c := range changes {
+			if !dropped[c.path] {
+				kept = append(kept, c)
+			}
+		}
+		changes = kept
+	}
 	c, err := sh.git(ctx, nil, "commit-tree", tree, "-p", last, "-m", who)
 	if err != nil {
 		return "", nil, false, err
@@ -729,6 +754,9 @@ func (p *project) snapshot() error {
 			}
 		}
 		sh := p.shadowOf(r.Path)
+		if !sh.codeOnlyDone() && p.cleanAssets(sh, r.Path) {
+			changed = true
+		}
 		_, list, had, err := sh.take(ctx, label, p.nestedIn(roots, r))
 		if err != nil {
 			if firstErr == nil {
@@ -764,6 +792,44 @@ func (p *project) snapshot() error {
 		p.publish()
 	}
 	return firstErr
+}
+
+// cleanAssets turns a shadow from before review was for code into one: the pending changes to
+// assets are let go, then the assets leave its history. It says whether changes were let go.
+func (p *project) cleanAssets(sh shadow, root string) bool {
+	p.mu.Lock()
+	var bases []string
+	still := map[string]bool{}
+	for _, a := range p.state.Agents {
+		for rel, ch := range a.Files {
+			if ch.Root != root {
+				continue
+			}
+			if isAsset(rel) {
+				bases = append(bases, ch.Base)
+				delete(a.Files, rel)
+			} else {
+				still[ch.Base] = true
+			}
+		}
+	}
+	p.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), codeOnlyLimit)
+	defer cancel()
+	go func() {
+		select {
+		case <-p.stopped:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	for _, b := range bases {
+		if !still[b] {
+			sh.unkeep(ctx, b)
+		}
+	}
+	sh.codeOnly(ctx, p.m.cfg.Now())
+	return len(bases) > 0
 }
 
 // maybePrune prunes the shadow once a day: at its first snapshot after the mark is a day old,
