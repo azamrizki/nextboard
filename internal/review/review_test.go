@@ -2,6 +2,7 @@ package review
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -540,5 +541,57 @@ func TestNotOnThisPC(t *testing.T) {
 	}
 	if _, err := f.m.History("p", "a", 0); !errors.Is(err, errUnsupported) {
 		t.Fatal(err)
+	}
+}
+
+// The day between prunes counts across restarts of the hub, and the first snapshot of a shadow
+// packs what it wrote.
+func TestPruneTimeOutlivesTheHub(t *testing.T) {
+	f := newFixture(t)
+	for i := range 30 {
+		f.write(fmt.Sprintf("f%d.txt", i), strings.Repeat("line\n", i+1))
+	}
+	p := f.m.project("p")
+	sh := p.shadowOf(f.root)
+	f.snap()
+	mark := filepath.Join(sh.gitDir, prunedMark)
+	st, err := os.Stat(mark)
+	if err != nil {
+		t.Fatalf("no mark after the first snapshot: %v", err)
+	}
+	first := st.ModTime()
+	loose := func() int {
+		n := 0
+		_ = filepath.WalkDir(filepath.Join(sh.gitDir, "objects"), func(path string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && !strings.Contains(path, string(filepath.Separator)+"pack"+string(filepath.Separator)) && !strings.Contains(path, "info") {
+				n++
+			}
+			return nil
+		})
+		return n
+	}
+	if n := loose(); n > 5 {
+		t.Fatalf("%d loose objects after the first snapshot's prune", n)
+	}
+	// a restart: nothing in memory, the mark says it was pruned an hour ago
+	later := func(d time.Duration) {
+		f.mu.Lock()
+		f.now = f.now.Add(d)
+		f.mu.Unlock()
+		p.mu.Lock()
+		p.pruned = map[string]time.Time{}
+		p.mu.Unlock()
+	}
+	later(time.Hour)
+	f.write("f0.txt", "changed\n")
+	f.snap()
+	if st, _ := os.Stat(mark); !st.ModTime().Equal(first) {
+		t.Fatalf("pruned again after an hour: %v, was %v", st.ModTime(), first)
+	}
+	later(pruneEvery)
+	f.write("f0.txt", "changed again\n")
+	f.snap()
+	if st, _ := os.Stat(mark); !st.ModTime().After(first) {
+		t.Fatal("not pruned a day later")
 	}
 }

@@ -34,7 +34,8 @@ const (
 	// mirrorMaxBytes bounds the copy of one project.
 	mirrorMaxBytes = 1 << 30
 	// fetchBatchBytes and fetchBatchFiles bound one tar over SSH.
-	fetchBatchBytes = 32 << 20
+	// A batch is held whole while it is unpacked: 8 MB keeps that small, for a few more round trips.
+	fetchBatchBytes = 8 << 20
 	fetchBatchFiles = 1000
 	// mirrorRacy: a file touched this recently may change again within the same second.
 	mirrorRacy    = 2
@@ -231,7 +232,7 @@ func parseMirrorList(out string) (now int64, files map[string]mirrorEntry, err e
 		if err1 != nil || err2 != nil || size < 0 {
 			continue
 		}
-		files[rel] = mirrorEntry{Mtime: mt, Size: size, Mode: f[2]}
+		files[rel] = mirrorEntry{Mtime: mt, Size: size, Mode: strings.Clone(f[2])} // not a piece of the listing: it would keep all of it
 	}
 	return now, files, nil
 }

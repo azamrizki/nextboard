@@ -207,7 +207,17 @@ type project struct {
 	soon    *time.Timer
 	stopped chan struct{}
 	pruned  map[string]time.Time
+	// quiet counts the snapshots in a row that found nothing new.
+	quiet int
 }
+
+// After quietAfter snapshots in a row with nothing new (an agent thinking, or waiting for its
+// owner, which counts as at work), the tick takes one only every quietEvery ticks: each is four
+// git processes, or a listing of the whole tree on a server. A hook naming a file ends the wait.
+const (
+	quietAfter = 5
+	quietEvery = 5
+)
 
 type activeAgent struct {
 	name, kind string
@@ -474,15 +484,25 @@ func (sh shadow) prune(ctx context.Context, now time.Time) {
 			}
 		}
 	}
+	// One thread and a bounded window: the hub shares the machine with what it runs.
+	gc := []string{"-c", "pack.threads=1", "-c", "pack.windowMemory=64m", "gc", "--quiet"}
 	if cut == "" {
+		// nothing too old, but every snapshot wrote its files as loose objects, one compressed
+		// file each: packed, they take a fraction of that. Unreferenced ones go after git's own
+		// two weeks, so nothing a snapshot is writing right now.
+		_, _ = sh.git(ctx, nil, gc...)
 		return
 	}
 	if err := os.WriteFile(filepath.Join(sh.gitDir, "shallow"), []byte(cut+"\n"), 0o600); err != nil {
 		return
 	}
 	_, _ = sh.git(ctx, nil, "reflog", "expire", "--expire=now", "--all")
-	_, _ = sh.git(ctx, nil, "gc", "--prune=now", "--quiet")
+	_, _ = sh.git(ctx, nil, append(gc, "--prune=now")...)
 }
+
+// prunedMark is a file in the shadow whose time says when it was last pruned. It is on disk:
+// kept in memory only, a hub restarted more often than once a day never reached a prune.
+const prunedMark = "nb-pruned"
 
 // ---- following the agents ---------------------------------------------------------------
 
@@ -522,6 +542,7 @@ func (m *Manager) SessionChanged(projectID, sessionID, name, kind string, workin
 		// by now the turn may be over, or may have begun again
 		if p.want[sessionID] {
 			p.active[sessionID] = &activeAgent{name: name, kind: kind, hooks: hooks}
+			p.quiet = 0 // a turn begins: look often again
 			start := !p.ticking
 			p.ticking = true
 			p.mu.Unlock()
@@ -618,6 +639,7 @@ func (p *project) tick() {
 	}
 	t := time.NewTicker(every)
 	defer t.Stop()
+	skipped := 0
 	for {
 		select {
 		case <-p.stopped:
@@ -629,10 +651,16 @@ func (p *project) tick() {
 		if done {
 			p.ticking = false
 		}
+		wait := p.quiet >= quietAfter && len(p.hints) == 0
 		p.mu.Unlock()
 		if done {
 			return
 		}
+		if wait && skipped < quietEvery-1 {
+			skipped++
+			continue
+		}
+		skipped = 0
 		_ = p.snapshot()
 	}
 }
@@ -682,7 +710,7 @@ func (p *project) snapshot() error {
 		label = strings.Join(who, ", ")
 	}
 
-	changed := false
+	changed, seen := false, false
 	var firstErr error
 	pulled := map[*Mirror]error{}
 	for _, r := range roots {
@@ -708,12 +736,18 @@ func (p *project) snapshot() error {
 			}
 			continue
 		}
+		seen = seen || len(list) > 0
 		if had && p.attribute(ctx, sh, r, list) {
 			changed = true
 		}
 		p.maybePrune(ctx, sh)
 	}
 	p.mu.Lock()
+	if seen || firstErr != nil {
+		p.quiet = 0
+	} else {
+		p.quiet++
+	}
 	p.hints = map[string]map[string]bool{}
 	p.ignored = map[string]bool{}
 	problem := ""
@@ -732,21 +766,33 @@ func (p *project) snapshot() error {
 	return firstErr
 }
 
+// maybePrune prunes the shadow once a day: at its first snapshot after the mark is a day old,
+// or after a first snapshot with no mark at all, which packs what it wrote.
 func (p *project) maybePrune(ctx context.Context, sh shadow) {
 	now := p.m.cfg.Now()
+	mark := filepath.Join(sh.gitDir, prunedMark)
 	p.mu.Lock()
 	last, seen := p.pruned[sh.root]
 	if !seen {
-		p.pruned[sh.root] = now
+		last = time.Time{}
+		if st, err := os.Stat(mark); err == nil {
+			last = st.ModTime()
+		}
+		p.pruned[sh.root] = last
 	}
-	due := seen && now.Sub(last) >= pruneEvery
+	due := now.Sub(last) >= pruneEvery
 	if due {
 		p.pruned[sh.root] = now
 	}
 	p.mu.Unlock()
-	if due {
-		sh.prune(ctx, now)
+	if !due {
+		return
 	}
+	sh.prune(ctx, now)
+	if f, err := os.Create(mark); err == nil {
+		f.Close()
+	}
+	_ = os.Chtimes(mark, now, now)
 }
 
 func relPath(r Root, inRoot string) string {
@@ -1284,8 +1330,12 @@ func (m *Manager) Rename(from, to string) {
 		return
 	}
 	m.mu.Lock()
-	delete(m.projects, from)
-	delete(m.projects, to)
+	for _, id := range []string{from, to} {
+		if p := m.projects[id]; p != nil {
+			p.stop() // its tick would run on, for nobody, until the hub stops
+		}
+		delete(m.projects, id)
+	}
 	m.mu.Unlock()
 	src, dst := filepath.Join(m.cfg.Dir, from), filepath.Join(m.cfg.Dir, to)
 	if _, err := os.Stat(dst); err == nil {
@@ -1297,6 +1347,9 @@ func (m *Manager) Rename(from, to string) {
 
 func (m *Manager) Forget(projectID string) {
 	m.mu.Lock()
+	if p := m.projects[projectID]; p != nil {
+		p.stop()
+	}
 	delete(m.projects, projectID)
 	m.mu.Unlock()
 	_ = os.RemoveAll(filepath.Join(m.cfg.Dir, projectID))
