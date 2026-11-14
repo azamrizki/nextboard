@@ -693,21 +693,28 @@ textarea.control {
 .dot-busy {
   background: var(--c-success);
 }
+/* The ring grows by scale and fades by opacity, which the compositor runs on its own: a growing
+   box-shadow was a repaint of each busy dot on every frame, for as long as an agent worked. */
 .dot-busy::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: 0 0 0 0 var(--pulse-ring);
+  background: var(--pulse-ring);
+  opacity: 0;
+  will-change: transform, opacity;
   animation: nb-pulse var(--pulse-duration) var(--ease) infinite;
 }
 @keyframes nb-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--pulse-ring);
+    transform: scale(1);
+    opacity: 1;
   }
   70%,
   100% {
-    box-shadow: 0 0 0 var(--s-2) transparent;
+    /* to where the shadow's spread of --s-2 reached around a dot of --size-dot: (8 + 2·8) / 8 */
+    transform: scale(3);
+    opacity: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {

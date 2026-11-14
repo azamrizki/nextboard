@@ -10,7 +10,7 @@ import { BaseEdge, EdgeLabelRenderer, useStore, type ConnectionLineComponentProp
 import type { BoardEdge } from '../lib/types';
 import { useContext } from 'react';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { useStoreSessions } from '../orch/hooks';
+import { useSessionsValue } from '../orch/hooks';
 import { groupSessions, noAgentReason } from './groups';
 import { BoardEnvContext } from './ui';
 import { draftRoute, routeWire, type Box, type Route, type Side } from './wireRoute';
@@ -91,24 +91,27 @@ export function ConnectionWire({ fromX, fromY, toX, toY, fromPosition, connectio
 /** An orchestrator's wire carries work while a console at its end is busy. */
 function useWireBusy(source: string, target: string): boolean {
   const env = useContext(BoardEnvContext);
-  const sessions = useStoreSessions(); // re-render when a console changes state
   const ctl = env?.ctl;
-  if (!ctl || ctl.node(source)?.kind !== 'orchestrator') return false;
-  const node = ctl.node(target);
-  if (!node) return false;
-  const list = node.kind === 'group' ? groupSessions(ctl.nodes, node) : [sessions[String(node.data.sessionId)]];
-  return list.some((s) => s && s.status === 'running' && (s.agentState === 'working' || (s.queue ?? 0) > 0));
+  // re-renders when the answer changes, not on every change of any console
+  return useSessionsValue((sessions) => {
+    if (!ctl || ctl.node(source)?.kind !== 'orchestrator') return false;
+    const node = ctl.node(target);
+    if (!node) return false;
+    const list = node.kind === 'group' ? groupSessions(ctl.nodes, node) : [sessions[String(node.data.sessionId)]];
+    return list.some((s) => s && s.status === 'running' && (s.agentState === 'working' || (s.queue ?? 0) > 0));
+  });
 }
 
 /** Why a wire or forward does nothing right now: a plain shell at one of its ends. */
 function useLineIdle(source: string, target: string): string {
   const env = useContext(BoardEnvContext);
-  useStoreSessions(); // re-render when a console changes state
   const ctl = env?.ctl;
-  if (!ctl) return '';
-  const from = ctl.node(source);
-  const to = ctl.node(target);
-  return (to && noAgentReason(ctl.nodes, to)) || (from && noAgentReason(ctl.nodes, from)) || '';
+  return useSessionsValue(() => {
+    if (!ctl) return '';
+    const from = ctl.node(source);
+    const to = ctl.node(target);
+    return (to && noAgentReason(ctl.nodes, to)) || (from && noAgentReason(ctl.nodes, from)) || '';
+  });
 }
 
 /** A label on a shorter line would lie on the knobs of its tiles; the line's own menu stays. */

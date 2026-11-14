@@ -3,7 +3,7 @@
 // On This PC NextBoard may create the folder; on remote machines it only references a
 // folder that already exists.
 
-import { useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useMemo, useState, type FormEvent } from 'react';
 import { api, ApiError, errorMessage } from '../api';
 import { supportsProfiles, useAgentCatalog } from '../agents/catalog';
 import { patchSettings, useEffectiveSettings } from '../agents/settings';
@@ -17,7 +17,10 @@ import { toast } from '../components/Toast';
 import { formatDateTime } from '../lib/format';
 import type { Agent, Machine, Profile } from '../lib/types';
 import { store, useMachines, useProfiles } from '../store';
-import { ProfileSignInDialog } from './ProfileSignIn';
+
+// The sign-in dialog holds a terminal: xterm is nearly half a megabyte of script that the rest of
+// Settings never needs.
+const ProfileSignInDialog = lazy(() => import('./ProfileSignIn').then((m) => ({ default: m.ProfileSignInDialog })));
 
 export function ProfilesPane() {
   const machines = useMachines();
@@ -111,7 +114,11 @@ export function ProfilesPane() {
       </section>
       {adding && <ProfileDialog machines={machines} agents={agents} onClose={() => setAdding(false)} />}
       {renaming && <RenameProfileDialog profile={renaming} onClose={() => setRenaming(null)} />}
-      {signing && <ProfileSignInDialog profile={signing} agentName={agentName(signing.agent)} onClose={() => setSigning(null)} />}
+      {signing && (
+        <Suspense fallback={null}>
+          <ProfileSignInDialog profile={signing} agentName={agentName(signing.agent)} onClose={() => setSigning(null)} />
+        </Suspense>
+      )}
       {deleting && <DeleteProfileDialog profile={deleting} machine={machines.find((m) => m.id === deleting.machineId)} onClose={() => setDeleting(null)} />}
     </div>
   );
@@ -167,7 +174,12 @@ function ProfileDialog({ machines, agents, onClose }: { machines: Machine[]; age
     }
   };
 
-  if (added) return <ProfileSignInDialog profile={added} agentName={agentObj?.name ?? added.agent} fresh onClose={onClose} />;
+  if (added)
+    return (
+      <Suspense fallback={null}>
+        <ProfileSignInDialog profile={added} agentName={agentObj?.name ?? added.agent} fresh onClose={onClose} />
+      </Suspense>
+    );
 
   return (
     <>

@@ -14,7 +14,7 @@ import { store } from '../../store';
 import { filesApi, fsApi, gitApi, laravelApi, reviewApi, type Confirm, type FileListing, type LaravelIndex } from '../api';
 import { drafts, type Draft } from '../drafts';
 import { studioStore, waitJob } from '../store';
-import type { GitStatus, GitTarget, ProjectTask, ReviewSummary, TreeEntry } from '../types';
+import type { GitStatus, GitTarget, ProjectTask, ReviewSummary, StudioEvent, TreeEntry } from '../types';
 import { fileClip } from './fileClip';
 import { IdeLink } from './ideLink';
 import { Debugger } from './debug';
@@ -27,6 +27,13 @@ export const MAX_VIEW = 10 << 20;
 const MAX_GROUPS = 3;
 const MAX_RECENT = 50;
 const LSP_IDLE_MS = 5 * 60_000;
+/**
+ * A workbench closed this long, with nothing unsaved and no debug session, is let go: its
+ * models, file tree, git and Laravel state, and its subscriptions. Opened again it is made
+ * anew from what it saved (tabs, layout), as after a reload. Kept, every project whose editor
+ * was ever opened stayed in the tab's memory until the tab closed.
+ */
+const RELEASE_MS = 10 * 60_000;
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg', 'ico']);
 const MEDIA_EXT = new Set(['mp4', 'webm', 'mov', 'mp3', 'wav', 'ogg', 'flac']);
@@ -364,6 +371,10 @@ export class Workspace {
   private draftTimers = new Map<string, number>();
   private autoSaveTimers = new Map<string, number>();
   private mounted = false;
+  private mounts = 0;
+  private releaseTimer = 0;
+  /** What the constructor subscribed to, undone when the workbench is let go. */
+  private offs: (() => void)[] = [];
 
   /** The workbench of a part of the project; the first part when none is given. */
   static get(project: Project, part?: ProjectPart): Workspace {
@@ -398,26 +409,33 @@ export class Workspace {
       changed: () => this.changed(),
     });
     this.debug = new Debugger(this);
-    monaco.editor.onDidChangeMarkers(() => this.changed());
+    const markers = monaco.editor.onDidChangeMarkers(() => this.changed());
+    this.offs.push(() => markers.dispose());
     let reviewRev = studioStore.get().reviewRev[this.pid] ?? 0;
-    studioStore.subscribe(() => {
-      const rev = studioStore.get().reviewRev[this.pid] ?? 0;
-      if (rev === reviewRev) return;
-      reviewRev = rev;
-      void this.refreshReview();
-    });
-    studioStore.onReviewOverlap.add((e) => {
+    this.offs.push(
+      studioStore.subscribe(() => {
+        const rev = studioStore.get().reviewRev[this.pid] ?? 0;
+        if (rev === reviewRev) return;
+        reviewRev = rev;
+        void this.refreshReview();
+      }),
+    );
+    const overlap = (e: Extract<StudioEvent, { type: 'reviewOverlap' }>) => {
       if (e.projectId === this.pid) toast.info(`${e.agents.join(' and ')} both changed ${e.path}. Check it in Review.`);
-    });
+    };
+    studioStore.onReviewOverlap.add(overlap);
+    this.offs.push(() => studioStore.onReviewOverlap.delete(overlap));
     void this.refreshReview();
     void this.refreshLaravel();
     let gitRepo = this.gitTarget.repo;
-    studioStore.subscribe(() => {
-      if (gitRepo === this.gitTarget.repo) return;
-      gitRepo = this.gitTarget.repo;
-      this.git = null;
-      void this.refreshGit();
-    });
+    this.offs.push(
+      studioStore.subscribe(() => {
+        if (gitRepo === this.gitTarget.repo) return;
+        gitRepo = this.gitTarget.repo;
+        this.git = null;
+        void this.refreshGit();
+      }),
+    );
     const saved = readJSON<Partial<Persisted>>(`wb.${this.pid}`, {});
     this.side = saved.side ?? 'files';
     this.sideOpen = saved.sideOpen ?? true;
@@ -518,8 +536,10 @@ export class Workspace {
 
   /** The workbench opened: start what only runs while it is visible. */
   mount() {
+    this.mounts++;
     this.mounted = true;
     window.clearTimeout(this.lspTimer);
+    window.clearTimeout(this.releaseTimer);
     if (!this.lsp.servers.length) void this.lsp.start();
     else this.lsp.resume();
     for (const d of this.expanded) void this.loadDir(d);
@@ -529,6 +549,8 @@ export class Workspace {
 
   /** The workbench closed: tabs stay, polling stops, servers stop after a while. */
   unmount() {
+    this.mounts = Math.max(0, this.mounts - 1);
+    if (this.mounts > 0) return; // still open elsewhere
     this.mounted = false;
     this.persist();
     this.stopWatch();
@@ -536,6 +558,30 @@ export class Workspace {
     this.lspTimer = window.setTimeout(() => {
       if (!this.mounted) this.lsp.dispose();
     }, LSP_IDLE_MS);
+    window.clearTimeout(this.releaseTimer);
+    this.releaseTimer = window.setTimeout(() => this.release(), RELEASE_MS);
+  }
+
+  /** Lets a closed workbench go (RELEASE_MS); one with unsaved edits or a debug session stays. */
+  release(): boolean {
+    if (this.mounted || this.debug.active) return false;
+    for (const d of this.docs.values()) if (d.dirty) return false;
+    if (workspaces.get(this.pid) === this) workspaces.delete(this.pid);
+    window.clearTimeout(this.lspTimer);
+    window.clearTimeout(this.persistTimer);
+    window.clearTimeout(this.watchTimer);
+    for (const t of this.draftTimers.values()) window.clearTimeout(t);
+    for (const t of this.autoSaveTimers.values()) window.clearTimeout(t);
+    this.persist();
+    this.lsp.dispose();
+    for (const d of this.docs.values()) {
+      if (!d.model) continue;
+      this.lsp.detach(d.model);
+      d.model.dispose();
+    }
+    this.docs.clear();
+    for (const off of this.offs.splice(0)) off();
+    return true;
   }
 
   /** Ask the hidden runner about the code; the answer streams into the Ask view. */

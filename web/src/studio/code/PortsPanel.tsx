@@ -19,6 +19,7 @@ export function PortsPanel({ ws }: { ws: Workspace }) {
   useEffect(() => {
     let stop = false;
     const load = () =>
+      !document.hidden &&
       portsApi
         .listening(ws.mid)
         .then((list) => {

@@ -52,6 +52,10 @@ function themeOf(el: Element): { theme: ITheme; minimumContrastRatio: number } {
 // Bundled locally via @fontsource-variable/jetbrains-mono (imported in main.tsx).
 const FONT_FAMILY = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
 const FONT_SIZE = 13;
+// Lines kept above the screen. Each line costs memory per terminal (10000 lines of a 180-col
+// tile ≈ 25 MB), and the hub replays only its 1 MiB ring on reconnect, so lines past that
+// never come back after a reload anyway.
+const SCROLLBACK_LINES = 5000;
 
 /**
  * Resolves once JetBrains Mono is loaded (or after a short timeout), so xterm measures
@@ -249,7 +253,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         fontSize: fontRef.current,
         lineHeight: 1.15,
         cursorBlink: true,
-        scrollback: 10000,
+        scrollback: SCROLLBACK_LINES,
         ...themeOf(el),
         allowProposedApi: false,
       });

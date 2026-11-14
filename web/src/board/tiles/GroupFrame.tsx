@@ -12,7 +12,7 @@ import { Menu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
 import { killSessions, pauseSessions, resumeSessions } from '../../orch/actions';
 import { GROUP_COLORS, ROLE_COLOR, ROLE_LABEL, ROLES, type Role } from '../../orch/types';
-import { useStoreSessions } from '../../orch/hooks';
+import { useSessionsValue } from '../../orch/hooks';
 import type { FlowNode } from '../flow';
 import { groupNameProblem, groupSessions } from '../groups';
 import { readGroup } from '../kinds';
@@ -25,7 +25,12 @@ function GroupFrameImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [draft, setDraft] = useState('');
   const [problem, setProblem] = useState('');
   const [confirm, setConfirm] = useState<'kill' | 'dissolve' | null>(null);
-  useStoreSessions(); // re-render on state changes of members
+  // re-render when a member changes, not when any console of any project does
+  useSessionsValue(() =>
+    groupSessions(ctl.nodes, data.node)
+      .map((s) => `${s.id}:${s.status}:${s.agentState}:${s.paused}:${s.handle ?? s.name}:${agentPill(s).label}`)
+      .join('|'),
+  );
   const sessions = groupSessions(ctl.nodes, data.node);
   const working = sessions.filter((s) => s.agentState === 'working').length;
   const needs = sessions.filter((s) => s.agentState === 'needsYou').length;

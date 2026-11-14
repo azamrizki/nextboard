@@ -3,7 +3,7 @@
 // board: its tabs and unsaved edits belong to the project, not to the card. Drag a wire from
 // the right knob to a console, group or orchestrator card to send questions there.
 
-import { lazy, memo, Suspense } from 'react';
+import { lazy, memo, Suspense, useEffect, useRef, useState, type RefObject } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Button } from '../../components/Button';
 import type { FlowNode } from '../flow';
@@ -12,10 +12,32 @@ import { TileFrame } from './common';
 
 const CodeStudio = lazy(() => import('../../studio/code/CodeStudio'));
 
+/**
+ * Whether the card has been on screen since the board opened. The workbench starts then and
+ * stays: before, a card scrolled far away still loaded the editor (megabytes of script), read its
+ * tabs again, started language servers on the machine and watched its files at each board open.
+ */
+function useSeen(ref: RefObject<HTMLElement | null>, now: boolean): boolean {
+  const [seen, setSeen] = useState(now || typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    if (seen) return;
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setSeen(true);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref, seen]);
+  return seen || now;
+}
+
 function EditorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const { ctl, project, viewCenter, frame, ui } = useBoardEnv();
   const first = ctl.nodes.find((n) => n.kind === 'editor');
   const duplicate = !!first && first.id !== id;
+  const box = useRef<HTMLDivElement>(null);
+  const seen = useSeen(box, !!data.node.data.fill || !!selected);
   return (
     <>
       <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
@@ -28,6 +50,8 @@ function EditorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
               Show it
             </Button>
           </div>
+        ) : !seen ? (
+          <div className="editor-tile-loading" ref={box} aria-hidden="true" />
         ) : (
           <Suspense
             fallback={

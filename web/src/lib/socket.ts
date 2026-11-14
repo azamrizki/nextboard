@@ -15,6 +15,31 @@ export interface ReconnectingSocketOptions {
 
 /** Delays (ms) between reconnect attempts; the last value repeats. */
 const BACKOFF = [500, 1000, 2000, 5000, 10000, 15000];
+/**
+ * The delay while the tab is hidden or the browser is offline: a board of twenty terminals left
+ * open overnight with the hub away tried more than once a second. Coming back (the tab shown,
+ * the network up) tries at once.
+ */
+const AWAY_DELAY = 60_000;
+
+/** Sockets waiting to reconnect. */
+const waiting = new Set<ReconnectingSocket>();
+let watching = false;
+
+function watchReturn() {
+  if (watching || typeof window === 'undefined') return;
+  watching = true;
+  const back = () => {
+    if (document.hidden || navigator.onLine === false) return;
+    for (const s of [...waiting]) s.reconnectNow();
+  };
+  window.addEventListener('online', back);
+  document.addEventListener('visibilitychange', back);
+}
+
+function away(): boolean {
+  return (typeof document !== 'undefined' && document.hidden) || (typeof navigator !== 'undefined' && navigator.onLine === false);
+}
 
 /** Build an absolute ws(s):// URL for a same-origin path (wss when the page is https). */
 export function wsUrl(path: string): string {
@@ -56,6 +81,7 @@ export class ReconnectingSocket {
   reconnectNow(): void {
     if (this.stopped) return;
     window.clearTimeout(this.timer);
+    waiting.delete(this);
     this.attempt = 0;
     if (this.ws) {
       this.ws.close();
@@ -68,6 +94,7 @@ export class ReconnectingSocket {
   close(): void {
     this.stopped = true;
     window.clearTimeout(this.timer);
+    waiting.delete(this);
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;
@@ -84,6 +111,7 @@ export class ReconnectingSocket {
   }
 
   private connect() {
+    waiting.delete(this);
     if (this.stopped) return;
     this.setState('connecting');
     let ws: WebSocket;
@@ -120,9 +148,12 @@ export class ReconnectingSocket {
   private scheduleReconnect() {
     if (this.stopped) return;
     this.setState('connecting');
-    const base = BACKOFF[Math.min(this.attempt, BACKOFF.length - 1)];
+    let base = BACKOFF[Math.min(this.attempt, BACKOFF.length - 1)];
+    if (away()) base = Math.max(base, AWAY_DELAY);
     this.attempt++;
     const jitter = Math.random() * 0.25 * base;
+    watchReturn();
+    waiting.add(this);
     this.timer = window.setTimeout(() => this.connect(), base + jitter);
   }
 }

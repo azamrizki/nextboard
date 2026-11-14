@@ -31,6 +31,7 @@ import { PullRequestView } from './PullRequestView';
 import { baseWithChange, currentWithoutChange, type LineChange } from './reviewHunks';
 import { ReviewView } from './ReviewView';
 import { currentTheme, FONT, languageFor, monaco } from './monaco';
+import { editorKeys } from './editorKeys';
 import { useWs } from './useWs';
 import { dirOf, extOf, MARKDOWN_EXT, nameOf, type Doc, type Group, type MdView, type Tab, type Workspace } from './workspace';
 
@@ -125,15 +126,17 @@ function MonacoView({ ws, group, gi, doc, tab }: { ws: Workspace; group: Group; 
     const ed = monaco.editor.create(host.current, { ...editorOptions(ws, readOnly), model: null });
     edRef.current = ed;
     ws.editors.set(group.id, ed);
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void ws.save(pathRef.current));
-    ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Backslash, () => void ed.getAction('editor.action.inlineSuggest.trigger')?.run());
-    ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.KeyK, () => ws.actions.mention?.());
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyK, () => toggleBookmark(ws, pathRef.current, ed.getPosition()?.lineNumber ?? 1));
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyL, () => jumpBookmark(ws, pathRef.current, ed.getPosition()?.lineNumber ?? 1, 1));
-    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyJ, () => jumpBookmark(ws, pathRef.current, ed.getPosition()?.lineNumber ?? 1, -1));
-    // the key the menu shows: on Linux Monaco only binds Ctrl+Shift+I to it
-    ed.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, () => void ed.getAction('editor.action.formatDocument')?.run());
+    const keys = editorKeys(ed, {
+      save: () => void ws.save(pathRef.current),
+      inlineSuggest: () => void ed.getAction('editor.action.inlineSuggest.trigger')?.run(),
+      mention: () => ws.actions.mention?.(),
+      bookmark: () => toggleBookmark(ws, pathRef.current, ed.getPosition()?.lineNumber ?? 1),
+      nextBookmark: () => jumpBookmark(ws, pathRef.current, ed.getPosition()?.lineNumber ?? 1, 1),
+      prevBookmark: () => jumpBookmark(ws, pathRef.current, ed.getPosition()?.lineNumber ?? 1, -1),
+      format: () => void ed.getAction('editor.action.formatDocument')?.run(),
+    });
     const subs = [
+      keys,
       ed.onDidFocusEditorText(() => ws.focusGroup(ws.groups.indexOf(group))),
       ed.onDidBlurEditorText(() => ws.focusChanged()),
       ed.onDidChangeCursorSelection(() => {
@@ -467,7 +470,7 @@ function DiffPane({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc }) {
       setChanges(list);
       setAt((i) => Math.min(i, Math.max(list.length - 1, 0)));
     });
-    diff.getModifiedEditor().addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void ws.save(doc.path));
+    const keys = editorKeys(diff.getModifiedEditor(), { save: () => void ws.save(doc.path) });
     const commit = tab.diff?.startsWith('commit:') ? tab.diff.slice('commit:'.length) : null;
     const load = async (ref = 'HEAD'): Promise<string> => {
       if (tab.diff === 'disk') {
@@ -504,6 +507,7 @@ function DiffPane({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc }) {
       stop = true;
       updated.dispose();
       leaving.dispose();
+      keys.dispose();
       diff.setModel(null);
       diff.dispose();
       original?.dispose();

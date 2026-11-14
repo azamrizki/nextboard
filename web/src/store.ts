@@ -42,6 +42,21 @@ const EMPTY: LiveState = {
 };
 
 
+
+/** Whether two records from the hub hold the same values (nested ones compared as JSON). */
+export function sameRecord(a: object, b: object): boolean {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) {
+    const x = (a as Record<string, unknown>)[k];
+    const y = (b as Record<string, unknown>)[k];
+    if (x === y) continue;
+    if (typeof x !== 'object' || typeof y !== 'object' || x === null || y === null) return false;
+    if (JSON.stringify(x) !== JSON.stringify(y)) return false;
+  }
+  return true;
+}
+
 function byId<T extends { id: string }>(list: T[] | null | undefined): Record<string, T> {
   const out: Record<string, T> = {};
   for (const item of list ?? []) out[item.id] = item;
@@ -200,6 +215,10 @@ class LiveStore {
   }
 
   upsertSession(s: Session) {
+    // A change comes twice, as the console socket's status frame and as the hub's session event:
+    // the second one changes nothing and re-renders nothing.
+    const cur = this.state.sessions[s.id];
+    if (cur && sameRecord(cur, s)) return;
     this.set({ sessions: { ...this.state.sessions, [s.id]: s } });
   }
   /** Apply a status frame from a session socket; no-op if nothing changed. */
@@ -387,6 +406,18 @@ export function useProfiles(): Profile[] {
 export function useNeedsYou(): Session[] {
   const rec = useSlice((s) => s.sessions);
   return useMemo(() => needsYouList(Object.values(rec)), [rec]);
+}
+
+/**
+ * How many sessions of a workspace wait for the user. A number, so that a status change
+ * elsewhere does not re-render the whole board that shows it.
+ */
+export function useNeedsYouIn(workspaceId: string): number {
+  return useSlice((s) => {
+    let n = 0;
+    for (const x of Object.values(s.sessions)) if (x.workspaceId === workspaceId && x.agentState === 'needsYou') n++;
+    return n;
+  });
 }
 
 export function needsYouList(list: Session[]): Session[] {

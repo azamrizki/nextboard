@@ -79,11 +79,36 @@ function sortMessages(list: ThreadMessage[]): ThreadMessage[] {
   return list.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
 }
 
+/** Messages kept per thread: as many as the hub keeps. */
+export const THREAD_KEEP = 500;
+/**
+ * Records kept of each kind (orders, deliveries, handoffs, forwards, jobs, confirmations). They
+ * come from every project to every open tab, and nothing dropped them but a logout.
+ */
+export const RECORDS_KEEP = 500;
+
 /** Merge messages by id (an update replaces the earlier version, e.g. "Still thinking…"). */
-function mergeMessages(cur: ThreadMessage[], add: ThreadMessage[]): ThreadMessage[] {
+export function mergeMessages(cur: ThreadMessage[], add: ThreadMessage[]): ThreadMessage[] {
+  const last = cur[cur.length - 1];
+  // the usual case: one new message, after the others
+  if (add.length === 1 && (!last || add[0].at > last.at) && !cur.some((m) => m.id === add[0].id)) {
+    return capThread([...cur, add[0]]);
+  }
   const byId = new Map(cur.map((m) => [m.id, m]));
   for (const m of add) byId.set(m.id, m);
-  return sortMessages([...byId.values()]);
+  return capThread(sortMessages([...byId.values()]));
+}
+
+function capThread(list: ThreadMessage[]): ThreadMessage[] {
+  return list.length > THREAD_KEEP ? list.slice(list.length - THREAD_KEEP) : list;
+}
+
+/** rec with r in it, the oldest ones dropped past RECORDS_KEEP (in the order they came). */
+export function withRecord<T extends { id: string }>(rec: Record<string, T>, r: T): Record<string, T> {
+  const next = { ...rec, [r.id]: r };
+  const ids = Object.keys(next);
+  if (ids.length > RECORDS_KEEP) for (const id of ids.slice(0, ids.length - RECORDS_KEEP)) if (id !== r.id) delete next[id];
+  return next;
 }
 
 /** The hub has no such endpoint (older hub). Coded 404s (loop_not_found, …) are real answers. */
@@ -162,17 +187,24 @@ class OrchStore {
         break;
       case 'command': {
         const cur = this.state.pending[e.commandId];
-        if (cur || e.clientId === CLIENT_ID) {
+        if (e.state !== 'planning') {
+          // done (or failed): only a command still planning is shown as such
+          if (cur) {
+            const pending = { ...this.state.pending };
+            delete pending[e.commandId];
+            this.set({ pending });
+          }
+        } else if (cur || e.clientId === CLIENT_ID) {
           this.set({ pending: { ...this.state.pending, [e.commandId]: { state: e.state, threadId: cur?.threadId ?? '', at: cur?.at ?? Date.now() } } });
         }
         if (e.clientId === CLIENT_ID && e.state === 'done') this.runUiActions(e.uiActions);
         break;
       }
       case 'handoff':
-        this.set({ handoffs: { ...this.state.handoffs, [e.handoff.id]: e.handoff } });
+        this.set({ handoffs: withRecord(this.state.handoffs, e.handoff) });
         break;
       case 'forward':
-        this.set({ forwards: { ...this.state.forwards, [e.forward.id]: e.forward } });
+        this.set({ forwards: withRecord(this.state.forwards, e.forward) });
         break;
       case 'loop':
         this.upsertLoop(e.loop);
@@ -211,17 +243,20 @@ class OrchStore {
     this.set({ threads: { ...this.state.threads, [threadId]: { ...cur, messages: mergeMessages(cur.messages, msgs) } } });
   }
   upsertOrder(o: Order) {
-    this.set({ orders: { ...this.state.orders, [o.id]: o } });
+    this.set({ orders: withRecord(this.state.orders, o) });
   }
   upsertConfirmation(c: Confirmation) {
-    this.set({ confirmations: { ...this.state.confirmations, [c.id]: c } });
+    this.set({ confirmations: withRecord(this.state.confirmations, c) });
   }
   upsertDelivery(d: Delivery) {
-    this.set({ deliveries: { ...this.state.deliveries, [d.id]: d } });
+    this.set({ deliveries: withRecord(this.state.deliveries, d) });
   }
   setDeliveries(list: Delivery[]) {
     const next = { ...this.state.deliveries };
     for (const d of list) next[d.id] = d;
+    const ids = Object.keys(next);
+    const keep = new Set(list.map((d) => d.id));
+    for (const id of ids.slice(0, Math.max(0, ids.length - RECORDS_KEEP))) if (!keep.has(id)) delete next[id];
     this.set({ deliveries: next });
   }
   upsertLoop(l: LoopDef) {
@@ -233,10 +268,10 @@ class OrchStore {
     this.set({ loops });
   }
   upsertHandoff(h: Handoff) {
-    this.set({ handoffs: { ...this.state.handoffs, [h.id]: h } });
+    this.set({ handoffs: withRecord(this.state.handoffs, h) });
   }
   upsertJob(j: Job) {
-    this.set({ jobs: { ...this.state.jobs, [j.id]: j } });
+    this.set({ jobs: withRecord(this.state.jobs, j) });
   }
   setPlanner(p: PlannerStatus | null) {
     this.set({ planner: p });

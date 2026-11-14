@@ -240,6 +240,7 @@ new IntersectionObserver((entries) => {
 }).observe(document.documentElement);
 
 function tick() {
+  if (!shown) return; // hidden or scrolled away: nothing to place or start (updateShown stopped it all)
   const c = rfbCanvas();
   if (!c) return;
   const now = performance.now();

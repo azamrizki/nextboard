@@ -173,4 +173,31 @@ describe('ReconnectingSocket', () => {
     expect(sockets()).toHaveLength(n + 1);
     s.close();
   });
+
+  it('waits a minute while the tab is hidden, and tries at once when it is shown', () => {
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    const s = new ReconnectingSocket({ path: '/x' });
+    last().drop(1006);
+    vi.advanceTimersByTime(15_000);
+    expect(sockets()).toHaveLength(1); // not before a minute
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(sockets()).toHaveLength(2);
+    s.close();
+  });
+
+  it('tries at once when the network comes back', () => {
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const s = new ReconnectingSocket({ path: '/x' });
+    last().drop(1006);
+    vi.advanceTimersByTime(30_000);
+    expect(sockets()).toHaveLength(1);
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event('online'));
+    expect(sockets()).toHaveLength(2);
+    last().open();
+    window.dispatchEvent(new Event('online')); // an open socket stays as it is
+    expect(sockets()).toHaveLength(2);
+    s.close();
+  });
 });

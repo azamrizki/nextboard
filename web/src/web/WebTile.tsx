@@ -595,9 +595,21 @@ export const WebTile = memo(WebTileImpl);
 function PortDial({ machineId, onPick }: { machineId: string; onPick: (url: string) => void }) {
   const [probe, setProbe] = useState<PortProbe[] | null>(null);
   const [addr, setAddr] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  // six ports probed every 5 s, over SSH on a server: only while someone can see the dial
+  const [onScreen, setOnScreen] = useState(true);
   useEffect(() => {
+    const el = box.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => setOnScreen(entries.some((e) => e.isIntersecting)));
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!onScreen) return;
     let stop = false;
     const run = () =>
+      !document.hidden &&
       previewApi
         .probe(machineId, DIAL_PORTS)
         .then((r) => !stop && setProbe(r))
@@ -608,10 +620,10 @@ function PortDial({ machineId, onPick }: { machineId: string; onPick: (url: stri
       stop = true;
       window.clearInterval(t);
     };
-  }, [machineId]);
+  }, [machineId, onScreen]);
   const open = new Map((probe ?? []).map((p) => [p.port, p]));
   return (
-    <div className="web-dial nodrag nowheel">
+    <div className="web-dial nodrag nowheel" ref={box}>
       <p className="web-dial-title">Open a dev server</p>
       <div className="web-ports" role="list">
         {DIAL_PORTS.map((p) => {

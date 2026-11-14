@@ -66,6 +66,24 @@ export const usageKey = (r: { machineId: string; agent: string; profileId?: stri
 
 type Fn<T> = (v: T) => void;
 const LOG_KEEP = 500;
+/**
+ * Output kept per job, its end, and how many jobs keep any. Job events come from every project
+ * to every open tab, and nothing dropped them: a tab open for days held the output of every
+ * task and hidden run since it opened.
+ */
+export const OUTPUT_KEEP = 512 << 10;
+export const OUTPUT_JOBS = 100;
+
+/** output with text added to one job's, trimmed to the limits above. */
+export function withOutput(output: Record<string, string>, jobId: string, text: string): Record<string, string> {
+  let all = (output[jobId] ?? '') + text;
+  if (all.length > OUTPUT_KEEP) all = all.slice(all.length - OUTPUT_KEEP);
+  const next: Record<string, string> = {};
+  const ids = Object.keys(output).filter((id) => id !== jobId);
+  for (const id of ids.slice(Math.max(0, ids.length - (OUTPUT_JOBS - 1)))) next[id] = output[id];
+  next[jobId] = all; // the newest last, so the oldest go first
+  return next;
+}
 
 class StudioStore {
   private state: StudioState = INITIAL;
@@ -136,7 +154,9 @@ class StudioStore {
         if (!(e.id in this.state.previews)) break;
         const previews = { ...this.state.previews };
         delete previews[e.id];
-        this.set({ previews });
+        const logs = { ...this.state.logs };
+        delete logs[e.id];
+        this.set({ previews, logs });
         break;
       }
       case 'previewSuggested':
@@ -172,7 +192,9 @@ class StudioStore {
         const last = this.outSeq[e.jobId] ?? 0;
         if (e.seq <= last) break;
         this.outSeq[e.jobId] = e.seq;
-        this.set({ output: { ...this.state.output, [e.jobId]: (this.state.output[e.jobId] ?? '') + e.text } });
+        const output = withOutput(this.state.output, e.jobId, e.text);
+        for (const id of Object.keys(this.outSeq)) if (!(id in output)) delete this.outSeq[id];
+        this.set({ output });
         break;
       }
       default:
@@ -227,7 +249,7 @@ class StudioStore {
   /** Text streamed for a job so far ("" when none). */
   seedOutput(jobId: string, text: string) {
     if (this.state.output[jobId]) return;
-    this.set({ output: { ...this.state.output, [jobId]: text } });
+    this.set({ output: withOutput(this.state.output, jobId, text) });
   }
   watchFs(watchId: string, fn: Fn<Extract<StudioEvent, { type: 'fsChanged' }>>) {
     this.fsListeners.set(watchId, fn);

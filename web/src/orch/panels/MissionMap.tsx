@@ -66,6 +66,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
   useEffect(() => {
     let alive = true;
     const load = () =>
+      !document.hidden &&
       orchApi
         .mission(ctl.workspaceId)
         .then((m) => alive && setHub(m))

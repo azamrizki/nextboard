@@ -49,7 +49,7 @@ import { prefs } from '../lib/format';
 import type { BoardNode, Op, Project, Workspace } from '../lib/types';
 import { useLayout } from '../lib/layout';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { store, useMachine, useNeedsYou } from '../store';
+import { store, useMachine, useNeedsYouIn } from '../store';
 import { splitAccount } from '../providers/AccountOptions';
 import { providerModels, providersStore } from '../providers/providers';
 import { duplicate, makePayload, parsePayload, pastePayload, recall, remember, serialize, type ClipPayload } from './clipboard';
@@ -293,7 +293,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   const [phoneTab, setPhoneTab] = usePhoneTab();
   const [addingCard, setAddingCard] = useState(false);
   const leadName = useLeadName();
-  const needsHere = useNeedsYou().filter((x) => x.workspaceId === ctl.workspaceId).length;
+  const needsHere = useNeedsYouIn(ctl.workspaceId);
   useEffect(() => {
     if (!phone) return;
     document.documentElement.setAttribute('data-phone-tab', phoneTab);

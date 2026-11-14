@@ -13,6 +13,7 @@ export function ProviderBadge({ sessionId, providerId }: { sessionId: string; pr
   useEffect(() => {
     let live = true;
     const load = () =>
+      !document.hidden &&
       providersApi
         .sessionCost(sessionId)
         .then((s) => live && setSpend(s))
