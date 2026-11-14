@@ -83,6 +83,7 @@ func TestValidation(t *testing.T) {
 		`{"agents":{"resumeOnRestart":"maybe"}}`:     "bad_setting",
 		`{"agents":{"sleepAfterMin":-1}}`:            "bad_setting",
 		`{"agents":{"sleepAfterMin":1441}}`:          "bad_setting",
+		`{"agents":{"keepRecentProjects":11}}`:       "bad_setting",
 		`{"agents":{"defaults":{"local":"Bad ID"}}}`: "bad_setting",
 		`{"notifications":{"finishedMinSec":-1}}`:    "bad_setting",
 		`{"schemaVersion":2}`:                        "bad_setting",
@@ -99,7 +100,7 @@ func TestValidation(t *testing.T) {
 		}
 	}
 	// sleeping agents (ROADMAP #50): on by default, and 0 turns the idle sleep off
-	if d := Defaults().Agents; d.SleepAfterMin != 30 || !d.LazyStart {
+	if d := Defaults().Agents; d.SleepAfterMin != 30 || !d.LazyStart || d.KeepRecentProjects != 2 {
 		t.Fatalf("defaults %+v", d)
 	}
 	if got, err := s.Patch([]byte(`{"agents":{"sleepAfterMin":0,"lazyStart":false}}`)); err != nil || got.Agents.SleepAfterMin != 0 || got.Agents.LazyStart {

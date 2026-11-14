@@ -51,6 +51,7 @@ const (
 	SleepNoConversation = "no_conversation" // its conversation id is not known: resume could pick another
 	SleepDraftUnsure    = "draft_unsure"    // what is at its prompt cannot be put back exactly
 	SleepCommandRunning = "command_running" // a command it started is still running
+	SleepRecentProject  = "recent_project"  // its project is one of the last opened (idle sleep only)
 )
 
 // SleepError says why a console stays awake.
@@ -72,6 +73,7 @@ var sleepWords = map[string]string{
 	SleepNoConversation: "its conversation id is not known",
 	SleepDraftUnsure:    "what is typed at its prompt cannot be put back exactly",
 	SleepCommandRunning: "a command it started is still running",
+	SleepRecentProject:  "its project is one of the last opened",
 }
 
 // ErrNotAsleep: wake was asked of a console that is not asleep.
@@ -283,7 +285,7 @@ func (s *Session) sleep(idle time.Duration, force bool, procs []procInfo) error 
 	s.mu.Lock()
 	why := s.sleepBlockLocked(time.Now(), idle, force)
 	draft, _ := s.draft.get()
-	r, pid, id := s.cur, s.priv.WrapperPid, s.spec.ID
+	r, pid, id, pid2 := s.cur, s.priv.WrapperPid, s.spec.ID, s.spec.ProjectID
 	s.mu.Unlock()
 	if why != "" {
 		return &SleepError{why}
@@ -293,6 +295,9 @@ func (s *Session) sleep(idle time.Duration, force bool, procs []procInfo) error 
 	}
 	if s.m.StayAwake != nil && s.m.StayAwake(id) {
 		return &SleepError{SleepHeld}
+	}
+	if !force && s.m.KeepWarm != nil && s.m.KeepWarm(pid2) {
+		return &SleepError{SleepRecentProject}
 	}
 	if procs == nil {
 		var err error
@@ -632,6 +637,22 @@ func (m *Manager) Wake(id string) (Info, error) {
 		}
 	}
 	return m.SessionInfo(s), nil
+}
+
+// WakeWhere wakes the asleep consoles that match (a project being opened, ROADMAP #50) and
+// returns how many started. Waking takes the CLI a few seconds, so callers do it as early as
+// they know a console will be wanted.
+func (m *Manager) WakeWhere(match func(Spec) bool) int {
+	n := 0
+	for _, s := range m.all() {
+		s.mu.Lock()
+		sp := s.spec
+		s.mu.Unlock()
+		if sp.Asleep && match(sp) && s.Wake() {
+			n++
+		}
+	}
+	return n
 }
 
 // SetKeepAwake pins a console awake, or lets it sleep again.

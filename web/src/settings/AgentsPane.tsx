@@ -141,6 +141,23 @@ export function AgentsPane() {
             ]}
           />
         </SettingRow>
+        <SettingRow
+          title="Keep recent projects awake"
+          hint="The agents of the projects you opened last do not sleep when idle, and start right after a hub restart, so going back to one is instant. Each awake agent takes 120–250 MB."
+        >
+          <SegmentedControl
+            label="Keep recent projects awake"
+            size="sm"
+            value={String(ag.keepRecentProjects ?? 2)}
+            onChange={(v) => void save({ agents: { keepRecentProjects: Number(v) } }, 'the recent projects setting').catch(() => undefined)}
+            options={[
+              { value: '0', label: 'None', title: 'Every project\'s idle agents sleep' },
+              { value: '1', label: 'Last 1' },
+              { value: '2', label: 'Last 2' },
+              { value: '3', label: 'Last 3' },
+            ]}
+          />
+        </SettingRow>
         <SettingRow title="Status channel" hint="How hooks reach the hub. Auto uses the terminal and falls back to a loopback HTTP port.">
           <SegmentedControl
             label="Status channel"

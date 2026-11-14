@@ -305,6 +305,8 @@ export const api = {
   wakeSession: (id: string) => post<Session>(`/api/sessions/${enc(id)}/wake`),
   keepAwake: (id: string, keepAwake: boolean) => patch<Session>(`/api/sessions/${enc(id)}`, { keepAwake }),
   dismissDraft: (id: string) => del<Session>(`/api/sessions/${enc(id)}/draft`),
+  /** Start the asleep agents of a project or one board before it is on screen (ROADMAP #50). */
+  wakeProject: (id: string, workspaceId?: string) => post<{ woken: number }>(`/api/projects/${enc(id)}/wake`, workspaceId ? { workspaceId } : {}),
   sendInput: (id: string, data: string) => post<Ok>(`/api/sessions/${enc(id)}/input`, { data }),
 
   // projects & workspaces (API-board §1)

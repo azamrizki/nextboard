@@ -3,6 +3,8 @@ package server
 import (
 	"errors"
 	"net/http"
+	"slices"
+	"time"
 
 	"github.com/azamrizki/nextboard/internal/board"
 	"github.com/azamrizki/nextboard/internal/machine"
@@ -182,6 +184,56 @@ func (s *Server) handleSessionWake(w http.ResponseWriter, r *http.Request, p *pr
 	}
 	writeJSON(w, http.StatusOK, in)
 }
+
+// handleProjectWake starts the asleep agents of a project, or of one of its boards
+// (POST /api/projects/{id}/wake {"workspaceId"?}). The web calls it as soon as someone is about
+// to open the project (a hover, a press, the page opening), so the CLIs, which take a few seconds
+// to come back, start before the board is on screen. Only asleep consoles are touched.
+func (s *Server) handleProjectWake(w http.ResponseWriter, r *http.Request, p *principal) {
+	var req struct {
+		WorkspaceID string `json:"workspaceId"`
+	}
+	if r.ContentLength != 0 && !decode(w, r, &req) {
+		return
+	}
+	pid := r.PathValue("id")
+	if _, ok := s.projects.Get(pid); !ok {
+		writeErr(w, http.StatusNotFound, project.ErrNotFound.Error())
+		return
+	}
+	n := s.sessions.WakeWhere(func(sp session.Spec) bool {
+		return sp.ProjectID == pid && (req.WorkspaceID == "" || sp.WorkspaceID == req.WorkspaceID)
+	})
+	writeJSON(w, http.StatusOK, map[string]int{"woken": n})
+}
+
+// recentProjects are the projects whose agents stay awake when idle and start right after a
+// restart: the settings.agents.keepRecentProjects opened last, opened within a day (ROADMAP #50).
+func (s *Server) recentProjects() []string {
+	k := s.settings.Get().Agents.KeepRecentProjects
+	var out []string
+	for _, p := range s.projects.List() { // most recently opened first
+		if len(out) >= k || time.Since(p.LastOpenedAt) > recentWarm {
+			break
+		}
+		out = append(out, p.ID)
+	}
+	return out
+}
+
+func (s *Server) recentProject(pid string) bool {
+	return slices.Contains(s.recentProjects(), pid)
+}
+
+// wakeLastProject starts the asleep agents of the recent projects after a hub restart: that is
+// where the owner most likely goes back to. Others wait to be opened.
+func (s *Server) wakeLastProject() {
+	recent := s.recentProjects()
+	s.sessions.WakeWhere(func(sp session.Spec) bool { return slices.Contains(recent, sp.ProjectID) })
+}
+
+// recentWarm: a project opened longer ago than this is not kept warm.
+const recentWarm = 24 * time.Hour
 
 func (s *Server) handleSessionDraftDismiss(w http.ResponseWriter, r *http.Request, p *principal) {
 	in, err := s.sessions.DismissDraft(r.PathValue("id"))

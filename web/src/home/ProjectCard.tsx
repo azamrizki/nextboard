@@ -3,6 +3,7 @@
 // opened at the foot. The whole card opens the project.
 
 import { useEffect, useRef, useState } from 'react';
+import { useWarmIntent, warmProject } from '../agents/warm';
 import { api, errorMessage } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Icon, type IconName } from '../components/Icon';
@@ -76,6 +77,7 @@ function useGit(id: string, offline: boolean) {
 export function openProject(p: Project) {
   const last = lastWorkspace(p.id);
   const ws = p.workspaces?.find((w) => w.id === last) ?? p.workspaces?.[0];
+  warmProject(p.id, ws?.id); // its agents start while the board loads
   navigate(boardPath(p.id, ws?.id));
 }
 
@@ -266,6 +268,8 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
 
   const wsCount = p.workspaces?.length ?? 0;
   const branch = git?.info?.isRepo ? git.info.branch : '';
+  // a hand on its card: its asleep agents start before the click lands (ROADMAP #50)
+  const warmIntent = useWarmIntent(p.id, p.workspaces?.find((w) => w.id === lastWorkspace(p.id))?.id ?? p.workspaces?.[0]?.id);
 
   return (
     <article className={`project-card ${row ? 'project-row' : 'card'} ${active ? 'is-active' : ''}`} data-project={p.id} aria-label={p.name}>
@@ -298,6 +302,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
                 <button
                   type="button"
                   className="card-link project-open"
+                  {...warmIntent}
                   onClick={() => openProject(p)}
                   onDoubleClick={(e) => {
                     e.preventDefault();

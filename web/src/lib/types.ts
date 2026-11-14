@@ -750,6 +750,8 @@ export interface Settings {
     sleepAfterMin?: number;
     /** After a hub restart, agents stay asleep until opened or given work. */
     lazyStart?: boolean;
+    /** The agents of this many projects opened last stay awake when idle and start after a restart. */
+    keepRecentProjects?: number;
   };
   notifications: { needsYou: boolean; finished: boolean; error: boolean; finishedMinSec: number };
   shortcuts: ShortcutMap;

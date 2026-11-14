@@ -40,6 +40,10 @@ func TestSleepWake(t *testing.T) {
 	}
 	h := newTestHub(t)
 	_, wid, dir := orchSetup(t, h)
+	// its only project is the one opened last, which would keep it awake
+	if _, err := h.srv.settings.Patch([]byte(`{"agents":{"keepRecentProjects":0}}`)); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("FAKE_ECHO", "1")
 	id := h.spawnAgent(wid)["id"].(string)
 	h.waitInfo(id, "ready", state("ready"))
@@ -254,5 +258,87 @@ func TestWakeIntoDialog(t *testing.T) {
 	}
 	if st, in := h.do("DELETE", "/api/sessions/"+id+"/draft", nil, nil); st != 200 || in["unsentDraft"] != nil {
 		t.Fatalf("dismiss %d %v", st, in)
+	}
+}
+
+// TestProjectWake: opening a project starts its asleep agents before the board is on screen,
+// and after a restart the last opened project's agents start by themselves (ROADMAP #50).
+func TestProjectWake(t *testing.T) {
+	if _, err := os.Stat("/proc/self/stat"); err != nil {
+		t.Skip("needs /proc")
+	}
+	h := newTestHub(t)
+	pid, wid, _ := orchSetup(t, h)
+	a := h.spawnAgent(wid)["id"].(string)
+	b := h.spawnAgent(wid)["id"].(string)
+	other := t.TempDir()
+	_, op := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": other, "name": "other"}, nil)
+	opid, owid := op["id"].(string), op["workspaces"].([]any)[0].(map[string]any)["id"].(string)
+	c := h.spawnAgent(owid)["id"].(string)
+	sleepAll := func() {
+		t.Helper()
+		for _, id := range []string{a, b, c} {
+			h.waitInfo(id, "quiet", quiet)
+			if st, r := h.do("POST", "/api/sessions/"+id+"/sleep", nil, nil); st != 200 {
+				t.Fatalf("sleep %d %v", st, r)
+			}
+			h.waitInfo(id, "asleep", asleep)
+		}
+	}
+	sleepAll()
+	if st, r := h.do("POST", "/api/projects/"+pid+"/wake", map[string]any{"workspaceId": wid}, nil); st != 200 || r["woken"] != float64(2) {
+		t.Fatalf("wake %d %v", st, r)
+	}
+	h.waitInfo(a, "a woken", quiet)
+	h.waitInfo(b, "b woken", quiet)
+	if st, r := h.do("POST", "/api/projects/"+pid+"/wake", nil, nil); st != 200 || r["woken"] != float64(0) {
+		t.Fatalf("wake again %d %v", st, r)
+	}
+	if _, in := h.do("GET", "/api/sessions/"+c, nil, nil); !asleep(in) {
+		t.Fatalf("another project woke %v", in)
+	}
+	if st, _ := h.do("POST", "/api/projects/p_nope/wake", nil, nil); st != 404 {
+		t.Fatalf("unknown project %d", st)
+	}
+
+	// after a restart: the project opened last starts, the other waits (one kept warm)
+	if _, err := h.srv.settings.Patch([]byte(`{"agents":{"keepRecentProjects":1}}`)); err != nil {
+		t.Fatal(err)
+	}
+	h.do("POST", "/api/sessions/"+c+"/wake", nil, nil)
+	sleepAll()
+	h.do("PATCH", "/api/projects/"+opid, map[string]any{"opened": true}, nil)
+	h.srv.wakeLastProject()
+	h.waitInfo(c, "the last project's agent", quiet)
+	for _, id := range []string{a, b} {
+		if _, in := h.do("GET", "/api/sessions/"+id, nil, nil); !asleep(in) {
+			t.Fatalf("an older project woke %v", in)
+		}
+	}
+
+	// idle: the recent project's agent stays awake, the older project's go to sleep
+	h.do("POST", "/api/projects/"+pid+"/wake", nil, nil)
+	for _, id := range []string{a, b} {
+		h.waitInfo(id, "awake", quiet)
+	}
+	if n := h.srv.sessions.SleepIdle(0, time.Now()); n != 2 {
+		t.Fatalf("%d went to sleep", n)
+	}
+	for _, id := range []string{a, b} {
+		h.waitInfo(id, "older project asleep", asleep)
+	}
+	if _, in := h.do("GET", "/api/sessions/"+c, nil, nil); in["asleep"] == true {
+		t.Fatalf("the recent project's agent slept %v", in)
+	}
+	// Sleep now still puts it to sleep
+	if st, r := h.do("POST", "/api/sessions/"+c+"/sleep", nil, nil); st != 200 {
+		t.Fatalf("sleep now in a recent project %d %v", st, r)
+	}
+	// none kept warm: it sleeps when idle too
+	h.do("POST", "/api/sessions/"+c+"/wake", nil, nil)
+	h.waitInfo(c, "awake again", quiet)
+	h.srv.settings.Patch([]byte(`{"agents":{"keepRecentProjects":0}}`))
+	if n := h.srv.sessions.SleepIdle(0, time.Now()); n != 1 {
+		t.Fatalf("%d went to sleep with none kept warm", n)
 	}
 }

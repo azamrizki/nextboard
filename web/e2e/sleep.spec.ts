@@ -62,8 +62,13 @@ test('settings say when idle agents sleep and whether they start when needed', a
   await expect(lazy).toBeChecked();
   await lazy.click();
   await expect.poll(async () => (await hub.call('GET', '/api/settings')).agents.lazyStart).toBe(false);
+  const recent = page.getByRole('radiogroup', { name: 'Keep recent projects awake' });
+  await expect(recent.getByRole('radio', { name: 'Last 2' })).toBeChecked();
+  await recent.getByRole('radio', { name: 'Last 1' }).click();
+  await expect.poll(async () => (await hub.call('GET', '/api/settings')).agents.keepRecentProjects).toBe(1);
   // back as they were: all tests share one hub
   await lazy.click();
   await group.getByRole('radio', { name: '30 min' }).click();
-  await expect.poll(async () => (await hub.call('GET', '/api/settings')).agents).toMatchObject({ sleepAfterMin: 30, lazyStart: true });
+  await recent.getByRole('radio', { name: 'Last 2' }).click();
+  await expect.poll(async () => (await hub.call('GET', '/api/settings')).agents).toMatchObject({ sleepAfterMin: 30, lazyStart: true, keepRecentProjects: 2 });
 });

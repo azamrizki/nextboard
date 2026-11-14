@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
     resumeOnRestart: 'auto',
     sleepAfterMin: 30,
     lazyStart: true,
+    keepRecentProjects: 2,
   },
   notifications: { needsYou: true, finished: true, error: true, finishedMinSec: 30 },
   shortcuts: DEFAULT_SHORTCUTS,

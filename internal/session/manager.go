@@ -153,6 +153,9 @@ type Manager struct {
 	// StayAwake reports whether work of the lead holds a console awake: an order, a handoff or
 	// a loop on it (ROADMAP #50). nil = none does.
 	StayAwake func(sessionID string) bool
+	// KeepWarm reports whether a project's agents stay awake when idle: one of the projects
+	// opened last (settings.agents.keepRecentProjects). nil = none.
+	KeepWarm func(projectID string) bool
 	// HandleConflict reports whether a handle equals a group name in the
 	// workspace (phase 6 rename rule, API-agents §2).
 	HandleConflict func(workspaceID, handle string) bool

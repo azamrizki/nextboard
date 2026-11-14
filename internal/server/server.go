@@ -365,6 +365,9 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 	s.noteHubStart()
 	s.machines.Start()
 	s.sessions.Start()
+	if s.settings.Get().Agents.LazyStart {
+		s.wakeLastProject()
+	}
 	s.startOrchestration()
 	s.startStudio()
 	s.uptime.Start()

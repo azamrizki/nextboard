@@ -102,6 +102,7 @@ func (s *Server) routes() {
 	authed("POST /api/sessions/{id}/sleep", s.handleSessionSleep)
 	authed("POST /api/sessions/{id}/wake", s.handleSessionWake)
 	authed("DELETE /api/sessions/{id}/draft", s.handleSessionDraftDismiss)
+	authed("POST /api/projects/{id}/wake", s.handleProjectWake)
 	authed("POST /api/sessions/{id}/input", s.handleSessionInput)
 	authed("POST /api/sessions/{id}/attach", s.handleSessionAttach)
 	authed("GET /api/projects/{id}/uptime", s.handleUptimeList)

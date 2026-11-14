@@ -10,6 +10,7 @@ import '../styles/board.css';
 import '../styles/tiles.css';
 import '../styles/orch.css';
 import '../styles/phase7.css';
+import { warmProject } from '../agents/warm';
 import { api, errorMessage } from '../api';
 import { BoardView } from '../board/BoardView';
 import { AppHeader } from '../components/AppHeader';
@@ -44,6 +45,12 @@ export function BoardPage({ projectId, workspaceId }: { projectId: string; works
         .catch(() => undefined);
     }
   }, []);
+
+  // Its asleep agents start now, while the board loads, not when their terminals connect
+  // (ROADMAP #50); opening from Home or a hover has usually asked already.
+  useEffect(() => {
+    if (workspaceId) warmProject(projectId, workspaceId);
+  }, [projectId, workspaceId]);
 
   // Opening a project bumps it to the top of Home.
   useEffect(() => {
