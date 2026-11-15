@@ -1,5 +1,5 @@
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, openSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, openSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,17 +11,61 @@ const FAKE_WORKER = fileURLToPath(new URL('./fake-worker.sh', import.meta.url));
 const FAKE_CLAUDE = fileURLToPath(new URL('./fake-claude.sh', import.meta.url));
 const FAKE_CODEX = fileURLToPath(new URL('./fake-codex.sh', import.meta.url));
 const FAKE_LISTER = fileURLToPath(new URL('./fake-lister.sh', import.meta.url));
+const FAKE_SERVICE = fileURLToPath(new URL('./fake-service.sh', import.meta.url));
 
 /**
  * A folder for the front of the hub's PATH holding the fake Codex: the hub finds `codex` there
  * before any real one, so "Create with AI" and anything else that runs Codex never reaches an
- * account (API-board §1).
+ * account (API-board §1). And a fake `systemctl` and `loginctl`, so that neither the hub nor an
+ * instance it creates (API.md Instances) ever reaches the real user's service manager.
  */
 function fakeTools(root: string): string {
   const dir = join(root, 'tools');
   mkdirSync(dir, { recursive: true });
   symlinkSync(FAKE_CODEX, join(dir, 'codex'));
+  symlinkSync(FAKE_SERVICE, join(dir, 'systemctl'));
+  symlinkSync(FAKE_SERVICE, join(dir, 'loginctl'));
   return dir;
+}
+
+/**
+ * What every e2e hub runs with: the scratch home, and the fake tools first on PATH. Nothing of
+ * the shell the tests run from that would name another hub's folder or instance.
+ */
+export function hubEnv(root: string): NodeJS.ProcessEnv {
+  const home = join(root, 'home');
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, CODEX_HOME: join(home, '.codex'), PATH: `${join(root, 'tools')}:${process.env.PATH ?? ''}` };
+  delete env.NEXTBOARD_HOME;
+  delete env.NEXTBOARD_INSTANCE;
+  return env;
+}
+
+/** Ends what the fake systemctl started in this scratch home: the instances a test created. */
+export async function stopFakeUnits(home: string) {
+  const state = join(home, '.fake-systemd');
+  if (!existsSync(state)) return;
+  const pids: number[] = [];
+  for (const f of readdirSync(state)) {
+    if (!f.endsWith('.pid')) continue;
+    const pid = Number(readFileSync(join(state, f), 'utf8').trim());
+    rmSync(join(state, f), { force: true });
+    if (!(pid > 0)) continue;
+    try {
+      process.kill(pid, 'SIGTERM');
+      pids.push(pid);
+    } catch {
+      /* already gone */
+    }
+  }
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (const deadline = Date.now() + 8000; pids.some(alive) && Date.now() < deadline; ) await new Promise((r) => setTimeout(r, 100));
 }
 
 /** Starts the hub, sets it up, and gives back how to stop it. */
@@ -47,7 +91,8 @@ export default async function globalSetup() {
   );
   // CODEX_HOME too: one set where the tests run would point the hub, and the fake Codex, at the
   // real ~/.codex (its images folder, its sessions)
-  const env = { ...process.env, HOME: home, CODEX_HOME: join(home, '.codex'), PATH: `${fakeTools(root)}:${process.env.PATH ?? ''}` };
+  fakeTools(root);
+  const env = hubEnv(root);
   const log = openSync(join(root, 'hub.log'), 'a');
   const base = `http://127.0.0.1:${PORT}`;
 
@@ -58,6 +103,7 @@ export default async function globalSetup() {
     const gone = new Promise((done) => hub.once('exit', done));
     hub.kill('SIGTERM');
     await Promise.race([gone, new Promise((done) => setTimeout(done, 8000))]);
+    await stopFakeUnits(home);
     // the hub's log outlives the run: a hub that died halfway leaves only refused connections
     try {
       copyFileSync(join(root, 'hub.log'), join(tmpdir(), `nextboard-e2e-hub-${PORT}.log`));

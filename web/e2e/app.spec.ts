@@ -18,10 +18,11 @@ const offer = (outcome: 'accepted' | 'dismissed') => {
 
 test('Chrome can install the hub: a manifest with its icons, and nothing missing', async ({ page, request }, info) => {
   test.skip(info.project.name !== 'light', 'once');
+  // the hub serves it named after itself, so two installed instances look different (API.md)
   const m = await request.get('/manifest.json');
-  expect(m.headers()['content-type']).toContain('application/json');
+  expect(m.headers()['content-type']).toMatch(/^application\/(manifest\+)?json/);
   const manifest = await m.json();
-  expect(manifest).toMatchObject({ name: 'NextBoard', start_url: '/', display: 'standalone' });
+  expect(manifest).toMatchObject({ name: 'NextBoard · devbox', short_name: 'devbox', start_url: '/', display: 'standalone' });
   for (const icon of manifest.icons) {
     const r = await request.get(icon.src);
     expect(r.ok(), icon.src).toBe(true);
