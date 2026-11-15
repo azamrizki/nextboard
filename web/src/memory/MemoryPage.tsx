@@ -16,6 +16,7 @@ import { GalaxyEngine } from './engine';
 import { buildGraph, nodeId, type MemNode } from './graph';
 import { InitDialog, useInitJob } from './InitDialog';
 import { NewPageDialog } from './NewPageDialog';
+import { takeGalaxy } from './preload';
 import type { DocRef, GalaxyDoc, GalaxyOwner, GalaxyView, MemoryHit } from './types';
 import '../styles/memory.css';
 
@@ -101,10 +102,13 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
   const initBusy = !!init.jobId && (!init.job || init.job.state === 'queued' || init.job.state === 'running');
   const initReady = init.job?.state === 'done';
 
+  const firstLoad = useRef(true);
   useEffect(() => {
     let alive = true;
-    memoryApi
-      .galaxy()
+    // the first look takes what was fetched while this page's code came (memory/preload.ts)
+    const load = firstLoad.current ? takeGalaxy() : memoryApi.galaxy();
+    firstLoad.current = false;
+    load
       .then((v) => {
         if (!alive) return;
         setView(v);
@@ -314,6 +318,11 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
           )}
 
           <div className="mem-scroll">
+            {!view && !loadError && (
+              <p className="mem-hint" role="status">
+                Loading the memories…
+              </p>
+            )}
             {hits ? (
               <div aria-live="polite">
                 <h3 className="mem-group">

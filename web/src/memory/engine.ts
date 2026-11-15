@@ -40,6 +40,8 @@ const MAX_K = 5;
 // Turns per second: slow enough that it reads as life, not as motion to follow.
 const DISC_TURN = TAU / 3600;
 const ORBIT: Record<NodeKind, number> = { core: 0, star: DISC_TURN, critical: TAU / 900, page: TAU / 1200, note: TAU / 1500, section: TAU / 420 };
+/** Of each frame, what painting the disc may take. */
+const DISC_SLICE_MS = 12;
 const ARM_TIGHTNESS = 2.1;
 const ARM_START = 390;
 const ARM_STEP = 330;
@@ -97,6 +99,30 @@ function radiusOf(n: MemNode): number {
   }
 }
 
+type Paint = (c: CanvasRenderingContext2D, size: number) => void;
+
+function makeSprite(size: number, paint: Paint): HTMLCanvasElement {
+  const s = document.createElement('canvas');
+  s.width = size;
+  s.height = size;
+  paint(s.getContext('2d')!, size);
+  return s;
+}
+
+/** A soft round light. */
+const paintGlow =
+  (hex: string): Paint =>
+  (c, s) => {
+    const g = c.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    g.addColorStop(0, rgba(hex, 0.85));
+    g.addColorStop(0.12, rgba(hex, 0.42));
+    g.addColorStop(0.32, rgba(hex, 0.13));
+    g.addColorStop(0.62, rgba(hex, 0.035));
+    g.addColorStop(1, rgba(hex, 0));
+    c.fillStyle = g;
+    c.fillRect(0, 0, s, s);
+  };
+
 /** Where the n-th project sits: on one of two arms, the same curve the dust follows. */
 function armPosition(i: number): [number, number] {
   const r = ARM_START + ARM_STEP * Math.floor(i / 2);
@@ -137,6 +163,12 @@ export class GalaxyEngine {
   private twinkles: { x: number; y: number; s: number; p: number; v: number; d: number; c: string }[] = [];
   private dust: { x: Float32Array; a: Float32Array; s: Float32Array; ends: { to: number; style: string }[] } | null = null;
   private disc: HTMLCanvasElement | null = null;
+  /** The reach the disc was painted for: until a new one is done, the old one is drawn as it was. */
+  private discReach = 0;
+  /** A disc being painted, a slice a frame. */
+  private discJob: { canvas: HTMLCanvasElement; reach: number; steps: Generator<void, void, void> } | null = null;
+  /** How far the first disc has faded in, 0 to 1. */
+  private discIn = 0;
   private dustReach = 0;
   private fontUi = 'system-ui, sans-serif';
   private ro: ResizeObserver;
@@ -174,6 +206,7 @@ export class GalaxyEngine {
     this.canvas.removeEventListener('pointerleave', this.onLeave);
     this.canvas.removeEventListener('wheel', this.onWheel);
     this.sim?.stop();
+    this.discJob = null;
   }
 
   // ---- data ----
@@ -505,26 +538,14 @@ export class GalaxyEngine {
   private sprite(key: string, size: number, paint: (c: CanvasRenderingContext2D, s: number) => void) {
     let s = this.sprites.get(key);
     if (!s) {
-      s = document.createElement('canvas');
-      s.width = size;
-      s.height = size;
-      paint(s.getContext('2d')!, size);
+      s = makeSprite(size, paint);
       this.sprites.set(key, s);
     }
     return s;
   }
 
   private glow(hex: string) {
-    return this.sprite(`glow:${hex}`, 256, (c, s) => {
-      const g = c.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-      g.addColorStop(0, rgba(hex, 0.85));
-      g.addColorStop(0.12, rgba(hex, 0.42));
-      g.addColorStop(0.32, rgba(hex, 0.13));
-      g.addColorStop(0.62, rgba(hex, 0.035));
-      g.addColorStop(1, rgba(hex, 0));
-      c.fillStyle = g;
-      c.fillRect(0, 0, s, s);
-    });
+    return this.sprite(`glow:${hex}`, 256, paintGlow(hex));
   }
 
   /** The soft cross of a bright star through a lens. */
@@ -627,21 +648,50 @@ export class GalaxyEngine {
     });
   }
 
-  /** The arms as light: a disc painted once, turned as a whole. */
+  /**
+   * The arms as light: a disc painted once, turned as a whole. Its some 4,700 stamps took half a
+   * second in one go where a canvas is drawn without a GPU, and more on a phone, before the page
+   * could show anything: now it is painted a slice a frame (stepDisc) and fades in when done.
+   */
   private buildDisc(reach: number) {
     const size = 1536;
     const d = document.createElement('canvas');
     d.width = size;
     d.height = size;
-    const c = d.getContext('2d')!;
+    this.discJob = { canvas: d, reach, steps: this.paintDisc(d.getContext('2d')!, size, reach) };
+    this.dirty = true;
+  }
+
+  /** Paints on for about this long, then waits for the next frame. */
+  private stepDisc(ms: number) {
+    const job = this.discJob;
+    if (!job) return;
+    const end = performance.now() + ms;
+    do {
+      if (job.steps.next().done) {
+        this.discJob = null;
+        this.disc = job.canvas;
+        this.discReach = job.reach;
+        this.dirty = true;
+        return;
+      }
+    } while (performance.now() < end);
+  }
+
+  private *paintDisc(c: CanvasRenderingContext2D, size: number, reach: number): Generator<void, void, void> {
     const unit = size / 2 / reach;
     c.translate(size / 2, size / 2);
     c.globalCompositeOperation = 'lighter';
     const rnd = seeded(11);
     const tone = (t: number) => (t < 0.12 ? '#ffd9a8' : t < 0.28 ? mix('#ffd9a8', '#86a2ff', (t - 0.12) / 0.16) : t < 0.7 ? mix('#86a2ff', '#5573ff', (t - 0.28) / 0.42) : mix('#5573ff', '#a557ff', (t - 0.7) / 0.3));
+    // Its tones, some 400 of them, are its own: a glow each, let go with this disc once it is
+    // painted rather than kept with the sprites as long as the page is open.
+    const glows = new Map<string, HTMLCanvasElement>();
     const stamp = (x: number, y: number, r: number, col: string, a: number) => {
+      let g = glows.get(col);
+      if (!g) glows.set(col, (g = makeSprite(256, paintGlow(col))));
       c.globalAlpha = a;
-      c.drawImage(this.glow(col), x - r, y - r, r * 2, r * 2);
+      c.drawImage(g, x - r, y - r, r * 2, r * 2);
     };
     // Light along each arm, in clumps, with faint spurs between them.
     for (const [arm, power] of [
@@ -657,6 +707,7 @@ export class GalaxyEngine {
         const a = armAngle(r, arm) + (0.055 + 0.17 * (1 - t)) * (rnd() + rnd() - 1);
         const edge = 1 - Math.pow(t, 2.8);
         stamp(Math.cos(a) * r * unit, Math.sin(a) * r * unit, (9 + rnd() * rnd() * 50) * unit * (1.5 + t), tone(t), (0.022 + rnd() * 0.05) * power * edge * (0.45 + 0.55 * clump));
+        if (i % 24 === 23) yield;
       }
     }
     // Lanes of dust on the inner side of each arm.
@@ -675,6 +726,7 @@ export class GalaxyEngine {
         c.globalAlpha = 1;
         c.fillStyle = g;
         c.fillRect(x - dr, y - dr, dr * 2, dr * 2);
+        if (i % 24 === 23) yield;
       }
     }
     // Grains of light: clusters of young stars.
@@ -684,11 +736,11 @@ export class GalaxyEngine {
       const r = t * reach;
       const a = armAngle(r, rnd() < 0.5 ? 0 : 1) + 0.12 * (rnd() + rnd() - 1);
       stamp(Math.cos(a) * r * unit, Math.sin(a) * r * unit, (5 + rnd() * 15) * unit * 2.4, rnd() < 0.72 ? '#a8c2ff' : '#ff9fd0', 0.1 + rnd() * 0.22);
+      if (i % 24 === 23) yield;
     }
     // The bulge.
     stamp(0, 0, 300 * unit * 2.4, '#ffbf80', 0.55);
     stamp(0, 0, 150 * unit * 2.4, '#ffe3bd', 0.55);
-    this.disc = d;
   }
 
   private vignette() {
@@ -829,9 +881,11 @@ export class GalaxyEngine {
     if (!this.reduced && !this.hover && !this.dragging) this.time += dt;
 
     const camMoving = Math.abs(this.cam.k - this.target.k) > 0.0005 || Math.hypot(this.cam.x - this.target.x, this.cam.y - this.target.y) > 0.05;
-    const fading = this.nodes.some((n) => Math.abs(n.fade - this.fadeTarget(n)) > 0.01);
-    if (this.reduced && !this.dirty && !camMoving && !fading && !this.settle) return;
+    const fading = this.nodes.some((n) => Math.abs(n.fade - this.fadeTarget(n)) > 0.01) || (!!this.disc && this.discIn < 1);
+    if (this.reduced && !this.dirty && !camMoving && !fading && !this.settle && !this.discJob) return;
     this.dirty = false;
+    this.stepDisc(DISC_SLICE_MS);
+    if (this.disc) this.discIn = this.reduced ? 1 : Math.min(1, this.discIn + dt * 2.5);
 
     if (this.settle && this.sim) {
       this.sim.tick();
@@ -931,8 +985,8 @@ export class GalaxyEngine {
     c.globalCompositeOperation = 'lighter';
     if (this.disc) {
       // The arms fade as you close in on one system.
-      c.globalAlpha = clamp(1.25 - k * 0.75, 0.16, 1) * dim;
-      const size = this.dustReach * 2 * k;
+      c.globalAlpha = clamp(1.25 - k * 0.75, 0.16, 1) * dim * this.discIn;
+      const size = this.discReach * 2 * k;
       c.save();
       c.translate(cx, cy);
       c.rotate(turn);

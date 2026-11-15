@@ -4,7 +4,7 @@
 //   else GET /api/auth/me  → 401 → /login, otherwise the app:
 //   /  (Home: projects) · /p/:projectId/w/:workspaceId (board) · /machines · /devices
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, ApiError, errorMessage, isStatus, setUnauthorizedHandler } from './api';
 import { startAttention } from './agents/attention';
 import { loadSettings } from './agents/settings';
@@ -20,6 +20,7 @@ import { LoginPage } from './pages/Login';
 import { MachinesPage } from './pages/Machines';
 import { SetupPage } from './pages/Setup';
 import { store } from './store';
+import { loadMemoryPage, memoryPageIfLoaded, prefetchGalaxy, preloadMemoryWhenIdle } from './memory/preload';
 import { installMock, mockRequested } from './orch/api';
 import { orchStore } from './orch/store';
 import { studioStore } from './studio/store';
@@ -37,13 +38,20 @@ type Boot =
 
 // The board (React Flow + xterm + tiles) is the heaviest part of the app: load it on demand.
 const BoardPage = lazy(() => import('./pages/Board').then((m) => ({ default: m.BoardPage })));
-const MemoryPage = lazy(() => import('./memory/MemoryPage').then((m) => ({ default: m.MemoryPage })));
+const MemoryPageLazy = lazy(() => loadMemoryPage().then((m) => ({ default: m.MemoryPage })));
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })));
 const PrintPage = lazy(() => import('./studio/print/PrintPage'));
 const CredentialRequests = lazy(() => import('./vault/Requests').then((m) => ({ default: m.CredentialRequests })));
 const PasskeyRequests = lazy(() => import('./vault/PasskeyRequests').then((m) => ({ default: m.PasskeyRequests })));
 
 const isAppPath = (p: string) => parseRoute(p).page !== 'unknown';
+
+/** The memory page, without the wait for Suspense when its code is here already (memory/preload.ts).
+ *  Which of the two is kept while it is open: a switch would start the page again. */
+function MemoryRoute({ projectId }: { projectId?: string }) {
+  const [Page] = useState(() => memoryPageIfLoaded()?.MemoryPage ?? MemoryPageLazy);
+  return <Page projectId={projectId} />;
+}
 
 function PageLoading() {
   return (
@@ -85,6 +93,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // opened on the memory page: its code comes while the hub is asked who is there
+    if (parseRoute(window.location.pathname).page === 'memory') void loadMemoryPage().catch(() => undefined);
     void runBoot();
   }, [runBoot]);
 
@@ -126,7 +136,9 @@ export function App() {
       .then((list) => store.seedProfiles(list))
       .catch((err) => isStatus(err, 404) && store.seedProfiles([]));
     const stopAttention = startAttention();
+    const stopPreload = preloadMemoryWhenIdle();
     return () => {
+      stopPreload();
       stopAttention();
       stopChime();
       stopTts();
@@ -137,6 +149,13 @@ export function App() {
       resetVaultStore();
     };
   }, [boot.kind]);
+
+  // The memory page's data comes while its code does, however the page was opened. A layout
+  // effect: it runs before the page's own effects, which take this answer.
+  const page = parseRoute(path).page;
+  useLayoutEffect(() => {
+    if (boot.kind === 'authed' && page === 'memory') prefetchGalaxy();
+  }, [boot.kind, page]);
 
   const logout = useCallback(async () => {
     try {
@@ -200,7 +219,7 @@ export function App() {
               <DevicesPage />
             ) : route.page === 'memory' ? (
               <Suspense fallback={<PageLoading />}>
-                <MemoryPage projectId={route.projectId} />
+                <MemoryRoute projectId={route.projectId} />
               </Suspense>
             ) : route.page === 'settings' ? (
               <Suspense fallback={<PageLoading />}>

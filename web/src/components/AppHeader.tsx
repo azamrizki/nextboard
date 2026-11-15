@@ -25,6 +25,7 @@ import { MoreMenu } from './MoreMenu';
 import { NeedsYouChip } from './NeedsYouChip';
 import { PhoneSwitcher, ProjectSwitcher, WorkspaceTabs } from './ProjectBar';
 import { TabBar } from './TabBar';
+import { memoryLinkIntent } from '../memory/preload';
 import { UsagePill } from '../usage/UsagePill';
 import { useVaultStatus } from '../vault/store';
 
@@ -165,7 +166,7 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
         <nav className="app-nav" aria-label="Main">
           <div className="segmented">
             {NAV.map((n) => (
-              <Link key={n.to} to={n.to} className="segmented-item" aria-current={page === n.page ? 'page' : undefined} title={n.label}>
+              <Link key={n.to} to={n.to} className="segmented-item" aria-current={page === n.page ? 'page' : undefined} title={n.label} {...(n.page === 'memory' ? memoryLinkIntent : {})}>
                 <Icon name={n.icon} />
                 <span className="nav-label">{n.label}</span>
               </Link>
@@ -183,7 +184,7 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
           {inProject && desktop && (
             <nav className="icon-nav" aria-label="Main">
               {NAV.slice(1).map((n) => (
-                <Link key={n.to} to={n.page === 'memory' ? memoryPath(project?.id) : n.to} className="btn btn-ghost btn-sm btn-icon" aria-label={n.label} title={n.label}>
+                <Link key={n.to} to={n.page === 'memory' ? memoryPath(project?.id) : n.to} className="btn btn-ghost btn-sm btn-icon" aria-label={n.label} title={n.label} {...(n.page === 'memory' ? memoryLinkIntent : {})}>
                   <Icon name={n.icon} />
                 </Link>
               ))}

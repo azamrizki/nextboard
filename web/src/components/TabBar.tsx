@@ -2,6 +2,7 @@
 // §3.4). It gives way to the on-screen keyboard.
 
 import { Link, parseRoute, usePath } from '../lib/router';
+import { memoryLinkIntent } from '../memory/preload';
 import { Icon, type IconName } from './Icon';
 
 const TABS: { to: string; label: string; icon: IconName; page: string }[] = [
@@ -17,7 +18,7 @@ export function TabBar() {
   return (
     <nav className="tab-bar" aria-label="Main">
       {TABS.map((t) => (
-        <Link key={t.to} to={t.to} className="tab-bar-item" aria-current={page === t.page ? 'page' : undefined}>
+        <Link key={t.to} to={t.to} className="tab-bar-item" aria-current={page === t.page ? 'page' : undefined} {...(t.page === 'memory' ? memoryLinkIntent : {})}>
           <span className="tab-bar-icon">
             <Icon name={t.icon} />
           </span>

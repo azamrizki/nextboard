@@ -176,3 +176,29 @@ test('nothing runs off a phone screen', async ({ page, hub }) => {
   await expect(page.locator('.mem-blocked')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 });
+
+test('the memory page opens at once: its code is fetched before, its data alongside', async ({ page, hub }) => {
+  const p = await hub.project('Portal');
+  await hub.memory(p.id, '- the project fact\n');
+  const galaxyCalls: string[] = [];
+  page.on('request', (r) => r.url().includes('/api/memory/galaxy') && galaxyCalls.push(r.url()));
+  await page.goto('/');
+  await expect(page.locator('.app-nav')).toBeVisible();
+  // fetched while the app was idle, not with the first page
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').some((e) => /\/MemoryPage-[^/]*\.js$/.test(e.name))), { timeout: 15_000 }).toBe(true);
+  // the page that only says "Loading…" is never shown
+  await page.evaluate(() => {
+    const w = window as unknown as { sawLoading: boolean };
+    w.sawLoading = false;
+    new MutationObserver(() => {
+      if (document.querySelector('.center-msg.full[role="status"]')) w.sawLoading = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await page.locator('.app-nav').getByRole('link', { name: 'Memory' }).click();
+  await expect(page.locator('.mem-vault h1')).toHaveText('Memory');
+  await expect(page.locator('.mem-row-project', { hasText: p.name })).toBeVisible();
+  await expect(page.locator('canvas.mem-canvas')).toHaveAttribute('aria-label', /^Memory galaxy: \d+ projects?\./);
+  expect(await page.evaluate(() => (window as unknown as { sawLoading: boolean }).sawLoading)).toBe(false);
+  // the data asked for once: the press and the page share one answer
+  expect(galaxyCalls).toHaveLength(1);
+});
