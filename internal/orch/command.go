@@ -40,8 +40,12 @@ type CommandRequest struct {
 	Selection   []string `json:"selection"`
 	Planner     string   `json:"planner"` // auto | off
 	ReplyTo     string   `json:"replyTo"` // id of the thread message this answers
-	ProjectID   string   `json:"-"`
-	By          string   `json:"-"` // "admin" | device id
+	// Place is the UI's default placement for consoles the command spawns without naming one
+	// (the focused tile's part, else the last used; v0.9.0-beta.2, docs/API-orchestration.md
+	// §3.10). Zero: the lead's level, the root. An unknown part is ignored with a note.
+	Place     project.Place `json:"place,omitzero"`
+	ProjectID string        `json:"-"`
+	By        string        `json:"-"` // "admin" | device id
 }
 
 // CommandResponse is the 202 body.

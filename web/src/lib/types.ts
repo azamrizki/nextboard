@@ -273,8 +273,14 @@ export interface Session extends SessionAgentFields {
   /** Phase 4: the project / workspace (board tab) the session belongs to. */
   projectId?: string;
   workspaceId?: string;
-  /** The part of the project it works in (ROADMAP #49); absent: the first part. */
+  /**
+   * The part of the project it works in (ROADMAP #49). From v0.9.0-beta.2 absent or "" is not
+   * the first part: with root it is a root console, without it a console in no part's folder
+   * (lib/parts.ts placementOfSession). Older hubs sent none for the first part's consoles.
+   */
   partId?: string;
+  /** At the project root, reaching every part (v0.9.0-beta.2): on This PC, in the hub-made root folder. */
+  root?: boolean;
 }
 
 export interface NodeLayout {
@@ -289,6 +295,8 @@ export interface CreateSession {
   workspaceId?: string;
   /** Opens in this part of the project: its machine and folder. Found from them when absent. */
   partId?: string;
+  /** Opens at the project root (v0.9.0-beta.2): not with partId, machineId other than "local" or cwd (400 bad_placement). */
+  root?: boolean;
   /** Defaults to the project's machine. */
   machineId?: string;
   preset: string;

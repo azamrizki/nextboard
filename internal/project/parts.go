@@ -70,6 +70,13 @@ var (
 	ErrPartName      = errors.New("another part of this project has that name")
 	ErrBadPartAccess = errors.New(`partAccess must be "" (read only on other machines) or "full"`)
 	ErrBadBlocked    = fmt.Errorf("blocked takes at most %d commands of at most %d characters, one line each", maxBlocked, maxBlockedLen)
+	// ErrLastPart: a project keeps at least one part (409 last_part). From v0.9.0-beta.2 every
+	// part is equal: any one may be removed or split off while another is left; it replaces
+	// ErrMainPart, which goes with the equal-parts change.
+	ErrLastPart = errors.New("a project keeps at least one part")
+	// ErrBadPartName: a part's name is its folder's name at the project root, so it must be safe
+	// as one path segment (400 bad_part_name). See CleanPartName.
+	ErrBadPartName = fmt.Errorf(`a part's name is its folder name at the project root: 1 to %d characters, no "/" or "\", not "." or "..", not starting with ".", not AGENTS.md or CLAUDE.md`, MaxName)
 )
 
 // InProjectError: the folder is already another project, or a part of one.
@@ -80,6 +87,11 @@ func (e *InProjectError) Error() string {
 }
 
 // Part returns a part of the project; "" is the first part.
+//
+// Deprecated: from v0.9.0-beta.2 "" no longer means the first part (all parts are equal, a root
+// console has no part, a session's "" is "in no part's folder"). Use PartByID for an exact id,
+// PartNamed for an id or a name, and DefaultPart where a client or an old record named no part.
+// The equal-parts change removes it, so that every caller is checked.
 func (p Project) Part(id string) (Part, bool) {
 	if len(p.Parts) == 0 {
 		return Part{}, false
@@ -93,6 +105,72 @@ func (p Project) Part(id string) (Part, bool) {
 		}
 	}
 	return Part{}, false
+}
+
+// PartByID returns the part with exactly this id. "" is no part and never matches.
+func (p Project) PartByID(id string) (Part, bool) {
+	if id == "" {
+		return Part{}, false
+	}
+	for _, pt := range p.Parts {
+		if pt.ID == id {
+			return pt, true
+		}
+	}
+	return Part{}, false
+}
+
+// PartNamed returns the part s names: its id, else its name in any case (the lead's steps, the
+// typed grammar, saved layouts and task cards name parts so). Surrounding spaces are ignored;
+// "" matches none. An id wins over another part's equal name.
+func (p Project) PartNamed(s string) (Part, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return Part{}, false
+	}
+	if pt, ok := p.PartByID(s); ok {
+		return pt, true
+	}
+	for _, pt := range p.Parts {
+		if strings.EqualFold(pt.Name, s) {
+			return pt, true
+		}
+	}
+	return Part{}, false
+}
+
+// DefaultPart is the compat default for a client or a stored record that names no part: the
+// first part in display order (old clients' project.machineId/path, a project ref without a
+// part, a monitor or session from before part ids were stamped). Nothing else about the first
+// part is special; call it only where "no part named" must still mean one. The zero Part when
+// the project has none, which a loaded project never is.
+func (p Project) DefaultPart() Part {
+	if len(p.Parts) == 0 {
+		return Part{}
+	}
+	return p.Parts[0]
+}
+
+// partReserved are the names the hub writes at the top of a project's root folder.
+var partReserved = []string{"AGENTS.md", "CLAUDE.md"}
+
+// CleanPartName checks a part's name and returns it trimmed. It is CleanName's rule (1 to
+// MaxName runes, no control characters) plus, since the name is the part's folder name at the
+// project root (<data>/roots/<project>/<name>), safe as one path segment: no "/", "\" or NUL,
+// not "." or "..", not starting with "." (the root's own .nextboard), and not AGENTS.md or
+// CLAUDE.md in any case (the hub writes those there). Every failure is ErrBadPartName. Being
+// unique in the project (any case, ErrPartName) is checked by the caller.
+func CleanPartName(name string) (string, error) {
+	name, err := CleanName(name)
+	if err != nil || strings.ContainsAny(name, "/\\\x00") || strings.HasPrefix(name, ".") {
+		return "", ErrBadPartName
+	}
+	for _, r := range partReserved {
+		if strings.EqualFold(name, r) {
+			return "", ErrBadPartName
+		}
+	}
+	return name, nil
 }
 
 // PartAt returns the part that holds dir on machineID, if any: the deepest one.

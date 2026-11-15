@@ -134,6 +134,8 @@ export interface UiAction {
   /** openFile: a file for the editor card. */
   path?: string;
   line?: number;
+  /** The id of the part the action means (openFile: the part holding path; v0.9.0-beta.2). */
+  part?: string;
 }
 
 export interface CommandRequest {
@@ -146,6 +148,8 @@ export interface CommandRequest {
   planner?: 'auto' | 'off';
   /** Id of the thread message this answers. */
   replyTo?: string;
+  /** Where consoles the command spawns without naming a place go (v0.9.0-beta.2): the focused tile's part, else the last used. Absent: the root. */
+  place?: { root?: true; part?: string };
 }
 
 export interface CommandResponse {

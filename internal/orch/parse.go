@@ -77,6 +77,9 @@ type UIAction struct {
 	// openFile: a file for the editor card.
 	Path string `json:"path,omitempty"`
 	Line int    `json:"line,omitempty"`
+	// Part: the id of the part the action means (openFile: the part holding Path, whose editor
+	// card takes it; v0.9.0-beta.2). Older web clients ignore it.
+	Part string `json:"part,omitempty"`
 }
 
 // Intent is the parser's result.

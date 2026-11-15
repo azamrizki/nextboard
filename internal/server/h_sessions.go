@@ -105,12 +105,8 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request, p *
 		}
 	}
 	cr := req.CreateRequest
-	if err := placeInPart(proj, &cr); err != nil {
-		if errors.Is(err, errPartMachine) {
-			writeErrCode(w, http.StatusBadRequest, "part_machine", err.Error())
-		} else {
-			partErr(w, err)
-		}
+	if err := s.placeSession(proj, &cr); err != nil {
+		placeErr(w, err)
 		return
 	}
 	cr.ProjectID, cr.WorkspaceID = proj.ID, ws.ID

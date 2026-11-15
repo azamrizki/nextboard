@@ -6,7 +6,11 @@ import type { Project, ProjectPart } from '../lib/types';
 import { projectParts } from '../lib/parts';
 import type { GitRepoInfo, GitSummary } from '../studio/types';
 
-/** What the hub and the studio store call a part's git: the project id for the first part. */
+/**
+ * What the hub and the studio store call a part's git: the project id for the first part.
+ * @deprecated The old rule. v0.9.0-beta.2 keys every part "<project>~<part>" (lib/parts.ts
+ * partRef); callers move to it in the same change as the hub's review and git keys.
+ */
 export function partRef(project: Project, part: ProjectPart): string {
   const first = projectParts(project)[0];
   return !first || part.id === first.id ? project.id : `${project.id}~${part.id}`;

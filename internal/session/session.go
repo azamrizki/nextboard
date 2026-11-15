@@ -60,8 +60,16 @@ type Spec struct {
 	// ProjectID/WorkspaceID place the terminal on a workspace board.
 	ProjectID   string `json:"projectId"`
 	WorkspaceID string `json:"workspaceId"`
-	// PartID is the part of the project it works in (ROADMAP #49); "" = the first part.
+	// PartID is the part of the project it works in (ROADMAP #49), by id. "" with Root: a root
+	// console. "" without Root: in no part's folder (from v0.9.0-beta.2, once the start-up
+	// migration has stamped the sessions from before with their part; until then "" was read as
+	// the first part). Never resolve "" to the first part in new code.
 	PartID string `json:"partId,omitempty"`
+	// Root: the console works at the project root, reaching every part (v0.9.0-beta.2,
+	// docs/API-board.md §1): on This PC (machineId "local"), cwd the hub-made root folder
+	// <data>/roots/<projectId>, PartID "". Fixed for the console's life: restart, sleep and wake
+	// keep it. A single-part project has no root, so its consoles never have it.
+	Root bool `json:"root,omitempty"`
 	// Panel: a terminal or agent of the Code workbench, with no board node.
 	Panel bool `json:"panel,omitempty"`
 

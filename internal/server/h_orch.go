@@ -99,9 +99,14 @@ func by(p *principal) string {
 // orchErr maps orchestration errors to {"error","code"}.
 func (s *Server) orchErr(w http.ResponseWriter, err error) {
 	var ve *board.ValidationError
+	var pu *orch.PlaceUnmatchedError
 	switch {
 	case errors.As(err, &ve):
 		s.boardErr(w, err)
+	case errors.As(err, &pu):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "code": "place_unmatched", "unmatched": pu.Unmatched})
+	case errors.Is(err, project.ErrBadPlace):
+		writeErrCode(w, http.StatusBadRequest, "bad_placement", err.Error())
 	case errors.Is(err, orch.ErrEmptyText), errors.Is(err, delivery.ErrEmptyText):
 		writeErrCode(w, http.StatusBadRequest, "empty_text", err.Error())
 	case errors.Is(err, orch.ErrCommandTooLong), errors.Is(err, delivery.ErrTextTooLong):

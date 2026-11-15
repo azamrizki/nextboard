@@ -52,6 +52,22 @@ export interface ComposerOpts {
   orchestratorId?: string;
 }
 
+/**
+ * A file to open in an editor card (v0.9.0-beta.2). nodeId: the card that takes it; without one
+ * (an older sender) the first editor card does. The file is (machineId, path): path is absolute
+ * on that machine; without machineId it is found from the part (partId) or, failing that, from
+ * the part holding the path (lib/parts.ts partHoldingOn). partId: the part the sender meant
+ * (the lead's UIAction.part); BoardView.openCode picks the card by it.
+ */
+export interface OpenFileRequest {
+  nodeId?: string;
+  machineId?: string;
+  partId?: string;
+  path: string;
+  line?: number;
+  at: number;
+}
+
 export interface UiState {
   tool: Tool;
   /** Node whose text is being edited (note, text, shape label). */
@@ -74,8 +90,8 @@ export interface UiState {
   connectFrom: string | null;
   /** Phase 7: the open studio overlay. */
   studio: StudioOpen | null;
-  /** A file asked for from elsewhere on the board, for the editor card. */
-  openFile: { path: string; line?: number; at: number } | null;
+  /** A file asked for from elsewhere on the board, for an editor card. */
+  openFile: OpenFileRequest | null;
 }
 
 function initial(): UiState {

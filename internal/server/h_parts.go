@@ -34,6 +34,12 @@ func partErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusConflict, "too_many_parts", err.Error())
 	case errors.Is(err, project.ErrMainPart):
 		writeErrCode(w, http.StatusConflict, "main_part", err.Error())
+	case errors.Is(err, project.ErrLastPart):
+		writeErrCode(w, http.StatusConflict, "last_part", err.Error())
+	case errors.Is(err, project.ErrBadPartName):
+		writeErrCode(w, http.StatusBadRequest, "bad_part_name", err.Error())
+	case errors.Is(err, project.ErrBadPlace):
+		writeErrCode(w, http.StatusBadRequest, "bad_placement", err.Error())
 	case errors.Is(err, project.ErrBadBlocked):
 		writeErrCode(w, http.StatusBadRequest, "bad_blocked", err.Error())
 	default:

@@ -84,6 +84,10 @@ type CreateRequest struct {
 	// PartID is the part of the project the session works in (ROADMAP #49); the server sets
 	// machine and folder from it, or finds it from them.
 	PartID string `json:"partId"`
+	// Root places the session at the project root, reaching every part (v0.9.0-beta.2): with
+	// PartID it is 400 bad_placement; in a single-part project it becomes that part. The server
+	// (placeSession) resolves it before Create; Create copies it to Spec.Root.
+	Root bool `json:"root,omitempty"`
 	// Panel: no board node (a terminal or agent of the Code workbench).
 	Panel bool `json:"panel"`
 }
@@ -1251,6 +1255,31 @@ func (m *Manager) MoveProject(from, to string, part func(string) string) int {
 	return len(moved)
 }
 
+// FillParts stamps a part on the sessions in a project that have none (PartID "", not Root):
+// part returns the part's id for a spec, "" to leave it as it is. It saves once and restarts
+// nothing, and returns how many sessions changed. The start-up migration of v0.9.0-beta.2 runs
+// it once, so that a session's "" stops meaning "the first part".
+func (m *Manager) FillParts(part func(Spec) string) int {
+	var filled []*Session
+	for _, s := range m.all() {
+		s.mu.Lock()
+		if s.spec.ProjectID != "" && s.spec.PartID == "" && !s.spec.Root {
+			if id := part(s.spec); id != "" {
+				s.spec.PartID = id
+				filled = append(filled, s)
+			}
+		}
+		s.mu.Unlock()
+	}
+	if len(filled) > 0 {
+		m.saveNow()
+	}
+	for _, s := range filled {
+		m.changed(s)
+	}
+	return len(filled)
+}
+
 // WorkspaceOf returns the workspace a live session belongs to.
 func (m *Manager) WorkspaceOf(id string) (string, bool) {
 	s, ok := m.Get(id)
@@ -1265,8 +1294,11 @@ type Placement struct {
 	ID          string
 	ProjectID   string
 	WorkspaceID string
-	// PartID: "" for a session from before parts, which works in the first part.
-	PartID  string
+	// PartID: the part it works in; "" with Root a root console, "" without Root in no part's
+	// folder (or, before the start-up migration stamps it, a session from before parts).
+	PartID string
+	// Root: at the project root (Spec.Root).
+	Root    bool
 	Running bool
 }
 
@@ -1286,7 +1318,7 @@ func (m *Manager) placements(panels bool) []Placement {
 			s.mu.Unlock()
 			continue
 		}
-		out = append(out, Placement{ID: s.spec.ID, ProjectID: s.spec.ProjectID, WorkspaceID: s.spec.WorkspaceID, PartID: s.spec.PartID, Running: s.status == StatusRunning})
+		out = append(out, Placement{ID: s.spec.ID, ProjectID: s.spec.ProjectID, WorkspaceID: s.spec.WorkspaceID, PartID: s.spec.PartID, Root: s.spec.Root, Running: s.status == StatusRunning})
 		s.mu.Unlock()
 	}
 	return out
