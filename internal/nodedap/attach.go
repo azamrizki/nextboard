@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -92,6 +93,12 @@ func findInspector(dial func(context.Context, string, string) (net.Conn, error),
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DialContext: dial, DisableKeepAlives: true}}
 	get := func(path string, v any) error {
 		res, err := client.Get("http://" + host + path)
+		// a node that opened its inspector a moment ago can still reset or refuse the first
+		// requests: try again briefly before calling the port empty
+		for try := 0; err != nil && try < 15 && transientDial(err); try++ {
+			time.Sleep(200 * time.Millisecond)
+			res, err = client.Get("http://" + host + path)
+		}
 		if err != nil {
 			return err
 		}
@@ -120,6 +127,13 @@ func findInspector(dial func(context.Context, string, string) (net.Conn, error),
 		}
 	}
 	return "", errors.New("the inspector has no session to attach to")
+}
+
+// transientDial: the inspector port reset, refused or closed the connection, as it does while
+// node is still opening it. A timeout is not transient: waiting again would only double it.
+func transientDial(err error) bool {
+	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 // skipPatterns is what steps stay out of: Node's own code, the bootloader, and launch.json's list.
