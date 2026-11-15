@@ -16,6 +16,17 @@ export interface DemoProject {
   wid?: string;
 }
 
+/** A part of a project in a folder on another machine (ROADMAP #49), on the demo's SSH server. */
+export interface DemoPart {
+  project: string;
+  name: string;
+  /** The machine's name in the hub. */
+  machine: string;
+  slug: string;
+  files: Record<string, string>;
+  commits: { author: string; message: string; files?: Record<string, string> }[];
+}
+
 const checkout = `import { Cart, subtotal } from './cart';
 import { shippingFor } from './shipping/rates';
 
@@ -126,5 +137,38 @@ export const PROJECTS: DemoProject[] = [
     files: { 'README.md': '# mobile-app\n\nThe Acme app for iOS and Android.\n' },
     commits: [{ author: 'Sam Okafor', message: 'chore: start the app' }],
     memory: '# mobile-app\n\nReact Native. Shares the API client with acme-shop.\n\n## Notes\n\n- Test on a small phone first.\n',
+  },
+];
+
+/** acme-shop's backend and worker, each a part on a server of its own (setup.ts). */
+export const PARTS: DemoPart[] = [
+  {
+    project: 'acme-shop',
+    name: 'API',
+    machine: 'api-server',
+    slug: 'acme-api',
+    files: {
+      'README.md': '# acme-api\n\nOrders, carts and coupons for the Acme storefront.\n\n```bash\ngo run ./cmd/api   # :8080\ngo test ./...\n```\n',
+      'go.mod': 'module example.com/acme/api\n\ngo 1.26\n',
+      'cmd/api/main.go': 'package main\n\nimport (\n\t"log"\n\t"net/http"\n\n\t"example.com/acme/api/orders"\n)\n\nfunc main() {\n\thttp.Handle("/orders/", orders.Handler())\n\tlog.Fatal(http.ListenAndServe(":8080", nil))\n}\n',
+    },
+    commits: [
+      { author: 'Maya Chen', message: 'feat: orders endpoint', files: { 'orders/orders.go': 'package orders\n\nimport "net/http"\n\n// Handler serves a customer\'s orders, newest first.\nfunc Handler() http.Handler {\n\treturn http.HandlerFunc(list)\n}\n\nfunc list(w http.ResponseWriter, r *http.Request) {\n\tw.Header().Set("Content-Type", "application/json")\n\t_, _ = w.Write([]byte(`[]`))\n}\n' } },
+      { author: 'Sam Okafor', message: 'feat: paginate orders', files: { 'orders/page.go': 'package orders\n\n// PageSize is how many orders one page holds.\nconst PageSize = 20\n' } },
+    ],
+  },
+  {
+    project: 'acme-shop',
+    name: 'Worker',
+    machine: 'worker-1',
+    slug: 'acme-worker',
+    files: {
+      'README.md': '# acme-worker\n\nBackground jobs: receipts, stock sync, abandoned carts.\n',
+      'package.json': JSON.stringify({ name: 'acme-worker', private: true, type: 'module', scripts: { start: 'node src/index.js', test: 'vitest run' } }, null, 2) + '\n',
+    },
+    commits: [
+      { author: 'Lee Park', message: 'feat: send receipts', files: { 'src/jobs/receipts.js': "export async function sendReceipt(order) {\n  // queued by the API when an order is paid\n  return { to: order.email, template: 'receipt', order: order.id };\n}\n" } },
+      { author: 'Maya Chen', message: 'feat: nightly stock sync', files: { 'src/jobs/stock.js': "export const schedule = '0 3 * * *';\n" } },
+    ],
   },
 ];

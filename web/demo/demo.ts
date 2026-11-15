@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { homedir, hostname, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { ROOT, SITE_PORT } from './playwright.config';
@@ -64,6 +65,90 @@ export async function shopBoard(request: APIRequestContext, p: Made) {
     { op: 'put', node: { id: 'n_demoweb001', kind: 'web', x: 1480, y: 0, w: 900, h: 680, data: {} } },
   ];
   await call(request, 'POST', `/api/workspaces/${p.wid}/board/ops`, { clientId: 'c_demo', baseRev: 0, ops });
+}
+
+/** The board of acme-shop's release: a lead card that directs two groups and keeps a checklist. */
+export async function releaseBoard(request: APIRequestContext, p: Made): Promise<string> {
+  const project = (await call(request, 'GET', '/api/projects')).find((x: { id: string }) => x.id === p.id);
+  const ws = project.workspaces.find((w: { name: string }) => w.name === 'Release') ?? (await call(request, 'POST', `/api/projects/${p.id}/workspaces`, { name: 'Release' }));
+  if ((await call(request, 'GET', `/api/workspaces/${ws.id}/board`)).nodes.length > 0) return ws.id;
+  const W = 640;
+  const H = 400;
+  const at: Record<string, [string, number, number]> = { qa: ['Checkout QA', 520, 56], mobile: ['Mobile QA', 520 + W + 40, 56], changelog: ['Changelog', 520, 600] };
+  const sids: Record<string, string> = {};
+  for (const [agent, [name, x, y]] of Object.entries(at)) {
+    sids[agent] = (await call(request, 'POST', '/api/sessions', { agent, workspaceId: ws.id, name, cols: 80, rows: 22, node: { x, y, w: W, h: H } })).id;
+  }
+  const nodes: { id: string; kind: string; x: number; y: number; w: number; h: number; data: { sessionId?: string } }[] = (await call(request, 'GET', `/api/workspaces/${ws.id}/board`)).nodes;
+  const term = (agent: string) => nodes.find((n) => n.kind === 'terminal' && n.data.sessionId === sids[agent])!;
+  // a group's frame is its members' box with a margin and a head (board/groups.ts)
+  const frame = (ids: string[]) => {
+    const m = ids.map(term);
+    const x = Math.min(...m.map((n) => n.x));
+    const y = Math.min(...m.map((n) => n.y));
+    const r = Math.max(...m.map((n) => n.x + n.w));
+    const b = Math.max(...m.map((n) => n.y + n.h));
+    return { x: x - 24, y: y - 56, w: r - x + 48, h: b - y + 80 };
+  };
+  const ops = [
+    { op: 'put', node: { id: 'n_demoqagrp1', kind: 'group', ...frame(['qa', 'mobile']), data: { name: 'QA', role: 'testers', members: [term('qa').id, term('mobile').id] } } },
+    { op: 'put', node: { id: 'n_demodocsg1', kind: 'group', ...frame(['changelog']), data: { name: 'Docs', role: 'docs', members: [term('changelog').id] } } },
+    { op: 'z', id: 'n_demoqagrp1', to: 'back' },
+    { op: 'z', id: 'n_demodocsg1', to: 'back' },
+    { op: 'put', node: { id: 'n_demolead01', kind: 'orchestrator', x: 0, y: 56, w: 420, h: 520, data: { title: 'Release captain' } } },
+    {
+      op: 'put',
+      node: {
+        id: 'n_democheck1',
+        kind: 'checklist',
+        x: 1200,
+        y: 600,
+        w: 520,
+        h: 400,
+        data: {
+          title: 'Release 2.4',
+          items: [
+            { id: 'i_demo00001', text: 'Coupon codes at checkout', done: true },
+            { id: 'i_demo00002', text: 'Order history on the account page', done: true },
+            { id: 'i_demo00003', text: 'Checkout suite on desktop browsers', done: false },
+            { id: 'i_demo00004', text: 'Phones and tablets', done: true },
+            { id: 'i_demo00005', text: 'Changelog for 2.4', done: true },
+            { id: 'i_demo00006', text: 'Tag v2.4.0 and deploy to staging', done: false },
+          ],
+        },
+      },
+    },
+    { op: 'putEdge', edge: { id: 'e_demowire01', source: 'n_demolead01', target: 'n_demoqagrp1', kind: 'wire', data: {} } },
+    { op: 'putEdge', edge: { id: 'e_demowire02', source: 'n_demolead01', target: 'n_demodocsg1', kind: 'wire', data: {} } },
+    { op: 'putEdge', edge: { id: 'e_demowire03', source: 'n_demolead01', target: 'n_democheck1', kind: 'wire', data: {} } },
+  ];
+  await call(request, 'POST', `/api/workspaces/${ws.id}/board/ops`, { clientId: 'c_demo', baseRev: 0, ops });
+  return ws.id;
+}
+
+/** docs-site's board: the writer, which the screenshots put to sleep, and its page beside it. */
+export async function docsBoard(request: APIRequestContext, p: Made): Promise<string> {
+  const board = await call(request, 'GET', `/api/workspaces/${p.wid}/board`);
+  const has = board.nodes.find((n: { kind: string }) => n.kind === 'terminal');
+  if (has) return has.data.sessionId;
+  const s = await call(request, 'POST', '/api/sessions', { agent: 'writer', workspaceId: p.wid, name: 'Writer', cols: 92, rows: 24, node: { x: 0, y: 0, w: 760, h: 470 } });
+  const ops = [
+    { op: 'put', node: { id: 'n_demodocnt1', kind: 'note', x: 800, y: 0, w: 300, h: 220, data: { text: 'Shipping page: free from $50, like the storefront.\n\nCoupons page next week.', color: 'blue' } } },
+  ];
+  await call(request, 'POST', `/api/workspaces/${p.wid}/board/ops`, { clientId: 'c_demo', baseRev: 0, ops });
+  return s.id;
+}
+
+/**
+ * What must never be on a screenshot or in the video: this machine's name, home folder, or the
+ * account the demo's SSH server lets in. Checked on the page's text before each capture.
+ */
+export async function assertPrivate(page: Page) {
+  const text = await page.evaluate(() => document.body.innerText + ' ' + [...document.querySelectorAll('iframe')].map((f) => { try { return f.contentDocument?.body?.innerText ?? ''; } catch { return ''; } }).join(' '));
+  const user = userInfo().username;
+  for (const bad of [hostname(), homedir(), `${user}@127.0.0.1`, `${user}@localhost`]) {
+    if (bad && bad.length > 2 && text.includes(bad)) throw new Error(`the page shows "${bad}", which is of this machine`);
+  }
 }
 
 /** Points the storefront's tile at the dev server, as one would by typing it. */
