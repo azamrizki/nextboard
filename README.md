@@ -21,7 +21,7 @@ Their terminals, your code, live previews and shared memory on one canvas, acros
 
 <sub>Send work with an @mention, watch the agent work in its terminal, and read its report in the thread.</sub>
 
-**[▶ Watch the product tour](docs/media/demo.mp4)** (69 s, MP4) · [Releases](https://github.com/azamrizki/nextboard/releases) · [Report an issue](https://github.com/azamrizki/nextboard/issues)
+**[▶ Watch the product tour](docs/media/demo.mp4)** (73 s, MP4) · [Releases](https://github.com/azamrizki/nextboard/releases) · [Report an issue](https://github.com/azamrizki/nextboard/issues)
 
 </div>
 
@@ -58,7 +58,9 @@ The script checks the release's SHA-256, puts `nextboard` in `~/.local/bin`, set
 | Data folder | `~/.nextboard`, or `$NEXTBOARD_HOME` |
 | Other devices | Through HTTPS in nginx or a private network such as Tailscale; see [Security](#security) |
 
-`nextboard update` installs the latest stable release and restarts the service.
+### Update
+
+`nextboard update` installs the latest stable release and restarts the service. The web does the same: the label at the end of the header (`v0.9.0 · 3f2a1c9`, the build that runs; on a phone, **… › About this hub**) opens About this hub, with the version, the commit, the build time and, when a newer release is out, an **Update to vX.Y.Z** button for the admin. It downloads the release, checks its SHA-256, replaces the binary (the old one stays as `nextboard.old`) and restarts the hub. Consoles reconnect, agents come back asleep or resume, and data and logins stay. A beta follows the newest beta, or the stable release after it; a dev build updates with `git pull`. The button needs a hub run by the service that `nextboard install` sets up. To go back, `nextboard update --version <tag> --force`.
 
 > [!TIP]
 > No subscription? Claude Code, Codex and OpenCode consoles can run on an Anthropic- or OpenAI-compatible API with a key of your own. See [API providers](#api-providers).
@@ -110,7 +112,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 
 ## Features
 
-[Agents and orchestration](#agents-and-orchestration) · [Code and review](#code-and-review) · [Projects across machines](#projects-across-machines) · [Previews and apps](#previews-and-apps) · [Memory](#memory) · [Credentials](#credentials) · [Uptime](#uptime) · [Phones and tablets](#phones-and-tablets) · [Supported agents](#supported-agents)
+[Agents and orchestration](#agents-and-orchestration) · [Code and review](#code-and-review) · [Projects across machines](#projects-across-machines) · [Project list](#project-list) · [Previews and apps](#previews-and-apps) · [Memory](#memory) · [Credentials](#credentials) · [Uptime](#uptime) · [Phones and tablets](#phones-and-tablets) · [Supported agents](#supported-agents)
 
 ### Agents and orchestration
 
@@ -127,10 +129,10 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 <table>
 <tr>
 <td width="50%" align="center"><img src="docs/media/command.png" alt="The lead's thread: an order to Cantika, its delivery marked Finished, and Cantika's report"><br><sub>An @mention order and the report it brings back</sub></td>
-<td width="50%" align="center"><img src="docs/media/mission.png" alt="Mission Map: two directors, a Docs and a QA group, and three consoles with their states"><br><sub>Directors, groups and consoles at a glance</sub></td>
+<td width="50%" align="center"><img src="docs/media/mission.png" alt="Mission Map: two directors, a Docs and a QA group, and three consoles with their part and state, filtered to all parts"><br><sub>Directors, groups and consoles at a glance</sub></td>
 </tr>
 <tr>
-<td width="50%" align="center"><img src="docs/media/layouts.png" alt="The Layouts dialog: Front and back selected, with three Frontend and two Backend consoles under a lead"><br><sub>Choose a layout and size each group</sub></td>
+<td width="50%" align="center"><img src="docs/media/layouts.png" alt="The Layouts dialog: Front and back selected, Frontend placed in Storefront with three consoles and Backend in API with two, under a lead"><br><sub>Choose a layout, place each group and size it</sub></td>
 <td width="50%" align="center"><img src="docs/media/sleep.png" alt="A writer console marked Asleep: asleep to free memory, wakes when you open it or type"><br><sub>Sleeping agents</sub></td>
 </tr>
 </table>
@@ -140,7 +142,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 - **An editor for the whole project.** Monaco with each part's own language servers and debuggers, search, tasks, ports and a terminal panel. An editor card at the project root shows every part as a folder; a card in one part shows only that part. Cards that show the same file share its unsaved edits. Open VSX themes and grammars load as data; extension code never runs.
 - **Review.** Each agent's changes, file by file, to keep or undo, for every CLI and for folders without git.
 - **Local History.** Every earlier state of a file, to compare and restore.
-- **Git.** Stage single changes, commit, push, stash, resolve conflicts, browse the graph and open pull requests through `gh`. Discard moves files to a trash; it never deletes.
+- **Git.** Stage single changes, commit, push, stash, resolve conflicts, browse the graph and open pull requests through `gh`. Discard moves files to a trash; it never deletes. The board's Git panel lists every part's repository, each with its branches, stash and history graph.
 
 <img src="docs/media/review.png" alt="The Review view: Cantika's changes to checkout.ts and coupons.ts as a diff, with Keep and Undo per change and per file">
 
@@ -150,6 +152,10 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 <tr>
 <td width="50%" align="center"><img src="docs/media/history.png" alt="Local History of checkout.ts: Cantika's version beside the one from two minutes earlier, with Restore this version"><br><sub>Every earlier state of a file, whoever wrote it</sub></td>
 <td width="50%" align="center"><img src="docs/media/git.png" alt="Source control: two staged files, a commit message, Commit and Push buttons, the branch history and a diff"><br><sub>Stage, commit and push from the code card</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/media/editor-root.png" alt="The code editor at the root of acme-shop: a search for coupon finds 32 results grouped under Storefront, API and Worker, with the API's coupons.go open"><br><sub>The editor at the root: one search across every part</sub></td>
+<td width="50%" align="center"><img src="docs/media/git-parts.png" alt="The board's Git panel for 3 parts: Storefront with 2 changed files and 1 commit to push, API with 1 to push, and Worker open on its history graph, in sync with origin/main"><br><sub>Every part's repository in the board's Git panel</sub></td>
 </tr>
 </table>
 
@@ -174,6 +180,31 @@ A project holds up to eight named parts, each a folder on This PC or on an SSH m
 <img src="docs/media/parts.png" alt="The Parts of acme-shop dialog: Storefront on This PC, API on api-server, Worker on worker-1, each with a Read-only box">
 
 <p align="center"><sub>One project, three parts, three machines</sub></p>
+
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/media/place.png" alt="The Spawn consoles dialog: three Builder slots, and Place in set to Root rather than Storefront, API or Worker: on This PC, in a folder with one entry per part"><br><sub>Every place that starts consoles asks: Root or a part</sub></td>
+<td width="50%" align="center"><img src="docs/media/root-console.png" alt="The Platform board: an Architect console marked Root lists Storefront, API and Worker from AGENTS.md, beside a Backend console in API and a Jobs console in Worker, each marked ssh"><br><sub>A console at the root beside consoles in two server parts</sub></td>
+</tr>
+</table>
+
+### Project list
+
+- **Covers and icons.** Give a project's card a cover and an icon: upload a picture, or let **Create with AI** make one with the hub's Codex when it can generate images. Without one, the card shows a quiet gradient and a monogram.
+- **One card for a project in parts.** Its parts sit in one row, such as `3 parts · 3 machines`, and its git row adds up every repository. Click the row for each part's folder, machine and status. Arrange the list by host or by your groups.
+- **Many at once.** **Select** picks projects, Shift a run and Ctrl/⌘ one more; the bar at the bottom archives them, deletes them permanently or moves them to a group. Machines and groups have the same select mode.
+- **Archive or delete.** An archived project's consoles stop, while its boards, memory and history wait under **Archived** until you restore it. Delete permanently lists what goes and asks you to type `delete`. Folders and files on disk stay either way.
+
+<img src="docs/media/projects.png" alt="The projects page: six cards with gradient covers and icons; acme-shop reads 3 parts · 3 machines, three repositories and two commits to push">
+
+<p align="center"><sub>Covers, icons, and one card for a project in three parts</sub></p>
+
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/media/select.png" alt="The Archived view in select mode: landing-v1, holiday-promo and spring-sale, two of them ticked, with a bar at the bottom offering Restore and Delete permanently"><br><sub>Select mode and the Archived view</sub></td>
+<td width="50%" align="center"><img src="docs/media/archive.png" alt="The Remove 2 projects dialog with Delete permanently chosen over Archive: what is deleted, the folders that stay on disk, and a box to type delete"><br><sub>Archive, or delete permanently</sub></td>
+</tr>
+</table>
 
 ### Previews and apps
 
@@ -324,7 +355,7 @@ Run Claude Code, Codex or OpenCode on an API key of your own instead of a subscr
 2. **Start a console on it**: pick **API · *name*** where you choose the login (new console, spawn, layouts, handoff, switch agent). The tile shows **API · $cost**.
 3. **Optional**: Settings › Lead agent › *What it runs on* puts the lead and the consoles it starts on a provider. Settings › Previews & studios › *Run through* does the same for other hidden runs (memory, summaries, commit messages, documents).
 
-Once a month's budget is spent, new consoles, restarts and hidden runs on that provider are refused; nothing moves to your subscription by itself. Claude Code consoles on a provider start in *accept edits* mode, because its default auto mode checks each action on Anthropic's servers, which a gateway does not reach. Details: [API providers contract](docs/API-agents.md#102-api-providers-2026-11-11).
+Once a month's budget is spent, new consoles, restarts and hidden runs on that provider are refused; nothing moves to your subscription by itself. Claude Code consoles on a provider start in *accept edits* mode, because its default auto mode checks each action on Anthropic's servers, which a gateway does not reach. With `bubblewrap` installed, Claude Code holds the console in its default mode instead; this is the setting that keeps the key out of its commands. The hub then allows the same edits by permission rules, and for a yolo console the built-in tools and MCP servers. The mode line reads default, and file commands such as `mkdir` or `mv` ask. Details: [API providers contract](docs/API-agents.md#102-api-providers-2026-11-11).
 
 <img src="docs/media/providers.png" alt="Editing an API provider named Team router: OpenAI-compatible, Responses API, a saved key, and a connection test that found 3 models">
 
@@ -365,7 +396,7 @@ Please report security problems through a [private security advisory](https://gi
 | `nextboard pair` | Print a QR code and pairing code for a device |
 | `nextboard update [--version tag] [--force]` | Install the latest stable release, or the one named, and restart the service |
 | `sudo nextboard browser-sandbox` | Let NextBoard Chromium make its sandbox where Ubuntu 23.10+ restricts it; only needed without a Chrome or Chromium installed from a package |
-| `nextboard version` | Print the version |
+| `nextboard version` | Print the version, channel, commit and build time |
 
 `serve --debug-listen 127.0.0.1:6060` serves the hub's Go profiles and a few counts (`/debug/pprof/`, `/debug/hub`) for looking into its memory. It is off unless given, takes only a loopback address, and answers no request from a web page.
 
