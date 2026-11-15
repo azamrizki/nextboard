@@ -1,6 +1,6 @@
 // Small React hooks over the live stores for orchestration UI.
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Session } from '../lib/types';
 import { store } from '../store';
 
@@ -15,6 +15,23 @@ export function useStoreSessions(): Record<string, Session> {
  */
 export function useSessionsValue<T extends string | number | boolean>(compute: (sessions: Record<string, Session>) => T): T {
   return useSyncExternalStore(store.subscribe, () => compute(store.getState().sessions));
+}
+
+/**
+ * The sessions `keep` takes, in the store's order, re-rendering only when one of them changes,
+ * comes or goes: a card showing its team need not render again for every console on the hub.
+ */
+export function useSessionList(keep: (s: Session) => boolean): Session[] {
+  const last = useRef<{ all: Record<string, Session> | null; keep: ((s: Session) => boolean) | null; list: Session[] }>({ all: null, keep: null, list: [] });
+  return useSyncExternalStore(store.subscribe, () => {
+    const all = store.getState().sessions;
+    const c = last.current;
+    if (all === c.all && keep === c.keep) return c.list;
+    const list = Object.values(all).filter(keep);
+    const same = list.length === c.list.length && list.every((s, i) => s === c.list[i]);
+    last.current = { all, keep, list: same ? c.list : list };
+    return last.current.list;
+  });
 }
 
 /** Sessions of a workspace, creation order. */

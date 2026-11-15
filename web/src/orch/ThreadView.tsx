@@ -2,7 +2,7 @@
 // per-target progress, team reports with "See output", confirmations with a countdown,
 // hub replies and notes. Shared by the command-bar drawer and orchestrator cards.
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { OutputViewer } from '../agents/OutputViewer';
 import { jumpToSession } from '../agents/jump';
 import { Button } from '../components/Button';
@@ -278,7 +278,7 @@ function ResendOrder({ orderId }: { orderId: string }) {
   );
 }
 
-function MessageView({ m, onOutput, compact, lead, actions, onGoTo }: { m: ThreadMessage; onOutput: (m: ThreadMessage) => void; compact?: boolean; lead: string; actions?: ThreadActions; onGoTo: (id: string) => void }) {
+function MessageViewImpl({ m, onOutput, compact, lead, actions, onGoTo }: { m: ThreadMessage; onOutput: (m: ThreadMessage) => void; compact?: boolean; lead: string; actions?: ThreadActions; onGoTo: (id: string) => void }) {
   const order = useOrch((s) => (m.orderId ? s.orders[m.orderId] : undefined));
   const conf = useOrch((s) => (m.confirmationId ? s.confirmations[m.confirmationId] : undefined));
   const time = <time className="msg-time" dateTime={m.at} title={formatDateTime(m.at)}>{timeOf(m.at)}</time>;
@@ -403,6 +403,10 @@ function MessageView({ m, onOutput, compact, lead, actions, onGoTo }: { m: Threa
   );
 }
 
+// A thread holds up to 500 messages and its parent re-renders on every keystroke in its box;
+// with stable props (see ThreadList) only a message that changed renders again.
+const MessageView = memo(MessageViewImpl);
+
 export function ThreadList({ threadId, compact, empty, lead, actions }: { threadId: string; compact?: boolean; empty: ReactNode; lead?: string; actions?: ThreadActions }) {
   const hubLead = useLeadName();
   const who = lead ?? hubLead;
@@ -420,13 +424,24 @@ export function ThreadList({ threadId, compact, empty, lead, actions }: { thread
     void orchStore.loadThread(threadId);
   }, [threadId]);
 
-  const goTo = (id: string) => {
+  const goTo = useCallback((id: string) => {
     const el = ref.current?.querySelector<HTMLElement>(`[data-msg="${CSS.escape(id)}"]`);
     if (!el) return toast.info('That message is further back in the thread.');
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     el.classList.add('is-found');
     window.setTimeout(() => el.classList.remove('is-found'), 1400);
-  };
+  }, []);
+
+  // Parents build `actions` anew on every render; messages get a stand-in that stays the same
+  // and calls the latest one, so memo(MessageView) can skip them.
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  const hasActions = !!actions;
+  // a message only replies and reuses; the output window below takes `answer` as it is
+  const msgActions = useMemo<ThreadActions | undefined>(
+    () => (hasActions ? { reply: (m, toLead) => actionsRef.current?.reply(m, toLead), reuse: (t) => actionsRef.current?.reuse(t) } : undefined),
+    [hasActions],
+  );
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -464,7 +479,7 @@ export function ThreadList({ threadId, compact, empty, lead, actions }: { thread
       {thread.status === 'ready' && !thread.messages.length && !pending && (typeof empty === 'string' ? <p className="thread-empty">{empty}</p> : empty)}
       <ol className="msgs" aria-live="polite">
         {thread.messages.map((m) => (
-          <MessageView key={m.id} m={m} onOutput={setOutput} compact={compact} lead={who} actions={actions} onGoTo={goTo} />
+          <MessageView key={m.id} m={m} onOutput={setOutput} compact={compact} lead={who} actions={msgActions} onGoTo={goTo} />
         ))}
         {pending && !thread.messages.some((m) => /still thinking/i.test(m.text)) && (
           <li className="msg msg-hub kind-thinking">

@@ -9,7 +9,7 @@ import { toast } from '../../components/Toast';
 import { jobApi, taskApi } from '../api';
 import { useStudio, waitJob } from '../store';
 import type { ProjectTask } from '../types';
-import { parseTaskOutput, stripAnsi } from './taskOutput';
+import { parseTaskOutput, stripAnsiTail, type AnsiTail } from './taskOutput';
 import type { Workspace } from './workspace';
 
 /** Longer than the hub lets a task run. */
@@ -70,10 +70,9 @@ export function TasksPanel({ ws }: { ws: Workspace }) {
   const selected = tasks?.find((t) => t.id === ws.taskSelected) ?? null;
   const run = selected ? ws.taskRuns.get(selected.id) : undefined;
   const output = useStudio((s) => (run ? s.output[run.jobId] : undefined));
-  const text = useMemo(() => {
-    const t = stripAnsi(output ?? '');
-    return t.length > SHOWN ? t.slice(-SHOWN) : t;
-  }, [output]);
+  const tail = useRef<AnsiTail | null>(null);
+  const jobId = run?.jobId ?? '';
+  const text = useMemo(() => (tail.current = stripAnsiTail(tail.current, jobId, output ?? '', SHOWN)).clean, [jobId, output]);
   const parsed = useMemo(() => parseTaskOutput(text), [text]);
 
   useEffect(() => {

@@ -35,6 +35,12 @@ const LSP_IDLE_MS = 5 * 60_000;
  * was ever opened stayed in the tab's memory until the tab closed.
  */
 const RELEASE_MS = 10 * 60_000;
+/**
+ * A model made for a language server (peek, go to definition, rename) on a file without a tab
+ * is let go once nothing asked for it this long and no editor shows it. Kept, every file a
+ * definition was looked up in stayed until the whole workbench went.
+ */
+const LENT_MS = 3 * 60_000;
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg', 'ico']);
 const MEDIA_EXT = new Set(['mp4', 'webm', 'mov', 'mp3', 'wav', 'ogg', 'flac']);
@@ -374,6 +380,9 @@ export class Workspace {
   private mounted = false;
   private mounts = 0;
   private releaseTimer = 0;
+  /** Files ensureModel gave out, and when last; let go after LENT_MS unless a tab has them. */
+  private lent = new Map<string, number>();
+  private lentTimer = 0;
   /** What the constructor subscribed to, undone when the workbench is let go. */
   private offs: (() => void)[] = [];
 
@@ -571,6 +580,8 @@ export class Workspace {
     window.clearTimeout(this.lspTimer);
     window.clearTimeout(this.persistTimer);
     window.clearTimeout(this.watchTimer);
+    window.clearTimeout(this.lentTimer);
+    this.lent.clear();
     for (const t of this.draftTimers.values()) window.clearTimeout(t);
     for (const t of this.autoSaveTimers.values()) window.clearTimeout(t);
     this.persist();
@@ -942,10 +953,42 @@ export class Workspace {
   /** For language servers: the model of a file, without opening a tab. */
   async ensureModel(path: string): Promise<monaco.editor.ITextModel | null> {
     const existing = monaco.editor.getModel(monaco.Uri.file(path));
-    if (existing) return existing;
+    if (existing) {
+      if (this.docs.get(path)?.model === existing) this.lend(path);
+      return existing;
+    }
     const d = this.ensureDoc(path);
+    this.lend(path);
     await this.loaded(d);
     return d.model;
+  }
+
+  private lend(path: string) {
+    this.lent.set(path, Date.now());
+    if (!this.lentTimer) this.lentTimer = window.setTimeout(() => this.sweepLent(), LENT_MS);
+  }
+
+  /** Let go of lent models no tab took up; unsaved edits (a rename) and shown ones stay. */
+  private sweepLent() {
+    this.lentTimer = 0;
+    const now = Date.now();
+    let next = Infinity;
+    const shown = new Set(monaco.editor.getEditors().map((e) => e.getModel()));
+    for (const [path, at] of [...this.lent]) {
+      const d = this.docs.get(path);
+      if (!d || this.groups.some((g) => g.tabs.some((t) => t.path === path))) {
+        this.lent.delete(path); // gone, or a tab has it and lets it go when it closes
+        continue;
+      }
+      const busy = d.status === 'loading' || this.loading.has(path) || d.dirty || d.saving || !!d.recovered || (!!d.model && shown.has(d.model));
+      if (busy || now - at < LENT_MS) {
+        next = Math.min(next, busy ? LENT_MS : LENT_MS - (now - at));
+        continue;
+      }
+      this.lent.delete(path);
+      this.releaseDoc(path);
+    }
+    if (next < Infinity) this.lentTimer = window.setTimeout(() => this.sweepLent(), Math.max(next, 10_000));
   }
 
   private loading = new Map<string, Promise<void>>();

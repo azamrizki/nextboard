@@ -17,11 +17,12 @@ import { toast } from '../components/Toast';
 import { navigate } from '../lib/router';
 import type { Project } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
+import { store } from '../store';
 import { decide, isAgentSession, killSessions, pauseAll, resumeAll, sendCommand, UNSUPPORTED, orchError } from './actions';
 import { useVoice } from '../voice/useVoice';
 import { VoiceCaption, VoiceStatus } from '../voice/VoiceBar';
 import { noteOrderSent } from '../voice/tts';
-import { useStoreSessions } from './hooks';
+import { useSessionList } from './hooks';
 import { localMentions, mentionedTargets, removeMention } from './mentions';
 import { AttachChips, useAttachments } from './Attachments';
 import { MentionInput } from './MentionInput';
@@ -55,7 +56,6 @@ interface Chip {
 
 export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead = false }: CommandBarProps) {
   const compact = useMediaQuery('(max-width: 899px)');
-  const sessions = useStoreSessions();
   const shortcuts = useShortcuts();
   const doc = useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
   const threadId = project.id;
@@ -128,14 +128,17 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
   }, []);
 
   // The bar controls every board of the project, not just the open one.
-  const projectSessions = useMemo(() => Object.values(sessions).filter((s) => s.projectId === project.id), [sessions, project.id]);
+  // the project's consoles and those on this board (the @ list): no render for the rest of the hub
+  const boardSessions = useMemo(() => new Set(doc.nodes.map((n) => n.data.sessionId)), [doc.nodes]);
+  const watched = useSessionList((s) => s.projectId === project.id || boardSessions.has(s.id));
+  const projectSessions = useMemo(() => watched.filter((s) => s.projectId === project.id), [watched, project.id]);
   const boardIds = (project.workspaces ?? []).map((w) => w.id);
   const agentsRunning = projectSessions.filter((s) => isAgentSession(s) && s.status === 'running');
   const anyPaused = agentsRunning.some((s) => s.paused);
   const liveConsoles = projectSessions.filter((s) => s.status !== 'exited');
   const liveBoards = new Set(liveConsoles.map((s) => s.workspaceId)).size;
 
-  const local = () => localMentions(ctl.nodes, ctl.sync.state.edges, sessions, (a) => agentById(a)?.name ?? a);
+  const local = () => localMentions(ctl.nodes, ctl.sync.state.edges, store.getState().sessions, (a) => agentById(a)?.name ?? a);
   // Other boards' groups are only known to the hub: target chips ask it once an @ appears.
   const hasAt = text.includes('@');
   const [hubMentions, setHubMentions] = useState<Mention[]>([]);
@@ -152,7 +155,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
       live = false;
     };
   }, [hasAt, project.id, ctl.workspaceId]);
-  const targets = useMemo(() => mentionedTargets(text, [...local(), ...hubMentions]), [text, doc, sessions, hubMentions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const targets = useMemo(() => mentionedTargets(text, [...local(), ...hubMentions]), [text, doc, watched, hubMentions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pending = useMemo(
     () =>

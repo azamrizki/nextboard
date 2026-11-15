@@ -16,8 +16,9 @@ import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import type { BoardNode, Session } from '../../lib/types';
 import { newId } from '../../lib/ids';
+import { store } from '../../store';
 import { isAgentSession, killSessions, pauseSessions, resumeSessions, sendCommand, orchError } from '../../orch/actions';
-import { useStoreSessions } from '../../orch/hooks';
+import { useSessionList } from '../../orch/hooks';
 import { localMentions, mentionToken } from '../../orch/mentions';
 import { AttachChips, useAttachments } from '../../orch/Attachments';
 import { MentionInput } from '../../orch/MentionInput';
@@ -51,7 +52,6 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const { ctl, ui, project } = useBoardEnv();
   const d = readOrchestrator(data.node);
   const doc = useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
-  const sessions = useStoreSessions();
   const connecting = useUi((s) => s.connectFrom === id);
   const thread = useThread(id);
   const [text, setText] = useState('');
@@ -77,9 +77,17 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const taskWires = allWires.filter((e) => TASK_BOARDS.has(byId.get(e.target)?.kind ?? ''));
   const wires = allWires.filter((e) => !taskWires.includes(e));
   const directed = directedTerminals(doc.nodes, doc.edges, id);
+  // only the consoles this card directs: others changing need no render here
+  const sidOf = (nid: string) => {
+    const sid = byId.get(nid)?.data.sessionId;
+    return typeof sid === 'string' ? sid : undefined;
+  };
+  const wanted = new Set([...directed, ...wires.map((w) => w.target)].map(sidOf));
+  const directedSessions = useSessionList((s) => wanted.has(s.id));
+  const sessions = useMemo(() => new Map(directedSessions.map((s) => [s.id, s])), [directedSessions]);
   const sessionOfNode = (nid: string) => {
-    const n = byId.get(nid);
-    return n && typeof n.data.sessionId === 'string' ? sessions[n.data.sessionId] : undefined;
+    const sid = sidOf(nid);
+    return sid ? sessions.get(sid) : undefined;
   };
   const agents = directed.map(sessionOfNode).filter((s): s is Session => !!s);
 
@@ -422,7 +430,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
             value={text}
             onChange={setText}
             onSubmit={(t) => void send(t)}
-            local={() => localMentions(ctl.nodes, ctl.sync.state.edges, sessions, (a) => agentById(a)?.name ?? a, id)}
+            local={() => localMentions(ctl.nodes, ctl.sync.state.edges, store.getState().sessions, (a) => agentById(a)?.name ?? a, id)}
             placeholder={placeholder}
             label={`Message for ${name}`}
             onEscape={() => setReply(null)}
