@@ -344,8 +344,9 @@ type rawChange struct {
 }
 
 // take stores the work tree as it is now. It returns the commit, what changed since the last
-// snapshot, and false when this is the first one.
-func (sh shadow) take(ctx context.Context, who string, nested []string) (string, []rawChange, bool, error) {
+// snapshot, and false when this is the first one. message gives the commit's message from what
+// changed.
+func (sh shadow) take(ctx context.Context, nested []string, message func([]rawChange) string) (string, []rawChange, bool, error) {
 	if err := sh.ready(ctx, nested); err != nil {
 		return "", nil, false, err
 	}
@@ -426,7 +427,7 @@ func (sh shadow) take(ctx context.Context, who string, nested []string) (string,
 		}
 		changes = kept
 	}
-	c, err := sh.git(ctx, nil, "commit-tree", tree, "-p", last, "-m", who)
+	c, err := sh.git(ctx, nil, "commit-tree", tree, "-p", last, "-m", message(changes))
 	if err != nil {
 		return "", nil, false, err
 	}
@@ -723,17 +724,14 @@ func (p *project) snapshot() error {
 	ctx, cancel := context.WithTimeout(context.Background(), snapshotLimit)
 	defer cancel()
 
+	// a file no hook named goes to everyone at work in the local history
 	p.mu.Lock()
-	who := make([]string, 0, len(p.active))
-	for _, a := range p.active {
-		who = append(who, a.name)
+	ids := make([]string, 0, len(p.active))
+	for id := range p.active {
+		ids = append(ids, id)
 	}
+	label := p.namesLocked(ids)
 	p.mu.Unlock()
-	sort.Strings(who)
-	label := "You"
-	if len(who) > 0 {
-		label = strings.Join(who, ", ")
-	}
 
 	changed, seen := false, false
 	var firstErr error
@@ -757,7 +755,14 @@ func (p *project) snapshot() error {
 		if !sh.codeOnlyDone() && p.cleanAssets(sh, r.Path) {
 			changed = true
 		}
-		_, list, had, err := sh.take(ctx, label, p.nestedIn(roots, r))
+		// the review and the local history go by the same claims, read once
+		var claims map[string]claim
+		_, list, had, err := sh.take(ctx, p.nestedIn(roots, r), func(list []rawChange) string {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			claims = p.claimsLocked(r, list)
+			return p.messageLocked(label, claims)
+		})
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -765,7 +770,7 @@ func (p *project) snapshot() error {
 			continue
 		}
 		seen = seen || len(list) > 0
-		if had && p.attribute(ctx, sh, r, list) {
+		if had && p.attribute(ctx, sh, r, list, claims) {
 			changed = true
 		}
 		p.maybePrune(ctx, sh)
@@ -868,12 +873,102 @@ func relPath(r Root, inRoot string) string {
 	return r.Rel + "/" + inRoot
 }
 
-// attribute gives what changed to the agents at work. A hook that named the file decides. If none
-// did, agents without such hooks come first, since a CLI with hooks would have named it.
-func (p *project) attribute(ctx context.Context, sh shadow, r Root, list []rawChange) bool {
-	changed := false
+// claim says who wrote a file, as told before the snapshot: the agents at work whose hook named
+// it, or the owner, who saved it from the editor or had the review write it.
+type claim struct {
+	ids  []string // sessions, sorted
+	user bool
+}
+
+// claimsLocked reads the claims on what changed in r, by path inside r. p.mu is held.
+func (p *project) claimsLocked(r Root, list []rawChange) map[string]claim {
+	out := map[string]claim{}
 	for _, c := range list {
 		abs := r.known(c.path)
+		if p.ignored[abs] {
+			out[c.path] = claim{user: true}
+			continue
+		}
+		var ids []string
+		for id := range p.hints[abs] {
+			if _, ok := p.active[id]; ok {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			sort.Strings(ids)
+			out[c.path] = claim{ids: ids}
+		}
+	}
+	return out
+}
+
+// namesLocked names these agents at work, or "You" for none. p.mu is held.
+func (p *project) namesLocked(ids []string) string {
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if a := p.active[id]; a != nil {
+			// one line: a name never reaches into the message's body
+			names = append(names, strings.Join(strings.Fields(a.name), " "))
+		}
+	}
+	if len(names) == 0 {
+		return "You"
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// whoByPath begins the line of a snapshot's message that names, by path inside the work tree,
+// whoever wrote a file when that is not the subject, everyone at work. A snapshot from before it
+// has the subject only.
+const whoByPath = "Who-By-Path: "
+
+// messageLocked is a snapshot's message: everyone at work, then whoever the claims name for a
+// file when that differs. p.mu is held.
+func (p *project) messageLocked(label string, claims map[string]claim) string {
+	who := map[string]string{}
+	for rel, cl := range claims {
+		w := "You"
+		if !cl.user {
+			w = p.namesLocked(cl.ids)
+		}
+		if w != label {
+			who[rel] = w
+		}
+	}
+	if len(who) == 0 {
+		return label
+	}
+	b, err := json.Marshal(who)
+	if err != nil {
+		return label
+	}
+	return label + "\n\n" + whoByPath + string(b)
+}
+
+// whoIn finds whoever wrote the file at path inside the work tree in a snapshot message's body.
+func whoIn(body, inRoot string) (string, bool) {
+	for _, line := range strings.Split(body, "\n") {
+		js, ok := strings.CutPrefix(strings.TrimSpace(line), whoByPath)
+		if !ok {
+			continue
+		}
+		var who map[string]string
+		if json.Unmarshal([]byte(js), &who) != nil {
+			return "", false
+		}
+		w, ok := who[inRoot]
+		return w, ok && w != ""
+	}
+	return "", false
+}
+
+// attribute gives what changed to the agents at work. A hook that named the file decides. If none
+// did, agents without such hooks come first, since a CLI with hooks would have named it.
+func (p *project) attribute(ctx context.Context, sh shadow, r Root, list []rawChange, claims map[string]claim) bool {
+	changed := false
+	for _, c := range list {
 		rel := relPath(r, c.path)
 
 		p.mu.Lock()
@@ -889,8 +984,9 @@ func (p *project) attribute(ctx context.Context, sh shadow, r Root, list []rawCh
 		}
 		owners := map[string]bool{}
 		unsure := false
-		if !p.ignored[abs] {
-			for id := range p.hints[abs] {
+		if cl := claims[c.path]; !cl.user {
+			for _, id := range cl.ids {
+				// a turn may have ended since the claims were read
 				if _, ok := p.active[id]; ok {
 					owners[id] = true
 				}
@@ -1466,36 +1562,41 @@ func (m *Manager) History(projectID, rel string, limit int) ([]Version, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), readLimit)
 	defer cancel()
 	sh := p.shadowOf(r.Path)
-	out, err := sh.git(ctx, nil, "log", "-n", strconv.Itoa(limit), "--format=%H%x00%ct%x00%s%x00", "--name-status", "--no-renames", "-z", historyRef, "--", in)
+	out, err := sh.git(ctx, nil, "log", "-n", strconv.Itoa(limit), "--format=%H%x00%ct%x00%s%x00%b%x00", "--name-status", "--no-renames", "-z", historyRef, "--", in)
 	if err != nil {
 		return []Version{}, nil
 	}
-	return parseHistory(string(out)), nil
+	return parseHistory(string(out), in), nil
 }
 
-func parseHistory(out string) []Version {
+// parseHistory reads the log of the file at inRoot: who wrote a version is whoever the message
+// names for that file, else its subject.
+func parseHistory(out, inRoot string) []Version {
 	items := []Version{}
-	// with -z and --name-status: "hash\0time\0who\0\0M\0path\0", then the next
+	// with -z and --name-status: "hash\0time\0subject\0body\0\0\nM\0path\0", then the next
 	t := strings.Split(out, "\x00")
 	for i := 0; i < len(t); {
 		h := strings.TrimSpace(t[i])
-		if len(h) != 40 && len(h) != 64 {
+		if len(h) != 40 && len(h) != 64 || strings.Trim(h, "0123456789abcdef") != "" {
 			i++
 			continue
 		}
-		if i+2 >= len(t) {
+		if i+3 >= len(t) {
 			break
 		}
 		sec, _ := strconv.ParseInt(t[i+1], 10, 64)
 		v := Version{Commit: h, At: time.Unix(sec, 0).UTC(), Who: t[i+2], Exists: true}
-		for j := i + 3; j < len(t) && j <= i+5; j++ {
+		if w, ok := whoIn(t[i+3], inRoot); ok {
+			v.Who = w
+		}
+		for j := i + 4; j < len(t) && j <= i+6; j++ {
 			if s := strings.TrimSpace(t[j]); s == "D" {
 				v.Exists = false
 				break
 			}
 		}
 		items = append(items, v)
-		i += 3
+		i += 4
 	}
 	return items
 }

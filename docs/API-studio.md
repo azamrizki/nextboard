@@ -681,6 +681,8 @@ The `review` event tells clients to reload. Pending items survive a hub restart.
 
 The history of each file from the same shadow repo, whoever wrote it: the **Local History** tab from the tab menu, Explorer, the editor or the palette. Snapshots happen as in §7.10, so changes outside the editor are recorded at the next snapshot, or when the history is opened. Kept 30 days or 2000 snapshots per work tree, pruned once a day; review bases still pending are not deleted.
 
+**Who:** per file, from the same claims Review uses (§7.10). A version goes to the agent or agents whose hook (or server tool) named that file in that snapshot, and to `You` for a save from the editor or an undo from Review. A file nobody named goes to every agent working at that moment, or `You` when none was. Stored in each snapshot's commit message: the subject names everyone working, and a `Who-By-Path: {"<path in the work tree>":"<names>"}` line in the body lists the files whose writer differs. Snapshots from before that line show their subject, so they still name everyone who was working.
+
 | Method | Path | Response / error |
 |---|---|---|
 | GET | `/api/projects/{id}/history?path=&limit=` | `{"items":[{"commit","at","who","exists"}]}`, newest first; `400 bad_path` |

@@ -313,6 +313,64 @@ func TestWhoItWas(t *testing.T) {
 	f.stop("claude")
 }
 
+// Local History names whoever a hook named for a file, as the review does, not every agent that
+// was at work then. Only a file nobody named goes to all of them.
+func TestHistoryGoesByTheHook(t *testing.T) {
+	f := newFixture(t)
+	f.write("src/checkout.ts", "c1\n")
+	f.write("src/cart.ts", "k1\n")
+	f.write("notes.txt", "n1\n")
+	f.write("saved.txt", "s1\n")
+	f.snap()
+	f.start("arkan", "@Arkan", true)
+	f.start("bintang", "@Bintang", true)
+	f.start("cantika", "@Cantika", true)
+	f.start("daffa", "@Daffa", false)
+
+	// the tester alone edits checkout.ts while the others are at work
+	f.m.Hint("p", "cantika", filepath.Join(f.root, "src", "checkout.ts"))
+	f.write("src/checkout.ts", "c2\n")
+	// two hooks name cart.ts
+	f.m.Hint("p", "arkan", filepath.Join(f.root, "src", "cart.ts"))
+	f.m.Hint("p", "bintang", filepath.Join(f.root, "src", "cart.ts"))
+	f.write("src/cart.ts", "k2\n")
+	// no hook names this one
+	f.write("notes.txt", "n2\n")
+	// the owner saved this one from the editor
+	f.m.UserWrote(filepath.Join(f.root, "saved.txt"))
+	f.write("saved.txt", "s2\n")
+	f.snap()
+
+	if c := f.files("cantika")["src/checkout.ts"]; c.Path == "" || c.Unsure {
+		t.Fatalf("review: cantika %+v", f.files("cantika"))
+	}
+	for _, id := range []string{"arkan", "bintang", "daffa"} {
+		if _, ok := f.files(id)["src/checkout.ts"]; ok {
+			t.Fatalf("review: checkout.ts went to %s", id)
+		}
+	}
+	for rel, want := range map[string]string{
+		"src/checkout.ts": "@Cantika",
+		"src/cart.ts":     "@Arkan, @Bintang",
+		"notes.txt":       "@Arkan, @Bintang, @Cantika, @Daffa",
+		"saved.txt":       "You",
+	} {
+		vs, err := f.m.History("p", rel, 0)
+		if err != nil || len(vs) != 2 {
+			t.Fatalf("%s: history %+v %v", rel, vs, err)
+		}
+		if vs[0].Who != want {
+			t.Errorf("%s: who %q, want %q", rel, vs[0].Who, want)
+		}
+		if vs[1].Who != "Earlier" {
+			t.Errorf("%s: first snapshot %q", rel, vs[1].Who)
+		}
+	}
+	for _, id := range []string{"arkan", "bintang", "cantika", "daffa"} {
+		f.stop(id)
+	}
+}
+
 func TestTwoAgentsOnOneFile(t *testing.T) {
 	f := newFixture(t)
 	f.write("x.txt", "x\n")
