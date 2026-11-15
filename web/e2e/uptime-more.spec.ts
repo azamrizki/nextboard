@@ -1,3 +1,4 @@
+import { createServer } from 'node:net';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './hub';
 
@@ -97,4 +98,33 @@ test('the monitor form asks what each newer check needs', async ({ page, hub }) 
   const items = (await hub.call('GET', `/api/projects/${p.id}/uptime`)).items;
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({ type: 'websocket', url: 'ws://127.0.0.1:9/socket', tags: ['edge', 'prod'] });
+});
+
+test('a monitor faster than a millisecond has an average and an axis that reads', async ({ page, hub }) => {
+  // a port on loopback answers in well under a millisecond: the hub keeps 0 ms
+  const server = createServer((c) => c.end());
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const p = await hub.project('Uptime fast');
+    await hub.ops(p.wid, [{ op: 'put', node: { id: 'n_upt0000003', kind: 'uptime', x: 0, y: 0, w: 1000, h: 760, data: {} } }]);
+    const port = (server.address() as { port: number }).port;
+    const m = await hub.call('POST', `/api/projects/${p.id}/uptime`, { name: 'Loopback', type: 'tcp', host: '127.0.0.1', port, intervalSec: 20 });
+    // a few checks, as a monitor has two minutes after it was added
+    for (let i = 0; i < 3; i++) await hub.call('POST', `/api/uptime/${m.id}/check`, {});
+    await expect.poll(async () => ((await hub.call('GET', `/api/projects/${p.id}/uptime`)).items[0].recent ?? []).length, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+
+    await page.goto(`/p/${p.id}/w/${p.wid}?card=n_upt0000003`);
+    const card = page.locator('.react-flow__node[data-id="n_upt0000003"]');
+    await card.getByRole('button', { name: /Loopback/ }).click();
+    // a 0 ms average is an average, not a missing one
+    const average = card.locator('.up-stats .stat-tile', { hasText: 'Average' }).locator('.stat-value');
+    await expect(average).toHaveText(/^(<1|\d+) ms$/);
+    // and the axis has as many labels as lines: no "1 ms" twice
+    const ticks = card.locator('.up-plot svg text.viz-tick[text-anchor="end"]');
+    await expect(ticks).toHaveCount(3);
+    const labels = await ticks.allTextContents();
+    expect(new Set(labels).size, labels.join(', ')).toBe(3);
+  } finally {
+    server.close();
+  }
 });

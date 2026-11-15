@@ -5,9 +5,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { errorMessage } from '../api';
 import { Button } from '../components/Button';
 import { SegmentedControl } from '../components/form';
-import { niceMax } from '../usage/format';
 import { uptimeApi, type Series, type SeriesPoint, type SeriesRange } from './api';
-import { dateTime, millis, percent } from './format';
+import { dateTime, millis, msAxis, msTick, percent } from './format';
 
 const RANGES: { value: SeriesRange; label: string }[] = [
   { value: '1h', label: '1 h' },
@@ -60,13 +59,15 @@ export function ResponseChart({ monitorId, lastCheck }: { monitorId: string; las
   }, [monitorId, range, lastCheck]);
 
   const stats = data?.stats;
+  // a push without ping= has checks but no times: no average to give
+  const timed = !!data?.points.some((p) => p.avgMs >= 0);
   return (
     <section className="up-chart" aria-label="Response time">
       <div className="up-chart-head">
         <h4 className="up-section-title">Response time</h4>
         {stats && stats.checks > 0 && (
           <span className="up-chart-sum tabular">
-            {percent(stats.uptime)} uptime · avg {millis(stats.avgMs)} · {stats.checks === 1 ? '1 check' : `${stats.checks.toLocaleString()} checks`}
+            {percent(stats.uptime)} uptime{timed ? ` · avg ${millis(stats.avgMs)}` : ''} · {stats.checks === 1 ? '1 check' : `${stats.checks.toLocaleString()} checks`}
           </span>
         )}
         <span className="spacer" />
@@ -142,7 +143,7 @@ function Plot({ series }: { series: Series }) {
 
   const { points, from, to, stepSec, range } = series;
   const stepMs = stepSec * 1000;
-  const max = useMemo(() => niceMax(Math.max(1, ...points.map((p) => p.avgMs))), [points]);
+  const { max, ticks: yTicks } = useMemo(() => msAxis(points.map((p) => p.avgMs)), [points]);
   const innerW = Math.max(10, w - PAD.l - PAD.r);
   const x = (t: number) => PAD.l + ((t - from) / Math.max(1, to - from)) * innerW;
   const y = (v: number) => PAD.t + (H - PAD.t - PAD.b) * (1 - v / max);
@@ -201,7 +202,7 @@ function Plot({ series }: { series: Series }) {
         height={H}
         className="viz"
         role="img"
-        aria-label={`Response time, ${RANGE_NAME[range]}: average ${millis(series.stats.avgMs)}, slowest ${millis(series.stats.maxMs)}`}
+        aria-label={`Response time, ${RANGE_NAME[range]}: ${newest ? `average ${millis(series.stats.avgMs)}, slowest ${millis(series.stats.maxMs)}` : 'no times measured'}`}
         tabIndex={0}
         onPointerMove={(e) => pick(e.clientX, e.currentTarget)}
         // a finger taps a point; its value stays until the next tap
@@ -215,11 +216,11 @@ function Plot({ series }: { series: Series }) {
           setHover((h) => Math.min(points.length - 1, Math.max(0, (h ?? points.length - 1) + (e.key === 'ArrowLeft' ? -1 : 1))));
         }}
       >
-        {[0, max / 2, max].map((t) => (
+        {yTicks.map((t) => (
           <g key={t}>
             <line className="viz-grid" x1={PAD.l} x2={w - PAD.r} y1={y(t)} y2={y(t)} />
             <text className="viz-tick" x={PAD.l - 6} y={y(t)} textAnchor="end" dominantBaseline="middle">
-              {millis(t)}
+              {msTick(t)}
             </text>
           </g>
         ))}

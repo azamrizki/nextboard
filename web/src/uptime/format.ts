@@ -1,3 +1,4 @@
+import { niceMax } from '../usage/format';
 import type { Monitor, MonitorStatus } from './api';
 
 export const STATUS_LABEL: Record<MonitorStatus, string> = { up: 'Up', down: 'Down', pending: 'Pending', paused: 'Paused', waiting: 'Waiting', maintenance: 'Maintenance' };
@@ -15,10 +16,38 @@ export function percent(v: number | null | undefined): string {
   return `${(Math.floor(v * 100) / 100).toFixed(2)}%`;
 }
 
+/** A time the hub measured. It counts whole milliseconds, cut off: 0 is under one. */
 export function millis(v: number | null | undefined): string {
   if (v === null || v === undefined || v < 0) return '—';
+  if (v < 1) return '<1 ms';
   if (v < 1000) return `${Math.round(v)} ms`;
   return `${(v / 1000).toFixed(v < 10000 ? 2 : 1)} s`;
+}
+
+const DAY_MS = 24 * 3600_000;
+
+/**
+ * The average response time of the last 24 hours, or null when no check in them was timed. The
+ * hub sends 0 for both "under 1 ms" and "nothing timed" (a push without ping=, a monitor still
+ * waiting): a timed check of the day tells them apart. However few checks there were.
+ */
+export function averageMs24h(m: Pick<Monitor, 'avgMs24h' | 'ms' | 'lastCheck' | 'recent'>, now = Date.now()): number | null {
+  if (m.avgMs24h > 0) return m.avgMs24h;
+  const since = now - DAY_MS;
+  const timed = (m.recent ?? []).some((b) => b.ms >= 0 && b.t >= since) || (m.ms >= 0 && !!m.lastCheck && Date.parse(m.lastCheck) >= since);
+  return timed ? 0 : null;
+}
+
+/** An axis label: as exact as the tick, so that no two read the same (0.5 ms, 12.5 ms, 1.25 s). */
+export function msTick(v: number): string {
+  const round = (x: number, digits: number) => String(Math.round(x * 10 ** digits) / 10 ** digits);
+  return v < 1000 ? `${round(v, 2)} ms` : `${round(v / 1000, 3)} s`;
+}
+
+/** The response time axis for these times (-1, not timed, left out): its top and three ticks. */
+export function msAxis(values: number[]): { max: number; ticks: number[] } {
+  const max = niceMax(Math.max(1, ...values.filter((v) => v >= 0)));
+  return { max, ticks: [0, max / 2, max] };
 }
 
 export function duration(sec: number): string {

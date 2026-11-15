@@ -18,7 +18,7 @@ import { AlertsDialog } from '../../uptime/AlertsDialog';
 import { MaintenanceDialog } from '../../uptime/MaintenanceDialog';
 import { PublicPageDialog } from '../../uptime/PublicPageDialog';
 import { uptimeApi, type Monitor, type UptimeEvent } from '../../uptime/api';
-import { byUrgency, dateTime, duration, millis, percent, STATUS_BADGE, STATUS_DOT, STATUS_LABEL } from '../../uptime/format';
+import { averageMs24h, byUrgency, dateTime, duration, millis, percent, STATUS_BADGE, STATUS_DOT, STATUS_LABEL } from '../../uptime/format';
 import { Heartbeats, HeartbeatsDetail } from '../../uptime/Heartbeats';
 import { MonitorForm } from '../../uptime/MonitorForm';
 import { ResponseChart } from '../../uptime/ResponseChart';
@@ -205,7 +205,7 @@ function Detail({ m, onBack, onEdit, onDelete }: { m: Monitor; onBack: () => voi
 
       <div className="stat-tiles up-stats">
         <Stat label="Response" value={millis(m.ms)} sub="last check" />
-        <Stat label="Average" value={m.avgMs24h ? millis(m.avgMs24h) : '—'} sub="24 hours" />
+        <Stat label="Average" value={millis(averageMs24h(m))} sub="24 hours" />
         <Stat label="Uptime" value={percent(m.uptime24h)} sub="24 hours" />
         <Stat label="Uptime" value={percent(m.uptime30d)} sub="30 days" />
         {m.cert && <Stat label="Certificate" value={days < 0 ? 'Expired' : `${days} days`} sub={m.cert.issuer || formatDateTime(m.cert.notAfter)} warn={days <= CERT_WARN_DAYS} />}
