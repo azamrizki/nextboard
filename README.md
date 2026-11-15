@@ -137,7 +137,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 
 ### Code and review
 
-- **A workbench per part.** Monaco with the project machine's own language servers and debuggers, search, tasks, ports and a terminal panel. Open VSX themes and grammars load as data; extension code never runs.
+- **An editor for the whole project.** Monaco with each part's own language servers and debuggers, search, tasks, ports and a terminal panel. An editor card at the project root shows every part as a folder; a card in one part shows only that part. Cards that show the same file share its unsaved edits. Open VSX themes and grammars load as data; extension code never runs.
 - **Review.** Each agent's changes, file by file, to keep or undo, for every CLI and for folders without git.
 - **Local History.** Every earlier state of a file, to compare and restore.
 - **Git.** Stage single changes, commit, push, stash, resolve conflicts, browse the graph and open pull requests through `gh`. Discard moves files to a trash; it never deletes.
@@ -155,7 +155,7 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 
 ### Projects across machines
 
-A project holds up to eight named parts, each a folder on This PC or on an SSH machine:
+A project holds up to eight named parts, each a folder on This PC or on an SSH machine. All parts are equal: rename, reorder, split off or remove any of them, as long as one is left.
 
 | Part | Machine | Folder |
 |---|---|---|
@@ -163,9 +163,12 @@ A project holds up to eight named parts, each a folder on This PC or on an SSH m
 | API | api-server | `/srv/acme-api` |
 | Worker | worker-1 | `/srv/acme-worker` |
 
-- **Shared:** memory, critical notes, the lead, boards, monitors and credentials. **Per part:** consoles, files, git, workbench, review and Local History.
-- **Direct work by part.** `spawn 2 claude in API` opens two consoles there, and Mission Map filters by part.
-- **Access.** An agent may change its own part and other parts on its machine. Parts on other machines are read-only for it unless you allow full access. A part can be read-only for everyone, such as a production server. These are hub rules with [limits](#security).
+- **One root.** The project is a root with one folder per part: `acme-shop/Storefront`, `acme-shop/API`, `acme-shop/Worker`. It is a view. Files stay on their machines and nothing is copied or synced. A project in one folder looks as it always did.
+- **Root or part.** Consoles, groups, layouts and editor cards go at the root, where they reach every part, or in one part. In a project of several parts, every place that starts them asks *Place in: Root (all parts) / part* and remembers your last choice. The lead always works at the root.
+- **At the root.** A root console runs on This PC in a folder the hub keeps: a link for each local part, a note for each server part, and an `AGENTS.md` / `CLAUDE.md` that lists every part and how to reach it. Server files are read and changed through the hub's tools over SSH, never copied.
+- **Shared:** memory, critical notes, the lead, boards, monitors and credentials. **Per part:** files, git, review, Local History and language servers.
+- **Direct work by part.** `spawn 2 claude in API` opens two consoles there, an order that names no part goes to the root, and Mission Map filters by part. Saved layouts remember each group's part by name and ask when a project lacks it.
+- **Access.** An agent may change its own part and other parts on its machine. Parts on other machines are read-only for it unless you allow full access. A part can be read-only for everyone, such as a production server. At the root, each part's own rule applies. These are hub rules with [limits](#security).
 - **Merge and split.** Merge another project in as parts while its consoles keep running, or split a part out. Files stay where they are ([contract](docs/API-board.md#1-project--workspace)).
 
 <img src="docs/media/parts.png" alt="The Parts of acme-shop dialog: Storefront on This PC, API on api-server, Worker on worker-1, each with a Read-only box">
