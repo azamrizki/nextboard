@@ -31,6 +31,8 @@ rm -f bin/air/hub.pid # the port check above found no hub
 
 if [ "$RELOAD" = 0 ]; then
 	go build -o bin/nextboard-dev ./cmd/nextboard || exit 1
+	# instance "dev" (scripts/devinstance); with air, dev-hub.sh does this before every start
+	go run ./scripts/devinstance "$DATA" || echo "dev: data folder not set to instance dev; the hub starts as it is." >&2
 	hub=(bin/nextboard-dev serve --dev --dev-web-port "$WEB_PORT" --data-dir "$DATA" --listen "$LISTEN")
 	go_reload="mati"
 else

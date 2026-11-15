@@ -142,6 +142,11 @@ type Manager struct {
 	// IDELink connects a Claude console to the editor card (docs/API-agents.md §24):
 	// it returns what to add to the console's environment. configDir is the CLI's.
 	IDELink func(sp Spec, configDir string) ([]string, error)
+	// HubID marks the tmux sessions this hub starts on servers (TmuxName), so a sibling hub on
+	// the same server never takes them for its own orphans. "" keeps the legacy nb-<id>.
+	HubID string
+	// LocalEnv is added to the environment of every console of This PC (NEXTBOARD_INSTANCE).
+	LocalEnv []string
 
 	// HubName returns the hub's display name (used as "This PC" label).
 	HubName  func() string
@@ -825,7 +830,7 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		spec.RemoteMachineID, spec.RemoteCwd, spec.Cwd = target, cwd, dir
 	}
 	if sm, ok := m.machines.SSH(req.MachineID); ok && sm.EffectivePersist() == "tmux" {
-		spec.TmuxName = "nb-" + sid
+		spec.TmuxName = TmuxName(m.HubID, sid)
 	}
 	m.mu.Lock()
 	if req.Handle != "" {
@@ -1348,6 +1353,21 @@ func (m *Manager) CountByMachine(machineID string) int {
 		}
 	}
 	return n
+}
+
+// TmuxPrefix starts the tmux session names the hub with this hubId starts on servers. A hub
+// without one, and every hub before hubIds, used nb-<console id> (LegacyTmuxPrefix).
+func TmuxPrefix(hubID string) string { return "nb-" + hubID + "-" }
+
+// LegacyTmuxPrefix starts the names that carry no hub mark: nb-<console id>.
+const LegacyTmuxPrefix = "nb-s_"
+
+// TmuxName is the tmux session of console sid on a server: nb-<hubId>-<sid>.
+func TmuxName(hubID, sid string) string {
+	if hubID == "" {
+		return "nb-" + sid
+	}
+	return TmuxPrefix(hubID) + sid
 }
 
 // TmuxNames returns the tmux session names owned by nodes on a machine.

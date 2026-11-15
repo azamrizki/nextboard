@@ -5,21 +5,32 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/azamrizki/nextboard/internal/instance"
 	"github.com/azamrizki/nextboard/internal/update"
 	"github.com/azamrizki/nextboard/internal/version"
 )
 
+// cmdUpdate replaces this binary with a release, then restarts every instance whose service runs
+// it (listed before anything changes), since they all run the one binary. With --instance only
+// that instance's service restarts, and the others are named as still on the old build.
 func cmdUpdate(args []string) error {
-	fs, _ := newFlags("update")
+	fs, dir := newFlags("update")
 	repo := fs.String("repo", version.Repo, "GitHub repo owner/name")
 	force := fs.Bool("force", false, "reinstall even if the version is the same, or older")
 	tag := fs.String("version", "", "install this release, such as a beta (v0.4.0-beta.1), instead of the latest stable one")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	only := ""
+	if flagGiven(fs, "instance") || flagGiven(fs, "data-dir") {
+		inst, err := resolveFlags(fs, *dir)
+		if err != nil {
+			return err
+		}
+		only = inst.Name
 	}
 	if *repo == "" {
 		return errors.New("GitHub repo not known; use --repo owner/nextboard")
@@ -51,19 +62,50 @@ func cmdUpdate(args []string) error {
 			return nil
 		}
 	}
-	self, err := os.Executable()
+	self, err := selfBin()
 	if err != nil {
 		return err
 	}
-	if self, err = filepath.EvalSymlinks(self); err != nil {
+	services, err := instance.ServicesOn(self)
+	if err != nil {
 		return err
+	}
+	var restart, stay []instance.Instance
+	for _, in := range services {
+		if only == "" || in.Name == only {
+			restart = append(restart, in)
+		} else {
+			stay = append(stay, in)
+		}
+	}
+	if len(restart) > 0 {
+		fmt.Printf("After the update these instances restart (local agents relaunch with their resume arguments): %s\n", describeInstances(restart))
 	}
 	if err := client.Install(ctx, rel, self, nil); err != nil {
 		return err
 	}
 	fmt.Printf("Updated %s → %s (the previous binary is kept as %s)\n", version.Version, rel.TagName, update.OldPath(self))
-	if err := restartService(); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: service restart failed:", err)
+	for _, in := range restart {
+		if err := update.RestartService(in.Name); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: restarting %s (%s) failed: %v\n", in.Name, in.Service.Name, err)
+		}
+	}
+	switch {
+	case len(stay) > 0:
+		fmt.Printf("These still run %s until they restart: %s\n", version.Version, describeInstances(stay))
+	case len(restart) == 0 && only != "":
+		fmt.Printf("No service of instance %s runs %s: restart its hub yourself.\n", only, self)
+	case len(restart) == 0:
+		fmt.Printf("No service runs %s: restart the hubs that run it yourself.\n", self)
 	}
 	return nil
+}
+
+// describeInstances is "default (127.0.0.1:12312), work (127.0.0.1:12412)".
+func describeInstances(ins []instance.Instance) string {
+	parts := make([]string, len(ins))
+	for i, in := range ins {
+		parts[i] = in.Name + " (" + in.Listen + ")"
+	}
+	return strings.Join(parts, ", ")
 }

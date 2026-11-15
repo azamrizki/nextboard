@@ -40,6 +40,11 @@ interface Chip {
 
 /** What the CLI's own usage screen is called, for the footer. */
 const USAGE_COMMAND: Record<string, string> = { claude: '/usage', codex: '/status' };
+/**
+ * The CLI's own folder, counted with the NextBoard login profiles: it is the user's terminal's,
+ * and every instance on the machine counts it too (ROADMAP #52).
+ */
+const OWN_CLI_DIR: Record<string, string> = { claude: '~/.claude', codex: '~/.codex' };
 const ACTIVITY_DAYS = 366;
 const ACTIVITY_TTL = 5 * 60_000;
 
@@ -436,6 +441,11 @@ function ActivitySection({ machineId, agent }: { machineId: string; agent: strin
               <dd className="tabular">{durationShort(totals?.longestSessionSec ?? 0)}</dd>
             </div>
           </dl>
+          {OWN_CLI_DIR[agent] && (
+            <p className="fs-xs text-3 usage-shared">
+              Includes your own CLI (<code>{OWN_CLI_DIR[agent]}</code>), shared: every instance on this machine counts it too.
+            </p>
+          )}
         </>
       )}
     </section>

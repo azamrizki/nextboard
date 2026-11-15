@@ -342,6 +342,7 @@ func TestHubRestartResumeModes(t *testing.T) {
 			}
 			srv1.sessions.Shutdown()
 			srv1.boards.Close()
+			srv1.dataLock.Release() // the first hub is gone
 
 			srv2, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0"})
 			if err != nil {
@@ -439,6 +440,7 @@ func TestHubStopKeepsAgentForeground(t *testing.T) {
 	os.WriteFile(quit, nil, 0o644)
 	<-stopped
 	srv1.boards.Close()
+	srv1.dataLock.Release() // the first hub is gone
 	os.Remove(quit)
 
 	srv2, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0"})

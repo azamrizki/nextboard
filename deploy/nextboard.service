@@ -1,5 +1,7 @@
 # systemd user unit: `nextboard install` writes this file to
 # ~/.config/systemd/user/nextboard.service with the paths filled in.
+# `nextboard install --instance work` writes nextboard-work.service, which runs
+# `serve --instance work --data-dir %h/.nextboard-work` (README, Several instances).
 [Unit]
 Description=NextBoard hub (visual board for AI coding agents)
 After=network-online.target

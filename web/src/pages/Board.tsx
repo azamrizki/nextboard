@@ -17,6 +17,7 @@ import { AppHeader } from '../components/AppHeader';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { prefs } from '../lib/format';
+import { pageTitle } from '../lib/instance';
 import { boardPath, lastWorkspace, navigate, takeSearchParam } from '../lib/router';
 import { store, useProject, useProjects, useProjectsReady } from '../store';
 
@@ -84,9 +85,9 @@ export function BoardPage({ projectId, workspaceId }: { projectId: string; works
   }, [projectId, ws]);
 
   useEffect(() => {
-    document.title = project ? `${ws ? `${ws.name} · ` : ''}${project.name} — NextBoard` : 'NextBoard';
+    document.title = pageTitle(project ? `${ws ? `${ws.name} · ` : ''}${project.name}` : undefined);
     return () => {
-      document.title = 'NextBoard';
+      document.title = pageTitle();
     };
   }, [project, ws]);
 

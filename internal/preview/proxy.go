@@ -352,8 +352,11 @@ func stripHubCookies(h http.Header) {
 	}
 }
 
+// isHubCookie: every hub's session cookie starts with nb_session (nb_session_http,
+// nb_session_<instance>, nb_session_http_<instance>). A sibling hub on this host gets its
+// cookie sent to this hub's preview ports too, since cookies ignore the port.
 func isHubCookie(name string) bool {
-	return name == "nb_session" || name == "nb_session_http" || strings.HasPrefix(name, "nb_pv") || strings.HasPrefix(name, siteCookiePrefix)
+	return strings.HasPrefix(name, "nb_session") || strings.HasPrefix(name, "nb_pv") || strings.HasPrefix(name, siteCookiePrefix)
 }
 
 var loopbackLocation = regexp.MustCompile(`(?i)^(https?)://(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:(\d+))?(/.*)?$`)

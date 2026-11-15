@@ -234,12 +234,17 @@ func unit(t *testing.T, bin string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	writeUnit(t, home, "nextboard.service", bin+" serve --data-dir "+filepath.Join(home, ".nextboard"))
+}
+
+func writeUnit(t *testing.T, home, file, execStart string) {
+	t.Helper()
 	dir := filepath.Join(home, ".config", "systemd", "user")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := "[Service]\nType=simple\nExecStart=" + bin + " serve --data-dir " + filepath.Join(home, ".nextboard") + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "nextboard.service"), []byte(body), 0o644); err != nil {
+	body := "[Service]\nType=simple\nExecStart=" + execStart + "\n"
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -253,24 +258,58 @@ func TestManagedOnlyAsTheInstalledService(t *testing.T) {
 
 	t.Setenv("HOME", t.TempDir())
 	fakeSystemctl(t, me)
-	if err := update.Managed(bin); !errors.Is(err, update.ErrNotService) {
+	if err := update.Managed("default", bin); !errors.Is(err, update.ErrNotService) {
 		t.Fatalf("no unit: %v", err)
 	}
 	unit(t, bin)
-	if err := update.Managed(bin); err != nil {
+	if err := update.Managed("default", bin); err != nil {
 		t.Fatalf("the service: %v", err)
 	}
-	if err := update.Managed(installed(t, "another")); !errors.Is(err, update.ErrNotService) {
+	if err := update.Managed("default", installed(t, "another")); !errors.Is(err, update.ErrNotService) {
 		t.Fatalf("a unit for another binary: %v", err)
 	}
 	// the right unit, but this process is not the one it runs (by hand, under air)
 	fakeSystemctl(t, "4242")
-	if err := update.Managed(bin); !errors.Is(err, update.ErrNotService) {
+	if err := update.Managed("default", bin); !errors.Is(err, update.ErrNotService) {
 		t.Fatalf("another main pid: %v", err)
 	}
 	fakeSystemctl(t, "0")
-	if err := update.Managed(bin); !errors.Is(err, update.ErrNotService) {
+	if err := update.Managed("default", bin); !errors.Is(err, update.ErrNotService) {
 		t.Fatalf("service stopped: %v", err)
+	}
+}
+
+// A named instance is managed by its own unit, nextboard-<name>, and by no other.
+func TestManagedPerInstance(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the systemd user unit")
+	}
+	bin := installed(t, "hub")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	calls := fakeSystemctl(t, strconv.Itoa(os.Getpid()))
+	writeUnit(t, home, "nextboard.service", bin+" serve --data-dir "+filepath.Join(home, ".nextboard"))
+	if err := update.Managed("work", bin); !errors.Is(err, update.ErrNotService) {
+		t.Fatalf("work without a unit of its own: %v", err)
+	}
+	writeUnit(t, home, "nextboard-work.service", bin+" serve --instance work --data-dir "+filepath.Join(home, ".nextboard-work"))
+	if err := update.Managed("work", bin); err != nil {
+		t.Fatalf("work's unit: %v", err)
+	}
+	if got := read(t, calls); !strings.Contains(got, "show -p MainPID --value nextboard-work\n") {
+		t.Fatalf("asked about %q", got)
+	}
+	// a link to the binary is the binary
+	link := filepath.Join(t.TempDir(), "nextboard")
+	if err := os.Symlink(bin, link); err != nil {
+		t.Fatal(err)
+	}
+	writeUnit(t, home, "nextboard-side.service", link+" serve --instance side")
+	if err := update.Managed("side", bin); err != nil {
+		t.Fatalf("a unit that runs a link to it: %v", err)
+	}
+	if err := update.Managed("bad name", bin); err == nil {
+		t.Fatal("managed under a bad name")
 	}
 }
 
@@ -279,7 +318,7 @@ func TestRestartSelfDoesNotWait(t *testing.T) {
 		t.Skip("systemd")
 	}
 	calls := fakeSystemctl(t, "1")
-	if err := update.RestartSelf(); err != nil {
+	if err := update.RestartSelf("default"); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(read(t, calls)); got != "systemctl --user --no-block restart nextboard" {
@@ -287,10 +326,21 @@ func TestRestartSelfDoesNotWait(t *testing.T) {
 	}
 	// the terminal's restart waits for systemd, as before
 	calls = fakeSystemctl(t, "1")
-	if err := update.RestartService(); err != nil {
+	if err := update.RestartService("default"); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(read(t, calls)); got != "systemctl --user restart nextboard" {
+		t.Fatalf("called %q", got)
+	}
+	// a named instance's own unit
+	calls = fakeSystemctl(t, "1")
+	if err := update.RestartNoWait("work"); err != nil {
+		t.Fatal(err)
+	}
+	if err := update.RestartService("work"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(read(t, calls)); got != "systemctl --user --no-block restart nextboard-work\nsystemctl --user restart nextboard-work" {
 		t.Fatalf("called %q", got)
 	}
 }

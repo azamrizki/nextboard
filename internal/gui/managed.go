@@ -30,6 +30,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/azamrizki/nextboard/internal/instance"
 )
 
 const (
@@ -41,8 +43,10 @@ const (
 	maxBrowserZip     = 600 << 20
 	browserCheckEvery = 24 * time.Hour
 	browserFirstCheck = 2 * time.Minute
-	// SandboxProfilePath is the AppArmor profile `nextboard browser-sandbox` writes.
+	// SandboxProfilePath is the AppArmor profile `nextboard browser-sandbox` writes for the
+	// default instance; a named one has its own (SandboxProfileFile).
 	SandboxProfilePath = "/etc/apparmor.d/nextboard-browser"
+	sandboxProfileBase = "nextboard-browser"
 )
 
 // The only host a browser is downloaded from.
@@ -125,6 +129,8 @@ type managedBrowser struct {
 	restrictFile string
 	profileFile  string
 	platform     string
+	// hubProfile is this instance's AppArmor profile file (SandboxProfileFile).
+	hubProfile string
 }
 
 func (m *Manager) browsersDir() string { return m.cfg.Browsers }
@@ -237,7 +243,7 @@ func (mb *managedBrowser) sandbox() (mode, helper string) {
 	if err != nil || strings.TrimSpace(string(b)) != "1" {
 		return SandboxNamespaces, ""
 	}
-	if _, err := os.Stat(cmp.Or(mb.profileFile, SandboxProfilePath)); err == nil {
+	if _, err := os.Stat(cmp.Or(mb.profileFile, mb.hubProfile, SandboxProfilePath)); err == nil {
 		return SandboxNamespaces, ""
 	}
 	helpers := sandboxHelpers
@@ -252,11 +258,41 @@ func (mb *managedBrowser) sandbox() (mode, helper string) {
 	return SandboxSetup, ""
 }
 
-// SandboxProfile is the AppArmor profile that lets the browsers in a hub's data folder make user
-// namespaces, as Ubuntu's own profiles do for browsers installed from packages.
-func SandboxProfile(dataDir string) (string, error) {
+// SandboxProfileName is the AppArmor profile of an instance's NextBoard Chromium:
+// nextboard-browser for the default instance ("" or "default"), nextboard-browser-<name> for a
+// named one, so that allowing one instance's browser never replaces another instance's profile.
+func SandboxProfileName(name string) (string, error) {
+	if name == "" || name == instance.Default {
+		return sandboxProfileBase, nil
+	}
+	// it goes into a file name in /etc/apparmor.d and a profile's name
+	if err := instance.ValidName(name); err != nil {
+		return "", fmt.Errorf("AppArmor profile: %w", err)
+	}
+	return sandboxProfileBase + "-" + name, nil
+}
+
+// SandboxProfileFile is the file of the instance's profile: /etc/apparmor.d/<SandboxProfileName>.
+func SandboxProfileFile(inst string) (string, error) {
+	name, err := SandboxProfileName(inst)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(SandboxProfilePath), name), nil
+}
+
+// SandboxProfile is the default instance's profile (SandboxProfileFor).
+func SandboxProfile(dataDir string) (string, error) { return SandboxProfileFor(dataDir, "") }
+
+// SandboxProfileFor is the AppArmor profile that lets the browsers in an instance's data folder
+// make user namespaces, as Ubuntu's own profiles do for browsers installed from packages.
+func SandboxProfileFor(dataDir, inst string) (string, error) {
 	if !filepath.IsAbs(dataDir) || strings.ContainsAny(dataDir, "\"\n\r\x00*?[]{}^") {
 		return "", fmt.Errorf("data folder %q cannot go in an AppArmor profile", dataDir)
+	}
+	name, err := SandboxProfileName(inst)
+	if err != nil {
+		return "", err
 	}
 	glob := filepath.Join(filepath.Clean(dataDir), "browsers", "chrome-*", "chrome-linux*", "chrome")
 	return `# NextBoard Chromium, the browser of NextBoard's web tiles (written by nextboard browser-sandbox).
@@ -265,10 +301,10 @@ func SandboxProfile(dataDir string) (string, error) {
 abi <abi/4.0>,
 include <tunables/global>
 
-profile nextboard-browser "` + glob + `" flags=(unconfined) {
+profile ` + name + ` "` + glob + `" flags=(unconfined) {
   userns,
 
-  include if exists <local/nextboard-browser>
+  include if exists <local/` + name + `>
 }
 `, nil
 }
@@ -278,7 +314,11 @@ func (m *Manager) setupCommand() string {
 	if err != nil {
 		self = "nextboard"
 	}
-	return "sudo " + shellQuote(self) + " browser-sandbox --data-dir " + shellQuote(filepath.Dir(m.browsersDir()))
+	inst := ""
+	if n := m.cfg.HubInstance; n != "" && n != instance.Default && instance.ValidName(n) == nil {
+		inst = " --instance " + n
+	}
+	return "sudo " + shellQuote(self) + " browser-sandbox" + inst + " --data-dir " + shellQuote(filepath.Dir(m.browsersDir()))
 }
 
 func shellQuote(s string) string {

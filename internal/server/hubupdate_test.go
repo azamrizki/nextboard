@@ -2,13 +2,16 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/azamrizki/nextboard/internal/instance"
 	"github.com/azamrizki/nextboard/internal/update"
 	"github.com/azamrizki/nextboard/internal/update/updatetest"
 	"github.com/azamrizki/nextboard/internal/version"
@@ -38,6 +41,8 @@ type fakeRelease struct {
 	bin      string
 	restarts atomic.Int32
 	managed  error
+	// services are the instances whose service runs bin; none read from the real home
+	services []instance.Instance
 }
 
 func withFakeRelease(t *testing.T, h *testHub, current string) *fakeRelease {
@@ -52,6 +57,12 @@ func withFakeRelease(t *testing.T, h *testHub, current string) *fakeRelease {
 	u.binPath = func() (string, error) { return f.bin, nil }
 	u.managed = func(string) error { return f.managed }
 	u.restart = func() error { f.restarts.Add(1); return nil }
+	u.services = func(bin string) ([]instance.Instance, error) {
+		if bin != f.bin {
+			t.Errorf("services of %s, not %s", bin, f.bin)
+		}
+		return f.services, nil
+	}
 	return f
 }
 
@@ -61,10 +72,19 @@ func TestHubUpdateInstallsThenRestarts(t *testing.T) {
 	f := withFakeRelease(t, h, "0.9.0")
 	f.gh.Publish(t, "v0.9.0", false, []byte("hub 0.9.0"))
 	f.gh.Publish(t, "v0.9.1", false, []byte("hub 0.9.1"))
+	// this hub (the default instance) and a sibling run the binary: both restart, named first
+	f.services = []instance.Instance{
+		{Name: "default", Listen: "127.0.0.1:12312", Service: &instance.Service{Kind: "systemd", Name: "nextboard.service"}},
+		{Name: "work", Listen: "127.0.0.1:12412", Service: &instance.Service{Kind: "systemd", Name: "nextboard-work.service"}},
+	}
 
 	st, c := h.do("GET", "/api/hub/update", nil, nil)
 	if st != 200 || c["status"] != "available" || c["latest"] != "v0.9.1" || c["current"] != "0.9.0" || c["channel"] != "stable" || c["command"] != "nextboard update" || c["blocked"] != nil {
 		t.Fatalf("check %d %v", st, c)
+	}
+	if r, _ := c["restarts"].([]any); len(r) != 2 || r[0].(map[string]any)["self"] != true || r[1].(map[string]any)["name"] != "work" ||
+		r[1].(map[string]any)["listen"] != "127.0.0.1:12412" || r[1].(map[string]any)["service"] != "nextboard-work.service" || r[1].(map[string]any)["self"] != nil {
+		t.Fatalf("restarts %v", c["restarts"])
 	}
 	// asked once an hour, however often the panel opens
 	asked := len(f.gh.Requests())
@@ -82,7 +102,7 @@ func TestHubUpdateInstallsThenRestarts(t *testing.T) {
 		t.Fatalf("job %v", done)
 	}
 	res := done["result"].(map[string]any)
-	if res["from"] != "0.9.0" || res["to"] != "v0.9.1" || res["old"] != f.bin+".old" {
+	if res["from"] != "0.9.0" || res["to"] != "v0.9.1" || res["old"] != f.bin+".old" || fmt.Sprint(res["restarts"]) != "[default work]" {
 		t.Fatalf("result %v", res)
 	}
 	if b, _ := os.ReadFile(f.bin); string(b) != "hub 0.9.1" {
@@ -210,5 +230,31 @@ func TestHubUpdateOffline(t *testing.T) {
 	}
 	if st, e := h.do("POST", "/api/hub/update", nil, nil); st != 502 || e["code"] != "check_failed" {
 		t.Fatalf("offline update %d %v", st, e)
+	}
+}
+
+// After the swap the siblings on the binary restart first, then this hub, none waiting: the
+// service manager is what stops this hub.
+func TestHubUpdateRestartsTheSiblingsThenItself(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd")
+	}
+	tools := t.TempDir()
+	calls := filepath.Join(tools, "calls.log")
+	if err := os.WriteFile(filepath.Join(tools, "systemctl"), []byte("#!/bin/sh\necho \"systemctl $*\" >> \""+calls+"\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tools+":"+os.Getenv("PATH"))
+	svc := func(name string) *instance.Service { return &instance.Service{Kind: "systemd", Name: name} }
+	u := &hubUpdater{services: func(string) ([]instance.Instance, error) {
+		return []instance.Instance{{Name: "default", Service: svc("nextboard.service")}, {Name: "personal", Service: svc("nextboard-personal.service")}, {Name: "work", Service: svc("nextboard-work.service")}}, nil
+	}}
+	if err := u.restartAll("personal", "/opt/nextboard"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(calls)
+	want := "systemctl --user --no-block restart nextboard\nsystemctl --user --no-block restart nextboard-work\nsystemctl --user --no-block restart nextboard-personal\n"
+	if string(raw) != want {
+		t.Fatalf("calls:\n%s", raw)
 	}
 }

@@ -19,7 +19,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"needsSetup": s.auth.NeedsSetup(), "hubName": s.hubName()})
+	needs := s.auth.NeedsSetup()
+	out := map[string]any{"needsSetup": needs, "hubName": s.hubName()}
+	s.setupStatusInstance(out, needs) // the instance's name and hubId, never a path
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -159,10 +162,12 @@ func (s *Server) handleDeviceAuth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHub(w http.ResponseWriter, r *http.Request, p *principal) {
 	b := version.Info()
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"name": s.hubName(), "version": b.Version, "commit": b.Commit, "builtAt": b.BuiltAt, "channel": b.Channel,
 		"repo": version.Repo, "urls": s.urlsFor(r), "listen": s.listen,
-	})
+	}
+	s.hubInstanceInfo(out, p.Kind == "admin") // instance, folders, service, siblings (h_instances.go)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // PairURI builds nextboard://pair?h=&u=&c= (each URL escaped, then

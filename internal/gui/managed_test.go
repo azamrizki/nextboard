@@ -330,6 +330,55 @@ func TestSandboxProfile(t *testing.T) {
 			t.Errorf("%q was taken", bad)
 		}
 	}
+	// A named instance has a profile and a file of its own; the default keeps today's.
+	p, err = SandboxProfileFor("/home/someone/.nextboard-work", "work")
+	if err != nil || !strings.Contains(p, `profile nextboard-browser-work "/home/someone/.nextboard-work/browsers/chrome-*/chrome-linux*/chrome" flags=(unconfined)`) ||
+		!strings.Contains(p, "include if exists <local/nextboard-browser-work>") || strings.Contains(p, "<local/nextboard-browser>") {
+		t.Fatalf("%v\n%s", err, p)
+	}
+	for inst, want := range map[string]string{"": SandboxProfilePath, "default": SandboxProfilePath, "work": "/etc/apparmor.d/nextboard-browser-work"} {
+		if f, err := SandboxProfileFile(inst); err != nil || f != want {
+			t.Errorf("file of %q: %q %v", inst, f, err)
+		}
+	}
+	for _, bad := range []string{"../x", "Work", "a/b", "-x"} {
+		if _, err := SandboxProfileFile(bad); err == nil {
+			t.Errorf("instance %q was taken", bad)
+		}
+		if _, err := SandboxProfileFor("/home/someone/.nextboard-x", bad); err == nil {
+			t.Errorf("instance %q was taken in a profile", bad)
+		}
+	}
+}
+
+// TestSandboxPerInstance: a named instance's browser looks for its own profile, and the
+// command it asks for names the instance, so that allowing it leaves the default's alone.
+func TestSandboxPerInstance(t *testing.T) {
+	m := New(Config{Dir: t.TempDir(), Browsers: "/home/someone/.nextboard-work/browsers", HubInstance: "work"})
+	if m.mb.hubProfile != "/etc/apparmor.d/nextboard-browser-work" {
+		t.Fatalf("profile file %q", m.mb.hubProfile)
+	}
+	if c := m.setupCommand(); !strings.Contains(c, " browser-sandbox --instance work --data-dir /home/someone/.nextboard-work") {
+		t.Fatalf("command %q", c)
+	}
+	d := New(Config{Dir: t.TempDir(), Browsers: "/home/someone/.nextboard/browsers"})
+	if d.mb.hubProfile != SandboxProfilePath || strings.Contains(d.setupCommand(), "--instance") {
+		t.Fatalf("default: %q %q", d.mb.hubProfile, d.setupCommand())
+	}
+	// the profile a sibling instance installed does not count for this one
+	dir := t.TempDir()
+	restrict := filepath.Join(dir, "restrict")
+	_ = os.WriteFile(restrict, []byte("1\n"), 0o644)
+	m.mb.restrictFile, m.mb.helpers = restrict, []string{}
+	m.mb.hubProfile = filepath.Join(dir, "nextboard-browser-work")
+	_ = os.WriteFile(filepath.Join(dir, "nextboard-browser"), []byte("profile"), 0o644)
+	if mode, _ := m.mb.sandbox(); mode != SandboxSetup {
+		t.Fatalf("mode %q with only the default's profile", mode)
+	}
+	_ = os.WriteFile(m.mb.hubProfile, []byte("profile"), 0o644)
+	if mode, _ := m.mb.sandbox(); mode != SandboxNamespaces {
+		t.Fatalf("mode %q with its own profile", mode)
+	}
 }
 
 func TestManagedBrowserUnsupported(t *testing.T) {

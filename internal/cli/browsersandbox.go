@@ -11,34 +11,39 @@ import (
 	"runtime"
 
 	"github.com/azamrizki/nextboard/internal/gui"
-	"github.com/azamrizki/nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/instance"
 )
 
 // cmdBrowserSandbox lets NextBoard Chromium make the user namespaces its sandbox is built on, where
 // Linux restricts them (Ubuntu 23.10 and later), with an AppArmor profile like those browsers
 // installed from packages have (docs/API-gui.md §8.3). It needs root. Under sudo the default data
-// folder would be root's, so it is the invoking user's unless --data-dir names one.
+// folder would be root's, so it is the invoking user's unless --data-dir names one. Each instance
+// has a profile of its own (nextboard-browser, nextboard-browser-<name>), so allowing one
+// instance's browser never replaces another's.
 func cmdBrowserSandbox(args []string) error {
 	fs, dir := newFlags("browser-sandbox")
 	printOnly := fs.Bool("print", false, "print the profile instead of installing it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	data := *dir
-	if !flagGiven(fs, "data-dir") {
-		if name := os.Getenv("SUDO_USER"); name != "" && name != "root" {
-			if u, err := user.Lookup(name); err == nil {
-				data = filepath.Join(u.HomeDir, ".nextboard")
-			}
-		} else {
-			data = store.DefaultDir()
+	name := fs.Lookup("instance").Value.String()
+	var inst instance.Resolved
+	var err error
+	if sudoHome := sudoUserHome(); sudoHome != "" && !flagGiven(fs, "data-dir") {
+		// root's own folders are not the user's: the user's instance, by name
+		n := name
+		if n == "" {
+			n = instance.Default
 		}
+		inst, err = instance.Resolve(instance.Request{DataDir: instance.DirIn(sudoHome, n), Instance: n})
+	} else {
+		inst, err = resolveFlags(fs, *dir)
 	}
-	abs, err := filepath.Abs(data)
 	if err != nil {
 		return err
 	}
-	profile, err := gui.SandboxProfile(abs)
+	abs := inst.DataDir
+	profile, err := gui.SandboxProfileFor(abs, inst.Name)
 	if err != nil {
 		return err
 	}
@@ -51,16 +56,20 @@ func cmdBrowserSandbox(args []string) error {
 	}
 	if os.Geteuid() != 0 {
 		self, _ := os.Executable()
-		return fmt.Errorf("this needs root: sudo %s browser-sandbox --data-dir %s", self, abs)
+		return fmt.Errorf("this needs root: sudo %s --data-dir %s", withInstance(self+" browser-sandbox", inst.Name), abs)
 	}
-	if fi, err := os.Stat(filepath.Dir(gui.SandboxProfilePath)); err != nil || !fi.IsDir() {
+	path, err := gui.SandboxProfileFile(inst.Name)
+	if err != nil {
+		return err
+	}
+	if fi, err := os.Stat(filepath.Dir(path)); err != nil || !fi.IsDir() {
 		return errors.New("AppArmor is not set up on this machine, so NextBoard Chromium needs no profile")
 	}
-	tmp := gui.SandboxProfilePath + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(profile), 0o644); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, gui.SandboxProfilePath); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
 	parser := "apparmor_parser"
@@ -70,11 +79,24 @@ func cmdBrowserSandbox(args []string) error {
 			break
 		}
 	}
-	if out, err := exec.Command(parser, "-r", gui.SandboxProfilePath).CombinedOutput(); err != nil {
+	if out, err := exec.Command(parser, "-r", path).CombinedOutput(); err != nil {
 		return fmt.Errorf("loading the profile: %v: %s", err, out)
 	}
-	fmt.Printf("NextBoard Chromium in %s may now make its sandbox (%s).\n", filepath.Join(abs, "browsers"), gui.SandboxProfilePath)
+	fmt.Printf("NextBoard Chromium in %s may now make its sandbox (%s).\n", filepath.Join(abs, "browsers"), path)
 	return nil
+}
+
+// sudoUserHome is the home folder of the user who ran sudo, "" when not under sudo.
+func sudoUserHome() string {
+	name := os.Getenv("SUDO_USER")
+	if name == "" || name == "root" {
+		return ""
+	}
+	u, err := user.Lookup(name)
+	if err != nil {
+		return ""
+	}
+	return u.HomeDir
 }
 
 func flagGiven(fs *flag.FlagSet, name string) bool {

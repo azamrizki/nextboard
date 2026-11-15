@@ -26,6 +26,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/delivery"
 	"github.com/azamrizki/nextboard/internal/gui"
 	"github.com/azamrizki/nextboard/internal/idelink"
+	"github.com/azamrizki/nextboard/internal/instance"
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/mcpreg"
@@ -48,7 +49,10 @@ import (
 // Options configure Run (command-line overrides of config.json).
 type Options struct {
 	DataDir string
-	Listen  string
+	// Instance is the instance the CLI resolved for DataDir (instance.Resolve); "" keeps the
+	// one config.json records, else instance.LegacyName. It must agree with config.json.
+	Instance string
+	Listen   string
 	// StatusListen serves public status pages and nothing else; "" means no such address.
 	StatusListen string
 	// Dev accepts WebSocket Origin http://localhost:5173 (Vite dev server).
@@ -65,13 +69,15 @@ type Options struct {
 type Server struct {
 	attachRoot string // a server's paste folders; tests set a scratch one before connecting
 	st         *store.Store
-	cfgMu      sync.Mutex
-	cfg        *config.Config
-	auth       *auth.Store
-	machines   *machine.Registry
-	sessions   *session.Manager
-	uptime     *uptime.Service
-	credVault  *vault.Service
+	// dataLock is the data folder's hub.lock, held from New until shutdown: one hub per folder.
+	dataLock  *instance.Lock
+	cfgMu     sync.Mutex
+	cfg       *config.Config
+	auth      *auth.Store
+	machines  *machine.Registry
+	sessions  *session.Manager
+	uptime    *uptime.Service
+	credVault *vault.Service
 	// credReqs: commands agents asked to run with a credential (credrun.go)
 	credReqs *credRequests
 	passkeys *passkeyRelay
@@ -99,6 +105,12 @@ type Server struct {
 
 	listen       string
 	statusListen string
+
+	// ident: this hub's instance and hubId; siblings: the other instances' ports (instance_hub.go)
+	ident    instanceIdent
+	siblings siblingPorts
+	// insts: the info panel's view of the instances and New instance… (h_instances.go)
+	insts instancesState
 
 	limiter  *auth.RateLimiter
 	mirror   inputMirror
@@ -133,9 +145,25 @@ type Server struct {
 }
 
 // New loads all state from the data directory.
-func New(opts Options) (*Server, error) {
+func New(opts Options) (_ *Server, err error) {
 	st, err := store.Open(opts.DataDir)
 	if err != nil {
+		return nil, err
+	}
+	lock, err := instance.AcquireLock(st.Dir)
+	if errors.Is(err, instance.ErrLockUnsupported) {
+		log.Printf("warning: %v; nothing keeps a second hub off this data folder", err)
+		err = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			lock.Release()
+		}
+	}()
+	if _, err := instance.EnsureIdentity(st.Dir, opts.Instance); err != nil {
 		return nil, err
 	}
 	cfg, err := config.Load(st)
@@ -191,7 +219,7 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		st: st, cfg: cfg, auth: as, machines: reg, sessions: mgr, connLog: connLog,
+		st: st, dataLock: lock, cfg: cfg, auth: as, machines: reg, sessions: mgr, connLog: connLog,
 		projects: projects, boards: board.NewManager(st),
 		mcp: mcpServers, providers: provs, agents: mgr.Agents, settings: sets, extensions: studio.NewExtensions(st.Path("extensions")), profiles: profs, jobs: jobs.NewManager(st, reg.Host), attn: newAttentionRing(),
 		events: NewBroker(), conns: newConnRegistry(), dev: opts.Dev, devWeb: cmp.Or(opts.DevWebPort, 5173),
@@ -202,6 +230,7 @@ func New(opts Options) (*Server, error) {
 		art:          newArtState(),
 	}
 	s.passkeys = newPasskeyRelay(s.st.Path("gui", "passkey.json"))
+	s.setupInstance()
 	if err := s.startHookListener(); err != nil {
 		log.Printf("local hook listener failed: %v", err)
 	}
@@ -449,6 +478,7 @@ func (s *Server) shutdown() {
 	s.machines.Close()
 	s.auth.Flush()
 	s.noteHubStop()
+	s.dataLock.Release()
 }
 
 // hubMarker exists while the hub runs and is touched every minute. Finding one
@@ -502,7 +532,11 @@ func (s *Server) announceSetup(print bool) {
 			return
 		}
 	}
-	log.Printf("hub not set up yet: run `nextboard setup-link` to make a setup link")
+	cmd := "nextboard setup-link"
+	if n := s.instanceName(); n != "" {
+		cmd += " --instance " + n
+	}
+	log.Printf("hub not set up yet: run `%s` to make a setup link", cmd)
 }
 
 // ServeHTTP applies global headers, CSRF and body limits.
@@ -522,6 +556,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.Set("Cache-Control", "no-cache")
 		} else {
 			h.Set("Content-Security-Policy", s.spaCSP(preview.SchemeOf(r), r.Host))
+		}
+		if r.URL.Path == "/manifest.json" {
+			s.handleManifest(w, r) // named after the instance (h_instances.go)
+			return
 		}
 		s.spa.ServeHTTP(w, r)
 		return

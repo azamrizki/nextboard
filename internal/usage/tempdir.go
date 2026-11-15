@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/azamrizki/nextboard/internal/instance"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/store"
 )
@@ -23,6 +24,10 @@ import (
 // real folder (not a symlink) owned by the user, and every folder in use is
 // recorded in usage/pending-cleanup.json so a crashed hub removes it when
 // the machine is next connected. Nothing else under /tmp is ever touched.
+//
+// A hub with a hubId uses /tmp/nb-usage-<uid>-<hubId> instead: two hubs of one user on a
+// machine (sibling instances, or hubs of two PCs that share a server) would otherwise remove
+// each other's folder in the middle of a check. Still one folder, so one trust entry, per hub.
 
 const pendingFile = "usage/pending-cleanup.json"
 
@@ -40,9 +45,20 @@ const (
 // own folder; the check refuses to use or remove it.
 var ErrUnsafeTemp = errors.New("the temp usage folder is unsafe (a symlink or not owned by the user)")
 
-// dirRe validates a usage folder path for root.
+// HubIDer is a Hub with a hubId: its usage folder carries it.
+type HubIDer interface{ HubID() string }
+
+// hubTag is hub's hubId when it may go into a folder name, else "" (the legacy folder).
+func hubTag(hub Hub) string {
+	if h, ok := hub.(HubIDer); ok && instance.ValidHubID(h.HubID()) {
+		return h.HubID()
+	}
+	return ""
+}
+
+// dirRe validates a usage folder path for root: nb-usage-<uid>, or nb-usage-<uid>-<hubId>.
 func dirRe(root string) *regexp.Regexp {
-	return regexp.MustCompile(`^` + regexp.QuoteMeta(root) + `/nb-usage-[0-9]{1,10}$`)
+	return regexp.MustCompile(`^` + regexp.QuoteMeta(root) + `/nb-usage-[0-9]{1,10}(-[a-z0-9]{4,32})?$`)
 }
 
 // ValidTempPath reports whether p is a usage folder path that may be removed.
@@ -55,9 +71,13 @@ func shellCase(root string) string {
 
 // makeScript removes a leftover folder of a crashed check (only a real
 // folder owned by the user), then creates the folder fresh (mkdir fails if
-// anything appeared in between) and prints it.
-func makeScript(root string) string {
-	return `u=$(id -u) || exit 125; d=` + machine.Quote(root) + `/nb-usage-$u; ` +
+// anything appeared in between) and prints it. tag is the hubId ("" = none).
+func makeScript(root, tag string) string {
+	suffix := ""
+	if instance.ValidHubID(tag) { // it goes into the folder name and the script as it is
+		suffix = "-" + tag
+	}
+	return `u=$(id -u) || exit 125; d=` + machine.Quote(root) + `/nb-usage-$u` + suffix + `; ` +
 		`case "$d" in ` + shellCase(root) + `) ;; *) exit 125;; esac; ` +
 		`case "$u" in *[!0-9]*|'') exit 125;; esac; ` +
 		`if [ -L "$d" ]; then echo ` + unsafeMarker + `; exit 124; fi; ` +
@@ -65,10 +85,13 @@ func makeScript(root string) string {
 		`mkdir -m 700 -- "$d" || exit 125; echo "` + dirMarker + `$d"`
 }
 
-// removeScript removes p only when it is still a real folder of the user.
+// removeScript removes p only when it is still a real folder of the user: after root, only
+// nb-usage-<digits>, optionally -<hubId>.
 func removeScript(root, p string) string {
 	return `d=` + machine.Quote(p) + `; case "$d" in ` + shellCase(root) + `) ;; *) exit 125;; esac; ` +
-		`case "${d##*/nb-usage-}" in *[!0-9]*|'') exit 125;; esac; ` +
+		`s=${d#` + machine.Quote(root) + `/nb-usage-}; u=${s%%-*}; t=${s#"$u"}; ` +
+		`case "$u" in *[!0-9]*|'') exit 125;; esac; ` +
+		`case "$t" in '') ;; -|-*[!abcdefghijklmnopqrstuvwxyz0123456789]*) exit 125;; -*) ;; *) exit 125;; esac; ` +
 		`if [ -L "$d" ]; then echo ` + unsafeMarker + `; exit 124; fi; ` +
 		`if [ -d "$d" ] && [ -O "$d" ]; then rm -rf -- "$d" || exit 125; fi; exit 0`
 }
@@ -83,7 +106,9 @@ type pendingEntry struct {
 // tempDirs creates and removes usage folders and keeps pending-cleanup.json.
 type tempDirs struct {
 	st *store.Store
-	mu sync.Mutex
+	// tag is the hubId in the folder's name ("" = the legacy nb-usage-<uid>).
+	tag string
+	mu  sync.Mutex
 }
 
 func (t *tempDirs) load() []pendingEntry {
@@ -140,7 +165,7 @@ func (t *tempDirs) Pending() []pendingEntry {
 func (t *tempDirs) make(ctx context.Context, h machine.Host) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, tempTimeout)
 	defer cancel()
-	res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: makeScript(Root), Timeout: tempTimeout})
+	res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: makeScript(Root, t.tag), Timeout: tempTimeout})
 	if err != nil {
 		return "", err
 	}

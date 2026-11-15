@@ -55,7 +55,13 @@ func hubDataDir(t *testing.T) string {
 
 func newTestHub(t *testing.T) *testHub {
 	t.Helper()
-	srv, err := New(Options{DataDir: hubDataDir(t), Listen: "127.0.0.1:0"})
+	return newTestHubAt(t, hubDataDir(t))
+}
+
+// newTestHubAt is newTestHub on dir, which may already hold a config.json (an instance's).
+func newTestHubAt(t *testing.T, dir string) *testHub {
+	t.Helper()
+	srv, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,6 +424,7 @@ func TestHubRestartResumesSessions(t *testing.T) {
 	waitScrollback(t, srv1, in.ID, "RUN:sh")
 	srv1.sessions.Shutdown()
 	srv1.boards.Close()
+	srv1.dataLock.Release() // the first hub is gone
 
 	srv2, err := New(Options{DataDir: dir, Listen: "127.0.0.1:0"})
 	if err != nil {

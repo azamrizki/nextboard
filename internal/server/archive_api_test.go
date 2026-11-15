@@ -157,6 +157,7 @@ func TestProjectArchiveRestoreDelete(t *testing.T) {
 	// the hub restarts: nothing of it starts
 	h.srv.sessions.Shutdown()
 	h.srv.boards.Close()
+	h.srv.dataLock.Release() // the first hub is gone
 	srv2, err := New(Options{DataDir: h.srv.st.Dir, Listen: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)

@@ -198,7 +198,8 @@ function priceRows(p: ApiProvider | null): PriceRow[] {
   return rows.length ? rows : [{ model: p?.model ?? '', input: '', output: '', cacheRead: '', cacheWrite: '' }];
 }
 
-function ProviderDialog({ provider, onClose }: { provider: ApiProvider | null; onClose: () => void }) {
+/** Add or edit a provider; the setup wizard uses it too (onSaved gets what was saved). */
+export function ProviderDialog({ provider, onClose, onSaved }: { provider: ApiProvider | null; onClose: () => void; onSaved?: (p: ApiProvider) => void }) {
   const [kind, setKind] = useState<ApiProvider['kind']>(provider?.kind ?? 'anthropic');
   const [name, setName] = useState(provider?.name ?? '');
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '');
@@ -264,6 +265,7 @@ function ProviderDialog({ provider, onClose }: { provider: ApiProvider | null; o
       const body: ProviderDraft = { ...draft(), models, prices: priced, budget: b };
       const saved = provider ? await providersApi.update(provider.id, body) : await providersApi.create(body);
       providersStore.upsert(saved);
+      onSaved?.(saved);
       toast.success(provider ? `“${saved.name}” saved.` : `“${saved.name}” added. Pick it where you start a console.`);
       onClose();
     } catch (err) {

@@ -24,12 +24,106 @@ export interface Health extends BuildInfo {
 export interface SetupStatus {
   needsSetup: boolean;
   hubName: string;
+  /** This hub's instance ("default" for ~/.nextboard); never a path before login. */
+  instance?: string;
+  defaultInstance?: boolean;
+  hubId?: string;
+  /** While setup is needed: the hostname, with " · <instance>" for a named instance. */
+  suggestedHubName?: string;
 }
 
 export interface Hub extends BuildInfo {
   name: string;
   urls: string[];
   listen: string;
+  // ---- instances of This PC (docs/API.md Instances); paths and siblings for admins only ----
+  instance?: { name: string; default: boolean };
+  hubId?: string;
+  dataDir?: string;
+  configFile?: string;
+  /** kind "none": no service of this instance runs this folder (started by hand, make dev). */
+  service?: HubService;
+  statusListen?: string;
+  /** Another program is at the hub's path since it started (an update): it runs it after a restart. */
+  replacedSinceStart?: boolean;
+  binary?: { path: string; replacedSinceStart: boolean };
+  siblings?: HubSibling[];
+}
+
+export interface HubService {
+  kind: 'systemd' | 'launchd' | 'none' | string;
+  name?: string;
+  unitPath?: string;
+  /** This process is the one the service runs. */
+  managed?: boolean;
+}
+
+/** Another instance of This PC (GET /api/hub, admins). */
+export interface HubSibling {
+  name: string;
+  hubName?: string;
+  listen: string;
+  port?: number;
+  urls: string[];
+  running: boolean;
+  state: 'running' | 'stopped' | string;
+  service?: string;
+  problems?: string[];
+}
+
+/** An instance as GET /api/instances lists it. */
+export interface InstanceInfo {
+  name: string;
+  hubId?: string;
+  dataDir: string;
+  configFile: string;
+  configured: boolean;
+  listen: string;
+  statusListen?: string;
+  previewRange: [number, number];
+  service?: { kind: string; name: string; unitPath: string; bin: string };
+  running: boolean;
+  pid?: number;
+  problems?: string[];
+}
+
+/** GET /api/instances (admin). */
+export interface InstancesList {
+  self: string;
+  items: InstanceInfo[] | null;
+  suggest: { host: string; loopback: boolean; hostname: string; port?: number; previewRange?: [number, number] };
+  noFreeBlock?: string;
+}
+
+/** POST /api/instances (admin). */
+export interface NewInstanceBody {
+  name: string;
+  hubName?: string;
+  listenHost: string;
+  port?: number;
+  allowNetwork?: boolean;
+  password: string;
+}
+
+/** 201 of POST /api/instances. */
+export interface CreatedInstance {
+  instance: string;
+  hubId: string;
+  dataDir: string;
+  configFile: string;
+  listen: string;
+  previewRange: [number, number];
+  service?: { kind: string; name: string; unitPath: string };
+  started: boolean;
+  healthy: boolean;
+  /** How to start it, when no service manager could. */
+  command?: string;
+  urls: string[];
+  /** Single use, until expiresAt. */
+  setupUrls?: string[];
+  expiresAt?: string;
+  warnings?: string[];
+  startError?: string;
 }
 
 /** GET /api/hub/update (docs/API.md Hub update). */
@@ -47,6 +141,8 @@ export interface HubUpdate {
   jobId?: string;
   installed?: string;
   restartError?: string;
+  /** The instances whose service runs this binary, this one too (self): an update restarts them all. */
+  restarts?: { name: string; listen: string; service: string; self?: boolean }[];
 }
 
 export type Me =

@@ -16,16 +16,32 @@ import (
 // browser refuses to let an http:// page overwrite a Secure cookie of the same
 // name: with one name, login over HTTP silently fails on any host that was
 // used over HTTPS before (login answers 200, the cookie is dropped).
+//
+// Because cookies ignore the port, a named instance adds its name
+// (nb_session_work, nb_session_http_work): otherwise logging into one hub of a
+// host replaces the cookie of every other hub there, and they log each other
+// out. The default instance keeps these names, so an upgrade logs nobody out.
+// The preview proxy keeps every cookie that starts with nb_session from a dev
+// server (preview.isHubCookie).
 const (
 	cookieName      = "nb_session"
 	cookieNamePlain = "nb_session_http"
 )
 
-func sessionCookieName(r *http.Request) string {
-	if preview.SchemeOf(r) == "https" {
-		return cookieName
+func (s *Server) sessionCookieName(r *http.Request) string {
+	return sessionCookieFor(preview.SchemeOf(r), s.instanceName())
+}
+
+// sessionCookieFor is the session cookie of an instance ("" = default) for a scheme.
+func sessionCookieFor(scheme, instance string) string {
+	name := cookieNamePlain
+	if scheme == "https" {
+		name = cookieName
 	}
-	return cookieNamePlain
+	if instance != "" {
+		name += "_" + instance
+	}
+	return name
 }
 
 // principal is the authenticated caller.
@@ -62,6 +78,12 @@ func (s *Server) routes() {
 	pub("POST /api/auth/challenge", s.handleChallenge)
 	pub("POST /api/auth/device", s.handleDeviceAuth)
 	authed("GET /api/hub", s.handleHub)
+	// the setup wizard's copy from another instance of this machine (h_instance_import.go)
+	admin("GET /api/instances/import", s.handleImportSources)
+	admin("POST /api/instances/import", s.handleInstanceImport)
+	// the info panel's other instances and New instance… (h_instances.go)
+	admin("GET /api/instances", s.handleInstances)
+	admin("POST /api/instances", s.handleInstanceCreate)
 	authed("GET /api/hub/update", s.handleHubUpdateCheck)
 	admin("POST /api/hub/update", s.handleHubUpdate)
 
@@ -235,7 +257,7 @@ func (s *Server) routes() {
 // header. Tokens are never read from the URL: a reverse proxy logs query
 // strings.
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) *principal {
-	if c, err := r.Cookie(sessionCookieName(r)); err == nil && c.Value != "" {
+	if c, err := r.Cookie(s.sessionCookieName(r)); err == nil && c.Value != "" {
 		if ok, renew := s.auth.ValidateCookie(c.Value); ok {
 			if renew {
 				s.setCookie(w, r, c.Value)
@@ -275,7 +297,7 @@ func (s *Server) requireAuth(h handler, adminOnly bool) http.HandlerFunc {
 // the reverse proxy); on plain HTTP a Secure cookie would be dropped.
 func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, tok string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookieName(r), Value: tok, Path: "/",
+		Name: s.sessionCookieName(r), Value: tok, Path: "/",
 		MaxAge: int(auth.CookieTTL / time.Second), Expires: time.Now().Add(auth.CookieTTL),
 		HttpOnly: true, Secure: preview.SchemeOf(r) == "https", SameSite: http.SameSiteStrictMode,
 	})
@@ -283,7 +305,7 @@ func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, tok string) {
 
 func (s *Server) clearCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookieName(r), Value: "", Path: "/", MaxAge: -1,
+		Name: s.sessionCookieName(r), Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: preview.SchemeOf(r) == "https", SameSite: http.SameSiteStrictMode,
 	})
 }

@@ -208,6 +208,7 @@ func TestSiteProxy(t *testing.T) {
 		h.Add("Set-Cookie", "portal-session=abc; expires=Tue, 03 Nov 2026 16:04:54 GMT; Max-Age=7200; path=/; domain=.example.net; secure; httponly; samesite=lax")
 		h.Add("Set-Cookie", "embed=1; Path=/; Secure; SameSite=None")
 		h.Add("Set-Cookie", "nb_session=evil; Path=/")
+		h.Add("Set-Cookie", "nb_session_http_work=evil; Path=/")
 		h.Add("Set-Cookie", "nb_c_00000000_other=evil; Path=/")
 		io.WriteString(w, `<html><head><title>x</title></head><body>`+
 			`<a id=https href="https://`+testSite+`/a">a</a><a id=explicit href="https://`+testSite+`:443/b">b</a>`+
@@ -342,7 +343,7 @@ func TestSiteProxy(t *testing.T) {
 		return s.get(base+path, hdr...)
 	}
 	_, echo := req("/echo", "Origin", base, "Referer", base+"/page?x=1", "X-Real-Ip", "203.0.113.9",
-		"Cookie", "nb_session=hub; nb_session_http=hub; nb_c_11111111_x=otherSite; plain=1")
+		"Cookie", "nb_session=hub; nb_session_http=hub; nb_session_work=sibling; nb_session_http_work=sibling; nb_c_11111111_x=otherSite; plain=1")
 	want := "host=" + testSite + "\norigin=http://" + testSite + "\nreferer=http://" + testSite + "/page?x=1\ncookie=portal-session=abc; embed=1\nreal=\n"
 	if echo != want {
 		t.Errorf("echo\n%s\nwant\n%s", echo, want)

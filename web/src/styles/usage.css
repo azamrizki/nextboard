@@ -409,6 +409,9 @@
 .usage-note {
   margin-top: calc(var(--s-1) * -1);
 }
+.usage-shared {
+  margin: 0;
+}
 
 /* ---- token chart ---- */
 .modal.tokens-modal {

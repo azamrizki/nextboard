@@ -198,8 +198,9 @@ export default function TokenChart({ machineId, onClose }: { machineId: string; 
             </ul>
           </div>
           <p className="fs-xs text-3">
-            Counted from the CLIs’ own transcripts on your machines{data.partial ? ' (partly: the scan ran out of time, the rest comes next time)' : ''}. This is not a bill —
-            your provider’s dashboard is the source of truth.
+            Counted from the CLIs’ own transcripts on your machines{data.partial ? ' (partly: the scan ran out of time, the rest comes next time)' : ''}: every
+            login profile, and your own CLI (<code>~/.claude</code>, <code>~/.codex</code>), which is shared, so every instance on a machine counts it too. This is
+            not a bill — your provider’s dashboard is the source of truth.
           </p>
         </>
       )}

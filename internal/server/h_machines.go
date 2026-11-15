@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/session"
 )
 
 func (s *Server) machineInfo(w http.ResponseWriter, id string) {
@@ -181,24 +183,42 @@ func (s *Server) handleMachineLs(w http.ResponseWriter, r *http.Request, p *prin
 	writeJSON(w, http.StatusOK, l)
 }
 
-// orphans returns nb-* tmux sessions with no node on the board.
-func (s *Server) orphans(ctx context.Context, id string) ([]string, error) {
+// orphans returns the tmux sessions on a server that have no node on the board: own are this
+// hub's (nb-<hubId>-…); legacy carry no hub mark (nb-s_…, from before hubIds), so they may be
+// another hub's live consoles, and the dialog leaves them unselected. A sibling hub's names
+// (nb-<its hubId>-…) are not listed at all: a shared server holds other hubs' consoles.
+func (s *Server) orphans(ctx context.Context, id string) (own, legacy []string, err error) {
+	own, legacy = []string{}, []string{}
 	m, ok := s.machines.SSH(id)
 	if !ok {
-		return []string{}, nil
+		return own, legacy, nil
 	}
 	names, err := m.TmuxSessions(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	owned := s.sessions.TmuxNames(id)
-	out := []string{}
+	own, legacy = classifyOrphans(names, s.sessions.TmuxNames(id), s.hubID())
+	return own, legacy, nil
+}
+
+// classifyOrphans sorts a server's tmux sessions that no node owns into this hub's and those
+// without a hub mark; everything else (a sibling hub's, someone's own nb-…) is left out.
+func classifyOrphans(names []string, owned map[string]bool, hubID string) (own, legacy []string) {
+	own, legacy = []string{}, []string{}
+	mine := ""
+	if hubID != "" {
+		mine = session.TmuxPrefix(hubID)
+	}
 	for _, n := range names {
-		if !owned[n] {
-			out = append(out, n)
+		switch {
+		case owned[n]:
+		case mine != "" && strings.HasPrefix(n, mine):
+			own = append(own, n)
+		case strings.HasPrefix(n, session.LegacyTmuxPrefix):
+			legacy = append(legacy, n)
 		}
 	}
-	return out, nil
+	return own, legacy
 }
 
 func (s *Server) handleMachineOrphans(w http.ResponseWriter, r *http.Request, p *principal) {
@@ -209,12 +229,12 @@ func (s *Server) handleMachineOrphans(w http.ResponseWriter, r *http.Request, p 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	names, err := s.orphans(ctx, id)
+	names, legacy, err := s.orphans(ctx, id)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"names": names})
+	writeJSON(w, http.StatusOK, map[string]any{"names": names, "legacy": legacy})
 }
 
 func (s *Server) handleMachineCleanup(w http.ResponseWriter, r *http.Request, p *principal) {
@@ -233,13 +253,13 @@ func (s *Server) handleMachineCleanup(w http.ResponseWriter, r *http.Request, p 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	// Only kill names that are still orphans right now.
-	current, err := s.orphans(ctx, id)
+	own, legacy, err := s.orphans(ctx, id)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	isOrphan := map[string]bool{}
-	for _, n := range current {
+	for _, n := range append(own, legacy...) {
 		isOrphan[n] = true
 	}
 	killed := []string{}

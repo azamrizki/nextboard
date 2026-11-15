@@ -1,4 +1,6 @@
 // Lists tmux sessions (nb-*) on a machine that no longer have a node, and kills selected ones.
+// This hub's own (nb-<hubId>-…) are selected; those without a hub mark (nb-s_…, from before hubs
+// marked them) may be another hub's live consoles on a shared server, so they start unselected.
 
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api';
@@ -10,6 +12,7 @@ import type { Machine } from '../lib/types';
 
 export function OrphansDialog({ machine, onClose }: { machine: Machine; onClose: () => void }) {
   const [names, setNames] = useState<string[] | null>(null);
+  const [legacy, setLegacy] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -20,8 +23,9 @@ export function OrphansDialog({ machine, onClose }: { machine: Machine; onClose:
     api
       .orphans(machine.id)
       .then((list) => {
-        setNames(list);
-        setSelected(new Set(list));
+        setNames(list.names);
+        setLegacy(list.legacy);
+        setSelected(new Set(list.names));
       })
       .catch((err) => setError(errorMessage(err)));
   }, [machine.id]);
@@ -41,6 +45,7 @@ export function OrphansDialog({ machine, onClose }: { machine: Machine; onClose:
       const done = await api.cleanup(machine.id, [...selected]);
       setKilled(done);
       setNames((prev) => (prev ?? []).filter((n) => !done.includes(n)));
+      setLegacy((prev) => prev.filter((n) => !done.includes(n)));
       setSelected(new Set());
     } catch (err) {
       setError(errorMessage(err));
@@ -100,13 +105,28 @@ export function OrphansDialog({ machine, onClose }: { machine: Machine; onClose:
             <span className="spinner" aria-hidden="true" /> Looking for orphaned sessions…
           </p>
         )}
-        {names && names.length === 0 && <p className="text-2">No orphaned sessions — nothing to clean up.</p>}
+        {names && names.length === 0 && legacy.length === 0 && (
+          <p className="text-2">No orphaned sessions — nothing to clean up.</p>
+        )}
         {names && names.length > 0 && (
           <div className="panel check-list" role="group" aria-label="Orphaned sessions">
             {names.map((n) => (
               <Checkbox key={n} checked={selected.has(n)} onChange={(on) => toggle(n, on)} disabled={busy} label={<code>{n}</code>} />
             ))}
           </div>
+        )}
+        {names && legacy.length > 0 && (
+          <>
+            <p className="text-2 fs-sm">
+              <strong>No hub mark.</strong> Started before hubs marked their sessions, by this hub or by another hub
+              that uses this server. Another hub’s may still be in use, so none is selected.
+            </p>
+            <div className="panel check-list" role="group" aria-label="Sessions with no hub mark">
+              {legacy.map((n) => (
+                <Checkbox key={n} checked={selected.has(n)} onChange={(on) => toggle(n, on)} disabled={busy} label={<code>{n}</code>} />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </Modal>

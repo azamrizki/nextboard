@@ -4,18 +4,25 @@
 // build runs; the panel is where a newer release is installed (docs/API.md Hub update).
 // Rendered in a portal: inside the glass header (which has its own backdrop-filter) the
 // popover's blur would only see the header, not the page behind it.
+// It also says which instance of This PC this hub is (multi-instance design §3): where it keeps
+// its data and settings, the service that runs it, and, for admins, the other instances with a
+// link to each, and New instance….
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { api } from '../api';
 import { useAuth } from '../auth';
 import { buildChannel, buildLabel, commitHash, commitUrl, isDirty } from '../lib/build';
+import { copyText } from '../lib/clipboard';
 import { formatDateTime, prefs, timeAgo } from '../lib/format';
-import type { Hub } from '../lib/types';
+import type { Hub, HubSibling } from '../lib/types';
+import { ISOLATION_NOTE, markAddresses, serviceText } from '../setup/wizard';
 import { Button } from './Button';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Icon } from './Icon';
 import { loadUpdateCheck, startUpdate, useHubUpdate } from './hubUpdate';
 import { Modal } from './Modal';
+import { NewInstanceDialog } from './NewInstanceDialog';
 
 const LABEL_KEY = 'hubBuildLabel';
 
@@ -46,6 +53,7 @@ export function HubInfoButton() {
   const { check } = useHubUpdate();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState('');
+  const [newInstance, setNewInstance] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -105,12 +113,16 @@ export function HubInfoButton() {
             className="popover hub-pop"
             role="dialog"
             aria-label="About this hub"
-            style={pos ? { top: pos.top, right: pos.right } : { visibility: 'hidden' }}
+            style={pos ? { top: pos.top, right: pos.right, maxHeight: `calc(100dvh - ${pos.top + 12}px)` } : { visibility: 'hidden' }}
           >
             <HubInfoContent
               onAskUpdate={(target) => {
                 setOpen(false);
                 setConfirm(target);
+              }}
+              onNewInstance={() => {
+                setOpen(false);
+                setNewInstance(true);
               }}
             />
           </div>,
@@ -126,12 +138,28 @@ export function HubInfoButton() {
           }}
         />
       )}
+      {newInstance && <NewInstanceDialog onClose={() => setNewInstance(false)} />}
     </>
   );
 }
 
-function HubInfoContent({ onAskUpdate }: { onAskUpdate: (target: string) => void }) {
-  const { hub, me } = useAuth();
+function HubInfoContent({ onAskUpdate, onNewInstance }: { onAskUpdate: (target: string) => void; onNewInstance: () => void }) {
+  const { hub: known, me, isAdmin } = useAuth();
+  // asked again at every open, and when the hub came back from an update: the other instances
+  // and the service change while the app runs
+  const [fresh, setFresh] = useState<Hub | null>(null);
+  useEffect(() => {
+    let live = true;
+    setFresh(null);
+    api
+      .hub()
+      .then((h) => live && setFresh(h))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [known]);
+  const hub = fresh ?? known;
   useUpdateCheck(hub);
   return (
     <>
@@ -148,6 +176,12 @@ function HubInfoContent({ onAskUpdate }: { onAskUpdate: (target: string) => void
         <p className="text-3">Loading…</p>
       ) : (
         <dl className="kv hub-kv">
+          {hub.instance && (
+            <>
+              <dt>Instance</dt>
+              <dd className="mono">{hub.instance.name}</dd>
+            </>
+          )}
           <BuildRows hub={hub} />
           <dt>Update</dt>
           <dd>
@@ -171,8 +205,10 @@ function HubInfoContent({ onAskUpdate }: { onAskUpdate: (target: string) => void
               </dd>
             </>
           )}
+          <InstanceRows hub={hub} />
         </dl>
       )}
+      {hub && isAdmin && hub.dataDir && <InstanceFoot hub={hub} onNewInstance={onNewInstance} />}
     </>
   );
 }
@@ -320,6 +356,7 @@ function UpdateRow({ hub, onAskUpdate }: { hub: Hub; onAskUpdate: (target: strin
 
 /** What the update does, before it does it. */
 function UpdateConfirm({ target, onClose, onStarted }: { target: string; onClose: () => void; onStarted: () => void }) {
+  const restarts = useHubUpdate().check?.restarts ?? [];
   return (
     <ConfirmDialog
       title={`Update to ${target}?`}
@@ -334,6 +371,12 @@ function UpdateConfirm({ target, onClose, onStarted }: { target: string; onClose
       <ul className="update-steps">
         <li>The hub downloads {target} from GitHub, checks its SHA-256 against the release’s checksums, and replaces its binary. The current one stays next to it as a .old file.</li>
         <li>Then it restarts, which takes a few seconds. Consoles reconnect by themselves, and agents come back asleep or resume, as after any restart.</li>
+        {restarts.length > 1 && (
+          <li>
+            The other instances on this machine run the same binary, so they restart with it:{' '}
+            {restarts.map((r) => `${r.name} (${r.listen}${r.self ? ', this one' : ''})`).join(', ')}.
+          </li>
+        )}
         <li>Nothing else changes: projects, boards, settings, credentials and logins stay as they are.</li>
       </ul>
     </ConfirmDialog>
@@ -342,14 +385,138 @@ function UpdateConfirm({ target, onClose, onStarted }: { target: string; onClose
 
 export function AboutHubDialog({ onClose }: { onClose: () => void }) {
   const [confirm, setConfirm] = useState('');
+  const [newInstance, setNewInstance] = useState(false);
+  if (newInstance) return <NewInstanceDialog onClose={onClose} />;
   return (
     <>
       <Modal title="About this hub" icon="info" size="sm" onClose={onClose}>
         <div className="about-hub">
-          <HubInfoContent onAskUpdate={setConfirm} />
+          <HubInfoContent onAskUpdate={setConfirm} onNewInstance={() => setNewInstance(true)} />
         </div>
       </Modal>
       {confirm && <UpdateConfirm target={confirm} onClose={() => setConfirm('')} onStarted={() => setConfirm('')} />}
     </>
+  );
+}
+
+/** A path with a copy button; over plain HTTP the copy falls back to selecting it (lib/clipboard). */
+function PathValue({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="hub-path">
+      <span className="mono">{value}</span>
+      <Button
+        size="sm"
+        variant="ghost"
+        iconOnly
+        icon={copied ? 'check' : 'clipboard'}
+        aria-label={`Copy the ${label} path`}
+        title={`Copy the ${label} path`}
+        onClick={() => void copyText(value).then((ok) => ok && setCopied(true))}
+      />
+    </span>
+  );
+}
+
+/** Which instance of This PC this is: its folders, its service, its binary, the others. */
+function InstanceRows({ hub }: { hub: Hub }) {
+  return (
+    <>
+      {hub.dataDir && (
+        <>
+          <dt>Data folder</dt>
+          <dd>
+            <PathValue label="data folder" value={hub.dataDir} />
+          </dd>
+        </>
+      )}
+      {hub.configFile && (
+        <>
+          <dt>Config file</dt>
+          <dd>
+            <PathValue label="config file" value={hub.configFile} />
+          </dd>
+        </>
+      )}
+      {hub.service && (
+        <>
+          <dt>Service</dt>
+          <dd>{serviceText(hub.service)}</dd>
+        </>
+      )}
+      {hub.statusListen && (
+        <>
+          <dt>Status page</dt>
+          <dd className="mono">{hub.statusListen}</dd>
+        </>
+      )}
+      {(hub.binary || hub.replacedSinceStart) && (
+        <>
+          <dt>Binary</dt>
+          <dd className="hub-binary">
+            {hub.binary && <PathValue label="binary" value={hub.binary.path} />}
+            {hub.replacedSinceStart && <span className="text-warning">Updated on disk since this hub started: restart it to run the new one.</span>}
+          </dd>
+        </>
+      )}
+      {hub.siblings && (
+        <>
+          <dt>Other instances on This PC</dt>
+          <dd>
+            {hub.siblings.length === 0 ? (
+              <span className="text-3">None</span>
+            ) : (
+              <ul className="plain hub-siblings">
+                {hub.siblings.map((s) => (
+                  <SiblingItem key={`${s.name} ${s.listen}`} sibling={s} />
+                ))}
+              </ul>
+            )}
+          </dd>
+        </>
+      )}
+    </>
+  );
+}
+
+function SiblingItem({ sibling: s }: { sibling: HubSibling }) {
+  // the address on this page's host name first: reached the way this hub is
+  const url = markAddresses(s.urls ?? [], window.location)[0]?.url;
+  return (
+    <li>
+      {url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="mono" title={url}>
+          {s.name}
+        </a>
+      ) : (
+        <span className="mono">{s.name}</span>
+      )}
+      {s.hubName && <span className="text-3 truncate">{s.hubName}</span>}
+      <span className={`badge ${s.running ? 'badge-success' : ''}`}>{s.running ? 'running' : 'stopped'}</span>
+      {s.port ? <span className="text-3 tabular">:{s.port}</span> : null}
+    </li>
+  );
+}
+
+/** The isolation note (design §6.1) and New instance… (admins; This PC only). */
+function InstanceFoot({ hub, onNewInstance }: { hub: Hub; onNewInstance: () => void }) {
+  const several = (hub.siblings?.length ?? 0) > 0 || hub.instance?.default === false;
+  const repo = hub.repo && /^[\w.-]+\/[\w.-]+$/.test(hub.repo) ? hub.repo : '';
+  return (
+    <div className="hub-instances-foot">
+      {several && (
+        <p className="hub-isolation">
+          {ISOLATION_NOTE}{' '}
+          {repo && (
+            <a href={`https://github.com/${repo}#several-instances-on-one-machine`} target="_blank" rel="noreferrer">
+              Several instances on one machine
+            </a>
+          )}
+        </p>
+      )}
+      <Button size="sm" variant="secondary" icon="plus" onClick={onNewInstance}>
+        New instance…
+      </Button>
+    </div>
   );
 }

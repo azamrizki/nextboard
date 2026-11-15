@@ -2,6 +2,7 @@ package gui
 
 import (
 	"bufio"
+	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/azamrizki/nextboard/internal/instance"
 )
 
 // entry is one parsed .desktop file (Desktop Entry Specification).
@@ -456,8 +459,11 @@ func dropFileForwarding(argv []string) []string {
 
 // sandboxedProfile is the folder a packaged browser may use: its own. Empty for one that can use
 // the hub's. The profile of a snap outlives snap refreshes in common, which does not change with
-// the revision, and a flatpak keeps its data under ~/.var/app.
-func sandboxedProfile(pk appPackage, instance int) (string, error) {
+// the revision, and a flatpak keeps its data under ~/.var/app. That folder is outside the hub's
+// data folder, so a named instance's carries its name (nextboard-work, nextboard-work~2): the
+// tiles of two instances never share logins or fight over one profile's lock. The default
+// instance keeps nextboard and nextboard-2. "~" because an instance's name may end in -2.
+func sandboxedProfile(pk appPackage, hubInstance string, n int) (string, error) {
 	if pk.kind == pkgNative {
 		return "", nil
 	}
@@ -466,8 +472,17 @@ func sandboxedProfile(pk appPackage, instance int) (string, error) {
 		return "", err
 	}
 	name := "nextboard"
-	if instance > 1 {
-		name += "-" + strconv.Itoa(instance)
+	switch {
+	case hubInstance != "" && hubInstance != instance.Default:
+		if err := instance.ValidName(hubInstance); err != nil {
+			return "", fmt.Errorf("browser profile: %w", err)
+		}
+		name += "-" + hubInstance
+		if n > 1 {
+			name += "~" + strconv.Itoa(n)
+		}
+	case n > 1:
+		name += "-" + strconv.Itoa(n)
 	}
 	if pk.kind == pkgSnap {
 		return filepath.Join(home, "snap", pk.name, "common", name), nil

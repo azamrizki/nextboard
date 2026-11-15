@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/auth"
 	"github.com/azamrizki/nextboard/internal/config"
 	"github.com/azamrizki/nextboard/internal/connlog"
+	"github.com/azamrizki/nextboard/internal/instance"
 	"github.com/azamrizki/nextboard/internal/nodedap"
 	"github.com/azamrizki/nextboard/internal/server"
 	"github.com/azamrizki/nextboard/internal/store"
@@ -31,7 +33,8 @@ Usage: nextboard <command> [options]
 
 Commands:
   serve            Run in the foreground (used by the service, also for dev)
-  install          Install the service (systemd user / LaunchAgent) and print a setup link
+  install          Install the service (systemd user / LaunchAgent) and print a setup link;
+                   with --instance NAME, a new instance with its own folder, ports and service
   uninstall        Remove the service (data stays unless --purge)
   status           Service status, addresses, number of sessions, machines, and devices
   logs [-f]        Show the service log
@@ -39,11 +42,15 @@ Commands:
   setup-link       Create a new setup link (single use, 30 minutes)
   reset-password   Reset the admin password
   pair             Print a QR + pairing code in the terminal
-  update           Download the latest stable release (or --version tag), then restart the service
+  instances        Every instance on this machine: state, address, version, service, data folder
+  update           Download the latest stable release (or --version tag), then restart every
+                   instance's service that runs this binary
   browser-sandbox  Let NextBoard Chromium make its sandbox where Linux restricts it (run with sudo once)
   version          Print the version
 
 Common options:
+  --instance NAME  The instance to act on: its data folder is ~/.nextboard-NAME (default: the
+                   default instance, ~/.nextboard, or $NEXTBOARD_INSTANCE inside a console)
   --data-dir DIR   Data folder (default ~/.nextboard, or $NEXTBOARD_HOME)
 `
 
@@ -79,10 +86,12 @@ func Main(args []string) int {
 		err = cmdPair(rest)
 	case "update":
 		err = cmdUpdate(rest)
+	case "instances":
+		err = cmdInstances(rest)
 	case "browser-sandbox":
 		err = cmdBrowserSandbox(rest)
 	case "version", "--version", "-v":
-		fmt.Println(version.Info())
+		err = cmdVersion(rest)
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:
@@ -102,7 +111,14 @@ func Main(args []string) int {
 func newFlags(name string) (*flag.FlagSet, *string) {
 	fs := flag.NewFlagSet("nextboard "+name, flag.ContinueOnError)
 	dir := fs.String("data-dir", store.DefaultDir(), "data folder")
+	fs.String("instance", "", "instance name: its data folder is ~/.nextboard-<name> (default: the default instance, ~/.nextboard)")
 	return fs, dir
+}
+
+// resolveFlags is the instance a command with newFlags acts on, by its --instance and
+// --data-dir.
+func resolveFlags(fs *flag.FlagSet, dir string) (instance.Resolved, error) {
+	return resolveInstance(fs, dir, fs.Lookup("instance").Value.String())
 }
 
 func cmdServe(args []string) error {
@@ -115,8 +131,20 @@ func cmdServe(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	inst, err := resolveFlags(fs, *dir)
+	if err != nil {
+		return err
+	}
+	// the first start of a named instance makes its folder, ports and all, as install does
+	if inst.Name != instance.Default && !inst.Exists && emptyOrMissing(inst.DataDir) {
+		c, err := instance.Create(instance.CreateOptions{Name: inst.Name, DataDir: inst.DataDir, Listen: *listen, StatusListen: *statusListen, FolderOnly: true})
+		if err != nil {
+			return err
+		}
+		log.Printf("new instance %s: data in %s, hub on %s, previews on %d–%d", c.Instance, c.DataDir, c.Listen, c.PreviewRange[0], c.PreviewRange[1])
+	}
 	opts := server.Options{
-		DataDir: *dir, Listen: *listen, StatusListen: *statusListen, Dev: *dev, DevWebPort: *devWebPort, DebugListen: *debugListen,
+		DataDir: inst.DataDir, Instance: inst.Name, Listen: *listen, StatusListen: *statusListen, Dev: *dev, DevWebPort: *devWebPort, DebugListen: *debugListen,
 		PrintSetup: term.IsTerminal(int(os.Stdout.Fd())),
 	}
 	srv, err := server.New(opts)
@@ -126,6 +154,30 @@ func cmdServe(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	return srv.Run(ctx, opts)
+}
+
+// resolveInstance is the instance a command acts on (instance.Resolve): dir counts only when
+// --data-dir was given, name is the --instance flag ("" for none).
+func resolveInstance(fs *flag.FlagSet, dir, name string) (instance.Resolved, error) {
+	req := instance.Request{Instance: name}
+	if flagGiven(fs, "data-dir") {
+		req.DataDir = dir
+	}
+	return instance.Resolve(req)
+}
+
+func emptyOrMissing(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	return errors.Is(err, os.ErrNotExist) || (err == nil && len(entries) == 0)
+}
+
+// existingInstance is the instance a command that reads it acts on (needInstance).
+func existingInstance(fs *flag.FlagSet, dir string) (instance.Resolved, error) {
+	inst, err := resolveFlags(fs, dir)
+	if err != nil {
+		return inst, err
+	}
+	return inst, needInstance(inst)
 }
 
 // hubInfo loads what CLI commands need to print links.
@@ -151,7 +203,11 @@ func cmdSetupLink(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	h, err := loadHub(*dir)
+	inst, err := existingInstance(fs, *dir)
+	if err != nil {
+		return err
+	}
+	h, err := loadHub(inst.DataDir)
 	if err != nil {
 		return err
 	}
@@ -186,7 +242,11 @@ func cmdResetPassword(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, err := store.Open(*dir)
+	inst, err := existingInstance(fs, *dir)
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(inst.DataDir)
 	if err != nil {
 		return err
 	}
@@ -234,7 +294,11 @@ func cmdConnLog(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	l, err := connlog.Open(filepath.Join(*dir, "logs"))
+	inst, err := existingInstance(fs, *dir)
+	if err != nil {
+		return err
+	}
+	l, err := connlog.Open(filepath.Join(inst.DataDir, "logs"))
 	if err != nil {
 		return err
 	}
@@ -260,5 +324,36 @@ func cmdConnLog(args []string) error {
 	fmt.Printf("\nSummary of %d events: %d disconnects %v, average downtime %s (max %s), average latency %d ms (max %d ms), %d tool failures, %d unexpected hub exits.\n",
 		len(items), sum.Disconnects, sum.Reasons, time.Duration(sum.AvgDowntimeMs)*time.Millisecond, time.Duration(sum.MaxDowntimeMs)*time.Millisecond,
 		sum.RTTAvgMs, sum.RTTMaxMs, sum.ToolFailed, sum.UncleanExits)
+	return nil
+}
+
+// cmdVersion prints this binary's build; with --instance (or --data-dir), also the build that
+// instance's hub runs, which differs until it restarts after an update.
+func cmdVersion(args []string) error {
+	fmt.Println(version.Info())
+	if len(args) == 0 {
+		return nil
+	}
+	fs, dir := newFlags("version")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	inst, err := existingInstance(fs, *dir)
+	if err != nil {
+		return err
+	}
+	listen := config.DefaultListen
+	if raw, err := os.ReadFile(filepath.Join(inst.DataDir, config.File)); err == nil {
+		var c config.Config
+		if json.Unmarshal(raw, &c) == nil && c.Listen != "" {
+			listen = c.Listen
+		}
+	}
+	h, err := instance.CheckHealth(listen, 3*time.Second)
+	if err != nil {
+		fmt.Printf("Instance %s (%s) is not running.\n", inst.Name, listen)
+		return nil
+	}
+	fmt.Printf("Instance %s (%s) runs %s (commit %s).\n", inst.Name, listen, h.Version, h.Commit)
 	return nil
 }

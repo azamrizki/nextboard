@@ -228,7 +228,7 @@ func TestAttachServerScripts(t *testing.T) {
 		}
 		return res
 	}
-	res := run(attachMakeScript(root, "s_one"))
+	res := run(attachMakeScript(root, "", "s_one"))
 	if res.ExitCode != 0 {
 		t.Fatalf("buat: %+v", res)
 	}
@@ -237,7 +237,7 @@ func TestAttachServerScripts(t *testing.T) {
 	if err != nil || fi.Mode().Perm() != 0o700 {
 		t.Fatalf("folder: %v %v", fi, err)
 	}
-	if again := run(attachMakeScript(root, "s_one")); again.ExitCode != 0 || strings.TrimSpace(string(again.Stdout)) != one {
+	if again := run(attachMakeScript(root, "", "s_one")); again.ExitCode != 0 || strings.TrimSpace(string(again.Stdout)) != one {
 		t.Fatalf("dipakai lagi: %+v", again)
 	}
 
@@ -249,18 +249,18 @@ func TestAttachServerScripts(t *testing.T) {
 	if err := os.Symlink(target, prefix+"s_link"); err != nil {
 		t.Fatal(err)
 	}
-	if bad := run(attachMakeScript(root, "s_link")); bad.ExitCode != 124 {
+	if bad := run(attachMakeScript(root, "", "s_link")); bad.ExitCode != 124 {
 		t.Fatalf("symlink harus ditolak: %+v", bad)
 	}
 
-	if res := run(attachMakeScript(root, "s_two")); res.ExitCode != 0 {
+	if res := run(attachMakeScript(root, "", "s_two")); res.ExitCode != 0 {
 		t.Fatalf("buat kedua: %+v", res)
 	}
 	other := filepath.Join(root, "nb-usage-1000")
 	if err := os.Mkdir(other, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if res := run(attachSweepScript(root, []string{"s_two"})); res.ExitCode != 0 {
+	if res := run(attachSweepScript(root, "", []string{"s_two"})); res.ExitCode != 0 {
 		t.Fatalf("sapu: %+v", res)
 	}
 	if _, err := os.Stat(one); !os.IsNotExist(err) {
@@ -276,12 +276,57 @@ func TestAttachServerScripts(t *testing.T) {
 		t.Fatal("folder lain di /tmp terhapus")
 	}
 	// nothing live: every paste folder goes, and a folder without any is no error
-	run(attachSweepScript(root, nil))
+	run(attachSweepScript(root, "", nil))
 	if _, err := os.Stat(prefix + "s_two"); !os.IsNotExist(err) {
 		t.Fatal("folder masih ada tanpa console hidup")
 	}
-	if res := run(attachSweepScript(root, nil)); res.ExitCode != 0 {
+	if res := run(attachSweepScript(root, "", nil)); res.ExitCode != 0 {
 		t.Fatalf("sapu kosong: %+v", res)
+	}
+}
+
+// Two hubs of one user on a server (sibling instances, or hubs of two PCs): each makes and
+// sweeps only its own paste folders, nb-paste-<uid>-<hubId>-<console>. A hub without a hubId
+// sweeps only legacy names (nb-paste-<uid>-s_…), never one that carries a hubId.
+func TestAttachServerScriptsPerHub(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	h := machine.NewLocal(machine.Config{ID: machine.LocalID})
+	root := t.TempDir()
+	run := func(script string) string {
+		t.Helper()
+		res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: script})
+		if err != nil || res.ExitCode != 0 {
+			t.Fatalf("%v %+v", err, res)
+		}
+		return strings.TrimSpace(string(res.Stdout))
+	}
+	mineGone := run(attachMakeScript(root, "hubaaaa111", "s_gone"))
+	mineLive := run(attachMakeScript(root, "hubaaaa111", "s_live"))
+	if want := filepath.Join(root, fmt.Sprintf("nb-paste-%d-hubaaaa111-s_gone", os.Getuid())); mineGone != want {
+		t.Fatalf("folder %q, want %q", mineGone, want)
+	}
+	sibling := run(attachMakeScript(root, "hubbbbb222", "s_gone")) // the same console id on another hub
+	prefixOf := run(attachMakeScript(root, "hubaaaa1112", "s_x"))  // a hubId that starts like this one
+	legacy := run(attachMakeScript(root, "", "s_old"))
+	for _, d := range []string{mineGone, mineLive, sibling, prefixOf, legacy} {
+		if err := os.WriteFile(filepath.Join(d, "pasted.png"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exists := func(d string) bool { _, err := os.Stat(d); return err == nil }
+
+	run(attachSweepScript(root, "hubaaaa111", []string{"s_live"}))
+	if exists(mineGone) || !exists(mineLive) {
+		t.Fatalf("own sweep: gone %v live %v", exists(mineGone), exists(mineLive))
+	}
+	if !exists(sibling) || !exists(prefixOf) || !exists(legacy) {
+		t.Fatalf("own sweep touched another hub's folder: sibling %v prefix %v legacy %v", exists(sibling), exists(prefixOf), exists(legacy))
+	}
+	// a hub without a hubId: legacy names only
+	run(attachSweepScript(root, "", nil))
+	if exists(legacy) || !exists(sibling) || !exists(prefixOf) || !exists(mineLive) {
+		t.Fatalf("legacy sweep: legacy %v sibling %v prefix %v live %v", exists(legacy), exists(sibling), exists(prefixOf), exists(mineLive))
 	}
 }
 
@@ -309,7 +354,7 @@ func TestAttachAndCopyOverSSH(t *testing.T) {
 	var a map[string]any
 	_ = json.Unmarshal(raw, &a)
 	first := a["path"].(string)
-	if filepath.Dir(first) != filepath.Join(attachRoot, fmt.Sprintf("nb-paste-%d-%s", os.Getuid(), id)) || filepath.Base(first) != "shot.png" {
+	if filepath.Dir(first) != filepath.Join(attachRoot, fmt.Sprintf("nb-paste-%d-%s%s", os.Getuid(), attachPrefix(h.srv.hubID()), id)) || filepath.Base(first) != "shot.png" {
 		t.Fatalf("path %q", first)
 	}
 	if b, _ := os.ReadFile(first); string(b) != "one" {
@@ -348,11 +393,22 @@ func TestAttachAndCopyOverSSH(t *testing.T) {
 	}
 	waitGone(filepath.Dir(first))
 
-	// left behind while the server was away
-	stale := filepath.Join(attachRoot, fmt.Sprintf("nb-paste-%d-s_gone", os.Getuid()))
-	if err := os.Mkdir(stale, 0o700); err != nil {
-		t.Fatal(err)
+	// left behind while the server was away; another hub's and one from before hubIds stay
+	stale := filepath.Join(attachRoot, fmt.Sprintf("nb-paste-%d-%ss_gone", os.Getuid(), attachPrefix(h.srv.hubID())))
+	others := []string{
+		filepath.Join(attachRoot, fmt.Sprintf("nb-paste-%d-otherhub42-s_gone", os.Getuid())),
+		filepath.Join(attachRoot, fmt.Sprintf("nb-paste-%d-s_gone", os.Getuid())),
+	}
+	for _, d := range append([]string{stale}, others...) {
+		if err := os.Mkdir(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h.srv.machines.OnConnect(mid)
 	waitGone(stale)
+	for _, d := range others {
+		if _, err := os.Stat(d); err != nil {
+			t.Fatalf("another hub's paste folder went: %v", err)
+		}
+	}
 }

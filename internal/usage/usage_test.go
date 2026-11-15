@@ -191,6 +191,91 @@ func TestTempDirLifecycle(t *testing.T) {
 	}
 }
 
+// TestTempDirPerHub: a hub with a hubId checks in nb-usage-<uid>-<hubId>, and neither making
+// nor removing it touches a sibling hub's folder or the legacy one, even mid-check (sibling
+// instances on This PC, or hubs of two PCs on one server). The shell guard of removeScript
+// refuses what is not nb-usage-<digits>[-<hubId>] on its own.
+func TestTempDirPerHub(t *testing.T) {
+	root := setRoot(t)
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := machine.NewLocal(machine.Config{})
+	ctx := context.Background()
+	uid := os.Getuid()
+	legacy := fmt.Sprintf("%s/nb-usage-%d", root, uid)
+	sibling := fmt.Sprintf("%s/nb-usage-%d-sibling42x", root, uid)
+	for _, d := range []string{legacy, sibling} {
+		if err := os.MkdirAll(filepath.Join(d, "in-use"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := hubTag(&taggedHub{fakeHub: &fakeHub{local: local}, id: "k7qxm2pa9d"}); got != "k7qxm2pa9d" {
+		t.Fatalf("hubTag %q", got)
+	}
+	if got := hubTag(&taggedHub{fakeHub: &fakeHub{local: local}, id: "../x"}); got != "" {
+		t.Fatalf("a hubId that cannot go into a path: %q", got)
+	}
+	td := &tempDirs{st: st, tag: "k7qxm2pa9d"}
+	want := fmt.Sprintf("%s/nb-usage-%d-k7qxm2pa9d", root, uid)
+	d, err := td.make(ctx, local)
+	if err != nil || d != want {
+		t.Fatalf("make %q %v", d, err)
+	}
+	if err := td.remove(ctx, local, d); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(d); !os.IsNotExist(err) {
+		t.Fatalf("own folder left: %v", err)
+	}
+	for _, other := range []string{legacy, sibling} {
+		if _, err := os.Stat(filepath.Join(other, "in-use")); err != nil {
+			t.Fatalf("%s touched: %v", other, err)
+		}
+	}
+	// Both forms are paths a recorded entry may name; anything else is refused in Go.
+	for p, ok := range map[string]bool{
+		legacy: true, sibling: true, want: true,
+		root + "/nb-usage-1-": false, root + "/nb-usage-1-abc": false, root + "/nb-usage-1-UPPER": false, root + "/nb-usage-1-a/b": false, root + "/nb-usage--abc": false,
+	} {
+		if ValidTempPath(p) != ok {
+			t.Errorf("ValidTempPath(%q) = %v", p, !ok)
+		}
+	}
+	// The shell guard alone (Go's check bypassed): a path with more after the root's prefix
+	// than nb-usage-<digits>[-<hubId>] is refused before rm.
+	victim := filepath.Join(root, "victim")
+	if err := os.MkdirAll(filepath.Join(victim, "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{
+		fmt.Sprintf("%s/nb-usage-%d/../victim", root, uid),
+		fmt.Sprintf("%s/nb-usage-%d-x/../../%s/nb-usage-%d", root, uid, filepath.Base(root), uid),
+		fmt.Sprintf("%s/nb-usage-%d-", root, uid),
+		fmt.Sprintf("%s/nb-usage-%d-a-b", root, uid),
+	} {
+		res, err := machine.Exec(ctx, local, machine.ExecSpec{Script: removeScript(root, bad), Timeout: tempTimeout})
+		if err != nil || res.ExitCode != 125 {
+			t.Errorf("removeScript(%q): code %v %v", bad, res, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(victim, "keep")); err != nil {
+		t.Fatal("victim removed")
+	}
+	if _, err := os.Stat(filepath.Join(legacy, "in-use")); err != nil {
+		t.Fatal("legacy folder removed by a bad path")
+	}
+}
+
+// taggedHub is a fakeHub with a hubId.
+type taggedHub struct {
+	*fakeHub
+	id string
+}
+
+func (h *taggedHub) HubID() string { return h.id }
+
 // fakeClock fires timers when advanced.
 type fakeClock struct {
 	mu     sync.Mutex

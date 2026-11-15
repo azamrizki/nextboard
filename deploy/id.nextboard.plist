@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- LaunchAgent: `nextboard install` writes this file to
-     ~/Library/LaunchAgents/id.nextboard.plist with the paths filled in. -->
+     ~/Library/LaunchAgents/id.nextboard.plist with the paths filled in.
+     `nextboard install --instance work` writes id.nextboard.work.plist, label
+     id.nextboard.work, for ~/.nextboard-work (README, Several instances). -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>

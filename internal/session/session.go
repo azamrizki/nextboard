@@ -733,6 +733,9 @@ func (s *Session) launch(mode string) {
 			ss.Check = ""
 		}
 	}
+	if spec.MachineID == machine.LocalID && len(s.m.LocalEnv) > 0 {
+		ss.Env = append(ss.Env[:len(ss.Env):len(ss.Env)], s.m.LocalEnv...) // a copy: spec.Env stays
+	}
 	proc, err := host.Start(ss)
 	if err != nil {
 		var nf *machine.CommandNotFoundError

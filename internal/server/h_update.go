@@ -4,7 +4,9 @@ package server
 // release of the running build's channel is out, asking GitHub at most once an hour (a failure
 // is asked again after 10 minutes); a dev build asks nothing. POST /api/hub/update installs it
 // as a job (download, checksum, swap; internal/update) and then restarts the hub through the
-// service manager that `nextboard install` set up, as `nextboard update` does.
+// service manager that `nextboard install` set up, as `nextboard update` does. The binary is one
+// for every instance on this machine, so the services of the sibling instances that run it
+// restart too; GET lists them first (restarts).
 
 import (
 	"context"
@@ -19,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/azamrizki/nextboard/internal/instance"
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/update"
 	"github.com/azamrizki/nextboard/internal/version"
@@ -50,8 +53,10 @@ type hubUpdater struct {
 	client  func(timeout time.Duration) *update.Client
 	binPath func() (string, error)
 	managed func(bin string) error
-	restart func() error
-	current func() string
+	// restart restarts every service on the binary once it is swapped, this hub's last
+	restart  func() error
+	current  func() string
+	services func(bin string) ([]instance.Instance, error)
 }
 
 func (u *hubUpdater) currentVersion() string {
@@ -79,18 +84,61 @@ func (u *hubUpdater) bin() (string, error) {
 	return filepath.EvalSymlinks(p)
 }
 
-func (u *hubUpdater) isManaged(bin string) error {
+func (u *hubUpdater) isManaged(inst, bin string) error {
 	if u.managed != nil {
 		return u.managed(bin)
 	}
-	return update.Managed(bin)
+	return update.Managed(inst, bin)
 }
 
-func (u *hubUpdater) restartSelf() error {
+// servicesOn are the instances whose service runs bin: this one and its siblings.
+func (u *hubUpdater) servicesOn(bin string) []instance.Instance {
+	var ins []instance.Instance
+	var err error
+	if u.services != nil {
+		ins, err = u.services(bin)
+	} else {
+		ins, err = instance.ServicesOn(bin)
+	}
+	if err != nil {
+		log.Printf("update: finding the services on %s: %v", bin, err)
+	}
+	return ins
+}
+
+// restartAll restarts the siblings' services on bin, then this hub's own (inst), none of them
+// waiting: the service manager stops this hub too.
+func (u *hubUpdater) restartAll(inst, bin string) error {
 	if u.restart != nil {
 		return u.restart()
 	}
-	return update.RestartSelf()
+	for _, in := range u.servicesOn(bin) {
+		if in.Name == inst {
+			continue
+		}
+		if err := update.RestartNoWait(in.Name); err != nil {
+			log.Printf("update: restarting the instance %s: %v", in.Name, err)
+		} else {
+			log.Printf("update: the instance %s restarts on the new binary", in.Name)
+		}
+	}
+	return update.RestartSelf(inst)
+}
+
+// restartTarget is a service the update restarts, for the confirm dialog.
+type restartTarget struct {
+	Name    string `json:"name"`
+	Listen  string `json:"listen"`
+	Service string `json:"service"`
+	Self    bool   `json:"self,omitempty"`
+}
+
+func (u *hubUpdater) restartTargets(inst, bin string) []restartTarget {
+	out := []restartTarget{}
+	for _, in := range u.servicesOn(bin) {
+		out = append(out, restartTarget{Name: in.Name, Listen: in.Listen, Service: in.Service.Name, Self: in.Name == inst})
+	}
+	return out
 }
 
 // get is the last check while it is fresh, else a new one; fresh asks GitHub again whatever the
@@ -149,6 +197,9 @@ type hubUpdateView struct {
 	JobID        string `json:"jobId,omitempty"`        // the update job running
 	Installed    string `json:"installed,omitempty"`    // swapped in, the hub has not restarted into it yet
 	RestartError string `json:"restartError,omitempty"` // why that restart failed
+	// Restarts are the instances whose service runs this binary, this one included (self): an
+	// update restarts them all. Only when an update can start.
+	Restarts []restartTarget `json:"restarts,omitempty"`
 }
 
 // refusal is why an update cannot start, as a code and a message.
@@ -159,7 +210,7 @@ type refusal struct {
 
 // blocked is what stops an install on this hub, whatever the release: a dev build, a hub not
 // run by its service, a folder it cannot write.
-func (u *hubUpdater) blocked() (*refusal, string) {
+func (u *hubUpdater) blocked(inst string) (*refusal, string) {
 	cur := u.currentVersion()
 	if version.Channel(cur) == version.ChannelDev {
 		return &refusal{http.StatusConflict, "dev_build", fmt.Sprintf("This is a dev build (%s): update it with git pull and a rebuild.", cur)}, ""
@@ -168,7 +219,7 @@ func (u *hubUpdater) blocked() (*refusal, string) {
 	if err != nil {
 		return &refusal{http.StatusInternalServerError, "no_binary", "The hub cannot find its own binary: " + err.Error()}, ""
 	}
-	if err := u.isManaged(bin); err != nil {
+	if err := u.isManaged(inst, bin); err != nil {
 		msg := err.Error()
 		if errors.Is(err, update.ErrNotService) {
 			msg = "This hub was not started by the service that `nextboard install` sets up, so it cannot restart itself. Update it with `nextboard update` where it runs."
@@ -199,8 +250,10 @@ func (s *Server) handleHubUpdateCheck(w http.ResponseWriter, r *http.Request, p 
 	c, _ := u.get(r.Context(), false)
 	v := hubUpdateView{Check: c, JobID: u.runningJob(s)}
 	if c.Status == update.StatusAvailable {
-		if why, _ := u.blocked(); why != nil {
+		if why, bin := u.blocked(s.instanceLabel()); why != nil {
 			v.Blocked, v.BlockedCode = why.msg, why.code
+		} else {
+			v.Restarts = u.restartTargets(s.instanceLabel(), bin)
 		}
 	}
 	u.mu.Lock()
@@ -226,7 +279,7 @@ func (s *Server) handleHubUpdate(w http.ResponseWriter, r *http.Request, p *prin
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "An update is already running.", "code": "update_running", "jobId": id})
 		return
 	}
-	why, bin := u.blocked()
+	why, bin := u.blocked(s.instanceLabel())
 	if why != nil {
 		writeErrCode(w, why.status, why.code, why.msg)
 		return
@@ -259,7 +312,7 @@ func (s *Server) handleHubUpdate(w http.ResponseWriter, r *http.Request, p *prin
 		},
 		OnFinish: func(j jobs.Job) {
 			if j.State == jobs.StateDone {
-				time.AfterFunc(restartDelay, s.restartAfterUpdate)
+				time.AfterFunc(restartDelay, func() { s.restartAfterUpdate(bin) })
 			}
 		},
 	})
@@ -296,14 +349,22 @@ func (s *Server) runHubUpdate(ctx context.Context, rep *jobs.Reporter, rel *upda
 	u.installed, u.restartErr = rel.TagName, ""
 	u.mu.Unlock()
 	log.Printf("update: %s replaced by %s at %s (the old binary is %s); the hub restarts", from, rel.TagName, bin, update.OldPath(bin))
-	rep.Progress("restarting", "Restarting the hub…")
-	out, _ := json.Marshal(map[string]any{"from": from, "to": rel.TagName, "binary": bin, "old": update.OldPath(bin), "restart": true})
+	names := []string{}
+	for _, t := range u.restartTargets(s.instanceLabel(), bin) {
+		names = append(names, t.Name)
+	}
+	if len(names) > 1 {
+		rep.Progress("restarting", "Restarting the instances that run it: "+strings.Join(names, ", ")+"…")
+	} else {
+		rep.Progress("restarting", "Restarting the hub…")
+	}
+	out, _ := json.Marshal(map[string]any{"from": from, "to": rel.TagName, "binary": bin, "old": update.OldPath(bin), "restart": true, "restarts": names})
 	return out, nil
 }
 
-func (s *Server) restartAfterUpdate() {
+func (s *Server) restartAfterUpdate(bin string) {
 	u := &s.hubUpdate
-	if err := u.restartSelf(); err != nil {
+	if err := u.restartAll(s.instanceLabel(), bin); err != nil {
 		log.Printf("update: the restart failed: %v", err)
 		u.mu.Lock()
 		u.restartErr = err.Error()

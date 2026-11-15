@@ -76,6 +76,9 @@ func newEnv(t *testing.T) *env {
 		h.Add("Set-Cookie", "app=1; Domain=localhost; Path=/; HttpOnly")
 		h.Add("Set-Cookie", "nb_session=evil; Path=/")
 		h.Add("Set-Cookie", "nb_session_http=evil; Path=/")
+		// a sibling instance's names: tossing them would log that hub's browser in as someone else
+		h.Add("Set-Cookie", "nb_session_work=evil; Path=/")
+		h.Add("Set-Cookie", "nb_session_http_work=evil; Path=/")
 		h.Set("Clear-Site-Data", `"cookies"`)
 		io.WriteString(w, "<!doctype html><html><HEAD lang=en><title>App</title></head><body>hi</body></html>")
 	})
@@ -223,7 +226,8 @@ func TestProxyAuthAndRewrite(t *testing.T) {
 	}
 	// Proxied HTML: bridge after <head…>, frame blockers gone.
 	u, _ := url.Parse(e.base(p))
-	e.jar.SetCookies(u, []*http.Cookie{{Name: "nb_session", Value: "hub-secret"}, {Name: "nb_session_http", Value: "hub-secret"}, {Name: "nb_pv_1", Value: "other"}, {Name: "mine", Value: "keep"}})
+	e.jar.SetCookies(u, []*http.Cookie{{Name: "nb_session", Value: "hub-secret"}, {Name: "nb_session_http", Value: "hub-secret"},
+		{Name: "nb_session_work", Value: "sibling-secret"}, {Name: "nb_session_http_work", Value: "sibling-secret"}, {Name: "nb_pv_1", Value: "other"}, {Name: "mine", Value: "keep"}})
 	resp, body := e.get(e.base(p) + "/")
 	if resp.StatusCode != 200 || !strings.Contains(body, `<HEAD lang=en>`+bridgeTag+`<title>`) {
 		t.Fatalf("html %d %s", resp.StatusCode, body)

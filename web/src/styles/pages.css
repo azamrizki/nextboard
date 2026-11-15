@@ -630,3 +630,73 @@
     gap: 0;
   }
 }
+
+/* setup wizard of a named instance (or with siblings): five steps, and its own pieces */
+.stepper.steps-many {
+  flex-wrap: wrap;
+  row-gap: var(--s-2);
+}
+.stepper.steps-many li + li::before {
+  width: var(--s-4);
+}
+@media (max-width: 559px) {
+  .stepper.steps-many li:not(.active) .step-label {
+    display: none;
+  }
+}
+.wizard-instance p:first-child {
+  font-size: var(--fs-md);
+}
+.wizard-logins,
+.wizard-copy-boxes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.wizard-login-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: var(--s-2) 0;
+}
+.wizard-login-row + .wizard-login-row {
+  border-top: var(--hairline) solid var(--glass-border);
+}
+.wizard-copy-box .field-hint {
+  margin: var(--s-1) 0 0 var(--s-6);
+}
+.wizard-copy-secret {
+  margin: var(--s-2) 0 0 var(--s-6);
+}
+.wizard-notes {
+  margin: var(--s-2) 0 0;
+  padding-left: var(--s-5);
+}
+.wizard-actions {
+  display: flex;
+  gap: var(--s-3);
+}
+.wizard-actions > * {
+  flex: 1 1 0;
+}
+.wizard-path {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.wizard-path .mono {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wizard-addresses li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  overflow-wrap: anywhere;
+}
+.wizard-isolation {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}

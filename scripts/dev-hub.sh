@@ -31,6 +31,11 @@ fi
 
 if [ -z "$hub" ] || ! is_hub "$hub"; then
 	echo "$sum" >"$sumfile"
+	# The dev hub is instance "dev": cookies and browser profiles of its own, so it never logs
+	# the browser out of an installed hub on this host. Never fatal: the hub starts anyway.
+	mkdir -p bin/air/tmp
+	GOTMPDIR=$PWD/bin/air/tmp go run ./scripts/devinstance "$DATA" ||
+		echo "dev: data folder not set to instance dev; the hub starts as it is." >&2
 	setsid=$(command -v setsid)
 	(
 		$setsid bin/nextboard-dev serve --dev --dev-web-port "$WEB_PORT" --data-dir "$DATA" --listen "$LISTEN" &

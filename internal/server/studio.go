@@ -321,6 +321,9 @@ type usageHub struct{ s *Server }
 
 func (u usageHub) Host(id string) (machine.Host, bool) { return u.s.machines.Host(id) }
 func (u usageHub) Publish(v any)                       { u.s.events.Publish(v) }
+
+// HubID names the hub's usage folder on each machine (usage.HubIDer).
+func (u usageHub) HubID() string { return u.s.hubID() }
 func (u usageHub) Settings() usage.Settings {
 	st := u.s.settings.View().Usage
 	off := map[string]bool{}

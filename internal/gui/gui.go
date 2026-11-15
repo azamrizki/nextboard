@@ -120,6 +120,9 @@ type Config struct {
 	Browsers string
 	Publish  func(any)     // event sink
 	Path     func() string // PATH for apps; nil = the hub's own
+	// HubInstance is the hub's instance name ("" = the default instance). What lives outside the
+	// data folder carries it: the packaged browsers' profiles and the AppArmor profile.
+	HubInstance string
 }
 
 // LaunchRequest starts an app.
@@ -206,8 +209,13 @@ type savedState struct {
 
 // New creates the manager; call Start to adopt surviving sessions.
 func New(cfg Config) *Manager {
+	hubProfile, err := SandboxProfileFile(cfg.HubInstance)
+	if err != nil {
+		hubProfile = SandboxProfilePath
+	}
 	return &Manager{
 		cfg:           cfg,
+		mb:            managedBrowser{hubProfile: hubProfile},
 		pollEvery:     1500 * time.Millisecond,
 		closeGrace:    5 * time.Second,
 		windowTimeout: 60 * time.Second,
@@ -751,7 +759,7 @@ func (m *Manager) appCommandFor(s *session, e *entry, target, xauth, pageURL str
 	if instance > 1 {
 		profile = fmt.Sprintf("%s~%d", profile, instance)
 	}
-	if sb, err := sandboxedProfile(pk, instance); err != nil {
+	if sb, err := sandboxedProfile(pk, m.cfg.HubInstance, instance); err != nil {
 		return nil, nil, "", err
 	} else if sb != "" {
 		profile = sb

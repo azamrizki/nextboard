@@ -59,6 +59,7 @@ dev:
 
 # Hub on http://localhost:12312 with a separate data dir; pair with `make dev-web`.
 dev-hub:
+	go run ./scripts/devinstance "$(DATA)" || true
 	go run ./cmd/nextboard serve --dev --dev-web-port $(WEB_PORT) --data-dir $(DATA) --listen $(LISTEN)
 
 # Vite on http://localhost:15173, proxying /api to the dev hub.

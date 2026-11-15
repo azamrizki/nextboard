@@ -179,17 +179,28 @@ func TestSandboxedProfile(t *testing.T) {
 	t.Setenv("HOME", "/h")
 	for _, tc := range []struct {
 		pk   appPackage
+		hub  string
 		n    int
 		want string
 	}{
-		{appPackage{}, 1, ""},
-		{appPackage{kind: pkgSnap, name: "firefox"}, 1, "/h/snap/firefox/common/nextboard"},
-		{appPackage{kind: pkgSnap, name: "chromium"}, 2, "/h/snap/chromium/common/nextboard-2"},
-		{appPackage{kind: pkgFlatpak, name: "org.mozilla.firefox"}, 3, "/h/.var/app/org.mozilla.firefox/nextboard-3"},
+		{appPackage{}, "", 1, ""},
+		{appPackage{}, "work", 1, ""},
+		{appPackage{kind: pkgSnap, name: "firefox"}, "", 1, "/h/snap/firefox/common/nextboard"},
+		{appPackage{kind: pkgSnap, name: "chromium"}, "", 2, "/h/snap/chromium/common/nextboard-2"},
+		{appPackage{kind: pkgFlatpak, name: "org.mozilla.firefox"}, "", 3, "/h/.var/app/org.mozilla.firefox/nextboard-3"},
+		{appPackage{kind: pkgSnap, name: "firefox"}, "default", 2, "/h/snap/firefox/common/nextboard-2"},
+		// a named instance's tiles never share the default instance's profile, or another's
+		{appPackage{kind: pkgSnap, name: "firefox"}, "work", 1, "/h/snap/firefox/common/nextboard-work"},
+		{appPackage{kind: pkgSnap, name: "firefox"}, "work", 2, "/h/snap/firefox/common/nextboard-work~2"},
+		{appPackage{kind: pkgSnap, name: "firefox"}, "work-2", 1, "/h/snap/firefox/common/nextboard-work-2"},
+		{appPackage{kind: pkgFlatpak, name: "org.chromium.Chromium"}, "personal", 3, "/h/.var/app/org.chromium.Chromium/nextboard-personal~3"},
 	} {
-		if got, err := sandboxedProfile(tc.pk, tc.n); err != nil || got != tc.want {
-			t.Errorf("%+v: %q %v", tc.pk, got, err)
+		if got, err := sandboxedProfile(tc.pk, tc.hub, tc.n); err != nil || got != tc.want {
+			t.Errorf("%+v %q %d: %q %v", tc.pk, tc.hub, tc.n, got, err)
 		}
+	}
+	if _, err := sandboxedProfile(appPackage{kind: pkgSnap, name: "firefox"}, "../x", 1); err == nil {
+		t.Error("an instance name that is a path was taken")
 	}
 }
 

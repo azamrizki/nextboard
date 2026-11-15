@@ -26,7 +26,10 @@ import (
 // in the hub's folder, because a resumed conversation may still point at them.
 // On a server the folder lives in /tmp and goes with its console (owner decision
 // #2): one fixed path per console, created only as a real folder of the user's,
-// so that nothing has to be remembered for a hub that crashed.
+// so that nothing has to be remembered for a hub that crashed. The folder carries
+// the hubId (nb-paste-<uid>-<hubId>-<console>) and the sweep matches only its own:
+// a server shared by several hubs holds the others' consoles' folders too. The
+// folders of before hubIds (nb-paste-<uid>-<console>) are left for /tmp to expire.
 
 const (
 	attachKeep    = 7 * 24 * time.Hour
@@ -66,22 +69,38 @@ func attachName(name string) string {
 	return string(out)
 }
 
+// attachPrefix is what follows nb-paste-<uid>- in the folders of the hub with
+// this hubId ("" = a hub without one: the legacy names).
+func attachPrefix(hubID string) string {
+	if hubID == "" {
+		return ""
+	}
+	return hubID + "-"
+}
+
 // attachMakeScript prints the console's folder, made private when it is new. A
 // link or someone else's folder at that path is refused.
-func attachMakeScript(root, id string) string {
-	return `u=$(id -u) || exit 125; d=` + machine.Quote(root) + `/nb-paste-$u-` + id + `; ` +
+func attachMakeScript(root, hubID, id string) string {
+	return `u=$(id -u) || exit 125; d=` + machine.Quote(root) + `/nb-paste-$u-` + attachPrefix(hubID) + id + `; ` +
 		`if [ -L "$d" ]; then exit 124; fi; ` +
 		`if [ -e "$d" ]; then { [ -d "$d" ] && [ -O "$d" ]; } || exit 124; else mkdir -m 700 -- "$d" || exit 125; fi; ` +
 		`echo "$d"`
 }
 
-// attachSweepScript removes the user's real paste folders of consoles not in live.
-func attachSweepScript(root string, live []string) string {
+// attachSweepScript removes the user's real paste folders of this hub's consoles
+// not in live. Only its own names: nb-paste-<uid>-<hubId>-*. A hub without a hubId
+// sweeps only legacy console names (s_…), never a folder that carries a hubId.
+func attachSweepScript(root, hubID string, live []string) string {
 	// the first name is no console: an empty pattern is no valid shell
 	pattern := strings.Join(append([]string{"nb-none"}, live...), "|")
-	return `u=$(id -u) || exit 125; for d in ` + machine.Quote(root) + `/nb-paste-$u-*; do ` +
+	own := attachPrefix(hubID)
+	glob, mine := own+"*", "*"
+	if own == "" {
+		glob, mine = "s_*", "s_*"
+	}
+	return `u=$(id -u) || exit 125; for d in ` + machine.Quote(root) + `/nb-paste-$u-` + glob + `; do ` +
 		`if [ -L "$d" ] || [ ! -d "$d" ] || [ ! -O "$d" ]; then continue; fi; ` +
-		`case "${d##*/nb-paste-$u-}" in ` + pattern + `) ;; *) rm -rf -- "$d";; esac; done`
+		`case "${d##*/nb-paste-$u-` + own + `}" in ` + pattern + `) ;; ` + mine + `) rm -rf -- "$d";; esac; done`
 }
 
 // attachDir is the folder for key on h, made when needed.
@@ -93,7 +112,7 @@ func (s *Server) attachDir(ctx context.Context, h machine.Host, key string) (str
 		dir := s.st.Path("attachments", key)
 		return dir, os.MkdirAll(dir, 0o700)
 	}
-	res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachMakeScript(s.attachRoot, key), MaxOutput: 4 << 10})
+	res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachMakeScript(s.attachRoot, s.hubID(), key), MaxOutput: 4 << 10})
 	if err != nil {
 		return "", err
 	}
@@ -244,7 +263,7 @@ func (s *Server) sweepRemoteAttachments(machineID string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), attachSweep)
 	defer cancel()
-	if res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachSweepScript(s.attachRoot, live), MaxOutput: 4 << 10}); err != nil || res.ExitCode > 1 {
+	if res, err := machine.Exec(ctx, h, machine.ExecSpec{Script: attachSweepScript(s.attachRoot, s.hubID(), live), MaxOutput: 4 << 10}); err != nil || res.ExitCode > 1 {
 		log.Printf("paste folders on %s: %v", machineID, err)
 	}
 }

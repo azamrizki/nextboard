@@ -111,7 +111,7 @@ func New(st *store.Store, jm *jobs.Manager, hub Hub, clock Clock) *Service {
 	if clock == nil {
 		clock = realClock{}
 	}
-	s := &Service{hub: hub, st: st, jobs: jm, tmp: &tempDirs{st: st},
+	s := &Service{hub: hub, st: st, jobs: jm, tmp: &tempDirs{st: st, tag: hubTag(hub)},
 		reports: map[string]Report{}, running: map[string]string{}, machine: map[string]chan struct{}{},
 		hubSem: make(chan struct{}, 2)}
 	var list []Report

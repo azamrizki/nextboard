@@ -16,7 +16,11 @@ func cmdPair(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	h, err := loadHub(*dir)
+	inst, err := existingInstance(fs, *dir)
+	if err != nil {
+		return err
+	}
+	h, err := loadHub(inst.DataDir)
 	if err != nil {
 		return err
 	}
@@ -25,7 +29,7 @@ func cmdPair(args []string) error {
 		return err
 	}
 	if as.NeedsSetup() {
-		return fmt.Errorf("hub not set up yet; run `nextboard setup-link` first")
+		return fmt.Errorf("hub not set up yet; run `%s` first", withInstance("nextboard setup-link", inst.Name))
 	}
 	code, exp, err := as.NewPairCode()
 	if err != nil {

@@ -42,6 +42,9 @@ import type {
   Health,
   Hub,
   HubUpdate,
+  CreatedInstance,
+  InstancesList,
+  NewInstanceBody,
   Machine,
   McpProbe,
   McpServer,
@@ -233,6 +236,10 @@ export const api = {
   setup: (code: string, password: string, hubName: string) =>
     post<Ok>('/api/setup', { code, password, hubName }, { noRedirect: true }),
   hub: () => get<Hub>('/api/hub'),
+  /** The instances of This PC and the ports a new one would get (admin). */
+  instances: () => get<InstancesList>('/api/instances'),
+  /** New instance… (admin, this instance's password again): its single-use setup link. */
+  createInstance: (body: NewInstanceBody) => post<CreatedInstance>('/api/instances', body),
   /** Whether a newer release is out; the hub asks GitHub at most once an hour. */
   hubUpdate: () => get<HubUpdate>('/api/hub/update'),
   /** Install it (admin): a job, then the hub restarts. */
@@ -271,8 +278,12 @@ export const api = {
   machinePresets: (id: string) => get<Preset[] | null>(`/api/machines/${enc(id)}/presets`).then((p) => p ?? []),
   listDir: (id: string, path: string, signal?: AbortSignal) =>
     get<DirListing>(`/api/machines/${enc(id)}/ls?path=${enc(path)}`, { signal }),
+  // names: this hub's own; legacy: no hub mark (from before hubIds), maybe another hub's live consoles
   orphans: (id: string) =>
-    get<{ names: string[] | null }>(`/api/machines/${enc(id)}/orphans`).then((r) => r.names ?? []),
+    get<{ names: string[] | null; legacy?: string[] | null }>(`/api/machines/${enc(id)}/orphans`).then((r) => ({
+      names: r.names ?? [],
+      legacy: r.legacy ?? [],
+    })),
   cleanup: (id: string, names: string[]) =>
     post<{ killed: string[] | null }>(`/api/machines/${enc(id)}/cleanup`, { names }).then((r) => r.killed ?? []),
   mcpServers: () => get<{ items: McpServer[] | null }>('/api/mcp/servers').then((r) => r.items ?? []),

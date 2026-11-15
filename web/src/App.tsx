@@ -12,6 +12,7 @@ import { AuthProvider } from './auth';
 import { Button } from './components/Button';
 import { Icon } from './components/Icon';
 import { Toaster } from './components/Toast';
+import { guardHubStorage, pageTitle, setInstance } from './lib/instance';
 import { navigate, parseRoute, usePath } from './lib/router';
 import type { Me } from './lib/types';
 import { DevicesPage } from './pages/Devices';
@@ -73,6 +74,13 @@ export function App() {
   const runBoot = useCallback(async () => {
     try {
       const st = await api.setupStatus();
+      setInstance(st.instance, st.defaultInstance, st.hubName);
+      document.title = pageTitle();
+      // this origin was another hub's before (a removed instance's port): its storage goes
+      if (await guardHubStorage(st.hubId)) {
+        window.location.reload();
+        return;
+      }
       if (st.needsSetup) {
         setBoot({ kind: 'setup' });
         return;

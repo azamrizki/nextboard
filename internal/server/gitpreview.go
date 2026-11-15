@@ -50,7 +50,8 @@ func (s *Server) setupGitPreview() {
 		PortMin:  pr[0], PortMax: pr[1],
 		LocalID: machine.LocalID,
 		LocalReserved: func(port int) bool {
-			return (hubPort != 0 && port == hubPort) || (s.hookLn != nil && port == listenPort(s.hookLn.Addr().String()))
+			return (hubPort != 0 && port == hubPort) || (s.hookLn != nil && port == listenPort(s.hookLn.Addr().String())) ||
+				s.siblingPort(port) // another instance's hub on This PC
 		},
 		Dial: func(ctx context.Context, machineID string, port int) (net.Conn, error) {
 			h, ok := s.machines.Host(machineID)

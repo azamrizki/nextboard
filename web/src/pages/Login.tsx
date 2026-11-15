@@ -7,6 +7,11 @@ import { Button } from '../components/Button';
 import { TextField } from '../components/form';
 import { Icon } from '../components/Icon';
 
+// Opened through a setup link (/setup?code=…) of a hub that is set up already: the link was used.
+// Read when the app loads, before the address moves to /login, and said on the first login screen.
+let cameWithUsedSetupLink =
+  typeof window !== 'undefined' && window.location.pathname === '/setup' && new URLSearchParams(window.location.search).has('code');
+
 interface LoginProps {
   hubName: string;
   onDone: () => void;
@@ -17,6 +22,11 @@ export function LoginPage({ hubName, onDone }: LoginProps) {
   const [busy, setBusy] = useState(false);
   const [fieldError, setFieldError] = useState('');
   const [formError, setFormError] = useState('');
+  const [usedLink] = useState(() => {
+    const yes = cameWithUsedSetupLink;
+    cameWithUsedSetupLink = false;
+    return yes;
+  });
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -50,6 +60,12 @@ export function LoginPage({ hubName, onDone }: LoginProps) {
         <p>{hubName ? `Sign in to hub “${hubName}”` : 'Sign in to your hub'}</p>
       </div>
       <form className="auth-card form" onSubmit={submit} noValidate>
+        {usedLink && (
+          <div className="alert" role="status">
+            <Icon name="info" />
+            <span>This setup link was already used: the hub is already set up. Log in with its admin password.</span>
+          </div>
+        )}
         <fieldset disabled={busy}>
           <TextField
             label="Admin password"

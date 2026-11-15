@@ -3,6 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/azamrizki/nextboard/main/install.sh | sh
 #   curl -fsSL …/install.sh | sh -s -- --system        # pasang ke /usr/local/bin
+#   curl -fsSL …/install.sh | sh -s -- --instance=work # another instance, ~/.nextboard-work
 #
 # Env: NEXTBOARD_REPO (owner/nama), NEXTBOARD_VERSION (mis. v0.2.0, default latest).
 set -eu
@@ -12,6 +13,7 @@ VERSION="${NEXTBOARD_VERSION:-latest}"
 PREFIX="$HOME/.local/bin"
 SYSTEM=0
 SERVICE=1
+INSTANCE=""
 
 for arg in "$@"; do
   case "$arg" in
@@ -19,6 +21,7 @@ for arg in "$@"; do
     --no-service) SERVICE=0 ;;
     --repo=*) REPO="${arg#--repo=}" ;;
     --version=*) VERSION="${arg#--version=}" ;;
+    --instance=*) INSTANCE="${arg#--instance=}" ;;
     *) echo "opsi tidak dikenal: $arg" >&2; exit 2 ;;
   esac
 done
@@ -77,5 +80,11 @@ esac
 
 if [ "$SERVICE" = 1 ]; then
   # Service berjalan sebagai user ini (bukan root), walau binary di /usr/local/bin.
-  "$PREFIX/nextboard" install
+  # `install` also restarts the other instances whose service runs this binary, when they
+  # still run the build it replaced.
+  if [ -n "$INSTANCE" ]; then
+    "$PREFIX/nextboard" install --instance "$INSTANCE"
+  else
+    "$PREFIX/nextboard" install
+  fi
 fi

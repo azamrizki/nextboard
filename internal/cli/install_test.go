@@ -103,17 +103,39 @@ func newBox(t *testing.T) *box {
 	t.Helper()
 	b := &box{t: t, home: t.TempDir(), bin: t.TempDir(), release: t.TempDir()}
 	b.calls = filepath.Join(b.bin, "calls.log")
-	b.pidFile = filepath.Join(b.bin, "hub.pid")
+	b.pidFile = filepath.Join(b.bin, "nextboard.pid")
 	b.listen = fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	// `restart` runs the unit's own ExecStart, so a broken unit fails the test.
-	// timeout: a hub the test failed to stop cannot outlive it for long.
+	// `restart <unit>` runs that unit's own ExecStart, so a broken unit fails the test; one pid
+	// file per unit. timeout: a hub the test failed to stop cannot outlive it for long.
 	writeExec(t, filepath.Join(b.bin, "systemctl"), `echo "systemctl $*" >> "`+b.calls+`"
-case "$*" in
-*restart*)
-  unit="$HOME/.config/systemd/user/nextboard.service"
-  start=$(sed -n 's/^ExecStart=//p' "$unit")
-  nohup timeout 120 $start >"`+b.bin+`/hub.log" 2>&1 &
-  echo $! > "`+b.pidFile+`"
+verb=""
+unit=""
+for a in "$@"; do
+  case "$a" in
+    -*) ;;
+    *) if [ -z "$verb" ]; then verb=$a; else unit=${a%.service}; fi ;;
+  esac
+done
+pid="`+b.bin+`/$unit.pid"
+stop() {
+  if [ -f "$pid" ]; then
+    p=$(cat "$pid")
+    kill "$p" 2>/dev/null
+    i=0
+    while kill -0 "$p" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+    rm -f "$pid"
+  fi
+}
+case "$verb" in
+restart)
+  stop
+  start=$(sed -n 's/^ExecStart=//p' "$HOME/.config/systemd/user/$unit.service")
+  nohup timeout 120 $start >"`+b.bin+`/$unit.log" 2>&1 &
+  echo $! > "$pid"
+  ;;
+disable) case " $* " in *" --now "*) stop ;; esac ;;
+is-active)
+  if [ -f "$pid" ] && kill -0 "$(cat "$pid")" 2>/dev/null; then echo active; else echo inactive; exit 3; fi
   ;;
 esac
 `)
@@ -135,7 +157,7 @@ case "$url" in
 *) cp "`+b.release+`/$(basename "$url")" "$out" ;;
 esac
 `)
-	t.Cleanup(b.stopHub)
+	t.Cleanup(b.stopHubs)
 	// A listen address of its own, whatever else runs on this machine.
 	st, err := store.Open(filepath.Join(b.home, ".nextboard"))
 	if err != nil {
@@ -156,8 +178,19 @@ func (b *box) env() []string {
 	return []string{"HOME=" + b.home, "PATH=" + b.bin + ":/usr/bin:/bin", "SHELL=/bin/sh", "USER=" + os.Getenv("USER"), "LANG=C.UTF-8", "TMPDIR=" + os.TempDir()}
 }
 
-func (b *box) stopHub() {
-	raw, err := os.ReadFile(b.pidFile)
+// stopHub ends the default instance's hub that the fake systemctl started.
+func (b *box) stopHub() { b.stopUnit(b.pidFile) }
+
+// stopHubs ends every hub the fake systemctl started.
+func (b *box) stopHubs() {
+	files, _ := filepath.Glob(filepath.Join(b.bin, "*.pid"))
+	for _, f := range files {
+		b.stopUnit(f)
+	}
+}
+
+func (b *box) stopUnit(pidFile string) {
+	raw, err := os.ReadFile(pidFile)
 	if err != nil {
 		return
 	}

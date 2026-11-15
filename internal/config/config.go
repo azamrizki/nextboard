@@ -18,8 +18,13 @@ const (
 
 // Config is persisted in <data>/config.json.
 type Config struct {
-	HubName string `json:"hubName"`
-	Listen  string `json:"listen"`
+	// Instance names this hub among the instances of its machine ("default" for ~/.nextboard),
+	// and HubID tells it apart from every other hub. The hub writes both at start when they
+	// are missing (instance.EnsureIdentity).
+	Instance string `json:"instance,omitempty"`
+	HubID    string `json:"hubId,omitempty"`
+	HubName  string `json:"hubName"`
+	Listen   string `json:"listen"`
 	// StatusListen, when set, is a second address that serves public status pages and nothing
 	// else: the one to expose, since the main address is effectively a shell.
 	StatusListen string `json:"statusListen,omitempty"`

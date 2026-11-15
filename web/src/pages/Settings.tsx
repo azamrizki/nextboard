@@ -23,6 +23,7 @@ import { LeadPane } from '../settings/LeadPane';
 import { UsagePane } from '../settings/UsagePane';
 import { VoicePane } from '../settings/VoicePane';
 import { useSettings } from '../store';
+import { pageTitle } from '../lib/instance';
 
 const PANES: { id: string; label: string; icon: IconName; hint: string }[] = [
   { id: 'agents', label: 'Agents', icon: 'bot', hint: 'Catalog, defaults, your agents' },
@@ -55,9 +56,9 @@ export function SettingsPage({ pane }: { pane: string }) {
   }, [settings]);
 
   useEffect(() => {
-    document.title = listOnly ? 'Settings — NextBoard' : `${current.label} · Settings — NextBoard`;
+    document.title = pageTitle(listOnly ? 'Settings' : `${current.label} · Settings`);
     return () => {
-      document.title = 'NextBoard';
+      document.title = pageTitle();
     };
   }, [current.label, listOnly]);
 

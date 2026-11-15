@@ -59,6 +59,8 @@ func (s *Server) setupGUI() {
 		Browsers: s.st.Path("browsers"),
 		Publish:  s.events.Publish,
 		Path:     s.machines.Local().LoginPath,
+		// profiles outside the data folder (snap/flatpak, AppArmor) carry the instance's name
+		HubInstance: s.instanceName(),
 	})
 	s.gui.Start()
 }
