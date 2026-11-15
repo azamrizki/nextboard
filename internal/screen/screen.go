@@ -298,10 +298,10 @@ type Screen struct {
 }
 
 // New starts a screen of cols×rows. respond (may be nil) receives the
-// model's answers to terminal queries.
+// model's answers to terminal queries. The emulator is made on the first write: a console
+// that prints nothing (asleep since a hub restart) never holds one.
 func New(cols, rows int, respond func([]byte)) *Screen {
 	s := &Screen{cols: cols, rows: rows, respond: respond, wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{})}
-	s.m = NewModel(cols, rows, respond)
 	go s.loop()
 	return s
 }
@@ -517,6 +517,8 @@ func (s *Screen) snapshotLocked() Snapshot {
 		sn := Snapshot{Stale: s.stale, Version: s.version}
 		if p := s.parked; p != nil {
 			sn.Lines, sn.CursorX, sn.CursorY, sn.Alt, sn.BracketedPaste = slices.Clone(p.Lines), p.CursorX, p.CursorY, p.Alt, p.BracketedPaste
+		} else {
+			sn.Lines = make([]string, s.rows) // an empty screen, as a new emulator shows it
 		}
 		return sn
 	}

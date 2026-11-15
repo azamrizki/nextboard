@@ -256,7 +256,7 @@ The client does not need to send anything. The server pings every 30 seconds.
 - **Client → server** (JSON text frames)
   - `{"t":"i","d":"<input>"}` keyboard input. While the process is still `starting`, keystrokes (without terminal reports, ≤ 4 KiB) are kept and handed over as soon as the process exists; a failed start or reattach → dropped
   - `{"t":"r","c":<cols>,"r":<rows>}` resize (the terminal size follows the last resize from any client)
-- Ping every 30 seconds. A slow subscriber (buffer of 512 full) is cut off; the client reconnects and repaints from the snapshot.
+- Ping every 30 seconds. A slow subscriber (buffer of 512 full, or more than 4 MiB of output waiting) is cut off; the client reconnects and repaints from the snapshot.
 - A revoked device → all its WebSockets are closed at once (close code 4401). The token is checked only when the connection opens; a WS that is already connected is not cut when the token expires.
 - A browser login that ends → all WebSockets of that login are closed (close code 4401): immediately on logout, within about 2 seconds at most on `nextboard reset-password` from another process or when the cookie expires. Other logins are not disturbed.
 - A subscriber that is too slow / a deleted session → close code 1013 (`resubscribe`); the client reconnects.

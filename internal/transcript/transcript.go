@@ -17,12 +17,20 @@ import (
 
 // Limits (docs/API-agents.md §15).
 const (
-	TailStart     = 2 << 20 // first tail read for the last reply
+	TailStart     = 2 << 20 // first tail read for messages and token usage
 	TailMax       = 8 << 20 // the tail grows (x2) up to this
 	MaxReplyBytes = 200_000 // Reply.Text cap
 	HeaderBytes   = 64 << 10
 	MaxScanFiles  = 500
 	ScanBudget    = 10 * time.Second
+)
+
+// ReplyTailStart is the first tail read for the last reply; it doubles up to TailMax.
+// From ReplyWholeAt on (the first tail read before), a reply is taken even when the start of
+// its turn is not in the tail, so no reply comes back shorter than it used to.
+const (
+	ReplyTailStart = 256 << 10
+	ReplyWholeAt   = 2 << 20
 )
 
 // Transcript kinds (Agent.transcript).
@@ -105,6 +113,10 @@ type Parsed struct {
 	// Title and StartedAt feed the conversation list.
 	Title     string
 	StartedAt time.Time
+	// replyWhole: the turn of Reply starts inside the data, so no part of it is before a tail.
+	replyWhole bool
+	// aiTitle is Claude's own title of the conversation (its first ai-title line).
+	aiTitle string
 }
 
 // ClaudeSlug is Claude Code's project folder name for cwd: every UTF-16
@@ -217,7 +229,8 @@ func makeReply(text, id string, at time.Time) *Reply {
 		for cut > 0 && !utf8.RuneStart(text[cut]) {
 			cut--
 		}
-		r.Text, r.Truncated = text[:cut], true
+		// a copy: the cut would keep the whole text alive in the console's cached reply
+		r.Text, r.Truncated = strings.Clone(text[:cut]), true
 	}
 	return r
 }

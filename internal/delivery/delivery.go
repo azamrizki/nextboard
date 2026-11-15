@@ -56,6 +56,7 @@ const (
 	MaxText       = 32000
 	MaxQueue      = 20
 	keepDone      = 20
+	keepGone      = 200 // finished deliveries of deleted consoles still found by id
 	confirmWithin = 8 * time.Second
 	// screenQuiet: the screen must not have changed for this long before
 	// typing, so a dialog that is being drawn is never typed into.
@@ -133,6 +134,22 @@ type Console interface {
 	Wake() bool
 }
 
+// StateConsole is a Console that can also give its view without the screen (Lines empty),
+// which copies nothing of it. The engine takes the screen only once nothing else holds a
+// delivery back: a delivery waits for a working agent with ten looks a second.
+type StateConsole interface {
+	Console
+	State() session.DeliveryView
+}
+
+// stateOf is c's view for the checks that do not read the screen.
+func stateOf(c Console) session.DeliveryView {
+	if sc, ok := c.(StateConsole); ok {
+		return sc.State()
+	}
+	return c.View()
+}
+
 // Engine queues and types deliveries, one active per session (FIFO).
 type Engine struct {
 	Source   func(sessionID string) (Console, bool)
@@ -145,6 +162,7 @@ type Engine struct {
 	queues map[string][]*item
 	done   map[string][]*item
 	byID   map[string]*item
+	gone   []*item // finished deliveries of deleted consoles, oldest first (SessionRemoved)
 	stop   chan struct{}
 	once   sync.Once
 }
@@ -358,6 +376,19 @@ func (e *Engine) SessionRemoved(sessionID string) {
 		}
 		out = append(out, it.d)
 	}
+	// Its finished deliveries are still found by id for a while (a handoff reads how its
+	// delivery ended), without their text, which nothing reads any more: the last keepGone of
+	// all deleted consoles.
+	for _, it := range e.done[sessionID] {
+		it.d.Text, it.text = "", ""
+		e.gone = append(e.gone, it)
+	}
+	if n := len(e.gone); n > keepGone {
+		for _, old := range e.gone[:n-keepGone] {
+			delete(e.byID, old.d.ID)
+		}
+		e.gone = append([]*item(nil), e.gone[n-keepGone:]...)
+	}
 	delete(e.done, sessionID)
 	e.mu.Unlock()
 	for _, d := range out {
@@ -541,16 +572,21 @@ func (e *Engine) gate(it *item, c Console, now time.Time) {
 		return
 	}
 	st := e.Settings()
-	v := c.View()
+	v := stateOf(c)
 	if v.Status == session.StatusAsleep {
 		c.Wake() // text for it: it starts with its conversation
 	}
 	final, code, msg, reason := blocked(v, it.hadAgent, st, now, false)
+	guard := time.Duration(st.HumanTypingGuardSec) * time.Second
+	if final == "" && reason == "" && (v.LastHuman.IsZero() || now.Sub(v.LastHuman) >= guard) {
+		// only the screen can hold it back now: take it, and look at all of it again
+		v = c.View()
+		final, code, msg, reason = blocked(v, it.hadAgent, st, now, false)
+	}
 	if final != "" {
 		e.fail(it, final, code, msg)
 		return
 	}
-	guard := time.Duration(st.HumanTypingGuardSec) * time.Second
 	var why string
 	switch {
 	case reason != "":
@@ -674,7 +710,7 @@ func (e *Engine) submit(it *item, c Console, now time.Time) {
 // after the Return (a short turn may already be over); otherwise it stays
 // "sent" (not confirmed) and leaves the queue.
 func (e *Engine) confirm(it *item, c Console, now time.Time) {
-	v := c.View()
+	v := stateOf(c) // states and times only
 	busy := v.AgentState == agentstate.Working || v.AgentState == agentstate.NeedsYou
 	fresh := it.sentState != agentstate.Working && it.sentState != agentstate.NeedsYou
 	e.mu.Lock()

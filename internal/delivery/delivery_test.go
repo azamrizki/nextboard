@@ -27,13 +27,24 @@ type fakeConsole struct {
 	fgOK   bool
 	fgErr  error
 	woken  int
+	views  int // screens taken (View)
 }
 
 func (f *fakeConsole) View() session.DeliveryView {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.views++
 	v := f.v
 	v.Lines = append([]string(nil), f.v.Lines...)
+	return v
+}
+
+// State is the view without the screen, as a session gives it.
+func (f *fakeConsole) State() session.DeliveryView {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v := f.v
+	v.Lines, v.CursorY, v.BracketedPaste, v.ScreenStale = nil, 0, false, false
 	return v
 }
 
@@ -545,5 +556,72 @@ func TestDeliveryPausedStartingReconnectingDeadline(t *testing.T) {
 	}
 	if len(h.e.List("s_g")) != 1 || len(h.e.ListAll("p_test", true)) == 0 {
 		t.Fatal("list")
+	}
+}
+
+// A delivery waiting for a working agent looks at its state only; the screen is taken once
+// nothing else holds the delivery back.
+func TestWaitingDeliveryLeavesTheScreen(t *testing.T) {
+	h := newHarness()
+	c := h.add("s_w", readyClaude())
+	c.set(func(v *session.DeliveryView) { v.AgentState = agentstate.Working })
+	d, err := h.e.Submit("s_w", Request{Text: "next task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	c.views = 0 // Submit looked once
+	c.mu.Unlock()
+	h.run(0, 5*time.Second)
+	if got := h.get(t, d.ID); got.State != Waiting || got.WaitReason != WaitWorking {
+		t.Fatalf("%+v", got)
+	}
+	c.mu.Lock()
+	views := c.views
+	c.mu.Unlock()
+	if views != 0 {
+		t.Fatalf("the screen was taken %d times while the agent worked", views)
+	}
+	c.set(func(v *session.DeliveryView) { v.AgentState, v.LastOutput = agentstate.Ready, t0 })
+	h.run(6*time.Second, 6*time.Second)
+	if got := h.get(t, d.ID); got.State != Typing || !strings.Contains(c.written(), "next task") {
+		t.Fatalf("not typed once ready: %+v %q", got, c.written())
+	}
+}
+
+// The deliveries of deleted consoles are still found by id for a while, without their text,
+// and only the last keepGone of them.
+func TestDeletedConsolesDeliveriesAreBounded(t *testing.T) {
+	h := newHarness()
+	var ids []string
+	for i := range keepGone + 30 {
+		sid := fmt.Sprintf("s_%03d", i)
+		c := h.add(sid, readyClaude())
+		c.set(func(v *session.DeliveryView) { v.AgentState = agentstate.Working })
+		d, err := h.e.Submit(sid, Request{Text: strings.Repeat("long order ", 1000)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.e.SessionRemoved(sid)
+		ids = append(ids, d.ID)
+	}
+	h.e.mu.Lock()
+	n := len(h.e.byID)
+	h.e.mu.Unlock()
+	if n != keepGone {
+		t.Fatalf("%d deliveries kept by id, want %d", n, keepGone)
+	}
+	if _, ok := h.e.Get(ids[0]); ok {
+		t.Fatal("the oldest is still kept")
+	}
+	if d, ok := h.e.Get(ids[len(ids)-1]); !ok || d.State != Failed || d.Code != "session_gone" || d.Text != "" {
+		t.Fatalf("the newest %+v %v", d, ok)
+	}
+	// the change event still carried the text
+	h.mu.Lock()
+	last := h.events[len(h.events)-1]
+	h.mu.Unlock()
+	if last.State != Failed || !strings.HasPrefix(last.Text, "long order") {
+		t.Fatalf("event %+v", last.State)
 	}
 }

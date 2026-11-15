@@ -159,8 +159,8 @@ func (l *losingModel) Write(p []byte) bool {
 func TestLostOutputMarksTheScreenStale(t *testing.T) {
 	s := New(40, 5, nil)
 	defer s.Close()
-	lm := &losingModel{Model: s.m, lose: true}
 	s.mu.Lock()
+	lm := &losingModel{Model: s.modelLocked(), lose: true}
 	s.m = lm
 	s.mu.Unlock()
 

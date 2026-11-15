@@ -550,21 +550,12 @@ func commandRunning(procs []procInfo, wrapper int) bool {
 // startAsleep leaves a restored agent asleep instead of starting it (lazy start after a hub
 // restart): it starts when someone opens it, types into it or sends it work.
 func (m *Manager) startAsleep(s *Session) bool {
-	s.mu.Lock()
-	sp, a := s.spec, s.ag
-	s.mu.Unlock()
-	if sp.MachineID != machine.LocalID || a.Kind != agent.KindAgent {
+	if !m.startsAsleep(s) {
 		return false
-	}
-	if !sp.Asleep {
-		mode, offer := m.restartMode(s)
-		if !m.Settings().Agents.LazyStart || sp.KeepAwake || mode != agent.ModeResume || offer || !validSessionID(sp.AgentSessionID) {
-			return false
-		}
 	}
 	s.mu.Lock()
 	note := restartNote
-	if sp.Asleep {
+	if s.spec.Asleep {
 		note = asleepNote
 	}
 	s.asleepLocked(note)
@@ -573,8 +564,33 @@ func (m *Manager) startAsleep(s *Session) bool {
 	return true
 }
 
+// startsAsleep reports whether a restored console stays asleep at Start: an agent of This PC
+// that was asleep, or that would resume while settings.agents.lazyStart is on.
+func (m *Manager) startsAsleep(s *Session) bool {
+	s.mu.Lock()
+	sp, a := s.spec, s.ag
+	s.mu.Unlock()
+	if sp.MachineID != machine.LocalID || a.Kind != agent.KindAgent {
+		return false
+	}
+	if sp.Asleep {
+		return true
+	}
+	mode, offer := m.restartMode(s)
+	return m.Settings().Agents.LazyStart && !sp.KeepAwake && mode == agent.ModeResume && !offer && validSessionID(sp.AgentSessionID)
+}
+
+// sleepRetryAfter: an agent that ran a command when the idle sleep came by is asked again
+// after this, not on every round.
+const sleepRetryAfter = 5 * time.Minute
+
 // sleepIdle puts to sleep the agents idle for the configured time (settings.agents.sleepAfterMin).
+// A round still going when the next is due lets that one pass.
 func (m *Manager) sleepIdle(now time.Time) {
+	if !m.sleepRound.CompareAndSwap(false, true) {
+		return
+	}
+	defer m.sleepRound.Store(false)
 	if mins := m.Settings().Agents.SleepAfterMin; mins > 0 {
 		m.SleepIdle(time.Duration(mins)*time.Minute, now)
 	}
@@ -590,8 +606,9 @@ func (m *Manager) SleepIdle(idle time.Duration, now time.Time) int {
 	for _, s := range m.all() {
 		s.mu.Lock()
 		why := s.sleepBlockLocked(now, idle, false)
+		later := now.Before(s.sleepRetryAt)
 		s.mu.Unlock()
-		if why == "" {
+		if why == "" && !later {
 			cands = append(cands, s)
 		}
 	}
@@ -604,8 +621,15 @@ func (m *Manager) SleepIdle(idle time.Duration, now time.Time) int {
 	}
 	n := 0
 	for _, s := range cands {
-		if s.sleep(idle, false, procs) == nil {
+		err := s.sleep(idle, false, procs)
+		if err == nil {
 			n++
+		}
+		var se *SleepError
+		if errors.As(err, &se) && se.Reason == SleepCommandRunning {
+			s.mu.Lock()
+			s.sleepRetryAt = now.Add(sleepRetryAfter)
+			s.mu.Unlock()
 		}
 	}
 	return n

@@ -91,7 +91,7 @@ func ListConversations(ctx context.Context, h machine.Host, kind, dir, cwd strin
 		if kind == KindClaude {
 			p := ParseClaude(hdr, false)
 			c.AgentSessionID = strings.TrimSuffix(path.Base(f.path), ".jsonl")
-			c.Title, c.StartedAt = claudeTitle(hdr), p.StartedAt
+			c.Title, c.StartedAt = claudeTitleOf(p), p.StartedAt // one parse of the header
 			c.Messages = countTurns(p.Messages)
 		} else {
 			id, mcwd, started, ok := codexMeta(hdr)

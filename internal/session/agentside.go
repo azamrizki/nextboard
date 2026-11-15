@@ -702,7 +702,10 @@ func (s *Session) syncModel() {
 	s.mu.Lock()
 	since := s.priv.ModelAt
 	s.mu.Unlock()
-	seen, err := transcript.ReadModel(ctx, h, kind, p, since)
+	// only what was appended since the last time is read
+	s.modelMu.Lock()
+	seen, err := transcript.ReadModelFrom(ctx, h, kind, p, since, &s.modelScan)
+	s.modelMu.Unlock()
 	if err != nil {
 		return
 	}
@@ -757,7 +760,7 @@ func screenReply(sp Spec, text string, at time.Time, source string) *Reply {
 		for cut > 0 && !utf8.RuneStart(text[cut]) {
 			cut--
 		}
-		text, r.Truncated = text[:cut], true
+		text, r.Truncated = strings.Clone(text[:cut]), true // the cut would keep all of it
 	}
 	r.Text = text
 	return r

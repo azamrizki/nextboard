@@ -165,6 +165,7 @@ func ParseCodex(data []byte, partialStart bool) *Parsed {
 				case pl.Role == "assistant":
 					p.Messages = append(p.Messages, Message{ID: id, Role: "assistant", At: at, Text: text})
 					p.Reply = makeReply(text, pl.ID, at)
+					p.replyWhole = true // one message, one line: a cut line is never parsed
 				case pl.Role == "user" && !codexMetaText(text):
 					p.Messages = append(p.Messages, Message{ID: id, Role: "user", At: at, Text: text})
 					if p.Title == "" {

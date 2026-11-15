@@ -190,9 +190,38 @@ type Msg struct {
 type Sub struct {
 	C    chan Msg
 	once sync.Once
+
+	// sizes are the output bytes of the messages sent to C, oldest first, and queued their
+	// sum: those still in C are the last len(C) of them (one sender, under the session's lock).
+	sizes  []int
+	queued int
 }
 
 func (s *Sub) close() { s.once.Do(func() { close(s.C) }) }
+
+// SubMaxBytes is the output a subscriber may have waiting; one that falls further behind is
+// dropped like one whose channel is full.
+const SubMaxBytes = 4 << 20
+
+// fits accounts for a message of n output bytes about to be sent, and reports whether the
+// subscriber may have it: what the reader took since the last send no longer counts.
+func (s *Sub) fits(n int) bool {
+	if gone := len(s.sizes) - len(s.C); gone > 0 {
+		for _, k := range s.sizes[:gone] {
+			s.queued -= k
+		}
+		s.sizes = s.sizes[gone:]
+	}
+	if n > 0 && s.queued+n > SubMaxBytes && s.queued > 0 {
+		return false
+	}
+	return true
+}
+
+func (s *Sub) sent(n int) {
+	s.sizes = append(s.sizes, n)
+	s.queued += n
+}
 
 // run is one launched process generation.
 type run struct {
@@ -235,7 +264,10 @@ type Session struct {
 	// ringOff: the scrollback is only in its file (parkRingLocked); ring is empty until
 	// ringLocked reads it back.
 	ringOff bool
-	early   []byte // typed while the process was starting; it gets this once it exists
+	// ringNote goes after the file's scrollback when it is read back: the "hub restarted" line
+	// of a console that was not loaded at hub start (Manager.Load).
+	ringNote string
+	early    []byte // typed while the process was starting; it gets this once it exists
 
 	// Phase 5: status engine, marker stripper and VT model.
 	ag          agent.Agent // agent of the current launch
@@ -270,6 +302,13 @@ type Session struct {
 	wakeIn   []byte
 	// wakeAfter: its terminal was opened while it went to sleep.
 	wakeAfter bool
+	// sleepRetryAt: the idle sleep found a command running under it; it is not asked again
+	// before this (sleepRetryAfter).
+	sleepRetryAt time.Time
+
+	// modelScan is how far syncModel has read the transcript (modelMu).
+	modelMu   sync.Mutex
+	modelScan transcript.ModelScan
 }
 
 func newSession(m *Manager, spec Spec) *Session {
@@ -333,18 +372,30 @@ func (s *Session) infoLocked() Info {
 func (s *Session) ringLocked() *Ring {
 	if s.ringOff {
 		s.ringOff = false
-		r := NewRing(ScrollbackSize)
-		if b, err := os.ReadFile(s.m.scrollbackPath(s.spec.ID)); err == nil {
-			r.Write(b)
-		}
-		s.ring = r
+		s.ring = s.fileRingLocked()
+		s.ringNote = ""
 	}
 	return s.ring
+}
+
+// fileRingLocked is the scrollback as its file holds it, with ringNote after it.
+func (s *Session) fileRingLocked() *Ring {
+	r := NewRing(ScrollbackSize)
+	if b, err := os.ReadFile(s.m.scrollbackPath(s.spec.ID)); err == nil {
+		r.Write(b)
+	}
+	if s.ringNote != "" {
+		r.Write([]byte(s.ringNote))
+	}
+	return r
 }
 
 // ringBytesLocked is what the scrollback holds, without taking it back into memory.
 func (s *Session) ringBytesLocked() []byte {
 	if s.ringOff {
+		if s.ringNote != "" {
+			return s.fileRingLocked().Bytes()
+		}
 		b, _ := os.ReadFile(s.m.scrollbackPath(s.spec.ID))
 		return b
 	}
@@ -385,7 +436,9 @@ func (s *Session) Subscribe() ([]byte, *Sub) {
 		return nil, sub
 	}
 	s.subs[sub] = struct{}{}
-	snap := s.ringLocked().Bytes()
+	// read from its file when it was let go, and left there: opening a console that ended
+	// does not take its scrollback back into memory (output does, through ringLocked)
+	snap := s.ringBytesLocked()
 	asleep := s.spec.Asleep
 	if s.sleeping {
 		s.wakeAfter = true
@@ -405,12 +458,20 @@ func (s *Session) Unsubscribe(sub *Sub) {
 	sub.close()
 }
 
-// fanoutLocked delivers msg to every subscriber; full ones are dropped
-// (the client reconnects and repaints from the snapshot).
+// fanoutLocked delivers msg to every subscriber; full ones, and ones with more than
+// SubMaxBytes of output waiting, are dropped (the client reconnects and repaints from the
+// snapshot).
 func (s *Session) fanoutLocked(msg Msg) {
+	n := len(msg.Data)
 	for sub := range s.subs {
+		if !sub.fits(n) {
+			delete(s.subs, sub)
+			sub.close()
+			continue
+		}
 		select {
 		case sub.C <- msg:
+			sub.sent(n)
 		default:
 			delete(s.subs, sub)
 			sub.close()
@@ -447,18 +508,32 @@ func (s *Session) setStatus(status string, code int, errMsg string) {
 	s.fanoutLocked(s.statusMsgLocked())
 	ev := s.eng.TakeEvents()
 	s.mu.Unlock()
-	if status == StatusAsleep || status == StatusExited {
-		// nothing draws on its screen until it runs again: the emulator goes, the text stays,
-		// and its scrollback waits in its file
-		s.scr.Park()
-		s.mu.Lock()
-		if s.status == status {
-			s.parkRingLocked()
-		}
-		s.mu.Unlock()
+	if parks(status) {
+		s.park(status)
 	}
 	s.m.changed(s)
 	s.m.attention(s, ev)
+}
+
+// parks reports whether a console in status has no process drawing on its screen until it
+// runs again: asleep, done, failed to start, or waiting for its machine.
+func parks(status string) bool {
+	switch status {
+	case StatusAsleep, StatusExited, StatusError, StatusReconnecting:
+		return true
+	}
+	return false
+}
+
+// park lets the screen's emulator go (the text stays) and leaves the scrollback in its file,
+// unless the console moved on from status meanwhile.
+func (s *Session) park(status string) {
+	s.scr.Park()
+	s.mu.Lock()
+	if s.status == status {
+		s.parkRingLocked()
+	}
+	s.mu.Unlock()
 }
 
 // output handles one read from the process: markers are stripped first,

@@ -27,7 +27,8 @@ import (
 // consoleAdapter exposes a session to the delivery engine.
 type consoleAdapter struct{ s *session.Session }
 
-func (c consoleAdapter) View() session.DeliveryView { return c.s.DeliveryView() }
+func (c consoleAdapter) View() session.DeliveryView  { return c.s.DeliveryView() }
+func (c consoleAdapter) State() session.DeliveryView { return c.s.DeliveryState() }
 func (c consoleAdapter) AgentForeground(ctx context.Context) (bool, error) {
 	return c.s.AgentForeground(ctx)
 }

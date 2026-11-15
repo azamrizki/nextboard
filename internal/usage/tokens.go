@@ -310,8 +310,14 @@ func (x *tokenIndex) scan(ctx context.Context, machineID string) (partial bool, 
 	l.Lock()
 	defer l.Unlock()
 	ix := x.load(machineID)
+	// changed: a file was read or dropped. The index is written only then: it is most of a MB
+	// as JSON, and a scan of a quiet machine finds nothing new.
+	changed := false
 	defer func() {
 		ix.ScannedAt = time.Now().UTC()
+		if !changed {
+			return
+		}
 		if e := ensureDir(x.st, "usage/tokens"); e == nil {
 			x.mu.Lock()
 			_ = x.st.Save(indexFile(machineID), ix)
@@ -333,6 +339,7 @@ func (x *tokenIndex) scan(ctx context.Context, machineID string) (partial bool, 
 	for p := range ix.Files {
 		if !live[p] {
 			delete(ix.Files, p) // aggregates stay (history is kept)
+			changed = true
 		}
 	}
 	x.mu.Unlock()
@@ -349,6 +356,7 @@ func (x *tokenIndex) scan(ctx context.Context, machineID string) (partial bool, 
 		if fs.Size == s.size && fs.Offset == s.size && fs.StatOffset == s.size && fs.Mtime.Equal(s.mtime) {
 			continue
 		}
+		changed = true
 		if s.size < fs.Offset { // rewritten: start over (best-effort)
 			fs = &fileState{Agent: s.agent}
 		}

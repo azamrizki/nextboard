@@ -101,9 +101,12 @@ func ParseClaude(data []byte, partialStart bool) *Parsed {
 	var turnID string
 	var turnAt time.Time
 	usageAt := map[string]int{}
+	// anchored: the current turn's text began after a line seen here, so none of it is cut
+	// off before the data (a tail)
+	anchored := false
 	flush := func() {
 		if r := makeReply(strings.Join(turn, "\n\n"), turnID, turnAt); r != nil {
-			p.Reply = r
+			p.Reply, p.replyWhole = r, anchored
 		}
 	}
 	for _, l := range lines(data, partialStart) {
@@ -122,7 +125,10 @@ func ParseClaude(data []byte, partialStart bool) *Parsed {
 			}
 			continue
 		case "ai-title":
-			continue // handled by listTitle (lower priority than custom-title)
+			if p.aiTitle == "" && ln.AITitle != "" {
+				p.aiTitle = ln.AITitle // the title when there is no custom one (titleOf)
+			}
+			continue
 		case "user", "assistant":
 		default:
 			continue
@@ -151,6 +157,7 @@ func ParseClaude(data []byte, partialStart bool) *Parsed {
 					flush() // a new turn: remember the previous answer
 				}
 				turn, turnID, turnAt = nil, "", time.Time{}
+				anchored = true
 			}
 			continue
 		}
@@ -187,16 +194,15 @@ func ParseClaude(data []byte, partialStart bool) *Parsed {
 
 // claudeTitle is the picker title: /rename title, else Claude's own
 // title, else the first typed prompt.
-func claudeTitle(header []byte) string {
-	p := ParseClaude(header, false)
+func claudeTitle(header []byte) string { return claudeTitleOf(ParseClaude(header, false)) }
+
+// claudeTitleOf is claudeTitle of a header already parsed.
+func claudeTitleOf(p *Parsed) string {
 	if p.Title != "" {
 		return p.Title
 	}
-	for _, l := range lines(header, false) {
-		var ln claudeLine
-		if json.Unmarshal(l, &ln) == nil && ln.Type == "ai-title" && ln.AITitle != "" {
-			return oneLine(ln.AITitle, 120)
-		}
+	if p.aiTitle != "" {
+		return oneLine(p.aiTitle, 120)
 	}
 	for _, m := range p.Messages {
 		if m.Role == "user" && !m.Sidechain {

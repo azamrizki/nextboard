@@ -54,6 +54,20 @@ func (s *Session) DeliveryView() DeliveryView {
 	sn := s.scr.Snapshot()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	v := s.deliveryStateLocked()
+	v.Lines, v.CursorY, v.BracketedPaste, v.ScreenStale = sn.Lines, sn.CursorY, sn.BracketedPaste, sn.Stale
+	return v
+}
+
+// DeliveryState is DeliveryView without the screen (Lines empty), for the checks that do not
+// read it: it copies nothing of the screen.
+func (s *Session) DeliveryState() DeliveryView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.deliveryStateLocked()
+}
+
+func (s *Session) deliveryStateLocked() DeliveryView {
 	es := s.eng.Snapshot()
 	var turn time.Time
 	if es.LastTurn != nil {
@@ -64,7 +78,6 @@ func (s *Session) DeliveryView() DeliveryView {
 		Agent: s.spec.Agent, AgentKind: s.ag.Kind, Status: s.status, AgentState: es.AgentState, StateSince: es.StateSince,
 		Foreground: es.Foreground, ManualAgent: es.ManualAgent, Paused: s.spec.Paused, Running: s.cur != nil,
 		LastHuman: s.lastInput, LastOutput: s.lastOutput, ScreenRules: s.ag.ScreenRules,
-		Lines: sn.Lines, CursorY: sn.CursorY, BracketedPaste: sn.BracketedPaste, ScreenStale: sn.Stale,
 	}
 }
 

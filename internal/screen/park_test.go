@@ -73,3 +73,31 @@ func TestParkFreesTheEmulator(t *testing.T) {
 		s.Close()
 	}
 }
+
+// A new screen holds no emulator until something is written to it, and shows the empty
+// screen a new emulator would.
+func TestNewScreenMakesItsEmulatorOnFirstWrite(t *testing.T) {
+	s := New(30, 4, nil)
+	defer s.Close()
+	if !s.Parked() {
+		t.Fatal("a new screen holds an emulator")
+	}
+	sn := s.Snapshot()
+	if len(sn.Lines) != 4 || strings.Join(sn.Lines, "") != "" || sn.CursorX != 0 || sn.CursorY != 0 || sn.Alt || sn.BracketedPaste {
+		t.Fatalf("empty screen %+v", sn)
+	}
+	s.Resize(40, 5) // no emulator needed for it
+	if !s.Parked() || len(s.Snapshot().Lines) != 5 {
+		t.Fatalf("resize made an emulator or kept the old size: parked %v", s.Parked())
+	}
+	s.Feed([]byte("hello"))
+	s.Sync()
+	if s.Parked() || s.Snapshot().Lines[0] != "hello" || s.Snapshot().CursorX != 5 {
+		t.Fatalf("after a write: %+v", s.Snapshot())
+	}
+	m := NewModel(40, 5, nil)
+	if got := len(m.Lines()); got != 5 {
+		t.Fatalf("a new emulator shows %d lines, the empty screen 5", got)
+	}
+	m.(interface{ close() }).close()
+}

@@ -58,16 +58,34 @@ func (r *Ring) Write(p []byte) {
 // wrapped, output before the first newline is dropped so the snapshot does
 // not start in the middle of an escape sequence or UTF-8 rune.
 func (r *Ring) Bytes() []byte {
+	a, b := r.parts()
 	if !r.full {
-		return append([]byte(nil), r.buf[:r.w]...)
+		return append([]byte(nil), a...)
 	}
-	out := make([]byte, 0, len(r.buf))
-	out = append(out, r.buf[r.w:]...)
-	out = append(out, r.buf[:r.w]...)
-	if i := bytes.IndexByte(out, '\n'); i >= 0 && i < 64*1024 {
-		out = out[i+1:]
+	out := make([]byte, 0, len(a)+len(b))
+	return append(append(out, a...), b...)
+}
+
+// cutWithin is how far into a wrapped ring the first newline may be for Bytes to start after it.
+const cutWithin = 64 * 1024
+
+// parts is what Bytes returns, as the two pieces of the buffer it is made of, without a copy.
+// They are only valid until the next Write.
+func (r *Ring) parts() (a, b []byte) {
+	if !r.full {
+		return r.buf[:r.w], nil
 	}
-	return out
+	a, b = r.buf[r.w:], r.buf[:r.w]
+	if i := bytes.IndexByte(a, '\n'); i >= 0 {
+		if i < cutWithin {
+			a = a[i+1:]
+		}
+		return a, b
+	}
+	if j := bytes.IndexByte(b, '\n'); j >= 0 && len(a)+j < cutWithin {
+		return nil, b[j+1:]
+	}
+	return a, b
 }
 
 // Len returns the number of buffered bytes.

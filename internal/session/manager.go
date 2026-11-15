@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -31,6 +32,9 @@ import (
 )
 
 const sessionsFile = "sessions.json"
+
+// hubRestartedNote ends each console's scrollback when the hub starts again.
+const hubRestartedNote = "\r\n\x1b[90m── hub restarted ──\x1b[0m\r\n"
 
 var (
 	ErrNotFound        = errors.New("session not found")
@@ -164,6 +168,8 @@ type Manager struct {
 	sessions map[string]*Session
 	order    []string
 	shutting atomic.Bool
+	// sleepRound: an idle-sleep round is running (sleepIdle).
+	sleepRound atomic.Bool
 
 	saveMu     sync.Mutex
 	saveTimer  *time.Timer
@@ -250,9 +256,16 @@ func (m *Manager) Load() error {
 		if s.priv.HookToken == "" {
 			s.priv.HookToken = newToken()
 		}
-		if b, err := os.ReadFile(m.scrollbackPath(sp.ID)); err == nil && len(b) > 0 {
+		if sp.MachineID != machine.LocalID || m.startsAsleep(s) {
+			// Nothing runs in it until its machine connects or it is woken: its scrollback stays
+			// in its file, as a parked one does, and no emulator is made for it. Read back, it is
+			// what it was, followed by the hub-restart line.
+			if fi, err := os.Stat(m.scrollbackPath(sp.ID)); err == nil && fi.Size() > 0 {
+				s.ringOff, s.ringNote = true, hubRestartedNote
+			}
+		} else if b, err := os.ReadFile(m.scrollbackPath(sp.ID)); err == nil && len(b) > 0 {
 			s.ring.Write(b)
-			s.ring.Write([]byte("\r\n\x1b[90m── hub restarted ──\x1b[0m\r\n"))
+			s.ring.Write([]byte(hubRestartedNote))
 			replay := s.ring.Bytes()
 			if len(replay) > screen.ReplayBytes {
 				replay = replay[len(replay)-screen.ReplayBytes:]
@@ -1133,13 +1146,18 @@ func (m *Manager) Kill(id string) (Info, error) {
 	s.stop()
 	s.launchMu.Unlock()
 	s.mu.Lock()
+	direct := false
 	if s.status == StatusReconnecting || s.status == StatusStarting || s.status == StatusAsleep {
 		s.gen++ // cancel pending relaunch
 		s.status = StatusExited
 		s.eng.SetProc(StatusExited, time.Now())
+		direct = true
 	}
 	s.spec.Asleep, s.spec.AsleepAt = false, nil // stopped: it does not wake by itself
 	s.mu.Unlock()
+	if direct {
+		s.park(StatusExited) // no process ended here, so setStatus did not
+	}
 	m.saveSoon()
 	m.changed(s)
 	return m.SessionInfo(s), nil
@@ -1376,17 +1394,70 @@ func (m *Manager) saveNow() {
 
 func (m *Manager) flushScrollback(all bool) {
 	for _, s := range m.all() {
-		s.mu.Lock()
-		if (!s.dirty && !all) || s.ringOff { // a let-go scrollback is its file already
-			s.mu.Unlock()
-			continue
+		m.flushOne(s, all)
+	}
+}
+
+// flushOne writes a console's scrollback to its file: changed ones, or all. The ring's two
+// parts are written straight into the new file, with no copy of the whole.
+func (m *Manager) flushOne(s *Session, all bool) {
+	s.mu.Lock()
+	if s.ringOff {
+		// a let-go scrollback is its file already, but for a hub-restart line not written yet
+		var b []byte
+		if all && s.ringNote != "" {
+			b, s.ringNote = s.ringBytesLocked(), ""
 		}
-		b := s.ring.Bytes()
-		s.dirty = false
 		id := s.spec.ID
 		s.mu.Unlock()
-		_ = store.WriteFileAtomic(m.scrollbackPath(id), b)
+		if b != nil {
+			_ = store.WriteFileAtomic(m.scrollbackPath(id), b)
+		}
+		return
 	}
+	if !s.dirty && !all {
+		s.mu.Unlock()
+		return
+	}
+	path := m.scrollbackPath(s.spec.ID)
+	s.mu.Unlock()
+	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-"+filepath.Base(path)+"-*")
+	if err != nil {
+		return
+	}
+	tmp := f.Name()
+	done := false
+	defer func() {
+		if !done {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if f.Chmod(0o600) != nil {
+		f.Close()
+		return
+	}
+	s.mu.Lock()
+	gone := s.ringOff // let go meanwhile: its file is the newer one
+	if !gone {
+		a, b := s.ring.parts()
+		if _, err = f.Write(a); err == nil {
+			_, err = f.Write(b)
+		}
+		s.dirty = false
+	}
+	s.mu.Unlock()
+	if gone || err != nil || f.Sync() != nil {
+		f.Close()
+		return
+	}
+	if f.Close() != nil {
+		return
+	}
+	s.mu.Lock()
+	if !s.ringOff && !s.deleted { // not after a park or a delete wrote or removed the file
+		done = os.Rename(tmp, path) == nil
+	}
+	s.mu.Unlock()
 }
 
 // Shutdown persists everything, then stops processes: local ones get

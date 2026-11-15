@@ -37,28 +37,59 @@ func readTail(ctx context.Context, h machine.Host, p string, n int64) (data []by
 	return data, true, true, nil
 }
 
+// tailSlots bounds the transcript tails read and parsed at once in the hub: each takes up to
+// TailMax bytes and a few times that while it is decoded, and agents waking together (a
+// project opened, a hub restart) would otherwise all read at the same moment.
+var tailSlots = make(chan struct{}, 2)
+
+func takeSlot(ctx context.Context) error {
+	select {
+	case tailSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func giveSlot() { <-tailSlots }
+
 // parseTail reads a growing tail (TailStart, x2, up to TailMax) until done
 // accepts the result or the whole file was read.
 func parseTail(ctx context.Context, h machine.Host, kind, p string, done func(*Parsed) bool) (*Parsed, bool, error) {
+	return parseTailFrom(ctx, h, kind, p, TailStart, 2, func(p *Parsed, _ int64) bool { return done(p) })
+}
+
+// parseTailFrom is parseTail starting at start bytes, the tail growing by factor; done also
+// gets the size of the tail it looks at.
+func parseTailFrom(ctx context.Context, h machine.Host, kind, p string, start, factor int64, done func(*Parsed, int64) bool) (*Parsed, bool, error) {
 	if kind != KindClaude && kind != KindCodex {
 		return nil, false, ErrUnknownKind
 	}
-	for n := int64(TailStart); ; n *= 2 {
+	if err := takeSlot(ctx); err != nil {
+		return nil, false, err
+	}
+	defer giveSlot()
+	for n := start; ; n *= factor {
 		n = min(n, TailMax)
 		data, partial, cut, err := readTail(ctx, h, p, n)
 		if err != nil {
 			return nil, false, err
 		}
 		parsed, _ := Parse(kind, data, cut)
-		if done(parsed) || !partial || n >= TailMax {
+		if done(parsed, n) || !partial || n >= TailMax {
 			return parsed, partial, nil
 		}
 	}
 }
 
-// ReadReply returns the agent's last reply in the transcript at path.
+// ReadReply returns the agent's last reply in the transcript at path. Most replies are in the
+// last ReplyTailStart bytes; the tail doubles until the turn of the reply starts in it, or is
+// at least ReplyWholeAt (the line before the reply can be a tool result of many MB, which no
+// tail holds whole).
 func ReadReply(ctx context.Context, h machine.Host, kind, path string) (*Reply, error) {
-	p, _, err := parseTail(ctx, h, kind, path, func(p *Parsed) bool { return p.Reply != nil })
+	p, _, err := parseTailFrom(ctx, h, kind, path, ReplyTailStart, 2, func(p *Parsed, n int64) bool {
+		return p.Reply != nil && (p.replyWhole || n >= ReplyWholeAt)
+	})
 	if err != nil {
 		return nil, err
 	}
