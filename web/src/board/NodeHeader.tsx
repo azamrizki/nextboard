@@ -12,7 +12,7 @@ import { SwitchAgentDialog } from '../agents/AgentPicker';
 import { canContinue, canPickInCli, canResumeExact, hasTranscript, hasYolo, useAgent } from '../agents/catalog';
 import { OutputViewer } from '../agents/OutputViewer';
 import { ResumePicker } from '../agents/ResumePicker';
-import { agentPill, handleOf, handleProblem, hasOutput, initials, isAgentConsole, type Pill } from '../agents/state';
+import { agentPill, handleOf, handleProblem, hasOutput, isAgentConsole, profileChip, type Pill } from '../agents/state';
 import { stepScale } from '../agents/textSize';
 import { onMachine, YoloConfirm } from '../agents/YoloConfirm';
 import { Button } from '../components/Button';
@@ -23,7 +23,7 @@ import { toast } from '../components/Toast';
 import type { SocketState } from '../lib/socket';
 import type { Agent, Conversation, LaunchMode, Machine, Session } from '../lib/types';
 import { projectParts } from '../lib/parts';
-import { store, useProfile, useProject } from '../store';
+import { store, useProfile, useProject, useSettings } from '../store';
 import { splitAccount } from '../providers/AccountOptions';
 import { ProviderBadge } from '../providers/ProviderBadge';
 import { rectOf } from './controller';
@@ -309,6 +309,9 @@ function PartLabel({ session }: { session: Session }) {
 export function NodeHeader({ nodeId, session, machine, socket, actions, textOverride, textScale }: NodeHeaderProps) {
   const { ctl, ui } = useBoardEnv();
   const profile = useProfile(session.profileId || undefined);
+  const settings = useSettings();
+  // none for the default login: nearly every console has it
+  const chip = profileChip(session, profile, settings ? (settings.agents.profiles ?? {}) : null);
   const linked = useSyncExternalStore(ctl.sync.subscribe, () => {
     const g = groupOf(ctl.nodes, nodeId);
     return g ? readGroup(g).syncInput : false;
@@ -586,10 +589,10 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
           YOLO
         </span>
       )}
-      {session.profileId && (
-        <span className="badge badge-info node-badge" title={`Login profile: ${profile?.name ?? session.profileId}`} aria-label={`Login profile ${profile?.name ?? ''}`}>
+      {chip !== null && (
+        <span className="badge badge-info node-badge node-profile" title={`Login profile: ${profile?.name ?? session.profileId}`} aria-label={`Login profile ${profile?.name ?? ''}`}>
           <Icon name="user" />
-          {profile ? initials(profile.name) : '…'}
+          <span className="truncate">{chip}</span>
         </span>
       )}
       {session.providerId && <ProviderBadge sessionId={session.id} providerId={session.providerId} />}

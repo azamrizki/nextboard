@@ -44,3 +44,25 @@ test('the ring spawns an agent under the login profile picked there', async ({ p
     await hub.call('DELETE', `/api/profiles/${work.id}?purge=1`);
   }
 });
+
+test('a console header names its login profile only when it is not the default', async ({ page, hub }) => {
+  const p = await hub.project('Profile chip');
+  const work = await hub.call('POST', '/api/profiles', { machineId: 'local', agent: 'fakecli', name: 'Work', create: true });
+  const made: string[] = [];
+  const spawn = async (body: Record<string, unknown>) => made.push((await hub.call('POST', '/api/sessions', { workspaceId: p.wid, ...body })).id);
+  try {
+    // NextBoard's own folder, the default of Codex and of Claude Code, and a profile of its own
+    await spawn({ agent: 'fakecli', node: { x: 0, y: 0, w: 640, h: 300 } });
+    await spawn({ agent: 'fakeclaude', node: { x: 700, y: 0, w: 640, h: 300 } });
+    await spawn({ agent: 'fakecli', profileId: work.id, node: { x: 0, y: 340, w: 640, h: 300 } });
+    await page.goto(`/p/${p.id}/w/${p.wid}`);
+    await expect(page.locator('.react-flow__node')).toHaveCount(3);
+    const chip = page.locator('.react-flow__node .node-profile');
+    await expect(chip).toHaveCount(1);
+    await expect(chip).toHaveText('Work');
+    await expect(chip).toHaveAttribute('title', 'Login profile: Work');
+  } finally {
+    for (const id of made) await hub.call('DELETE', `/api/sessions/${id}`);
+    await hub.call('DELETE', `/api/profiles/${work.id}?purge=1`);
+  }
+});

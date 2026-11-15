@@ -99,6 +99,12 @@
   padding: 0 var(--s-1) 0 var(--s-1);
   font-weight: var(--fw-semibold);
 }
+/* a login profile other than the default, by its name: a long one gives way to the title */
+.node-badge.node-profile {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 10rem;
+}
 .node-pill-wrap {
   display: inline-flex;
   align-items: center;

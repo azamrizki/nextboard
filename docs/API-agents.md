@@ -490,7 +490,7 @@ Switching agent in a console (`restart` with `agent`, the Switch agent dialog, i
 
 A session with a `profileId` gets the env `<profileEnv>=<dir>`. "Connect new account" (local) = create a profile with `create:true`, then spawn a console of that agent with that profile; the CLI runs its own login.
 
-**Sign in from Settings** (2026-11-11): the Add profile dialog for This PC goes straight on to a Sign in step: `POST …/signin`, that console's terminal in the dialog, and the status "Signed in" as soon as the CLI reaches its prompt (`agentState` `ready`/`working`). Closing the dialog deletes that console; the login stays saved in the profile folder. A This PC profile row has a Sign in button to log in again. Profiles on a server do not have this step. The header badge shows the initials of the profile name.
+**Sign in from Settings** (2026-11-11): the Add profile dialog for This PC goes straight on to a Sign in step: `POST …/signin`, that console's terminal in the dialog, and the status "Signed in" as soon as the CLI reaches its prompt (`agentState` `ready`/`working`). Closing the dialog deletes that console; the login stays saved in the profile folder. A This PC profile row has a Sign in button to log in again. Profiles on a server do not have this step. A console's header has a chip with the name of its login profile when that is not the default of its agent (or of its base agent); the default, which most consoles run on, has none (2026-11-15).
 
 ### 10.2 API providers (2026-11-11)
 

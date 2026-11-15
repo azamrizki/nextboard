@@ -131,10 +131,22 @@ export function handleProblem(h: string): string {
   return '';
 }
 
-/** "Profile name" → "PN" (header badge). */
-export function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
+/**
+ * What a console header's login chip says (docs/API-agents.md §10): the name of its login profile,
+ * or null for no chip when that is the login consoles of this agent get anyway. Most consoles run
+ * on that default, NextBoard's own folder, and a chip on every one of them tells nothing apart.
+ * The default is the agent's own, else its base agent's (a custom agent on Claude Code's base), as
+ * the hub picks it. `defaults` is settings.agents.profiles, null while the settings are not loaded:
+ * no chip until it is known which login is the default.
+ */
+export function profileChip(
+  session: Pick<Session, 'profileId' | 'agent' | 'machineId'>,
+  profile: { name: string; agent: string; machineId: string } | undefined,
+  defaults: Record<string, Record<string, string>> | null | undefined,
+): string | null {
+  if (!session.profileId || defaults === null) return null;
+  const byAgent = defaults?.[profile?.machineId ?? session.machineId] ?? {};
+  const fallback = (session.agent && byAgent[session.agent]) || (profile && byAgent[profile.agent]) || '';
+  if (fallback === session.profileId) return null;
+  return profile?.name.trim() || '…';
 }
