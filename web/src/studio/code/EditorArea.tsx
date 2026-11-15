@@ -735,7 +735,7 @@ function Crumbs({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc | undefine
           size="sm"
           label="Markdown view"
           value={doc.md}
-          onChange={(v) => ws.setMdView(tab.path, v)}
+          onChange={(v) => ws.setMdView(key, v)}
           options={[
             { value: 'reader', label: 'Reader' },
             { value: 'split', label: 'Split' },
@@ -744,7 +744,7 @@ function Crumbs({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc | undefine
         />
       )}
       {!tab.diff && repoRel && part?.gitMark(key) && (
-        <Button size="sm" variant="ghost" iconOnly icon="branch" aria-label="Compare with HEAD" title="Compare with HEAD" onClick={() => ws.openDiff(tab.path, 'head')} />
+        <Button size="sm" variant="ghost" iconOnly icon="branch" aria-label="Compare with HEAD" title="Compare with HEAD" onClick={() => ws.openDiff(key, 'head')} />
       )}
     </nav>
   );
@@ -910,9 +910,9 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
     { label: 'Close All', onSelect: () => ws.closeAll(gi) },
     'sep',
     { label: 'Split Right', icon: 'layout', onSelect: () => ws.open(t.path, { pin: true, side: true }) },
-    { label: 'Compare with HEAD', icon: 'branch', disabled: !(t.path && ws.partOf(t.path)?.gitMark(t.path)), onSelect: () => ws.openDiff(t.path, 'head', gi) },
+    { label: 'Compare with HEAD', icon: 'branch', disabled: !(t.path && ws.partOf(t.path)?.gitMark(t.path)), onSelect: () => t.path && ws.openDiff(t.path, 'head', gi) },
     { label: 'Local History', icon: 'history', onSelect: () => ws.openView({ kind: 'history', path: t.path }) },
-    { label: 'Reveal in Explorer', icon: 'folderOpen', onSelect: () => ws.revealInTree(t.path) },
+    { label: 'Reveal in Explorer', icon: 'folderOpen', onSelect: () => t.path && ws.revealInTree(t.path) },
     { label: 'Copy Path', icon: 'link', onSelect: () => t.path && void navigator.clipboard?.writeText(splitKey(t.path).abs).then(() => toast.success('Path copied.')) },
     { label: 'Copy Relative Path', icon: 'link', onSelect: () => t.path && void navigator.clipboard?.writeText(ws.relLabel(t.path)).then(() => toast.success('Path copied.')) },
     { label: 'Add to Board', icon: 'plus', onSelect: () => onAddFile(t.path) },

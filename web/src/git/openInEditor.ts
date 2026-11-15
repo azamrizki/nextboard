@@ -7,6 +7,18 @@ import type { UiStore } from '../board/ui';
 import type { Placement } from '../lib/parts';
 import type { Project, ProjectPart } from '../lib/types';
 
+/** The editor card a board showed: its node id and its placement (the card of that part, or a Root card). */
+export interface ShownEditor {
+  nodeId: string;
+  placement: Placement;
+}
+
+/**
+ * Shows the editor card for a placement (the board's openCode): picks a card of that part, else a
+ * Root card, else makes one in the part, and says which; undefined when it showed none.
+ */
+export type ShowEditorCard = (placement: Placement) => ShownEditor | undefined;
+
 export interface CommitInEditor {
   project: Project;
   part: ProjectPart;
@@ -14,21 +26,16 @@ export interface CommitInEditor {
   label: string;
   /** A file of the commit that is still there, absolute (kept for older callers; the part decides). */
   file?: string;
-  /**
-   * Shows an editor card (the board's openCode). Asked with a placement, it picks or makes the
-   * card and says which (its node id and placement); asked with a path (older boards), it shows a
-   * card with that file.
-   */
-  openEditor(to?: string | { placement: Placement }): string | { nodeId: string; placement: Placement } | void;
+  openEditor: ShowEditorCard;
   ui?: UiStore;
 }
 
 export async function showCommitInEditor(o: CommitInEditor): Promise<void> {
   const [{ Workspace }, { PartService }, { setupMonaco }] = await Promise.all([import('../studio/code/workspace'), import('../studio/code/partsvc'), import('../studio/code/monaco')]);
   setupMonaco();
-  const shown = o.openEditor({ placement: { partId: o.part.id } });
-  // the card the board chose: that part's, or a Root card; a board that does not say: the part's view
-  const placement: Placement = shown && typeof shown === 'object' ? shown.placement : { partId: o.part.id };
+  const shown = o.openEditor({ partId: o.part.id });
+  // the card the board chose: that part's, or a Root card; none shown: the part's view
+  const placement: Placement = shown?.placement ?? { partId: o.part.id };
   const view = Workspace.get(o.project, placement);
   // the part service the card's view holds (a stray PartService.get would never be let go)
   const part = view.parts.find((p) => p.partId === o.part.id) ?? PartService.get(o.project, o.part);

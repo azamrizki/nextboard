@@ -1,13 +1,14 @@
 // The editor card's side of the link to Claude Code consoles (docs/API-agents.md §24). While
 // the card is open the hub can ask it what a console's own IDE would know: the selection, the
 // open files, the problems. A console's proposed change opens as a diff to accept or reject.
-// The CLI runs on This PC, so the paths it names are real paths there (fileKey("local", …)).
+// The CLI runs on This PC, so the paths it names are real paths there (fileKey("local", …)); a
+// root console's paths through the project's root folder (<rootDir>/<part>/…) are the part's.
 
 import { api, errorMessage, wsUrl } from '../../api';
 import { toast } from '../../components/Toast';
 import { docStore, readKey } from './docs';
 import { monaco } from './monaco';
-import { fileKey, keyOfUri, LOCAL_MACHINE, splitKey, type FileKey } from './paths';
+import { keyOfUri, splitKey, type FileKey } from './paths';
 import { nameOf, type Workspace } from './workspace';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
@@ -23,7 +24,7 @@ export interface Proposal {
   tab: string;
   /** The file's key (on This PC, where the CLI runs). */
   path: FileKey;
-  /** The real path of the file before the change, on This PC ("" for a new file). */
+  /** The path of the file before the change as the CLI names it, on This PC ("" for a new file). */
   oldPath: string;
   after: string;
   console: string;
@@ -121,9 +122,9 @@ export class IdeLink {
     this.selectionTimer = window.setTimeout(() => this.sendSelection(ed), SELECTION_MS);
   }
 
-  /** A path the CLI names (a real path on This PC) as a key. */
+  /** A path the CLI names (a real path on This PC, or through the project's root folder) as a key. */
   private keyOfCli(path: unknown): FileKey | null {
-    return typeof path === 'string' ? this.ws.resolve(path, LOCAL_MACHINE) : null;
+    return typeof path === 'string' ? this.ws.cliKey(path) : null;
   }
 
   private shareable(key: FileKey) {
@@ -349,8 +350,9 @@ export class IdeLink {
 
   /** The text before the change; a new file has none. */
   before(p: Proposal): Promise<string> {
-    if (!p.oldPath.startsWith('/')) return Promise.resolve('');
-    return readKey(fileKey(LOCAL_MACHINE, p.oldPath), 32 << 20)
+    const key = p.oldPath.startsWith('/') ? this.keyOfCli(p.oldPath) : null;
+    if (!key) return Promise.resolve('');
+    return readKey(key, 32 << 20)
       .then((r) => (r.content.startsWith('﻿') ? r.content.slice(1) : r.content))
       .catch(() => '');
   }

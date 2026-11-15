@@ -29,6 +29,9 @@ import { memoryLinkIntent } from '../memory/preload';
 import { UsagePill } from '../usage/UsagePill';
 import { useVaultStatus } from '../vault/store';
 
+/** Agent CLIs always run on This PC (servers are reached through the hub's tools), so their usage is read there, whatever machine the project's parts are on. */
+const USAGE_MACHINE = 'local';
+
 // The vault's screens load, and the vault with them, when the window is first opened.
 const VaultWindow = lazy(() => import('../vault/Window').then((m) => ({ default: m.VaultWindow })));
 
@@ -115,7 +118,7 @@ function PhoneHeader({ project, workspaceId }: AppHeaderProps) {
           )}
         </div>
         <div className="header-right">
-          <UsagePill machineId={project?.machineId ?? 'local'} />
+          <UsagePill machineId={USAGE_MACHINE} />
           <NeedsYouChip />
           <LiveChip />
           <ConnStatus />
@@ -176,7 +179,7 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
       )}
 
       <div className="header-right">
-        <UsagePill machineId={project?.machineId ?? 'local'} />
+        <UsagePill machineId={USAGE_MACHINE} />
         <NeedsYouChip />
         <LiveChip />
         <ConnStatus />

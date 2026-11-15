@@ -97,6 +97,9 @@ func newFakeHub(t *testing.T) (*fakeHub, *Service) {
 		t.Fatal(err)
 	}
 	svc := New(h, st)
+	// before the boards and the temp folder go: what it runs in the background (reports,
+	// forwards waiting for a reply) must not write into a folder being removed
+	t.Cleanup(svc.Close)
 	svc.Now = func() time.Time { return t0 }
 	svc.Threads.Now = svc.Now
 	svc.Loops.Loc = time.UTC

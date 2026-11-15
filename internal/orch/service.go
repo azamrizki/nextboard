@@ -142,6 +142,8 @@ type Service struct {
 	stop        chan struct{}
 	once        sync.Once
 	wg          sync.WaitGroup
+	bgMu        sync.Mutex // guards bgClosed and every wg.Add of goBackground
+	bgClosed    bool
 }
 
 // New loads threads, orders, loops, forwards, memory and layouts.
@@ -203,13 +205,31 @@ func (s *Service) Start() {
 	}()
 }
 
-// Close stops the ticker and saves state.
+// Close stops the ticker and the work started in the background, then saves state.
 func (s *Service) Close() {
 	s.once.Do(func() { close(s.stop) })
+	s.bgMu.Lock()
+	s.bgClosed = true
+	s.bgMu.Unlock()
 	s.wg.Wait()
 	s.Orders.Save(s.Now())
 	s.saveForwards()
 	s.saveHandoffs()
+}
+
+// goBackground runs fn on a goroutine that Close waits for, so nothing of it writes to the
+// store after Close; fn must end soon once s.stop is closed. After Close it starts nothing.
+func (s *Service) goBackground(fn func()) {
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	if s.bgClosed {
+		return
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		fn()
+	}()
 }
 
 // Tick runs every timer of the orchestration (confirmation TTL, planner

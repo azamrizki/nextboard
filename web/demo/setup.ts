@@ -231,9 +231,12 @@ export default async function globalSetup() {
     // the hub's own project for its home folder: the demo has its three
     for (const p of await call(ctx, 'GET', '/api/projects')) if (p.path === home) await call(ctx, 'DELETE', `/api/projects/${p.id}`);
 
+    // each project's first part (every part has a "pt_…" id since v0.9.0-beta.2)
+    const firstPart = new Map<string, string>();
     for (const p of PROJECTS) {
       const made = await call(ctx, 'POST', '/api/projects', { machineId: 'local', path: dirs.get(p.slug), name: p.name });
       p.id = made.id;
+      firstPart.set(p.slug, made.parts[0].id);
       p.wid = made.workspaces[0].id;
       if (p.memory) await call(ctx, 'PUT', `/api/projects/${made.id}/memory`, { scope: 'project', content: p.memory });
       for (const m of p.pages ?? []) await call(ctx, 'PUT', `/api/memory/docs/${m.name}?projectId=${made.id}`, { title: m.title, description: m.description ?? '', content: m.content });
@@ -242,7 +245,7 @@ export default async function globalSetup() {
 
     // acme-shop in three parts: the storefront here, its API and worker each on a server
     if (ssh) {
-      await call(ctx, 'PATCH', `/api/projects/${shopId}/parts/main`, { name: 'Storefront' });
+      await call(ctx, 'PATCH', `/api/projects/${shopId}/parts/${firstPart.get(PROJECTS[0].slug)}`, { name: 'Storefront' });
       const user = userInfo().username;
       const machines = new Map<string, string>();
       for (const pt of PARTS as DemoPart[]) {

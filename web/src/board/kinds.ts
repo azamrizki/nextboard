@@ -3,8 +3,9 @@
 // defaults used when a tile is created.
 
 import { itemId } from '../lib/ids';
-import type { BoardNode } from '../lib/types';
+import type { BoardNode, Project } from '../lib/types';
 import { GROUP_COLORS, ROLE_COLOR, ROLES, type GroupData, type MemoryBlock, type MemoryNodeData, type OrchestratorData } from '../orch/types';
+import { cardLabel, cardPlacement } from './editorCards';
 import { INK_COLORS, NOTE_COLORS, TAG_COLORS, type NoteColor, type TagColor } from './palette';
 
 export const KNOWN_KINDS = [
@@ -484,8 +485,11 @@ export function lineStyleDefaults(): StrokeData {
   return { stroke: INK_COLORS[0].value, strokeWidth: 2, strokeStyle: 'solid', roughness: 1, opacity: 100, seed: randomSeed() };
 }
 
-/** Human label of a node, for menus, aria labels and confirmations. */
-export function nodeLabel(n: BoardNode): string {
+/**
+ * Human label of a node, for menus, aria labels and confirmations. With its project, an editor card
+ * in a project of several parts says where it is ("Code editor · All parts" / "Code editor · admin").
+ */
+export function nodeLabel(n: BoardNode, project?: Project): string {
   switch (n.kind) {
     case 'note':
       return 'Note';
@@ -528,7 +532,7 @@ export function nodeLabel(n: BoardNode): string {
     case 'branches':
       return 'Branches';
     case 'editor':
-      return 'Code editor';
+      return project ? cardLabel(project, cardPlacement(n, project)) : 'Code editor';
     case 'document':
       return str(n.data.title, 'Document');
     case 'app':

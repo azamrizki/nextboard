@@ -12,20 +12,6 @@ import (
 	"github.com/azamrizki/nextboard/internal/session"
 )
 
-// openForCleanup makes the note folders of every root writable again, so the test's data folder
-// can go (they are 0555).
-func (r *rootDirs) openForCleanup() {
-	if r == nil {
-		return
-	}
-	_ = filepath.WalkDir(r.base, func(p string, d os.DirEntry, err error) error {
-		if err == nil && d.IsDir() {
-			_ = os.Chmod(p, 0o700)
-		}
-		return nil
-	})
-}
-
 // rootProject makes a project of three parts on This PC (Web; Docs, read only; Api on a server
 // that is never reached) and returns its id, workspace and part ids by name.
 func rootProject(t *testing.T, h *testHub) (pid, wid string, web, docs string, ids map[string]string) {
@@ -95,6 +81,10 @@ func TestProjectRoot(t *testing.T) {
 		t.Fatalf("root console %d %v", st, in)
 	}
 	sid := in["id"].(string)
+	// the project view names the root folder (the web maps <root>/<part>/… back to the part)
+	if st, pv := h.do("PATCH", "/api/projects/"+pid, map[string]any{"opened": true}, nil); st != 200 || pv["rootDir"] != dir {
+		t.Fatalf("rootDir %d %v", st, pv["rootDir"])
+	}
 
 	// the entries
 	if fi, err := os.Lstat(filepath.Join(dir, "Web")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -106,18 +96,51 @@ func TestProjectRoot(t *testing.T) {
 	if got := readText(t, filepath.Join(dir, "Web", "index.html")); !strings.Contains(got, "acme-shop") {
 		t.Fatalf("through the link: %q", got)
 	}
+	// a note folder is 0755 (a plain rm -rf of the data folder works), its note 0444
 	for _, n := range []string{"Docs", "Api"} {
 		fi, err := os.Lstat(filepath.Join(dir, n))
-		if err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o555 {
+		if err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o755 {
 			t.Fatalf("%s: %v %v", n, fi, err)
 		}
 		if fi, err := os.Stat(filepath.Join(dir, n, rootNoteFile)); err != nil || fi.Mode().Perm() != 0o444 {
 			t.Fatalf("note of %s: %v %v", n, fi, err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, n, "x.txt"), []byte("x"), 0o644); err == nil {
-			t.Fatalf("a write in the note of %s worked", n)
+		if note := readText(t, filepath.Join(dir, n, rootNoteFile)); !strings.Contains(note, "Do not write in this folder") {
+			t.Fatalf("note of %s says nothing of writes:\n%s", n, note)
 		}
 	}
+	// what an agent put in a note folder goes at the next sync (files and folders), never
+	// through a link: a link it made stays, and so does what it points to
+	away := t.TempDir()
+	os.WriteFile(filepath.Join(away, "keep.txt"), []byte("keep\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "Api", "x.php"), []byte("<?php\n"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "Api", "app", "Http"), 0o755)
+	os.WriteFile(filepath.Join(dir, "Api", "app", "Http", "Kernel.php"), []byte("<?php\n"), 0o644)
+	os.Chmod(filepath.Join(dir, "Api", "app"), 0o555)
+	os.Remove(filepath.Join(dir, "Docs", rootNoteFile))
+	os.Symlink(away, filepath.Join(dir, "Docs", "elsewhere"))
+	os.Chmod(filepath.Join(dir, "Docs"), 0o555) // as an earlier build left it
+	if _, err := h.srv.roots.Sync(pid); err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"Api/x.php", "Api/app"} {
+		if _, err := os.Lstat(filepath.Join(dir, gone)); err == nil {
+			t.Fatalf("%s is still in the note folder", gone)
+		}
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, "Docs", "elsewhere")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the agent's link in a note folder: %v %v", fi, err)
+	}
+	if readText(t, filepath.Join(away, "keep.txt")) != "keep\n" {
+		t.Fatal("what a link in a note folder points to changed")
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, "Docs")); err != nil || fi.Mode().Perm() != 0o755 {
+		t.Fatalf("Docs after the sync: %v %v", fi, err)
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, "Docs", rootNoteFile)); err != nil || fi.Mode().Perm() != 0o444 {
+		t.Fatalf("the note of Docs is not back: %v %v", fi, err)
+	}
+	os.Remove(filepath.Join(dir, "Docs", "elsewhere"))
 	if note := readText(t, filepath.Join(dir, "Api", rootNoteFile)); !strings.Contains(note, `server "m_far"`) || !strings.Contains(note, "/srv/api") || !strings.Contains(note, `part: "Api"`) {
 		t.Fatalf("note of Api:\n%s", note)
 	}
@@ -239,6 +262,9 @@ func TestRootSingleAndCompat(t *testing.T) {
 	}
 	if _, err := os.Lstat(h.srv.roots.Dir(pid)); err == nil {
 		t.Fatal("a project of one part got a root folder")
+	}
+	if _, pv := h.do("PATCH", "/api/projects/"+pid, map[string]any{"opened": true}, nil); pv["rootDir"] != nil {
+		t.Fatalf("rootDir of one part: %v", pv["rootDir"])
 	}
 	st, in = h.do("POST", "/api/sessions", map[string]any{"preset": "shell", "workspaceId": wid}, nil)
 	if st != 201 || in["partId"] != part || in["cwd"] != dir || in["root"] == true {

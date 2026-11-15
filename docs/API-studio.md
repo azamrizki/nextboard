@@ -767,12 +767,21 @@ A project that has `artisan` and a `composer.json` with `laravel/framework`, in 
 - Files `.md .markdown .mdx` (prune §7 + hidden folders), ≤ 2000. Links are extracted by the hub: `[[name|alias#heading]]` (matches the basename, case-insensitive) and `[text](rel.md)`; files ≤ 256 KB, a budget of 20 MB / 20 s; cache per mtime.
 - Claude's per-project agent memory is shown first. Writing there on an SSH machine follows the §9.2 confirmation protocol (it is in `~/.claude`).
 - Client: open files are polled with `fs/stat-batch` every 3 s (no local edits → automatic reload, with edits → ask); Source mode autosaves 1.5 s after typing stops (`fs/write` + `ifMtime`); a `d3-force` graph (wiki links form the graph, orphan nodes are shown); PDF through the §5 print route (`/print/markdown?machineId=&path=`, repo images via `fs/raw`). The Phase 4 live markdown card uses the same polling.
+- **One part at a time** (v0.9.0-beta.2). `{id}` is a project ref on all three routes, as on the other project routes (API-board §1 "Project parts"). `<project>~<part>` (or `?part=<id>`) reads that part's folder on that part's machine. Its links, graph and backlinks stay inside that folder, and `agentMemory` is Claude's memory for that folder. A bare project id reads the first part in display order, for old clients. An unknown part returns `404 part_not_found`. A link to a note in another part's folder is unresolved.
+- **Web, several parts:** the studio shows **Notes in: <part>** (the part picker without Root). It starts in the part named by where it was opened:
+  1. the part of the markdown card it was opened from (the part whose folder holds the file on that machine, else the first part on that machine);
+  2. else the focused tile's part;
+  3. else the part last placed in;
+  4. else a part on This PC;
+  5. else the first part shown.
+
+  Picking another part saves the open note and opens that part's first note. Writes and trash send the part ref as `projectId`. A single-part project sends the bare id and shows no picker, as before.
 
 ### 8.1 Hub implementation (Phase 7 part B) — deviations and verification
 
 `internal/studio/markdown.go`. The response adds `scannedAt`; links carry `heading` when there is one. Title = frontmatter `title:` → the first `# heading` → the file name. Links in code blocks/inline code and external schemes (`https:` etc.) are ignored; `[t](a%20b.md#x?y)` is decoded. Wiki: a relative path when it contains `/`, otherwise the basename (duplicates: the first in path order wins). Cache per (machine, root) in memory per (size, mtime); budget used up → `truncated` and the file is not cached.
 
-- `agentMemory.dir` = `<cfg>/projects/<ClaudeSlug(project path)>/memory` with `<cfg>` = the machine's default Claude profile or `~/.claude` (layout checked read-only on This PC: `MEMORY.md` + fact files; `MEMORY.md` first).
+- `agentMemory.dir` = `<cfg>/projects/<ClaudeSlug(part folder)>/memory` (the folder of the part the ref names) with `<cfg>` = that machine's default Claude profile or `~/.claude` (layout checked read-only on This PC: `MEMORY.md` + fact files; `MEMORY.md` first).
 - **Extensions:** `GET /api/projects/{id}/markdown/graph` → `{"nodes":[{id,title,in,out,orphan}],"edges":[{from,to,kind,count}],"unresolved","truncated"}` (resolved wiki and md links, deduped, orphan nodes included); `GET /api/projects/{id}/markdown/backlinks?path=<rel>` → `{"path","backlinks":[{from,title,kind,heading}],"outgoing":[Link…]}` (`404 not_in_vault`). Live: client polling with `fs/stat-batch` or the §7.1 hub watch (changes show within ≤ 3 s, tested).
 
 ## 9. Skills manager (E6, decision #3)
@@ -803,7 +812,7 @@ For SSH machines, every write/delete that touches `<cfg>` must carry `"confirm":
 
 | Method | Path | Request | Response / error |
 |---|---|---|---|
-| GET | `/api/machines/{id}/skills?projectId=&profileId=` | — | `{"items":[Skill…],"truncated"}` (≤ 400, without body) |
+| GET | `/api/machines/{id}/skills?projectId=&profileId=` | — | `{"items":[Skill…],"truncated"}` (≤ 400, without body). `projectId` (here and in the bodies below) is a project ref: `<project>~<part>` is that part's folder, which must be on this machine; a bare project id is its first part on this machine; neither → `404 project_not_found` |
 | GET | `/api/machines/{id}/skills/item?path=` | — | `{"skill","content"}` |
 | POST | `/api/machines/{id}/skills/lint` | `{"content","path"?}` | `{"lint":[…]}` |
 | PUT | `/api/machines/{id}/skills/item` | `{"path","content","ifMtime"?,"confirm"?}` | `Skill`; `428`, `403 read_only`, `409 mtime_mismatch` |

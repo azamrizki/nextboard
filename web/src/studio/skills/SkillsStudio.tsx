@@ -15,6 +15,7 @@ import { useStudioPane } from '../StudioPane';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import { timeAgo } from '../../lib/format';
+import { partOn, refOf } from '../../lib/parts';
 import type { Project } from '../../lib/types';
 import { useMachines, useProfiles, useSessions } from '../../store';
 import { skillApi } from '../api';
@@ -55,7 +56,9 @@ export default function SkillsStudio({ project, onClose }: Props) {
   const profiles = useProfiles().filter((p) => p.machineId === machineId && p.agent === 'claude');
   const settings = useEffectiveSettings();
   const [profileId, setProfileId] = useState('');
-  const projectId = machineId === project.machineId ? project.id : undefined;
+  // project skills: those of the project's part on the chosen machine (the first one there), by its ref
+  const part = partOn(project, machineId);
+  const projectId = part ? refOf(project.id, part.id) : undefined;
   const scopeQ = useMemo(() => ({ projectId, profileId: profileId || undefined }), [projectId, profileId]);
   const [tab, setTab] = useState<Tab>('installed');
   const [filter, setFilter] = useState<Filter>('all');

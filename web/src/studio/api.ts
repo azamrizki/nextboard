@@ -423,10 +423,11 @@ export const extApi = {
   },
 };
 
+/** ref: the part's "<project>~<part>" (a bare project id is the first part, for old hubs and single-part projects). */
 export const mdApi = {
-  vault: (pid: string, refresh = false) => get<MdVault>(`/api/projects/${enc(pid)}/markdown?refresh=${refresh ? 1 : 0}`),
-  graph: (pid: string) => get<MdGraph>(`/api/projects/${enc(pid)}/markdown/graph`),
-  backlinks: (pid: string, rel: string) => get<MdBacklinks>(`/api/projects/${enc(pid)}/markdown/backlinks?path=${enc(rel)}`),
+  vault: (ref: string, refresh = false) => get<MdVault>(`/api/projects/${enc(ref)}/markdown?refresh=${refresh ? 1 : 0}`),
+  graph: (ref: string) => get<MdGraph>(`/api/projects/${enc(ref)}/markdown/graph`),
+  backlinks: (ref: string, rel: string) => get<MdBacklinks>(`/api/projects/${enc(ref)}/markdown/backlinks?path=${enc(rel)}`),
 };
 
 export interface SkillScopeQuery {

@@ -2,6 +2,8 @@
 // memory first, three views — Reading (relative .md links open here), Source (autosave
 // 1.5 s after typing stops) and Graph (wiki + markdown links, orphans too) — backlinks,
 // live reload when an agent edits the open note (polled every 3 s), PDF and Add to board.
+// One part at a time (v0.9.0-beta.2): in a project of several parts a "Notes in" picker chooses
+// whose folder, links and memory it reads; a markdown card opens it in its file's part.
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage, fsRawUrl } from '../../api';
@@ -9,6 +11,7 @@ import type { BoardController } from '../../board/controller';
 import { rectOf } from '../../board/controller';
 import { DEFAULT_SIZE } from '../../board/kinds';
 import { placeNear } from '../../board/layout';
+import { PlacePicker, usePartChoice } from '../../board/PlacePicker';
 import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { SegmentedControl } from '../../components/form';
@@ -18,6 +21,7 @@ import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import { timeAgo } from '../../lib/format';
+import { projectParts } from '../../lib/parts';
 import type { Project } from '../../lib/types';
 import { fsApi, mdApi } from '../api';
 import { studioStore } from '../store';
@@ -27,6 +31,7 @@ import { printMarkdownUrl } from '../documents/model';
 import { MarkdownView } from '../MarkdownView';
 import type { MdBacklinks, MdFile, MdGraph, MdVault } from '../types';
 import { useFileDoc } from '../useFileDoc';
+import { absIn, dirOf, relIn, resolvePath } from './notes';
 import '../../styles/studio.css';
 
 const Graph = lazy(() => import('./Graph'));
@@ -36,24 +41,21 @@ interface Props {
   project: Project;
   ctl: BoardController;
   initialPath?: string;
+  /** The part to read first (initialPath's part); absent: the part placed in last, else one on This PC, else the first. */
+  partId?: string;
   viewCenter: () => { x: number; y: number };
   onClose: () => void;
 }
 
-const dirOf = (p: string) => p.slice(0, p.lastIndexOf('/') + 1);
-function resolvePath(base: string, href: string): string {
-  const parts = (href.startsWith('/') ? href : dirOf(base) + href).split('/');
-  const out: string[] = [];
-  for (const p of parts) {
-    if (p === '..') out.pop();
-    else if (p !== '.' && p !== '') out.push(p);
-  }
-  return '/' + out.join('/');
-}
-
-export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, onClose }: Props) {
-  const mid = project.machineId;
-  const root = project.path.replace(/\/+$/, '');
+export default function MarkdownStudio({ project, ctl, initialPath, partId, viewCenter, onClose }: Props) {
+  // the part whose notes these are: its machine, its folder, its ref (the project id when it is the only part)
+  const where = usePartChoice(project, partId);
+  const multi = projectParts(project).length > 1;
+  const mid = where.part.machineId || 'local';
+  const root = where.part.path.replace(/\/+$/, '');
+  const ref = where.ref;
+  const refNow = useRef(ref);
+  refNow.current = ref;
   const [vault, setVault] = useState<MdVault | null>(null);
   const [vaultErr, setVaultErr] = useState('');
   const [path, setPath] = useState<string | null>(initialPath ?? null);
@@ -66,57 +68,79 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
   const [trash, setTrash] = useState<MdFile | null>(null);
   const [diskChanged, setDiskChanged] = useState(false);
   const [confirmDialog, run] = useRemoteConfirm();
-  const f = useFileDoc(mid, path, project.id, run);
+  const f = useFileDoc(mid, path, ref, run);
   const { doc } = f;
   const [saveState, setSaveState] = useState<'' | 'saving' | 'saved' | 'failed'>('');
 
   const loadVault = useCallback(
     (refresh = false) =>
       mdApi
-        .vault(project.id, refresh)
+        .vault(ref, refresh)
         .then((v) => {
+          if (refNow.current !== ref) return null; // another part was picked meanwhile
           setVault(v);
           setVaultErr('');
           return v;
         })
         .catch((err) => {
-          setVaultErr(errorMessage(err));
+          if (refNow.current === ref) setVaultErr(errorMessage(err));
           return null;
         }),
-    [project.id],
+    [ref],
   );
 
+  // a note to start on: the one asked for, else the first of the part's memory or notes
   useEffect(() => {
     void loadVault().then((v) => {
-      if (!v || initialPath) return;
+      if (!v) return;
       const first = v.agentMemory?.files?.find((x) => /^memory\.md$/i.test(x.rel)) ?? v.files?.find((x) => /^readme\.md$/i.test(x.rel)) ?? v.files?.[0] ?? v.agentMemory?.files?.[0];
-      if (first) setPath(first.path);
+      setPath((cur) => cur ?? first?.path ?? null);
     });
-  }, [loadVault, initialPath]);
+  }, [loadVault]);
+
+  /** Read another part's notes: the open note is saved and closed; that part's first note opens. */
+  const pickPart = (id: string) => {
+    if (id === where.part.id) return;
+    if (f.dirty) void f.save();
+    setPath(null);
+    setVault(null);
+    setVaultErr('');
+    setGraph(null);
+    setBacklinks(null);
+    setSaveState('');
+    where.setPartId(id);
+  };
 
   const memFiles = useMemo(() => vault?.agentMemory?.files ?? [], [vault]);
   const files = useMemo(() => vault?.files ?? [], [vault]);
   const isMemory = !!path && memFiles.some((x) => x.path === path);
   const current = useMemo(() => [...files, ...memFiles].find((x) => x.path === path) ?? null, [files, memFiles, path]);
-  const relOf = (p: string) => (p.startsWith(root + '/') ? p.slice(root.length + 1) : null);
-  const currentRel = path ? relOf(path) : null;
+  const currentRel = path ? relIn(where.part.path, path) : null;
 
-  // graph & backlinks
+  // graph & backlinks, of the part's notes
   useEffect(() => {
     if (view !== 'graph') return;
+    let stale = false;
     mdApi
-      .graph(project.id)
-      .then(setGraph)
-      .catch(() => setGraph({ nodes: [], edges: [], unresolved: 0, truncated: false }));
-  }, [view, project.id, vault]);
+      .graph(ref)
+      .then((g) => !stale && setGraph(g))
+      .catch(() => !stale && setGraph({ nodes: [], edges: [], unresolved: 0, truncated: false }));
+    return () => {
+      stale = true;
+    };
+  }, [view, ref, vault]);
   useEffect(() => {
     setBacklinks(null);
     if (!currentRel || isMemory) return;
+    let stale = false;
     mdApi
-      .backlinks(project.id, currentRel)
-      .then(setBacklinks)
-      .catch(() => setBacklinks(null));
-  }, [project.id, currentRel, isMemory, vault]);
+      .backlinks(ref, currentRel)
+      .then((b) => !stale && setBacklinks(b))
+      .catch(() => !stale && setBacklinks(null));
+    return () => {
+      stale = true;
+    };
+  }, [ref, currentRel, isMemory, vault]);
 
   // live: the hub watches the open note (fs/watch → "fsChanged", 3 s polling on the
   // machine); without a watch (older hub) this client stats it every 3 s itself
@@ -208,7 +232,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
       } else {
         const text =
           prompt.kind === 'duplicate' && prompt.file ? (await api.fsRead(mid, prompt.file.path, 2_000_000)).content : `# ${name.replace(/\.(md|markdown|mdx)$/i, '')}\n\n`;
-        const st = await run((c) => fsApi.write(mid, { path: prompt.dir + name, content: text, unique: true, projectId: project.id, ...c }));
+        const st = await run((c) => fsApi.write(mid, { path: prompt.dir + name, content: text, unique: true, projectId: ref, ...c }));
         if (!st) return;
         setPath(st.path);
         setView('source');
@@ -229,7 +253,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
 
   const fileMenu = (file: MdFile | null): MenuEntry[] => {
     const items: MenuEntry[] = [
-      { label: 'New note at the project root…', icon: 'plus', onSelect: () => createIn(root + '/') },
+      { label: multi ? `New note in ${where.part.name}…` : 'New note at the project root…', icon: 'plus', onSelect: () => createIn(root + '/') },
       { label: 'New note in docs/…', icon: 'plus', onSelect: () => createIn(root + '/docs/') },
     ];
     if (vault?.agentMemory?.dir) items.push({ label: 'New note in agent memory…', icon: 'brain', onSelect: () => createIn(vault.agentMemory!.dir.replace(/\/?$/, '/')) });
@@ -290,7 +314,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
       open(target);
       return true;
     }
-    toast.info(`${clean} isn’t in this project’s notes.`);
+    toast.info(multi ? `${clean} isn’t in ${where.part.name}’s notes.` : `${clean} isn’t in this project’s notes.`);
     return true;
   };
 
@@ -299,6 +323,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
     <Modal title="Markdown" icon="markdown" size="lg" className="studio-modal" onClose={() => (f.dirty ? void f.save().then(onClose) : onClose())}>
       <div className={`studio-split ${pane.splitClass}`}>
         <nav className="studio-side" aria-label="Notes">
+          <PlacePicker project={project} value={where.part.id} onChange={pickPart} label="Notes in" noRoot hint={false} />
           <div className="code-side-bar">
             <div className="input-group has-lead grow">
               <span className="ig-lead">
@@ -314,12 +339,14 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
             {vault?.agentMemory && (
               <>
                 <h3 className="section-title studio-group">Agent memory</h3>
-                {memFiles.length ? <ul className="plain studio-list">{filtered(memFiles).map((x) => row(x, true))}</ul> : <p className="tree-msg">Claude hasn’t saved memory for this project yet.</p>}
+                {memFiles.length ? <ul className="plain studio-list">{filtered(memFiles).map((x) => row(x, true))}</ul> : <p className="tree-msg">Claude hasn’t saved memory for this {multi ? 'part' : 'project'} yet.</p>}
               </>
             )}
             {vault && (
               <>
-                <h3 className="section-title studio-group">Project · {files.length}</h3>
+                <h3 className="section-title studio-group">
+                  {multi ? where.part.name : 'Project'} · {files.length}
+                </h3>
                 <ul className="plain studio-list">{filtered(files).map((x) => row(x))}</ul>
                 {vault.truncated && <p className="tree-msg">Only the first 2000 notes are listed.</p>}
               </>
@@ -392,7 +419,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
             </div>
           )}
           {view === 'graph' ? (
-            <Suspense fallback={<p className="list-msg">Loading the graph…</p>}>{graph ? <Graph graph={graph} current={currentRel} onOpen={(rel) => open(`${root}/${rel}`)} /> : <p className="list-msg">Reading links…</p>}</Suspense>
+            <Suspense fallback={<p className="list-msg">Loading the graph…</p>}>{graph ? <Graph graph={graph} current={currentRel} onOpen={(rel) => open(absIn(where.part.path, rel))} /> : <p className="list-msg">Reading links…</p>}</Suspense>
           ) : !path ? (
             <div className="empty-state">
               <span className="empty-icon">
@@ -417,7 +444,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
                     <ul className="plain">
                       {backlinks.backlinks.map((b, i) => (
                         <li key={i}>
-                          <button type="button" className="link-btn" onClick={() => open(`${root}/${b.from}`)}>
+                          <button type="button" className="link-btn" onClick={() => open(absIn(where.part.path, b.from))}>
                             {b.title || b.from}
                           </button>
                           <span className="fs-xs text-3"> · {b.kind === 'wiki' ? 'wiki link' : 'link'}</span>
@@ -455,7 +482,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
             }}
           >
             <label className="field-label" htmlFor="md-name">
-              Name in {prompt.dir.startsWith(root) ? prompt.dir.slice(root.length + 1) || project.name : 'agent memory'}
+              Name in {prompt.dir.startsWith(root) ? prompt.dir.slice(root.length + 1) || (multi ? where.part.name : project.name) : 'agent memory'}
             </label>
             <input id="md-name" className="control mono" autoFocus value={prompt.value} placeholder="notes.md" onChange={(e) => setPrompt({ ...prompt, value: e.target.value })} />
           </form>
@@ -468,7 +495,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, viewCenter, 
           danger
           onClose={() => setTrash(null)}
           onConfirm={async () => {
-            const r = await run((c) => fsApi.trash(mid, trash.path, project.id, c));
+            const r = await run((c) => fsApi.trash(mid, trash.path, ref, c));
             if (!r) return;
             if (path === trash.path) setPath(null);
             void loadVault(true);

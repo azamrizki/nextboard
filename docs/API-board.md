@@ -17,7 +17,10 @@ The old `GET/PUT /api/board` endpoint is **removed** (replaced by a board per wo
   "groupId": "g_…", "tags": ["backend"],               // both absent when empty; no group = All projects
   "parts": [ProjectPart…],                             // the folders the project spans, in display order; machineId + path = the first, for old clients
   "archivedAt": "…",                                   // only while archived (see "Archive and delete for good")
-  "cover": ProjectImage, "icon": ProjectImage          // each absent when none
+  "cover": ProjectImage, "icon": ProjectImage,         // each absent when none
+  "rootDir": "<data>/roots/p_ab12cd34ef"               // two or more parts only: the project's root folder on This PC, where root consoles work
+                                                       // (whether or not it exists yet); a path a root console names through it,
+                                                       // <rootDir>/<part name>/…, is that part's file (the editor maps it back)
 }
 // ProjectImage = an image of the asset store (§5); nothing garbage-collects assets
 { "assetId": "a_…", "source": "upload", "at": "…" }   // source: "upload" | "ai"

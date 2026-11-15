@@ -267,7 +267,7 @@ func cmdUninstall(args []string) error {
 		if abs == "/" || abs == os.Getenv("HOME") {
 			return fmt.Errorf("refusing to delete %s", abs)
 		}
-		if err := os.RemoveAll(abs); err != nil {
+		if err := removeData(abs); err != nil {
 			return err
 		}
 		fmt.Println("Data deleted:", abs)
@@ -275,6 +275,23 @@ func cmdUninstall(args []string) error {
 		fmt.Println("Data kept in", *dir, "(use --purge to delete it)")
 	}
 	return nil
+}
+
+// removeData deletes the data folder. Should a folder in it be read only (a project root's note
+// folder of an earlier build was 0555, or an agent made one so in a root), the folders are made
+// writable and it goes again. Neither step follows a link: a project root links to parts' folders
+// on This PC, which stay as they are.
+func removeData(abs string) error {
+	if err := os.RemoveAll(abs); err == nil {
+		return nil
+	}
+	_ = filepath.WalkDir(abs, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() && d.Type()&os.ModeSymlink == 0 {
+			_ = os.Chmod(p, 0o700) // WalkDir never descends into a link
+		}
+		return nil
+	})
+	return os.RemoveAll(abs)
 }
 
 // localClient talks to the local hub over loopback.

@@ -75,7 +75,6 @@ func newTestHub(t *testing.T) *testHub {
 		srv.review.Close()
 		srv.boards.Close()
 		srv.roots.Close()
-		srv.roots.openForCleanup() // a root's note folders are 0555
 		ts.Close()
 	})
 	jar, _ := cookiejar.New(nil)

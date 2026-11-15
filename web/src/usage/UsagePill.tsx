@@ -1,5 +1,5 @@
 // Usage pill in the header (F2, docs/API-studio.md §10.1): the busiest window of the
-// default CLI on the project's machine. Clicking it opens the popover and asks for a
+// default CLI on This PC, where agent CLIs run. Clicking it opens the popover and asks for a
 // report (a cached one under 30 s old is reused). Nothing runs by itself unless this
 // browser turned automatic checks on in Settings › Usage.
 

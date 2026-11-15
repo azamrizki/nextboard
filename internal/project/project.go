@@ -93,6 +93,9 @@ type View struct {
 	Workspaces   []WorkspaceView `json:"workspaces"`
 	SessionCount int             `json:"sessionCount"`
 	RunningCount int             `json:"runningCount"`
+	// RootDir is the project's root folder on This PC (<data>/roots/<id>), where root consoles
+	// work, for a project of two or more parts; set by the server, absent with one part.
+	RootDir string `json:"rootDir,omitempty"`
 }
 
 // WorkspaceView returns the API view of w.

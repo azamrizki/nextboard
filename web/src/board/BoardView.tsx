@@ -112,6 +112,7 @@ import { DocumentTile } from '../studio/documents/DocumentTile';
 import { useDiagramRuns } from '../studio/diagrams/runs';
 import { studioStore } from '../studio/store';
 import { diagramApi } from '../studio/api';
+import { markdownPartOfFile, markdownPartOfPlace } from '../studio/markdown/notes';
 import { usageUi } from '../usage/prefs';
 import { useVoicePrefs } from '../voice/voice';
 import { LinkTile } from '../web/LinkTile';
@@ -1251,7 +1252,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   };
   /** "Show: Root (all parts) / <part>" before an editor card opens, in a project of several parts. */
   const [codeAsk, setCodeAsk] = useState<{ at?: { x: number; y: number }; value: string } | null>(null);
-  const openStudio = (kind: 'documents' | 'code' | 'markdown' | 'skills', extra: { path?: string; documentId?: string } = {}) => {
+  const openStudio = (kind: 'documents' | 'code' | 'markdown' | 'skills', extra: { path?: string; documentId?: string; partId?: string } = {}) => {
     if (kind === 'code') openCode(extra.path ? { file: { path: extra.path } } : {});
     else ui.set({ studio: { kind, ...extra } });
   };
@@ -1616,11 +1617,12 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       const path = single.data.path;
       const mid = typeof single.data.machineId === 'string' ? single.data.machineId : '';
       items.push({ label: 'Copy path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(path).catch(() => undefined) });
-      // the editor: a file on the machine of any part (its part's card, v0.9.0-beta.2); the Markdown studio still reads the project's machine
-      if (single.data.view === 'markdown' ? mid === project.machineId : single.data.view !== 'folder' && projectParts(project).some((p) => (p.machineId || 'local') === (mid || 'local')))
+      // the editor and the Markdown studio: a file on the machine of any part, opened in its part (v0.9.0-beta.2)
+      const mdPart = single.data.view === 'markdown' ? markdownPartOfFile(project, mid, path) : undefined;
+      if (single.data.view === 'markdown' ? !!mdPart : single.data.view !== 'folder' && projectParts(project).some((p) => (p.machineId || 'local') === (mid || 'local')))
         items.push(
-          single.data.view === 'markdown'
-            ? { label: 'Open in Markdown studio', icon: 'markdown', onSelect: () => openStudio('markdown', { path }) }
+          mdPart
+            ? { label: 'Open in Markdown studio', icon: 'markdown', onSelect: () => openStudio('markdown', { path, partId: mdPart.id }) }
             : { label: 'Open in the editor card', icon: 'code', onSelect: () => void openCode({ file: { machineId: mid || 'local', path } }) },
         );
       if (mid && single.data.view !== 'folder')
@@ -2099,7 +2101,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
           />
         )}
         {handoff && <HandoffDialog sessionId={handoff} workspaceId={ctl.workspaceId} projectId={project.id} onClose={() => ui.set({ handoff: null })} />}
-        {panel === 'git' && <GitPanel project={project} workspaceId={ctl.workspaceId} onClose={() => ui.set({ panel: null })} openEditor={(to?: string | { placement: Placement }) => (typeof to === 'object' ? shownCard(openCode({ placement: to.placement, rootOk: true })) : openCode(to ? { file: { path: to } } : {}))} ui={ui} />}
+        {panel === 'git' && <GitPanel project={project} workspaceId={ctl.workspaceId} onClose={() => ui.set({ panel: null })} openEditor={(placement) => shownCard(openCode({ placement, rootOk: true }))} ui={ui} />}
         {panel === 'diagrams' && <DiagramsPanel ctl={ctl} project={project} viewCenter={viewCenter} reveal={revealRect} onClose={() => ui.set({ panel: null })} />}
         {diagramRuns.length > 0 && <DrawingCards ctl={ctl} viewCenter={viewCenter} reveal={revealRect} />}
         {studio?.kind === 'documents' && (
@@ -2116,7 +2118,16 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             }}
           />
         )}
-        {studio?.kind === 'markdown' && <MarkdownStudio project={project} ctl={ctl} initialPath={studio.path} viewCenter={viewCenter} onClose={() => ui.set({ studio: null })} />}
+        {studio?.kind === 'markdown' && (
+          <MarkdownStudio
+            project={project}
+            ctl={ctl}
+            initialPath={studio.path}
+            partId={studio.partId ?? markdownPartOfPlace(project, focusedPlace())}
+            viewCenter={viewCenter}
+            onClose={() => ui.set({ studio: null })}
+          />
+        )}
         {studio?.kind === 'skills' && <SkillsStudio project={project} onClose={() => ui.set({ studio: null })} />}
       </Suspense>
 
@@ -2284,7 +2295,7 @@ function focusTerminal(nodeId: string, delay: number, tries = 12) {
 
 function nodeLabelOf(ctl: BoardController, id: string): string {
   const n = ctl.node(id);
-  return n ? nodeLabel(n) : 'tile';
+  return n ? nodeLabel(n, ctl.project) : 'tile';
 }
 
 /** Top banner while a card (or a console's forward) is in Connect mode. */
@@ -2297,7 +2308,7 @@ function ConnectBanner({ ctl, from, onDone }: { ctl: BoardController; from: stri
   const forward = n.kind === 'terminal' || n.kind === 'group';
   const fromLead = n.kind === 'orchestrator';
   const s = n.kind === 'terminal' ? sessionOf(n) : undefined;
-  const name = n.kind === 'terminal' ? (s?.handle ? `@${s.handle}` : 'this console') : nodeLabel(n);
+  const name = n.kind === 'terminal' ? (s?.handle ? `@${s.handle}` : 'this console') : nodeLabel(n, ctl.project);
   return (
     <div className="connect-banner" role="status">
       <Icon name={forward ? 'forward' : 'wire'} />

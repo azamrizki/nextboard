@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fileKey, ROOT_KEY, ViewPaths } from '../studio/code/paths';
-import { isRoot, mountsOf, normalPlacement, partHoldingOn, partRef, placementOf, placementOfSession, refOf, ROOT, samePlacement, splitRef } from './parts';
+import { isRoot, mountsOf, normalPlacement, partHoldingOn, partRef, placementOf, placementOfSession, refOf, ROOT, rootFileOf, samePlacement, splitRef } from './parts';
 import type { Project } from './types';
 
 const project = (parts: Project['parts']): Project => ({
@@ -93,5 +93,31 @@ describe('mountsOf', () => {
     expect(multi).toBe(false);
     expect(mounts[0].root).toBe('/srv/web');
     expect(mounts[0].rootKey).toBe(fileKey('srv-a', '/srv/web'));
+  });
+});
+
+describe('rootFileOf', () => {
+  const rooted: Project = {
+    ...project([
+      { id: 'pt_web', name: 'Web', machineId: 'local', path: '/home/me/web/' },
+      { id: 'pt_api', name: 'Api', machineId: 'srv-a', path: '/srv/api' },
+      { id: 'pt_old', name: 'odd/name', machineId: 'local', path: '/home/me/old' },
+    ]),
+    rootDir: '/home/me/.nextboard/roots/p_shop',
+  };
+  it('maps "<rootDir>/<part>/…" to the part\'s machine and real path', () => {
+    expect(rootFileOf(rooted, '/home/me/.nextboard/roots/p_shop/Web/src/x.ts')).toMatchObject({ machineId: 'local', path: '/home/me/web/src/x.ts' });
+    expect(rootFileOf(rooted, '/home/me/.nextboard/roots/p_shop/Api/main.go')).toMatchObject({ machineId: 'srv-a', path: '/srv/api/main.go' });
+    expect(rootFileOf(rooted, '/home/me/.nextboard/roots/p_shop/Web')?.path).toBe('/home/me/web');
+    // a name from before names were path-safe: its stand-in entry
+    expect(rootFileOf(rooted, '/home/me/.nextboard/roots/p_shop/odd-name/a')?.part.id).toBe('pt_old');
+    expect(rootFileOf(rooted, '/home/me/.nextboard/roots/p_shop/part-old/a')?.part.id).toBe('pt_old');
+  });
+  it('leaves every other path alone', () => {
+    expect(rootFileOf(rooted, '/home/me/.nextboard/roots/p_shop')).toBeNull();
+    expect(rootFileOf(rooted, '/home/me/.nextboard/roots/p_shop/CLAUDE.md')).toBeNull();
+    expect(rootFileOf(rooted, '/home/me/.nextboard/roots/p_shop2/Web/x')).toBeNull();
+    expect(rootFileOf(rooted, '/home/me/web/x')).toBeNull();
+    expect(rootFileOf(two, '/home/me/.nextboard/roots/p_shop/Api/x')).toBeNull(); // no rootDir
   });
 });

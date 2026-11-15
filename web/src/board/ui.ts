@@ -39,6 +39,8 @@ export interface StudioOpen {
   /** Optional target: a path to open (code / markdown), a document id. */
   path?: string;
   documentId?: string;
+  /** Markdown: the part whose notes to read (a card's file part, v0.9.0-beta.2); absent: the studio picks. */
+  partId?: string;
 }
 
 /** Team composer (Spawn 4 / Group / add to a group / spawn for a card). */

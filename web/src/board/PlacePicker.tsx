@@ -124,13 +124,19 @@ export function PlacePicker({ project, value, onChange, other, noRoot, label = '
  * One part of the project to work in, for what runs in a part's folder (a document or diagram
  * run): the part last placed in, else one on This PC, else the first shown; picked with
  * <PlacePicker noRoot>. `ref` is the project ref the hub reads that part through: the project id
- * in a single-part project (as before), "<project>~<part>" otherwise.
+ * in a single-part project (as before), "<project>~<part>" otherwise. `initial`: a part id to start
+ * in (the part of a card's file), when the project has it.
  */
-export function usePartChoice(project: Project) {
+export function usePartChoice(project: Project, initial?: string) {
   const parts = projectParts(project);
   const [picked, setPicked] = useState(() => {
     const last = lastPlacement(project);
-    return (parts.find((p) => last && !isRoot(last) && p.id === last.partId) ?? parts.find((p) => (p.machineId || 'local') === 'local') ?? parts[0]).id;
+    return (
+      parts.find((p) => !!initial && p.id === initial) ??
+      parts.find((p) => last && !isRoot(last) && p.id === last.partId) ??
+      parts.find((p) => (p.machineId || 'local') === 'local') ??
+      parts[0]
+    ).id;
   });
   const part = parts.find((p) => p.id === picked) ?? parts[0];
   return { part, setPartId: setPicked, ref: parts.length > 1 ? partRef(project, part) : project.id };

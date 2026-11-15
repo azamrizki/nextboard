@@ -39,14 +39,24 @@ func (s *Server) projectViews() []project.View {
 	list := s.projects.List()
 	out := make([]project.View, 0, len(list))
 	for _, p := range list {
-		out = append(out, p.View(bp, bw))
+		out = append(out, s.viewOf(p, bp, bw))
 	}
 	return out
 }
 
 func (s *Server) projectView(p project.Project) project.View {
 	bp, bw := s.counts()
-	return p.View(bp, bw)
+	return s.viewOf(p, bp, bw)
+}
+
+// viewOf is the API view of p. A project of several parts also names its root folder, so that a
+// client can map a path a root console names (<root>/<part>/…) back to the part's file.
+func (s *Server) viewOf(p project.Project, bp, bw map[string]project.Counts) project.View {
+	v := p.View(bp, bw)
+	if len(p.Parts) > 1 && s.roots != nil {
+		v.RootDir = s.roots.Dir(p.ID)
+	}
+	return v
 }
 
 // emitProject publishes the current view of a project (no-op if gone).
@@ -141,7 +151,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request, p *princ
 		list := s.projects.Archived()
 		out := make([]project.View, 0, len(list))
 		for _, pr := range list {
-			out = append(out, pr.View(bp, bw))
+			out = append(out, s.viewOf(pr, bp, bw))
 		}
 		writeJSON(w, http.StatusOK, out)
 		return

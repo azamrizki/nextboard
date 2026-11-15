@@ -194,11 +194,15 @@ test('screenshots', async ({ page, request, browser }) => {
   await shot(p, 'command');
   await p.getByRole('button', { name: 'Close the thread' }).first().click();
 
-  // ---- the code card, on its own: the tester's change in Review, Local History, git
+  // ---- the code card, on its own: the tester's change in Review, Local History, git. It is
+  // placed in the storefront part (no data.part would be the Root card of all three parts);
+  // without the servers the shop is that one part
+  const shopParts: { id: string; name: string }[] = (await call(request, 'GET', '/api/projects')).find((x: { id: string }) => x.id === shop.id).parts;
+  const storefront = (shopParts.find((pt) => pt.name === 'Storefront') ?? shopParts[0]).id;
   await call(request, 'POST', `/api/workspaces/${shop.wid}/board/ops`, {
     clientId: 'c_demo',
     baseRev: 0,
-    ops: [{ op: 'put', node: { id: 'n_demoeditor', kind: 'editor', x: 0, y: 1000, w: 1300, h: 800, data: {} } }],
+    ops: [{ op: 'put', node: { id: 'n_demoeditor', kind: 'editor', x: 0, y: 1000, w: 1300, h: 800, data: { part: storefront } } }],
   });
   await p.goto(`/p/${shop.id}/w/${shop.wid}?card=n_demoeditor`);
   await p.getByRole('button', { name: 'Review', exact: true }).click({ timeout: 20_000 });

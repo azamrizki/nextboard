@@ -199,7 +199,7 @@ export function ProjectSwitcher({ project }: { project: Project }) {
         className="project-switch"
         aria-haspopup="menu"
         aria-expanded={!!menu}
-        title={`${project.name} — ${project.path}`}
+        title={projectParts(project).length > 1 ? `${project.name} — ${projectParts(project).map((pt) => pt.name).join(', ')}` : `${project.name} — ${project.path}`}
         onClick={() => {
           const r = ref.current!.getBoundingClientRect();
           setMenu(menu ? null : { x: r.left, y: r.bottom + 6 });

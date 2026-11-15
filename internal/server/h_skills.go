@@ -19,7 +19,8 @@ const skillsTimeout = 60 * time.Second
 
 // skillLoc resolves the machine, its Claude config folder (profileId →
 // the default Claude profile of the machine → ~/.claude) and the project
-// repo (projectId, must be on the same machine).
+// repo: projectId is a project ref, "<project>~<part>" for that part's folder
+// (on this machine), or a bare project id for its first part on this machine.
 func (s *Server) skillLoc(ctx context.Context, w http.ResponseWriter, machineID, projectID, profileID string) (machine.Host, skills.Loc, bool) {
 	h, ok := s.machines.Host(machineID)
 	if !ok {
@@ -37,13 +38,20 @@ func (s *Server) skillLoc(ctx context.Context, w http.ResponseWriter, machineID,
 	}
 	loc := skills.Loc{MachineID: h.ID(), MachineName: h.Info().Name, Remote: h.ID() != machine.LocalID, Cfg: cfg}
 	if projectID != "" {
-		pr, ok := s.projects.Get(projectID)
-		if !ok || pr.MachineID != h.ID() {
+		repo := ""
+		if pr, partID, err := s.projectRef(projectID, ""); err == nil {
+			if partID != "" && pr.MachineID == h.ID() {
+				repo = pr.Path
+			} else if partID == "" {
+				repo, _ = partFolder(pr, h.ID(), "") // any part on this machine, not only the first one
+			}
+		}
+		if repo == "" {
 			writeErrCode(w, http.StatusNotFound, "project_not_found", "project not found on this machine")
 			return nil, skills.Loc{}, false
 		}
-		loc.Repo = pr.Path
-		if st, err := h.Stat(ctx, pr.Path); err == nil {
+		loc.Repo = repo
+		if st, err := h.Stat(ctx, repo); err == nil {
 			loc.Repo = st.Path
 		}
 	}

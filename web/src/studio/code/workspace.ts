@@ -15,17 +15,16 @@ import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { limiter } from '../../lib/limiter';
 import { packUpload } from '../../lib/pack';
-import { mountsOf, normalPlacement, partHoldingOn, projectParts, ROOT, type Placement } from '../../lib/parts';
+import { mountOfPart, mountsOf, normalPlacement, partHoldingOn, projectParts, ROOT, rootFileOf, type Placement } from '../../lib/parts';
 import type { CreateSession, Project, ProjectPart } from '../../lib/types';
-import { filesApi, fsApi, type Confirm, type FileListing, type LaravelIndex, type SearchFile, type SearchQuery } from '../api';
+import { filesApi, fsApi, type Confirm, type FileListing, type SearchFile, type SearchQuery } from '../api';
 import { studioStore, waitJob } from '../store';
-import type { GitStatus, GitTarget, ProjectTask, ReviewSummary, TreeEntry } from '../types';
+import type { TreeEntry } from '../types';
 import type { OpenOptions, PartServiceApi, PartSpecialView, ViewApi, ViewProblems } from './contracts';
 import { Debugger } from './debug';
 import { DEFAULT_EDITOR_PREFS, docStore, editorPrefs, MAX_EDIT, MAX_VIEW, type Doc, type EditorPrefs } from './docs';
 import { fileClip } from './fileClip';
 import { IdeLink } from './ideLink';
-import type { LspHub } from './lsp';
 import { monaco } from './monaco';
 import { PartService, type GitMark, type PartView } from './partsvc';
 import { asFileKey, cleanAbs, fileKey, isRootKey, joinKey, keyOfUri, keyUnder, LOCAL_MACHINE, parentKey, PERSIST_VERSION, ROOT_KEY, splitKey, under, viewKey, ViewPaths, type FileKey, type Mount } from './paths';
@@ -246,6 +245,13 @@ export class Workspace implements ViewApi, PartView {
   name: string;
   private project: Project;
   private partSubs = new Map<PartService, () => void>();
+  /**
+   * Parts of the project this card reads without mounting them (a file of another part, shown
+   * as inside the project): held by `borrower` until the part changes or the card is let go.
+   */
+  private borrowed = new Map<string, PartService>();
+  private readonly borrower = {};
+  private released = false;
 
   version = 0;
   cursorVersion = 0;
@@ -272,12 +278,12 @@ export class Workspace implements ViewApi, PartView {
   private mdViews: Record<string, MdView> = {};
 
   /** Each folder's rows by its key (ROOT_KEY: the parts, in a Root view). */
-  items = new Map<string, TreeSlot>();
+  items = new Map<FileKey, TreeSlot>();
   /** Keys of the open folders. */
-  expanded = new Set<string>();
-  truncated = new Set<string>();
+  expanded = new Set<FileKey>();
+  truncated = new Set<FileKey>();
   /** The key of the selected row. */
-  selected: string | null = null;
+  selected: FileKey | null = null;
   input: TreeInput | null = null;
 
   bookmarks: { path: string; line: number }[] = [];
@@ -395,7 +401,8 @@ export class Workspace implements ViewApi, PartView {
     this.mdViews = saved.md ?? {};
     this.agentTarget = saved.agentTarget ?? '';
     this.debugPart = saved.debugPart ?? '';
-    this.expanded = new Set(saved.expanded?.length ? saved.expanded : this.defaultExpanded());
+    // readState made every saved path a key
+    this.expanded = new Set(saved.expanded?.length ? (saved.expanded as FileKey[]) : this.defaultExpanded());
     for (const k of this.defaultExpanded()) this.expanded.add(k);
     this.bookmarks = this.loadBookmarks();
     const restored = (saved.groups ?? []).filter((g) => g.tabs?.length).slice(0, MAX_GROUPS);
@@ -446,8 +453,9 @@ export class Workspace implements ViewApi, PartView {
     const { mounts, multi } = mountsOf(project, this.placement);
     const same = mounts.length === this.paths.mounts.length && mounts.every((m, i) => m.partId === this.paths.mounts[i].partId && m.machineId === this.paths.mounts[i].machineId && m.root === this.paths.mounts[i].root);
     this.paths = new ViewPaths(mounts, multi);
+    if (!same) this.setParts(project, mounts);
+    this.dropBorrowed(project);
     if (same) return;
-    this.setParts(project, mounts);
     // the clean tabs of a part that went close; dirty ones stay, as outside files
     for (const g of [...this.groups]) {
       for (const t of [...g.tabs]) {
@@ -481,6 +489,16 @@ export class Workspace implements ViewApi, PartView {
     return this.paths.resolve(input, machineId);
   }
 
+  /**
+   * A path a console on This PC names (the IDE link): through the project's root folder
+   * ("<rootDir>/<part>/…", where root consoles work) it is that part's file, on the part's
+   * machine; any other path is a real path on This PC.
+   */
+  cliKey(path: string): FileKey | null {
+    const via = rootFileOf(this.project, path);
+    return via ? fileKey(via.machineId, via.path) : this.resolve(path, LOCAL_MACHINE);
+  }
+
   /** The mounted part holding a key; null outside every mounted part. */
   mountedPartOf(key: FileKey): PartService | null {
     if (isRootKey(key)) return null;
@@ -488,14 +506,40 @@ export class Workspace implements ViewApi, PartView {
     return m ? (this.parts.find((p) => p.partId === m.partId) ?? null) : null;
   }
 
-  /** The part of the project holding a key, mounted here or not; null outside every part. */
+  /**
+   * The part of the project holding a key, mounted here or not; null outside every part. A part
+   * the card does not mount is held (borrowed) until it changes or the card is let go.
+   */
   partOf(key: FileKey): PartService | null {
     if (isRootKey(key)) return null;
     const here = this.mountedPartOf(key);
     if (here) return here;
     const { machineId, abs } = splitKey(key);
     const pt = partHoldingOn(this.project, machineId, abs);
-    return pt ? PartService.get(this.project, pt) : null;
+    if (!pt) return null;
+    // a card let go holds nothing new: what is there already, if anything
+    if (this.released) return PartService.byRef(mountOfPart(this.project, pt).ref);
+    const s = PartService.get(this.project, pt);
+    const had = this.borrowed.get(s.ref);
+    if (had !== s) {
+      s.hold(this.borrower);
+      this.borrowed.set(s.ref, s);
+      had?.drop(this.borrower);
+    }
+    return s;
+  }
+
+  /** Lets go of borrowed parts: every one (no project), else the ones that left it, moved, or are mounted here now. */
+  private dropBorrowed(project?: Project) {
+    for (const [ref, s] of [...this.borrowed]) {
+      const pt = project ? projectParts(project).find((p) => p.id === s.partId) : undefined;
+      if (pt && !this.parts.includes(s)) {
+        const m = mountOfPart(project!, pt);
+        if (m.machineId === s.machineId && m.root === s.root) continue;
+      }
+      this.borrowed.delete(ref);
+      s.drop(this.borrower);
+    }
   }
 
   /** The part a file is saved through: the one holding it, else a mounted one on its machine. */
@@ -503,6 +547,15 @@ export class Workspace implements ViewApi, PartView {
     if (isRootKey(key)) return this.activePart;
     const machine = splitKey(key).machineId;
     return this.partOf(key) ?? this.parts.find((p) => p.machineId === machine) ?? this.activePart;
+  }
+
+  /** Files came or went at these keys: the file lists of their parts, and the git of the ones a card shows, follow. */
+  private filesTouched(...keys: FileKey[]) {
+    for (const p of new Set(keys.map((k) => this.partOf(k)))) {
+      if (!p) continue;
+      p.filesChanged();
+      if (p.mounted) p.gitSoon();
+    }
   }
 
   /** The part of the active doc, else of the selected tree row, else the first mount. */
@@ -539,135 +592,6 @@ export class Workspace implements ViewApi, PartView {
     let best: Mount | null = null;
     for (const m of this.paths.mounts) if (under(abs, m.root) && (!best || m.root.length > best.root.length)) best = m;
     return best ? fileKey(best.machineId, abs) : local;
-  }
-
-  // ---- what the panels used before parts (one part per card) ------------------------------
-  // Kept so that the panels keep working while they move to the API above; each is the
-  // active part's (a single-part card: its one part).
-
-  /** @deprecated activePart.machineId; fs calls take splitKey(key).machineId. */
-  get mid(): string {
-    return this.activePart.machineId;
-  }
-  /** @deprecated rootKey (the tree root, ROOT_KEY in a Root view); a part's folder is part.rootKey / part.root. */
-  get root(): string {
-    return this.rootKey;
-  }
-  /** @deprecated viewKey for what a card keeps (a single part: the project id, as before); part.ref for API calls. */
-  get pid(): string {
-    return this.paths.multi ? this.activePart.ref : this.viewKey;
-  }
-  /** @deprecated activePart.partId. */
-  get partId(): string {
-    return this.activePart.partId;
-  }
-  /** @deprecated activePart.lsp (the hub of a model: lsp.ts hubOf). */
-  get lsp(): LspHub {
-    return this.activePart.lsp;
-  }
-  /** @deprecated activePart.git. */
-  get git(): GitStatus | null {
-    return this.activePart.git;
-  }
-  /** @deprecated activePart.gitVersion. */
-  get gitVersion(): number {
-    return this.activePart.gitVersion;
-  }
-  /** @deprecated activePart.gitTarget. */
-  get gitTarget(): GitTarget {
-    return this.activePart.gitTarget;
-  }
-  /** @deprecated part.refreshGit() (this refreshes every mounted part). */
-  refreshGit(): Promise<unknown> {
-    return Promise.all(this.parts.map((p) => p.refreshGit()));
-  }
-  /** @deprecated part.gitSoon() (this does every mounted part). */
-  gitSoon() {
-    for (const p of this.parts) p.gitSoon();
-  }
-  /** @deprecated partOf(key)?.gitMark(key). */
-  gitMark(path: string): GitMark | undefined {
-    const k = this.toKey(path);
-    return k ? this.mountedPartOf(k)?.gitMark(k) : undefined;
-  }
-  /** @deprecated partOf(key)?.gitDirTone(key). */
-  gitDirTone(path: string): string | undefined {
-    const k = this.toKey(path);
-    return k ? this.mountedPartOf(k)?.gitDirTone(k) : undefined;
-  }
-  /** @deprecated partOf(key)?.repoRel(key). */
-  repoRel(path: string): string | null {
-    const k = this.toKey(path);
-    return k ? (this.mountedPartOf(k)?.repoRel(k) ?? null) : null;
-  }
-  /** @deprecated activePart.review (every part has its own). */
-  get review(): ReviewSummary | null {
-    return this.activePart.review;
-  }
-  /** @deprecated parts' reviewCount (this sums them). */
-  get reviewCount(): number {
-    return this.parts.reduce((n, p) => n + p.reviewCount, 0);
-  }
-  /** @deprecated part.refreshReview() (this refreshes every mounted part). */
-  refreshReview(): Promise<unknown> {
-    return Promise.all(this.parts.map((p) => p.refreshReview()));
-  }
-  /** @deprecated partOf(key)?.reviewMark(key). */
-  reviewMark(path: string): string[] | undefined {
-    const k = this.toKey(path);
-    return k ? this.mountedPartOf(k)?.reviewMark(k) : undefined;
-  }
-  /** @deprecated part.laravel (this is the active part's, else the first part's that has Laravel). */
-  get laravel(): LaravelIndex | null {
-    return this.activePart.laravel?.detected ? this.activePart.laravel : (this.parts.find((p) => p.laravel?.detected)?.laravel ?? this.activePart.laravel);
-  }
-  /** @deprecated part.refreshLaravel(). */
-  refreshLaravel(): Promise<unknown> {
-    return Promise.all(this.parts.map((p) => p.refreshLaravel()));
-  }
-  /** @deprecated part.fileList(force): paths relative to that part. */
-  fileList(force = false): Promise<FileListing> {
-    return this.activePart.fileList(force);
-  }
-  /** @deprecated partOf(key)?.ignored.has(key). */
-  get ignored(): { has(path: string): boolean } {
-    return {
-      has: (path: string) => {
-        const k = this.toKey(path);
-        return !!k && !!this.mountedPartOf(k)?.ignored.has(k);
-      },
-    };
-  }
-  /** @deprecated part.tasks. */
-  get tasks(): ProjectTask[] {
-    return this.activePart.tasks;
-  }
-  set tasks(list: ProjectTask[]) {
-    this.activePart.tasks = list;
-  }
-  /** @deprecated partRel(key)?.rel for API calls, relLabel(key) to show. Today's rel: the path inside the part, else the absolute path. */
-  rel(p: string): string {
-    const k = this.toKey(p);
-    if (!k || isRootKey(k)) return p;
-    const pr = this.paths.partRel(k);
-    if (!pr) return splitKey(k).abs;
-    if (this.paths.multi) return this.paths.relLabel(k);
-    return pr.rel || splitKey(k).abs;
-  }
-  /** @deprecated paths.keyOf(mount, rel) / part.keyOf(rel). A path inside the active part (an absolute one as toKey reads it). */
-  abs(rel: string): string {
-    if (rel.startsWith('/')) return this.toKey(rel) ?? rel;
-    return this.activePart.keyOf(rel);
-  }
-  /** @deprecated !!partOf(key) (the project) or !!paths.mountOf(key) (this card's parts). */
-  inside(p: string): boolean {
-    const k = this.toKey(p);
-    return !!k && !isRootKey(k) && !!this.paths.mountOf(k);
-  }
-  /** @deprecated docStore.ensureModel(key, part). */
-  ensureModel(path: string): Promise<monaco.editor.ITextModel | null> {
-    const k = this.toKey(path);
-    return k && !isRootKey(k) ? docStore.ensureModel(k, this.partFor(k)) : Promise.resolve(null);
   }
 
   // ---- subscriptions -----------------------------------------------------------------
@@ -904,6 +828,8 @@ export class Workspace implements ViewApi, PartView {
       p.drop(this);
     }
     this.partSubs.clear();
+    this.released = true;
+    this.dropBorrowed();
     return true;
   }
 
@@ -957,7 +883,7 @@ export class Workspace implements ViewApi, PartView {
    * Where a terminal or agent of this card starts (POST /api/sessions fields): the part of a
    * folder (in that folder), else the card's part, else the project root (a Root card).
    */
-  placeOf(dir?: string): Pick<CreateSession, 'partId' | 'root' | 'machineId' | 'cwd'> {
+  placeOf(dir?: FileKey): Pick<CreateSession, 'partId' | 'root' | 'machineId' | 'cwd'> {
     const k = dir ? this.toKey(dir) : null;
     if (k && !isRootKey(k)) {
       const { machineId, abs } = splitKey(k);
@@ -1069,7 +995,7 @@ export class Workspace implements ViewApi, PartView {
     return this.paths.mounts.map((m) => ({ name: m.name, dir: true, size: 0, hidden: false, binary: false, key: m.rootKey, part: m.partId }));
   }
 
-  async loadDir(dir: string) {
+  async loadDir(dir: FileKey) {
     const k = this.toKey(dir);
     if (!k) return;
     if (isRootKey(k)) {
@@ -1101,7 +1027,7 @@ export class Workspace implements ViewApi, PartView {
     }
   }
 
-  toggleDir(dir: string, open?: boolean) {
+  toggleDir(dir: FileKey, open?: boolean) {
     const k = this.toKey(dir);
     if (!k) return;
     const next = open ?? !this.expanded.has(k);
@@ -1124,11 +1050,11 @@ export class Workspace implements ViewApi, PartView {
   refreshTree() {
     for (const p of this.parts) p.filesChanged();
     for (const d of this.expanded) void this.loadDir(d);
-    void this.refreshGit();
+    for (const p of this.parts) void p.refreshGit();
   }
 
   /** Open the folders above a file and scroll to it. */
-  revealInTree(path: string) {
+  revealInTree(path: FileKey) {
     const k = this.toKey(path);
     if (!k) return;
     this.side = 'files';
@@ -1153,7 +1079,7 @@ export class Workspace implements ViewApi, PartView {
   // ---- local history (LocalHistoryView.tsx) -----------------------------------------------
 
   /** What a file holds for the owner now: the editor's text when it is open, else the disk's. */
-  async currentText(path: string): Promise<string> {
+  async currentText(path: FileKey): Promise<string> {
     const k = this.toKey(path);
     if (!k || isRootKey(k)) return '';
     const model = docStore.get(k)?.model;
@@ -1168,7 +1094,7 @@ export class Workspace implements ViewApi, PartView {
   }
 
   /** Bring back an earlier text: into the editor when the file is open, where Ctrl+Z undoes it. */
-  async restoreText(path: string, text: string) {
+  async restoreText(path: FileKey, text: string) {
     const k = this.toKey(path);
     if (!k || isRootKey(k)) return;
     const model = docStore.get(k)?.model;
@@ -1241,6 +1167,9 @@ export class Workspace implements ViewApi, PartView {
         });
       }, 15_000);
       this.watches.set(machineId, { id: w.watchId, off: () => off(), key, renew });
+      // its first look is its starting point, never an event: an open file changed while no
+      // watch looked (this card was just shown, the last card's watch already gone) shows here
+      docStore.catchUp(machineId, w.stats ?? []);
     } catch {
       /* no watch: the tree refreshes by hand, a save still detects conflicts */
     }
@@ -1281,7 +1210,7 @@ export class Workspace implements ViewApi, PartView {
     return d;
   }
 
-  private releaseDoc(path: string) {
+  private releaseDoc(path: FileKey | '') {
     const k = path ? this.toKey(path) : null;
     if (!k) return;
     for (const g of this.groups) if (g.tabs.some((t) => t.path === k)) return;
@@ -1300,7 +1229,7 @@ export class Workspace implements ViewApi, PartView {
     }
   }
 
-  async save(path: string, opts: { force?: boolean; outside?: boolean } = {}): Promise<boolean> {
+  async save(path: FileKey, opts: { force?: boolean; outside?: boolean } = {}): Promise<boolean> {
     const k = this.toKey(path);
     const d = k && !isRootKey(k) ? docStore.get(k) : undefined;
     if (!k || !d || this.readOnlyOf(d)) return false;
@@ -1328,27 +1257,27 @@ export class Workspace implements ViewApi, PartView {
     docStore.flushDrafts();
   }
 
-  reload(path: string): Promise<void> {
+  reload(path: FileKey): Promise<void> {
     const k = this.toKey(path);
     return k && !isRootKey(k) ? docStore.reload(k) : Promise.resolve();
   }
 
-  reopenWithEncoding(path: string, encoding: string): Promise<void> {
+  reopenWithEncoding(path: FileKey, encoding: string): Promise<void> {
     const k = this.toKey(path);
     return k && !isRootKey(k) ? docStore.reopenWithEncoding(k, encoding) : Promise.resolve();
   }
 
-  restoreDraft(path: string) {
+  restoreDraft(path: FileKey) {
     const k = this.toKey(path);
     if (k && !isRootKey(k)) docStore.restoreDraft(k);
   }
 
-  dropDraft(path: string) {
+  dropDraft(path: FileKey) {
     const k = this.toKey(path);
     if (k && !isRootKey(k)) docStore.dropDraft(k);
   }
 
-  setMdView(path: string, v: MdView) {
+  setMdView(path: FileKey, v: MdView) {
     const k = this.toKey(path);
     if (!k) return;
     const d = docStore.get(k);
@@ -1426,7 +1355,7 @@ export class Workspace implements ViewApi, PartView {
   }
 
   /** Compare a file with HEAD or with what is on disk now. */
-  openDiff(path: string, source: DiffSource, group?: number) {
+  openDiff(path: FileKey, source: DiffSource, group?: number) {
     const k = this.toKey(path);
     if (!k || isRootKey(k)) return;
     const g = this.groups[group ?? this.activeGroup] ?? this.group;
@@ -1440,13 +1369,8 @@ export class Workspace implements ViewApi, PartView {
     this.changed();
   }
 
-  /** Show a commit of a part's repository (the active part when only a hash is given): a preview tab unless pinned. */
-  openCommit(hash: string, o?: { label?: string; pin?: boolean }): void;
-  openCommit(part: PartServiceApi, hash: string, o?: { label?: string; pin?: boolean }): void;
-  openCommit(a: PartServiceApi | string, b?: string | { label?: string; pin?: boolean }, c?: { label?: string; pin?: boolean }) {
-    const part = typeof a === 'string' ? this.activePart : a;
-    const hash = typeof a === 'string' ? a : (b as string);
-    const o = (typeof a === 'string' ? (b as { label?: string; pin?: boolean } | undefined) : c) ?? {};
+  /** Show a commit of a part's repository: a preview tab unless pinned. */
+  openCommit(part: PartServiceApi, hash: string, o: { label?: string; pin?: boolean } = {}) {
     const repo = part.gitTarget.repo;
     this.placeTab(`commit:${part.partId}:${repo}:${hash}`, { path: '', commit: { hash, repo, label: o.label ?? hash.slice(0, 8), part: part.partId } }, !!o.pin);
   }
@@ -1532,7 +1456,7 @@ export class Workspace implements ViewApi, PartView {
     }
   }
 
-  private lastTabOf(path: string, except: Tab): boolean {
+  private lastTabOf(path: FileKey, except: Tab): boolean {
     return !this.groups.some((g) => g.tabs.some((t) => t !== except && t.path === path && !t.diff));
   }
 
@@ -1636,7 +1560,7 @@ export class Workspace implements ViewApi, PartView {
   }
 
   /** Closes a diff tab wherever it is. */
-  closeDiffTab(path: string, source: DiffSource) {
+  closeDiffTab(path: FileKey, source: DiffSource) {
     const k = this.toKey(path);
     if (!k) return;
     const id = tabId(k, source);
@@ -1748,7 +1672,7 @@ export class Workspace implements ViewApi, PartView {
     return true;
   }
 
-  startInput(kind: TreeInput['kind'], dir: string, path?: string) {
+  startInput(kind: TreeInput['kind'], dir: FileKey, path?: string) {
     const d = this.toKey(dir);
     if (!d) return;
     if (isRootKey(d) && kind !== 'rename') {
@@ -1813,8 +1737,7 @@ export class Workspace implements ViewApi, PartView {
         if ((dir || '/') !== dirAbs) this.revealInTree(fileKey(machineId, inp.kind === 'file' ? `${dir}/${parts[parts.length - 1]}` : dir));
       }
       this.input = null;
-      this.partOf(dirKey)?.filesChanged();
-      this.gitSoon();
+      this.filesTouched(dirKey);
       this.changed();
       return true;
     } catch (err) {
@@ -1824,7 +1747,7 @@ export class Workspace implements ViewApi, PartView {
   }
 
   /** Rename or move on one machine, keeping open tabs (in every card) and unsaved edits on the new path. */
-  async moveTo(from: string, to: string) {
+  async moveTo(from: FileKey, to: FileKey) {
     const a = this.toKey(from);
     const b = this.toKey(to);
     if (!a || !b || isRootKey(a) || isRootKey(b) || this.refusePartFolder(a)) return;
@@ -1848,13 +1771,11 @@ export class Workspace implements ViewApi, PartView {
       void this.loadDir(moved);
     }
     if (this.selected === a) this.selected = moved;
-    this.partOf(a)?.filesChanged();
-    this.partOf(moved)?.filesChanged();
-    this.gitSoon();
+    this.filesTouched(a, moved);
     this.changed();
   }
 
-  async trash(path: string) {
+  async trash(path: FileKey) {
     const k = this.toKey(path);
     if (!k || this.refusePartFolder(k)) return;
     const { machineId, abs } = splitKey(k);
@@ -1871,10 +1792,9 @@ export class Workspace implements ViewApi, PartView {
     }
     const parent = parentKey(k);
     if (parent) void this.loadDir(parent);
-    this.partOf(k)?.filesChanged();
-    this.gitSoon();
+    this.filesTouched(k);
     const to = cleanAbs(r.trashedTo);
-    toast.success(`Moved to ${to ? this.rel(fileKey(machineId, to)) : r.trashedTo}.`);
+    toast.success(`Moved to ${to ? this.relLabel(fileKey(machineId, to)) : r.trashedTo}.`);
   }
 
   /** Show what was just added to a folder: selected, with the folder open. */
@@ -1886,13 +1806,12 @@ export class Workspace implements ViewApi, PartView {
     }
     this.selected = key;
     this.revealTick++;
-    this.partOf(key)?.filesChanged();
-    this.gitSoon();
+    this.filesTouched(key);
     this.changed();
   }
 
   /** Paste what Copy or Cut in a tree put aside into this folder. Nothing gets replaced. */
-  async pasteClip(dir: string) {
+  async pasteClip(dir: FileKey) {
     const clip = fileClip.get();
     const d = this.toKey(dir);
     if (!clip || !d || (isRootKey(d) && this.refusePartFolder(d))) return;
@@ -1922,7 +1841,7 @@ export class Workspace implements ViewApi, PartView {
   }
 
   /** Files from the computer, into this folder. What already has the name stays. */
-  async pasteFiles(dir: string, files: File[]) {
+  async pasteFiles(dir: FileKey, files: File[]) {
     const d = this.toKey(dir);
     if (!d || (isRootKey(d) && this.refusePartFolder(d))) return [];
     const { machineId, abs } = splitKey(d);
@@ -1936,8 +1855,8 @@ export class Workspace implements ViewApi, PartView {
   }
 
   /** Files pasted while typing: they land next to the file, and the text gets the way to them. */
-  async pasteIntoEditor(ed: monaco.editor.ICodeEditor, path: string, files: File[]) {
-    const sent = await this.pasteFiles(dirOf(path), files);
+  async pasteIntoEditor(ed: monaco.editor.ICodeEditor, path: FileKey, files: File[]) {
+    const sent = await this.pasteFiles(parentKey(path) ?? path, files);
     const at = ed.getSelection();
     if (!sent.length || !at) return;
     const markdown = /\.(md|mdx|markdown)$/i.test(path);
@@ -1953,7 +1872,7 @@ export class Workspace implements ViewApi, PartView {
   }
 
   /** Create a file with this text, making its folder when needed. */
-  async writeNew(path: string, content: string, c: Confirm) {
+  async writeNew(path: FileKey, content: string, c: Confirm) {
     const k = this.toKey(path);
     if (!k || isRootKey(k)) throw new Error(`Not a file: ${path}`);
     const { machineId, abs } = splitKey(k);
@@ -1961,7 +1880,7 @@ export class Workspace implements ViewApi, PartView {
     return fsApi.write(machineId, { path: abs, content, projectId: this.partFor(k).ref, ...c });
   }
 
-  async duplicate(path: string) {
+  async duplicate(path: FileKey) {
     const k = this.toKey(path);
     if (!k || isRootKey(k)) return;
     const { machineId, abs } = splitKey(k);

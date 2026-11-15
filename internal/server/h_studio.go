@@ -558,6 +558,9 @@ func (s *Server) handleFSWatchDelete(w http.ResponseWriter, r *http.Request, p *
 
 // ---- Markdown studio (§8) ----
 
+// vault is the notes of the part the ref names ("<project>~<part>" or ?part=, through
+// projectByID): that part's folder on its machine and Claude's memory folder for it. A bare
+// project id is the project's machineId/path, its first part in display order (old clients).
 func (s *Server) vault(w http.ResponseWriter, r *http.Request) (*studio.Vault, bool) {
 	pr, ok := s.projectByID(w, r)
 	if !ok {

@@ -6,8 +6,7 @@
 import type { Options, Plugin } from 'prettier';
 import { errorMessage } from '../../api';
 import { toast } from '../../components/Toast';
-import { fsApi } from '../api';
-import { readKey } from './docs';
+import { readKey, statKeys } from './docs';
 import { parseJsonc } from './jsonc';
 import { monaco } from './monaco';
 import { hasNative, modelOwners, onNativeChange } from './nativeExt';
@@ -216,10 +215,9 @@ async function optionsFor(w: Where): Promise<Json> {
   const path = w.path;
   const dirs = parents(w);
   const names = [...CONFIG_DATA, ...CONFIG_CODE, 'package.json', '.editorconfig'];
-  // one stat for every candidate, on the file's own machine (real paths, never keys)
-  const stats = await fsApi.statBatch(w.machineId, dirs.flatMap((d) => names.map((n) => `${d}/${n}`))).catch(() => []);
-  const found = new Set(stats.filter((s) => s.exists).map((s) => s.path));
-  const has = (d: string, n: string) => found.has(`${d}/${n}`);
+  // one stat for every candidate, on the file's own machine
+  const stats = await statKeys(dirs.flatMap((d) => names.map((n) => fileKey(w.machineId, `${d}/${n}`))));
+  const has = (d: string, n: string) => !!stats.get(fileKey(w.machineId, `${d}/${n}`))?.exists;
   let base: Json = {};
   const editorDir = dirs.find((d) => has(d, '.editorconfig'));
   if (editorDir) base = fromEditorConfig(await read(w, `${editorDir}/.editorconfig`).catch(() => ''), path.slice(editorDir.length + 1));

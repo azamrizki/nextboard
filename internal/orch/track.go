@@ -212,7 +212,7 @@ func (s *Service) turnFinished(in session.Info, turn agentstate.LastTurn, now ti
 		prevReply = r.MessageID + r.At.String() + itoa(r.Chars)
 	}
 	for _, d := range done {
-		go s.report(d.o, d.t, turn, prevReply)
+		s.goBackground(func() { s.report(d.o, d.t, turn, prevReply) })
 	}
 	// The next turn starts at depth 0 unless a delivery says otherwise.
 	s.mu.Lock()
@@ -231,10 +231,11 @@ func (s *Service) turnFinished(in session.Info, turn agentstate.LastTurn, now ti
 	if depth >= MaxForwardDepth || s.replyFresh(in.ID, turn, prevReply) {
 		s.edgeForwards(in, now, depth, orderID)
 	} else {
-		go func() {
-			s.waitFreshReply(in.ID, turn, prevReply)
-			s.edgeForwards(in, now, depth, orderID)
-		}()
+		s.goBackground(func() {
+			if s.waitFreshReply(in.ID, turn, prevReply) {
+				s.edgeForwards(in, now, depth, orderID)
+			}
+		})
 	}
 	s.Loops.TurnFinished(in.ID, now)
 }
@@ -247,18 +248,26 @@ func (s *Service) replyFresh(sid string, turn agentstate.LastTurn, prev string) 
 }
 
 // waitFreshReply waits up to ~6 s for the reply of the turn that just
-// ended; after that callers use whatever reply exists.
-func (s *Service) waitFreshReply(sid string, turn agentstate.LastTurn, prev string) {
+// ended; after that callers use whatever reply exists. false: the service is
+// closing, and the caller does nothing more.
+func (s *Service) waitFreshReply(sid string, turn agentstate.LastTurn, prev string) bool {
 	for i := 0; i < 30 && !s.replyFresh(sid, turn, prev); i++ {
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-s.stop:
+			return false
+		case <-time.After(200 * time.Millisecond):
+		}
 	}
+	return true
 }
 
 // report waits briefly for the refreshed reply, then posts it (§4). The message keeps
 // its own copy: the console's last reply changes with its next turn. A reply that is
 // not there yet fills the message when it comes, it is never the previous turn's.
 func (s *Service) report(o Order, t OrderTarget, turn agentstate.LastTurn, prev string) {
-	s.waitFreshReply(t.SessionID, turn, prev)
+	if !s.waitFreshReply(t.SessionID, turn, prev) {
+		return
+	}
 	id := auth.RandomID("tm_")
 	if s.replyFresh(t.SessionID, turn, prev) {
 		s.Threads.Add(s.reportMessage(id, o, t, turn, true))

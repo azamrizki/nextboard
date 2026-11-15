@@ -5,7 +5,7 @@
 //
 // Fs calls take splitKey(key), never a key. Drafts stay in IndexedDB by (machine, path), as before.
 
-import { api, ApiError, errorMessage, fsRawUrl, isCode } from '../../api';
+import { api, ApiError, errorMessage, fsRawUrl, isCode, type FsStat } from '../../api';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { store } from '../../store';
@@ -14,7 +14,7 @@ import { drafts, type Draft } from '../drafts';
 import type { DocHolder, DocSaveOptions, DocStoreApi, PartServiceApi } from './contracts';
 import { hubOf } from './lsp';
 import { languageFor, monaco } from './monaco';
-import { keyOfUri, splitKey, uriPartsOf, type FileKey } from './paths';
+import { cleanAbs, fileKey, keyOfUri, splitKey, uriPartsOf, type FileKey } from './paths';
 import type { MdView } from './persist';
 
 /** Files up to here are editable; larger ones are read-only up to MAX_VIEW. */
@@ -217,6 +217,54 @@ export const statKey = (k: FileKey) => {
   const { machineId, abs } = where(k);
   return api.fsStat(machineId, abs);
 };
+
+/** fsApi.statBatch on keys: one call per machine. The stats by key; a machine that fails gives none. */
+export async function statKeys(keys: readonly FileKey[]): Promise<Map<FileKey, FsStat>> {
+  const by = new Map<string, string[]>();
+  for (const k of keys) {
+    const { machineId, abs } = where(k);
+    by.set(machineId, [...(by.get(machineId) ?? []), abs]);
+  }
+  const out = new Map<FileKey, FsStat>();
+  await Promise.all(
+    [...by].map(async ([machineId, paths]) => {
+      const stats = await fsApi.statBatch(machineId, paths).catch(() => [] as FsStat[]);
+      for (const st of stats) if (st.path.startsWith('/')) out.set(fileKey(machineId, st.path), st);
+    }),
+  );
+  return out;
+}
+
+/**
+ * What a new watch's first look (its starting point, the stats of POST fs/watch) says about open
+ * files: the ones that changed or went while no watch looked at them, such as between one card's
+ * watch and the next card's. Folders and files no ready doc holds are not changes; a look older
+ * than the text held is from before that text's own save. Pure.
+ */
+export function missedChanges(
+  machineId: string,
+  stats: readonly FsStat[],
+  held: (key: FileKey) => Pick<Doc, 'status' | 'mtime' | 'deleted'> | undefined,
+): { key: FileKey; exists: boolean; mtime: string }[] {
+  const out: { key: FileKey; exists: boolean; mtime: string }[] = [];
+  for (const st of stats) {
+    const abs = st.dir ? null : cleanAbs(st.path);
+    if (!abs) continue;
+    const key = fileKey(machineId, abs);
+    const d = held(key);
+    if (!d || d.status !== 'ready') continue;
+    if (!st.exists) {
+      if (!d.deleted) out.push({ key, exists: false, mtime: '' });
+      continue;
+    }
+    if (!st.mtime || st.mtime === d.mtime) continue;
+    const at = Date.parse(st.mtime);
+    const had = Date.parse(d.mtime);
+    if (!Number.isNaN(at) && !Number.isNaN(had) && at < had) continue;
+    out.push({ key, exists: true, mtime: st.mtime });
+  }
+  return out;
+}
 
 export class DocStore implements DocStoreApi {
   private docs = new Map<FileKey, Doc>();
@@ -709,6 +757,11 @@ export class DocStore implements DocStoreApi {
   }
 
   /** A watch saw the file change. Idempotent per mtime: every card's watch may feed it. */
+  /** A new watch's first look on a machine: the open files that changed while no watch looked (missedChanges). */
+  catchUp(machineId: string, stats: readonly FsStat[]) {
+    for (const c of missedChanges(machineId, stats, (k) => this.docs.get(k))) this.onDiskChange(c.key, c.exists, c.mtime);
+  }
+
   onDiskChange(key: FileKey, exists: boolean, mtime: string | undefined) {
     const d = this.docs.get(key);
     if (!d || d.status !== 'ready' || d.saving) return;

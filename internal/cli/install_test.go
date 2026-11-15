@@ -573,3 +573,36 @@ func TestHubProcessComesBackFromSIGTERM(t *testing.T) {
 		seen.Write(frame)
 	}
 }
+
+// uninstall --purge deletes a data folder with read-only folders in it (a project root's note
+// folder of an earlier build was 0555), and never what a root's link points to.
+func TestRemoveDataReadOnlyFolders(t *testing.T) {
+	data, part := filepath.Join(t.TempDir(), ".nextboard"), t.TempDir()
+	os.Chmod(part, 0o755)
+	if err := os.WriteFile(filepath.Join(part, "index.html"), []byte("<p>acme-shop</p>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(data, "roots", "p_acme")
+	note := filepath.Join(root, "Api")
+	if err := os.MkdirAll(note, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(note, "NEXTBOARD-PART.md"), []byte("a note\n"), 0o444)
+	os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("parts\n"), 0o444)
+	if err := os.Symlink(part, filepath.Join(root, "Web")); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(note, 0o555)
+	if err := removeData(data); err != nil {
+		t.Fatalf("removeData: %v", err)
+	}
+	if _, err := os.Lstat(data); !os.IsNotExist(err) {
+		t.Fatalf("the data folder is still there: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(part, "index.html")); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Fatalf("the part behind the link changed: %v %v", fi, err)
+	}
+	if fi, _ := os.Stat(part); fi.Mode().Perm() != 0o755 {
+		t.Fatalf("the part's folder mode changed: %v", fi.Mode())
+	}
+}

@@ -401,6 +401,8 @@ export interface Project {
   partAccess?: 'full';
   /** Ids of projects merged into this one: their old links still find it. */
   aliases?: string[];
+  /** Two or more parts: the project's root folder on This PC, where root consoles work (docs/API-board.md §1). */
+  rootDir?: string;
   createdAt: string;
   lastOpenedAt: string;
   /** In tab order. */

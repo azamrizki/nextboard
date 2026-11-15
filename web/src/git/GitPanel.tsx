@@ -30,7 +30,7 @@ import { jobActive, studioStore, useJob, useStudio } from '../studio/store';
 import type { GitBranch, GitCommitDetail, GitDiff, GitFile, GitRepoInfo, GitStatus, GitSummary, GitTarget, GitTrashItem } from '../studio/types';
 import { formatBytes, gitError, jobSummary, lineCounts, splitPath, STATUS_LABEL, STATUS_LETTER } from './common';
 import { LargeInCommits } from './LargeInCommits';
-import { showCommitInEditor } from './openInEditor';
+import { showCommitInEditor, type ShowEditorCard } from './openInEditor';
 import { openPartsFrom, partRef, sumRepos, summaryLabel } from './parts';
 import { RepoPicker } from './RepoPicker';
 import { SUGGEST_LABEL, SUGGEST_LABEL_OFFLINE, suggestCommitMessage } from './suggest';
@@ -41,8 +41,8 @@ interface GitPanelProps {
   project: Project;
   workspaceId: string;
   onClose: () => void;
-  /** Shows the editor card, with this file when given: "Open in editor" of a commit. */
-  openEditor?: (path?: string) => void;
+  /** Shows the editor card of a part (or a Root card) and says which: "Open in editor" of a commit. */
+  openEditor?: ShowEditorCard;
   /** The board's UI state, which the editor card reads files from. */
   ui?: UiStore;
 }

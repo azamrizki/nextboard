@@ -170,3 +170,25 @@ export function mountsOf(project: Project, placement: Placement): { mounts: Moun
   if (isRoot(p)) return { mounts: parts.map((pt) => mountOfPart(project, pt)), multi: true };
   return { mounts: [mountOfPart(project, parts.find((pt) => pt.id === p.partId) ?? parts[0])], multi: false };
 }
+
+/**
+ * A path on This PC through the project's root folder (Project.rootDir, a root console's own
+ * folder): "<rootDir>/<part>/rest" is that part's file, on the part's machine. Null for any other
+ * path, for the root folder itself and for its own files (AGENTS.md, CLAUDE.md).
+ */
+export function rootFileOf(project: Project, abs: string): { part: ProjectPart; machineId: string; path: string } | null {
+  const dir = project.rootDir ? cleanAbs(project.rootDir) : null;
+  const p = cleanAbs(abs);
+  if (!dir || p === null || p === dir || !under(p, dir)) return null;
+  const rel = p.slice(dir === '/' ? 1 : dir.length + 1);
+  const cut = rel.indexOf('/');
+  const name = cut < 0 ? rel : rel.slice(0, cut);
+  const rest = cut < 0 ? '' : rel.slice(cut + 1);
+  // the entry is named like the part; a name from before names were path-safe has a stand-in (server/roots.go rootEntryName)
+  const parts = projectParts(project);
+  const safe = (n: string) => n.trim().replace(/^\.+/, '').replace(/[/\\\u0000-\u001f]/g, '-');
+  const part = parts.find((pt) => pt.name === name) ?? parts.find((pt) => safe(pt.name) === name || `part-${pt.id.replace(/^pt_/, '')}` === name);
+  if (!part) return null;
+  const root = cleanAbs(part.path) ?? '/';
+  return { part, machineId: machineOf(part.machineId), path: !rest ? root : root === '/' ? `/${rest}` : `${root}/${rest}` };
+}

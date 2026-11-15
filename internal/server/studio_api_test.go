@@ -267,6 +267,14 @@ func TestSkillsAPI(t *testing.T) {
 	if st != 200 || len(l["items"].([]any)) != 2 || l["cfg"] != cfg {
 		t.Fatalf("list %d %v", st, l)
 	}
+	// a part's ref names that part's folder; a part that is not there is no project
+	pr, _ := h.srv.projects.Get(pid)
+	if st, l := h.do("GET", base+"?profileId="+prof+"&projectId="+pid+"~"+pr.Parts[0].ID, nil, nil); st != 200 || len(l["items"].([]any)) != 2 {
+		t.Fatalf("list by part %d %v", st, l)
+	}
+	if st, b := h.do("GET", base+"?profileId="+prof+"&projectId="+pid+"~pt_nope", nil, nil); st != 404 || b["code"] != "project_not_found" {
+		t.Fatalf("unknown part %d %v", st, b)
+	}
 	_, evs := h.eventsCh("")
 	st, c := h.do("POST", base, map[string]any{"scope": "personal", "name": "my-skill", "description": "Mine", "body": "Do it", "profileId": prof}, nil)
 	if st != 201 || c["id"] != "personal:my-skill" || c["invoke"] != "/my-skill" {

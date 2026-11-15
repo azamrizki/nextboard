@@ -115,6 +115,12 @@ test('product tour', async ({ page, request }) => {
   await click(page, page.getByRole('button', { name: 'Close the thread' }).first(), { ms: 450 });
   await caption(page, 'Review what each agent changed', 'In a full code editor: diffs, git, Local History, language servers');
   await click(page, page.getByRole('button', { name: 'Code editor' }));
+  // acme-shop has three parts: the editor asks where it shows, Root or a part; the storefront's
+  const place = page.getByRole('dialog', { name: 'Open the code editor' });
+  if (await place.waitFor({ timeout: 3000 }).then(() => true, () => false)) {
+    await click(page, place.getByRole('radio', { name: 'Storefront' }), { ms: 450 });
+    await click(page, place.getByRole('button', { name: /the editor$/ }), { ms: 450 });
+  }
   const review = page.getByRole('button', { name: 'Review', exact: true });
   await expect(review).toBeVisible({ timeout: 20_000 });
   await page.waitForTimeout(500);

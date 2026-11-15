@@ -34,7 +34,7 @@ import { isRoot, placementOf, projectParts, type Placement } from '../../lib/par
 import { placeLabel } from '../../lib/placement';
 import type { NodeLayout, Op, Project } from '../../lib/types';
 import { docStore, readKey } from './docs';
-import { fileKey, isRootKey, splitKey, viewKey } from './paths';
+import { fileKey, isRootKey, parentKey, splitKey, viewKey } from './paths';
 import { useFullscreen } from '../../lib/useFullscreen';
 import { useRemoteConfirm } from '../confirm';
 import { BottomPanel, newTerminal, useProblems } from './BottomPanel';
@@ -63,7 +63,7 @@ import { ScmPanel } from './ScmPanel';
 import { SearchPanel } from './SearchPanel';
 import { AgentsPanel, SettingsPanel, type AgentContext, type AgentRequest } from './SidePanels';
 import { useWs } from './useWs';
-import { dirOf, nameOf, ORCHESTRATOR_PANE, Workspace, type SideView } from './workspace';
+import { nameOf, ORCHESTRATOR_PANE, Workspace, type SideView } from './workspace';
 import '../../styles/studio.css';
 import '../../styles/workbench.css';
 
@@ -554,8 +554,8 @@ function Workbench({
       { id: 'file.saveAll', label: 'File: Save All', keys: 'Ctrl+Alt+S', icon: 'save', run: () => void ws.saveAll() },
       { id: 'file.close', label: 'View: Close Editor', keys: 'Alt+W', icon: 'close', run: () => ws.group.active && ws.closeTab(ws.activeGroup, ws.group.active) },
       // in a Root card without an open file: the active part's folder (no file goes at the virtual root)
-      { id: 'file.new', label: 'File: New File', icon: 'file', run: () => ws.startInput('file', doc ? dirOf(doc.path) : ws.activePart.rootKey) },
-      { id: 'file.newFolder', label: 'File: New Folder', icon: 'folder', run: () => ws.startInput('folder', doc ? dirOf(doc.path) : ws.activePart.rootKey) },
+      { id: 'file.new', label: 'File: New File', icon: 'file', run: () => ws.startInput('file', (doc && parentKey(doc.path)) || ws.activePart.rootKey) },
+      { id: 'file.newFolder', label: 'File: New Folder', icon: 'folder', run: () => ws.startInput('folder', (doc && parentKey(doc.path)) || ws.activePart.rootKey) },
       { id: 'file.reveal', label: 'File: Reveal Active File in Explorer', icon: 'folderOpen', run: () => doc && ws.revealInTree(doc.path) },
       { id: 'file.copyPath', label: 'File: Copy Path of Active File', icon: 'link', run: () => doc && void navigator.clipboard?.writeText(splitKey(doc.path).abs) },
       { id: 'file.copyRel', label: 'File: Copy Relative Path of Active File', icon: 'link', run: () => doc && void navigator.clipboard?.writeText(ws.relLabel(doc.path)) },

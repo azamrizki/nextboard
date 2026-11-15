@@ -121,10 +121,11 @@ export function CardList({
           {cards.map((n) => {
             const s = n.kind === 'terminal' ? sessionOf(n) : undefined;
             const pill = s ? agentPill(s) : null;
-            const name = s ? (s.handle ? `@${s.handle}` : s.name || 'Console') : nodeLabel(n);
+            const name = s ? (s.handle ? `@${s.handle}` : s.name || 'Console') : nodeLabel(n, project);
             const placed = project && isMultiPart(project) ? placementOfNode(n, project, store.getState().sessions, nodes) : null;
             const where = placed && project ? placeShort(project, placed) : '';
-            const sub = s ? [agentById(s.agent || s.preset)?.name ?? s.agent, where, pill?.activity || pill?.label].filter(Boolean).join(' · ') : n.kind === 'terminal' ? 'Console' : where;
+            // an editor card's name already says where it is ("Code editor · admin")
+            const sub = s ? [agentById(s.agent || s.preset)?.name ?? s.agent, where, pill?.activity || pill?.label].filter(Boolean).join(' · ') : n.kind === 'terminal' ? 'Console' : n.kind === 'editor' ? '' : where;
             const needsYou = !!s && needs.has(s.id);
             return (
               <li key={n.id}>

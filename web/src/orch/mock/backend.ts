@@ -9,7 +9,8 @@ import type { HttpMethod } from '../../api';
 import { ApiError } from '../../api';
 import { readGroup } from '../../board/kinds';
 import { frameOf, directedTerminals } from '../../board/groups';
-import type { Board, BoardEdge, BoardNode, HubEvent, Op, Session } from '../../lib/types';
+import { projectParts } from '../../lib/parts';
+import type { Board, BoardEdge, BoardNode, HubEvent, Op, Project, Session } from '../../lib/types';
 import { store } from '../../store';
 import type { Transport } from '../api';
 import type {
@@ -407,6 +408,18 @@ export function createMockTransport(hub: Transport): Transport {
       return 'shell';
     }
   };
+  /**
+   * A placement (the root, or a part by id or name) as POST /api/sessions fields, as the hub reads
+   * it (v0.9.0-beta.2); nothing named: none (the hub's compat rule). A placed console has no machineId.
+   */
+  const placeFields = (project: Project | undefined, root?: boolean, part?: string): { root?: true; partId?: string } => {
+    if (root) return { root: true };
+    if (!part || !project) return {};
+    const parts = projectParts(project);
+    const pt = parts.find((x) => x.id === part) ?? parts.find((x) => x.name.toLowerCase() === part.trim().toLowerCase());
+    if (!pt) fail(404, 'Part not found.', 'part_not_found');
+    return { partId: pt!.id };
+  };
   const spawn = async (wid: string, req: SpawnRequest): Promise<{ sessions: Session[]; groupNodeId?: string }> => {
     const project = Object.values(store.getState().projects).find((p) => p.workspaces?.some((w) => w.id === wid));
     const slots: SpawnSlot[] = req.slots ?? Array.from({ length: req.count ?? 1 }, () => ({ agent: req.agent }));
@@ -435,11 +448,13 @@ export function createMockTransport(hub: Transport): Transport {
     const made: Session[] = [];
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
-      const machineId = slot.machineId ?? project?.machineId ?? 'local';
-      const agent = slot.agent || (await defaultAgent(machineId, role));
+      const place = slot.root || slot.part ? placeFields(project, slot.root, slot.part) : placeFields(project, req.root, req.part);
+      const machineId = place.root || place.partId ? undefined : (slot.machineId ?? project?.machineId ?? 'local');
+      const agent = slot.agent || (await defaultAgent(machineId ?? 'local', role));
       const s = await hub<Session>('POST', '/api/sessions', {
         workspaceId: wid,
         machineId,
+        ...place,
         preset: agent,
         agent,
         profileId: slot.profileId,
@@ -1117,9 +1132,12 @@ export function createMockTransport(hub: Transport): Transport {
     const keyNode = new Map<string, string>();
     for (const lane of l!.lanes ?? []) {
       const o = req.laneOverrides?.[lane.key] ?? {};
-      const machineId = o.machineId ?? project?.machineId ?? 'local';
-      const agent = o.agent || req.fill?.agent || lane.agent || (await defaultAgent(machineId, lane.role));
-      const s = await hub<Session>('POST', '/api/sessions', { workspaceId: wid, machineId, preset: agent, agent, profileId: o.profileId, cols: 90, rows: 22, node: { x: Math.round(lane.x + dx), y: Math.round(lane.y + dy), w: lane.w, h: lane.h } });
+      // a lane override, then the lane's key, then its group's, then where the template saved it (by part name)
+      const pl = o.root || o.part ? o : (req.places?.[lane.key] ?? (lane.group ? req.places?.[lane.group] : undefined) ?? lane);
+      const place = placeFields(project, pl.root, pl.part);
+      const machineId = place.root || place.partId ? undefined : (o.machineId ?? project?.machineId ?? 'local');
+      const agent = o.agent || req.fill?.agent || lane.agent || (await defaultAgent(machineId ?? 'local', lane.role));
+      const s = await hub<Session>('POST', '/api/sessions', { workspaceId: wid, machineId, ...place, preset: agent, agent, profileId: o.profileId, cols: 90, rows: 22, node: { x: Math.round(lane.x + dx), y: Math.round(lane.y + dy), w: lane.w, h: lane.h } });
       store.upsertSession(s);
       made.push(s);
     }

@@ -24,11 +24,13 @@ import (
 // for a project of several parts, <data>/roots/<projectId>, the working folder of every console
 // placed at the root. It is a view: one entry per part, named like the part. A part on This PC
 // that agents may change is a symlink to its folder. A read-only part on This PC and a part on a
-// server are a 0555 folder holding only a note, so a write there fails loudly instead of looking
-// like a write to that part; nothing of a server is copied. AGENTS.md and CLAUDE.md (the same
-// text, Claude Code reads only CLAUDE.md) list every part: where it is and what an agent may do
-// there. .nextboard/manifest.json records what the hub made, so a cleanup only removes its own
-// entries, never follows a link, and leaves what an agent made there alone.
+// server are a folder holding only a note (0755, the note 0444, so a plain `rm -rf` of the data
+// folder works); nothing of a server is copied. The note and the instruction files say not to
+// write there, and each sync removes what an agent put there anyway (plain files and folders,
+// never through a link), so it never looks like that part's files. AGENTS.md and CLAUDE.md (the
+// same text, Claude Code reads only CLAUDE.md) list every part: where it is and what an agent may
+// do there. .nextboard/manifest.json records what the hub made, so a cleanup only removes its own
+// entries, never follows a link, and leaves what an agent made at the root itself alone.
 
 const (
 	rootNoteFile    = "NEXTBOARD-PART.md"
@@ -389,20 +391,62 @@ func makeRootEntry(dir string, pr project.Project, rp *rootPart, ours bool) bool
 				return false
 			}
 		}
+		// 0755, also for a folder made read only (0555) by an earlier build
 		if err := os.Chmod(p, 0o755); err != nil {
 			return false
 		}
-		werr := writeIfChanged(filepath.Join(p, rootNoteFile), []byte(rootNoteText(pr, *rp)), 0o444)
-		if err := os.Chmod(p, 0o555); err != nil || werr != nil {
-			log.Printf("project root %s: note of %s: %v %v", pr.ID, rp.pt.Name, werr, err)
-			return werr == nil
+		if gone, left := clearNoteDir(p, true); gone > 0 || left > 0 {
+			log.Printf("project root %s: removed %d entries an agent put in the note of %s (nothing there reaches the part); %d left (links, or what could not go)", pr.ID, gone, rp.pt.Name, left)
+		}
+		if err := writeIfChanged(filepath.Join(p, rootNoteFile), []byte(rootNoteText(pr, *rp)), 0o444); err != nil {
+			log.Printf("project root %s: note of %s: %v", pr.ID, rp.pt.Name, err)
+			return false
 		}
 		return true
 	}
 }
 
+// clearNoteDir removes what is not the note in a note folder (top) and below: an agent wrote
+// there although the note says not to, and nothing written there reaches the part. Plain files
+// and folders go; a link stays and is never followed (nor is what it points to touched), and so
+// does anything else that is not a plain file or a folder, and a folder still holding one. gone
+// and left count the entries removed and kept.
+func clearNoteDir(dir string, top bool) (gone, left int) {
+	ents, err := os.ReadDir(dir) // the types are the entries' own (lstat): a link is a link
+	if err != nil {
+		return 0, 1
+	}
+	for _, e := range ents {
+		q := filepath.Join(dir, e.Name())
+		t := e.Type()
+		switch {
+		case top && e.Name() == rootNoteFile && t.IsRegular():
+			// the note itself: writeIfChanged brings it back to its text and mode
+		case t.IsRegular():
+			if os.Remove(q) == nil {
+				gone++
+			} else {
+				left++
+			}
+		case t.IsDir():
+			_ = os.Chmod(q, 0o700) // a folder an agent made read only; q is no link (lstat)
+			g, l := clearNoteDir(q, false)
+			gone, left = gone+g, left+l
+			if l == 0 && os.Remove(q) == nil {
+				gone++
+			} else {
+				left++
+			}
+		default: // a link (to a file or a folder), a socket, a fifo…: left alone
+			left++
+		}
+	}
+	return gone, left
+}
+
 // removeRootEntry removes what the hub made for a part that is gone or changed: a link as a
-// link, never what it points to; a note folder with its note, and only when nothing else is in it.
+// link, never what it points to; a note folder with its note and what an agent put there
+// (clearNoteDir), and only when no link or the like is left in it.
 func removeRootEntry(dir string, e rootEntry) {
 	if !safeEntryName(e.Name) {
 		return
@@ -417,9 +461,9 @@ func removeRootEntry(dir string, e rootEntry) {
 		_ = os.Remove(p)
 	case e.Kind == rootNote && fi.IsDir() && fi.Mode()&os.ModeSymlink == 0:
 		_ = os.Chmod(p, 0o755)
-		_ = os.Remove(filepath.Join(p, rootNoteFile))
+		clearNoteDir(p, false)
 		if err := os.Remove(p); err != nil {
-			log.Printf("project root: %s holds files NextBoard did not make; left as it is", p)
+			log.Printf("project root: %s holds links NextBoard did not make; left as it is", p)
 		}
 	default:
 		log.Printf("project root: %s is no longer what NextBoard made; left as it is", p)
@@ -427,7 +471,8 @@ func removeRootEntry(dir string, e rootEntry) {
 }
 
 // removeLocked deletes a root folder. Every entry is removed without following links (first the
-// hub's own by the manifest, then what is left, folders made writable first). Caller holds r.mu.
+// hub's own by the manifest, then what is left, folders made writable first: an agent's, or a note
+// folder of an earlier build, 0555). Caller holds r.mu.
 func (r *rootDirs) removeLocked(dir string) {
 	fi, err := os.Lstat(dir)
 	if err != nil {
@@ -590,6 +635,7 @@ func rootNoteText(pr project.Project, rp rootPart) string {
 	} else {
 		fmt.Fprintf(&b, "This folder is only a note. %s's files are on %s, in %s; nothing of them is copied here, and nothing written here would reach them.\n\n", rp.pt.Name, rp.machine, rp.pt.Path)
 	}
+	b.WriteString("Do not write in this folder: NextBoard removes what is put here.\n\n")
 	fmt.Fprintf(&b, "Read it with the nextboard tools read_file, grep and glob, giving part: %q.", rp.pt.Name)
 	if rp.change {
 		fmt.Fprintf(&b, " Change it with write_file, edit_file and bash, giving part: %q.", rp.pt.Name)

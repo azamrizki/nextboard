@@ -183,7 +183,12 @@ export function AgentsPanel({
       if (target.value === 'quick') {
         // the hidden CLI only answers from what it is given, so the files go along
         const named = mentionedFiles(t, new Set(files)).slice(0, MENTION_FILES);
-        const attached = await Promise.all(named.map(async (rel) => ({ path: rel, text: (await ws.currentText(ws.resolve(rel) ?? rel)).slice(0, MENTION_BYTES) })));
+        const attached = await Promise.all(
+          named.map(async (rel) => {
+            const k = ws.resolve(rel);
+            return { path: rel, text: k ? (await ws.currentText(k)).slice(0, MENTION_BYTES) : '' };
+          }),
+        );
         // the runner works in the context file's part, with the path inside it
         const key = ctx ? ws.resolve(ctx.rel) : null;
         const part = (key && ws.partOf(key)) || ws.activePart;

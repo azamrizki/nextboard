@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ROOT } from '../lib/parts';
 import type { BoardNode, Project } from '../lib/types';
 import { cardFor, cardForFile, cardLabel, editorData, partOfFile } from './editorCards';
+import { nodeLabel } from './kinds';
 
 const project = (parts: Project['parts']): Project => ({
   id: 'p_shop',
@@ -59,5 +60,13 @@ describe('editor cards by placement', () => {
   it('labels a card with its part, or all parts', () => {
     expect(cardLabel(two, ROOT)).toBe('Code editor · All parts');
     expect(cardLabel(two, { partId: 'pt_web' })).toBe('Code editor · frontend');
+  });
+
+  it('names a card by its placement wherever a card is listed (focus bar, phone card list)', () => {
+    expect(nodeLabel(editor('root'), two)).toBe('Code editor · All parts');
+    expect(nodeLabel(editor('admin', 'pt_admin'), two)).toBe('Code editor · admin');
+    expect(nodeLabel(editor('old', 'pt_gone'), two)).toBe('Code editor · All parts');
+    expect(nodeLabel(editor('a', 'pt_shop'), one)).toBe('Code editor');
+    expect(nodeLabel(editor('a'))).toBe('Code editor');
   });
 });

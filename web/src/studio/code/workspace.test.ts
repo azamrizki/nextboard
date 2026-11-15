@@ -29,6 +29,15 @@ class FakeModel {
   getEOL() {
     return '\n';
   }
+  // a reload replaces the whole text in one undo step
+  pushStackElement() {}
+  getFullModelRange() {
+    return null;
+  }
+  pushEditOperations(_sel: unknown, ops: { text: string }[]) {
+    this.setValue(ops[0].text);
+    return null;
+  }
   getAlternativeVersionId() {
     return this.alt;
   }
@@ -108,7 +117,15 @@ vi.mock('../api', () => ({
   },
   fsApi: {
     tree: async (m: string, p: string) => ({ path: p, entries: (trees.get(`${m}:${p}`) ?? []).map((e) => ({ ...e, size: 0, hidden: false, binary: false })), truncated: false }),
-    watch: async () => ({ watchId: 'w1' }),
+    // the first look: what the hub's stat of each path says now
+    watch: async (m: string, paths: string[]) => ({
+      watchId: 'w1',
+      stats: paths.map((p) => {
+        const f = files.get(`${m}:${p}`);
+        return { path: p, name: p.slice(p.lastIndexOf('/') + 1), dir: !f, size: f?.content.length ?? 0, mtime: f?.mtime ?? '', exists: !!f || trees.has(`${m}:${p}`) };
+      }),
+      intervalMs: 3000,
+    }),
     unwatch: async () => ({}),
     renewWatch: async () => ({}),
     write: async (_m: string, b: { path: string }) => ({ path: b.path, size: 0, mtime: 'w' }),
@@ -138,7 +155,9 @@ vi.mock('../../lib/pack', () => ({ packUpload: async () => ({}) }));
 vi.stubGlobal('window', Object.assign(globalThis, { localStorage: { removeItem: (k: string) => saved.delete(k.replace(/^nb\./, '')) } }));
 
 const { Workspace } = await import('./workspace');
+const { missedChanges } = await import('./docs');
 const { fileKey, ROOT_KEY } = await import('./paths');
+const { PartService } = await import('./partsvc');
 const { filesApi } = await import('../api');
 type Project = import('../../lib/types').Project;
 
@@ -173,15 +192,16 @@ describe('a single-part project behaves as before', () => {
     saved.set(`wb.${p.id}`, JSON.stringify({ groups: [{ tabs: [{ path: '/home/me/shop/a.ts', preview: false }], active: '/home/me/shop/a.ts' }], expanded: ['/home/me/shop'] }));
     const ws = Workspace.get(p);
     expect(ws.viewKey).toBe(p.id);
-    expect(ws.pid).toBe(p.id);
+    expect(ws.activePart.ref).toBe(`${p.id}~pt_main`);
     expect(ws.rootKey).toBe('/home/me/shop');
     expect(ws.activeTab?.path).toBe('/home/me/shop/a.ts');
     await settle();
     expect(ws.activeDoc?.model?.uri.toString()).toBe('file:///home/me/shop/a.ts');
     expect(ws.toKey('/home/me/shop/a.ts')).toBe('/home/me/shop/a.ts');
-    expect(ws.rel('/home/me/shop/a.ts')).toBe('a.ts');
-    expect(ws.rel('/home/me/shop')).toBe('/home/me/shop');
-    expect(ws.inside('/usr/lib/x')).toBe(false);
+    expect(ws.relLabel(fileKey('local', '/home/me/shop/a.ts'))).toBe('a.ts');
+    expect(ws.partRel(fileKey('local', '/home/me/shop'))?.rel).toBe('');
+    expect(ws.paths.mountOf(fileKey('local', '/usr/lib/x'))).toBeNull();
+    expect(ws.partOf(fileKey('local', '/usr/lib/x'))).toBeNull();
     expect(Workspace.get(p)).toBe(ws);
   });
 
@@ -192,9 +212,9 @@ describe('a single-part project behaves as before', () => {
     const key = fileKey('srv-a', '/srv/shop/src/x.ts');
     expect(ws.activeTab?.path).toBe(key);
     expect(ws.toKey('/srv/shop/src/x.ts')).toBe(key);
-    expect(ws.rel(key)).toBe('src/x.ts');
-    expect(ws.abs('src/x.ts')).toBe(key);
-    expect(ws.mid).toBe('srv-a');
+    expect(ws.relLabel(key)).toBe('src/x.ts');
+    expect(ws.activePart.keyOf('src/x.ts')).toBe(key);
+    expect(ws.activePart.machineId).toBe('srv-a');
     expect(ws.placeOf()).toEqual({ partId: 'pt_main', machineId: 'srv-a', cwd: '/srv/shop' });
   });
 });
@@ -261,6 +281,51 @@ describe('a project with two parts', () => {
     expect(root.partOf(key)?.ref).toBe(`${p.id}~pt_admin`);
   });
 
+  it('a card shown after another catches up with a change no watch saw (its watch is made again)', async () => {
+    const p = twoParts();
+    const key = fileKey('srv-a', '/srv/app/routes.php');
+    files.set('srv-a:/srv/app/routes.php', { content: '<?php // one', mtime: '2026-11-15T10:00:00Z' });
+    const root = Workspace.get(p);
+    const admin = Workspace.get(p, { partId: 'pt_admin' });
+    root.open(key, { pin: true });
+    admin.open(key, { pin: true });
+    await settle();
+    const watchNow = (ws: unknown) => (ws as { startWatches(): Promise<void> }).startWatches();
+    root.mount();
+    await watchNow(root);
+    await settle();
+    expect(root.docs.at(key)?.model?.getValue()).toBe('<?php // one');
+    // the Root card is left for the admin card: between its watch and the next one, a change
+    root.unmount();
+    files.set('srv-a:/srv/app/routes.php', { content: '<?php // two', mtime: '2026-11-15T10:00:05Z' });
+    admin.mount();
+    await watchNow(admin);
+    await settle();
+    expect(admin.docs.at(key)?.model?.getValue()).toBe('<?php // two');
+    expect(root.docs.at(key)?.model?.getValue()).toBe('<?php // two');
+    admin.unmount();
+  });
+
+  it('a part card holds the other part it reads a file of, and lets it go with the card', () => {
+    const p = twoParts();
+    const admin = Workspace.get(p, { partId: 'pt_admin' });
+    const ref = `${p.id}~pt_web`;
+    const web = admin.partOf('/srv/app/index.ts' as never);
+    expect(web?.ref).toBe(ref);
+    expect(admin.partOf('/srv/app/other.ts' as never)).toBe(web);
+    expect(PartService.byRef(ref)).toBe(web);
+    // the part moved: the old service is let go, the next read borrows the new one
+    const moved = { ...p, parts: p.parts!.map((x) => (x.id === 'pt_web' ? { ...x, path: '/srv/web' } : x)) };
+    Workspace.get(moved, { partId: 'pt_admin' });
+    expect(PartService.byRef(ref)).toBeNull();
+    const again = admin.partOf('/srv/web/index.ts' as never);
+    expect(again?.root).toBe('/srv/web');
+    expect(admin.release()).toBe(true);
+    expect(PartService.byRef(ref)).toBeNull();
+    // a card let go borrows nothing new
+    expect(admin.partOf('/srv/web/index.ts' as never)).toBeNull();
+  });
+
   it('searches every part, sending a part-named glob only to that part', async () => {
     const p = twoParts();
     const root = Workspace.get(p);
@@ -273,5 +338,44 @@ describe('a project with two parts', () => {
     search.mockClear();
     await root.searchParts({ query: 'x', include: 'admin/src/**' });
     expect(search.mock.calls.map((c) => [c[0], c[1].include])).toEqual([[`${p.id}~pt_admin`, 'src/**']]);
+  });
+});
+
+describe('a new watch catches up with what no watch saw', () => {
+  const st = (path: string, mtime: string, exists = true, dir = false) => ({ path, name: '', dir, size: 1, mtime, exists });
+  const doc = (mtime: string, deleted = false, status: 'ready' | 'loading' = 'ready') => ({ status, mtime, deleted });
+
+  it('names the open files whose mtime moved on, or that went', () => {
+    const held = new Map<string, ReturnType<typeof doc>>([
+      [fileKey('srv-a', '/srv/app/a.php'), doc('2026-11-15T10:00:00Z')],
+      [fileKey('srv-a', '/srv/app/b.php'), doc('2026-11-15T10:00:00Z')],
+      [fileKey('srv-a', '/srv/app/c.php'), doc('2026-11-15T10:00:00Z')],
+      [fileKey('srv-a', '/srv/app/d.php'), doc('2026-11-15T10:00:00Z', true)],
+      [fileKey('srv-a', '/srv/app/e.php'), doc('2026-11-15T10:00:00Z', false, 'loading')],
+    ]);
+    const got = missedChanges(
+      'srv-a',
+      [
+        st('/srv/app/a.php', '2026-11-15T10:00:07Z'), // changed while no watch looked
+        st('/srv/app/b.php', '2026-11-15T10:00:00Z'), // the same
+        st('/srv/app/c.php', '', false), // deleted
+        st('/srv/app/d.php', '', false), // known to be gone already
+        st('/srv/app/e.php', '2026-11-15T10:00:09Z'), // still loading: its load reads the new text
+        st('/srv/app/f.php', '2026-11-15T10:00:09Z'), // no open doc
+        st('/srv/app', '2026-11-15T10:00:09Z', true, true), // a folder
+      ],
+      (k) => held.get(k),
+    );
+    expect(got).toEqual([
+      { key: fileKey('srv-a', '/srv/app/a.php'), exists: true, mtime: '2026-11-15T10:00:07Z' },
+      { key: fileKey('srv-a', '/srv/app/c.php'), exists: false, mtime: '' },
+    ]);
+  });
+
+  it('takes a look older than the text held for one from before its own save', () => {
+    const k = fileKey('local', '/home/me/shop/a.ts');
+    expect(missedChanges('local', [st('/home/me/shop/a.ts', '2026-11-15T09:59:59Z')], (q) => (q === k ? doc('2026-11-15T10:00:00Z') : undefined))).toEqual([]);
+    // an mtime that is no time: any difference is a change
+    expect(missedChanges('local', [st('/home/me/shop/a.ts', 'm2')], (q) => (q === k ? doc('m1') : undefined))).toEqual([{ key: k, exists: true, mtime: 'm2' }]);
   });
 });

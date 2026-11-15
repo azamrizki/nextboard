@@ -7,10 +7,11 @@
 // automatic entries, ${workspaceFolder} and the adapter's machine come from that part.
 // Breakpoints and frames are FileKeys; an adapter hears only the paths on its machine.
 
-import { api, errorMessage, wsUrl } from '../../api';
+import { errorMessage, wsUrl } from '../../api';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { filesApi, type DebugAdapterInfo, type NodeProcessInfo } from '../api';
+import { readKey, statKey } from './docs';
 import { parseJsonc } from './jsonc';
 import type { PartService } from './partsvc';
 import { asFileKey, cleanAbs, fileKey, splitKey, type FileKey } from './paths';
@@ -270,10 +271,10 @@ export class Debugger {
     await this.ensureAdapters();
     const part = this.part;
     try {
-      const file = `${part.root === '/' ? '' : part.root}/.vscode/launch.json`;
-      const st = await api.fsStat(part.machineId, file);
+      const file = part.keyOf('.vscode/launch.json');
+      const st = await statKey(file);
       if (st.exists === false) return this.autoConfigs([]);
-      const r = await api.fsRead(part.machineId, file);
+      const r = await readKey(file);
       const list = (parseJsonc(r.content) as { configurations?: LaunchConfig[] }).configurations ?? [];
       for (const c of list) if (c?.name && c.type && c.request) out.push(c);
     } catch {
@@ -330,7 +331,7 @@ export class Debugger {
     const part = this.part;
     const path = part.keyOf('.vscode/launch.json');
     try {
-      const st = await api.fsStat(part.machineId, splitKey(path).abs);
+      const st = await statKey(path);
       if (st.exists === false) {
         await this.ws.run((c) => this.ws.writeNew(path, LAUNCH_TEMPLATE, c));
         this.ws.refreshTree();

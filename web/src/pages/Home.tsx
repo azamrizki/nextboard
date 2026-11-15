@@ -14,6 +14,7 @@ import { Menu, type MenuEntry } from '../components/Menu';
 import { SelectBar, SelectToggle, useSelectMode } from '../components/SelectBar';
 import { toast } from '../components/Toast';
 import { prefs } from '../lib/format';
+import { projectParts } from '../lib/parts';
 import { takeSearchParam } from '../lib/router';
 import { ArchiveDialog } from '../home/ArchiveDialog';
 import { ArchivedList } from '../home/ArchivedList';
@@ -92,6 +93,11 @@ function GroupSection({ node, collapsed, onToggle, filtering, renderProjects, on
   );
 }
 
+/** What a search matches of a project's parts: every part's folder and name. */
+const partWords = (p: Project) => projectParts(p).flatMap((pt) => [pt.path, pt.name]);
+/** The machines a project's parts are on, in part order, each once. */
+const machinesOf = (p: Project) => [...new Set(projectParts(p).map((pt) => pt.machineId || 'local'))];
+
 export function HomePage() {
   const projects = useProjects();
   const ready = useProjectsReady();
@@ -153,7 +159,7 @@ export function HomePage() {
 
   const shown = useMemo(() => {
     // useProjects already gives the most recently opened first
-    const list = projects.filter((p) => (!activeTag || hasTag(p, activeTag)) && (!needle || [p.name, p.path, groupPath(groupList, p.groupId), ...(p.tags ?? [])].some((s) => s.toLowerCase().includes(needle))));
+    const list = projects.filter((p) => (!activeTag || hasTag(p, activeTag)) && (!needle || [p.name, ...partWords(p), groupPath(groupList, p.groupId), ...(p.tags ?? [])].some((s) => s.toLowerCase().includes(needle))));
     if (sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
   }, [projects, groupList, needle, activeTag, sort]);
@@ -161,10 +167,13 @@ export function HomePage() {
   const hosts = useMemo(() => {
     const order = new Map(machines.map((m, i) => [m.id, i]));
     const map = new Map<string, Project[]>();
+    // a project of several parts is under every machine one of its parts is on
     for (const p of shown) {
-      const list = map.get(p.machineId);
-      if (list) list.push(p);
-      else map.set(p.machineId, [p]);
+      for (const id of machinesOf(p)) {
+        const list = map.get(id);
+        if (list) list.push(p);
+        else map.set(id, [p]);
+      }
     }
     return [...map.entries()].sort((a, b) => (order.get(a[0]) ?? 99) - (order.get(b[0]) ?? 99));
   }, [shown, machines]);
@@ -175,7 +184,7 @@ export function HomePage() {
   }, [groupList, shown, filtering]);
 
   const archivedShown = useMemo(
-    () => archived.filter((p) => !needle || [p.name, p.path, groupPath(groupList, p.groupId), ...(p.tags ?? [])].some((s) => s.toLowerCase().includes(needle))),
+    () => archived.filter((p) => !needle || [p.name, ...partWords(p), groupPath(groupList, p.groupId), ...(p.tags ?? [])].some((s) => s.toLowerCase().includes(needle))),
     [archived, groupList, needle],
   );
   // every group with its count over all active projects; a filter matches the name or the path
@@ -196,7 +205,7 @@ export function HomePage() {
       return { order: ids, present: ids };
     }
     const all = shown.map((p) => p.id);
-    if (by === 'host') return { order: hosts.flatMap(([, list]) => list.map((p) => p.id)), present: all };
+    if (by === 'host') return { order: [...new Set(hosts.flatMap(([, list]) => list.map((p) => p.id)))], present: all };
     const walk = (n: GroupNode): string[] => (filtering || !collapsed.has(n.group.id) ? [...n.projects.map((p) => p.id), ...n.children.flatMap(walk)] : []);
     return { order: [...tree.roots.flatMap(walk), ...tree.loose.map((p) => p.id)], present: all };
   }, [tab, archivedShown, groupRows, shown, by, hosts, tree, filtering, collapsed]);
@@ -214,7 +223,7 @@ export function HomePage() {
 
   const mostRecent = projects[0]?.id;
   const activeConsoles = useRunningSessions().filter(isActive).length;
-  const machineCount = new Set(projects.map((p) => p.machineId)).size;
+  const machineCount = new Set(projects.flatMap(machinesOf)).size;
 
   const changeView = (v: HomeView) => {
     prefs.set('home.view', v);
@@ -319,10 +328,14 @@ export function HomePage() {
 
   const machineIcon = (id: string): IconName => (machines.find((m) => m.id === id)?.kind === 'ssh' ? 'server' : 'monitor');
 
-  /** Cards or rows. Each view names on the card what its headings do not say. */
-  const renderProjects = (list: Project[]) => {
+  /**
+   * Cards or rows. Each view names on the card what its headings do not say. Under a machine's
+   * heading (By machine) a project of several parts shows under each of its machines: that
+   * machine's state, and the remove asked by key opens on its first card only.
+   */
+  const renderProjects = (list: Project[], machineId?: string) => {
     const items = list.map((p) => {
-      const m = machines.find((x) => x.id === p.machineId);
+      const m = machines.find((x) => x.id === (machineId ?? p.machineId));
       const st = m ? machineStatus(m) : null;
       const path = by === 'host' ? groupPath(groupList, p.groupId) : '';
       return (
@@ -336,7 +349,7 @@ export function HomePage() {
           place={by === 'group' ? { icon: machineIcon(p.machineId), label: m?.name ?? p.machineId, title: `On ${m?.name ?? p.machineId}` } : path ? { icon: 'layers', label: path.split(' / ').pop() ?? path, title: `In ${path}` } : undefined}
           activeTag={activeTag}
           onTag={(t) => setTag(t.toLowerCase() === activeTag.toLowerCase() ? '' : t)}
-          removeRequested={removeId === p.id}
+          removeRequested={removeId === p.id && (!machineId || machinesOf(p)[0] === machineId)}
           onRemoveHandled={() => setRemoveId(null)}
           select={select}
         />
@@ -557,7 +570,7 @@ export function HomePage() {
                     )}
                     <span className="home-group-count">{plural(list.length, 'project')}</span>
                   </h2>
-                  {renderProjects(list)}
+                  {renderProjects(list, machineId)}
                 </section>
               );
             })}
