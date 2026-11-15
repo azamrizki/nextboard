@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { expect, test } from './hub';
 
 // The board's Git panel for a project in several parts (ROADMAP #49, docs/API-studio.md §3.8):
-// every part's repository at once, each opened on its own, with the editor's history graph.
+// every part's repository at once, each opened on its own, with the editor's history graph; the
+// git pill adds the parts up, and a commit opens in the editor card of its part (v0.9.0-beta.2).
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' } }).trim();
 
@@ -39,6 +40,10 @@ test('the Git panel shows every part at once, commits in one, and draws its hist
   await hub.call('POST', `/api/projects/${p.id}/parts`, { name: 'Web', machineId: 'local', path: web });
 
   await page.goto(`/p/${p.id}/w/${p.wid}`);
+  // the pill adds every part up: no part's repository is the project's
+  const pill = page.locator('.git-pill');
+  await expect(pill).toHaveAccessibleName(/^2 repositories in 2 parts, branch main, 2 changed files, 1 to push\. Open the Git panel/, { timeout: 20_000 });
+  await expect(pill).toContainText('main');
   await page.getByRole('button', { name: /^Git \(/ }).click();
   const panel = page.getByRole('complementary', { name: 'Git' });
   const api = panel.getByRole('region', { name: 'Part Api' });
@@ -69,6 +74,7 @@ test('the Git panel shows every part at once, commits in one, and draws its hist
   expect(git(p.path, 'log', '--format=%s')).toBe('api base');
   expect(git(p.path, 'status', '--porcelain')).toContain('server.go');
   await expect(apiHead).toHaveAccessibleName(/Branch main, 1 changed file$/);
+  await expect(pill).toHaveAccessibleName(/^2 repositories in 2 parts, branch main, 1 changed file, 2 to push\./, { timeout: 20_000 });
 
   // the history graph of that part: its three commits, the one on the remote marked
   await front.getByRole('button', { name: 'History', exact: true }).click();
@@ -84,8 +90,12 @@ test('the Git panel shows every part at once, commits in one, and draws its hist
   await expect(peek.getByRole('list', { name: /^Files of / })).toContainText('style.css');
   await expect(peek).toContainText('+1');
   await peek.getByRole('button', { name: 'Open in editor' }).click();
-  await expect(page.locator('.wb-tab', { hasText: 'web style' })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('combobox', { name: 'Part of the project' })).toHaveValue(/pt_/);
+  // in the editor card of that part: the board had none, so one is added there
+  const card = page.getByRole('group', { name: 'Code editor · Web' });
+  await expect(card.locator('.wb-tab', { hasText: 'web style' })).toBeVisible({ timeout: 30_000 });
+  const webPart = (await hub.call('GET', '/api/projects')).find((x: any) => x.id === p.id).parts[1];
+  const editors = (await hub.call('GET', `/api/workspaces/${p.wid}/board`)).nodes.filter((n: any) => n.kind === 'editor');
+  expect(editors.map((n: any) => n.data.part)).toEqual([webPart.id]);
 
   // the panel remembers which parts were open, and one Escape closes it
   await page.reload();

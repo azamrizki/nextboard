@@ -359,7 +359,9 @@ test.describe('on servers over SSH', () => {
 
     await page.goto('/');
     await page.getByRole('radio', { name: 'Host', exact: true }).click();
-    const c = card(page, p.id);
+    // by host, a project of several parts is under every machine one of its parts is on
+    await expect(card(page, p.id)).toHaveCount(3);
+    const c = card(page, p.id).first();
     await expect(c.locator('.partsline-sum')).toHaveText('3 parts · 3 machines');
     // no one folder stands for the project, and the git row adds the parts up
     await expect(c.locator('.project-path')).toHaveCount(0);

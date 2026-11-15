@@ -16,7 +16,8 @@ test('source control asks git for its lists only in a repository', async ({ page
   const failed: string[] = [];
   page.on('response', (r) => {
     const u = new URL(r.url());
-    if (!u.pathname.startsWith(`/api/projects/${p.id}/`)) return;
+    // the part's ref, "<project>~<part>", as every workbench call names it (v0.9.0-beta.2)
+    if (!new RegExp(`^/api/projects/${p.id}(~[^/]+)?/`).test(u.pathname)) return;
     if (/\/git\/(stash|log|pulls?)$/.test(u.pathname)) lists.push(`${r.status()} ${u.pathname}`);
     if (r.status() >= 400) failed.push(`${r.status()} ${r.request().method()} ${u.pathname}`);
   });

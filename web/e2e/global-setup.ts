@@ -10,6 +10,7 @@ const FAKE_AGENT = fileURLToPath(new URL('./fake-agent.sh', import.meta.url));
 const FAKE_WORKER = fileURLToPath(new URL('./fake-worker.sh', import.meta.url));
 const FAKE_CLAUDE = fileURLToPath(new URL('./fake-claude.sh', import.meta.url));
 const FAKE_CODEX = fileURLToPath(new URL('./fake-codex.sh', import.meta.url));
+const FAKE_LISTER = fileURLToPath(new URL('./fake-lister.sh', import.meta.url));
 
 /**
  * A folder for the front of the hub's PATH holding the fake Codex: the hub finds `codex` there
@@ -88,6 +89,9 @@ export default async function globalSetup() {
     // like Claude Code: the hub gives it its conversation id, so it can sleep and resume (ROADMAP #50)
     const claude = await ctx.post('/api/agents', { data: { id: 'fakeclaude', name: 'Fake Claude', command: FAKE_CLAUDE, base: 'claude' } });
     if (!claude.ok()) throw new Error(`fake claude: ${claude.status()}`);
+    // writes down what it finds in its folder: what a console at the project root sees (v0.9.0-beta.2)
+    const lister = await ctx.post('/api/agents', { data: { id: 'fakelister', name: 'Fake Lister', command: FAKE_LISTER, base: 'codex' } });
+    if (!lister.ok()) throw new Error(`fake lister: ${lister.status()}`);
     writeFileSync(STATE_FILE, JSON.stringify(await ctx.storageState()));
     await ctx.dispose();
   } catch (err) {

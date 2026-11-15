@@ -182,10 +182,14 @@ test('the memory page opens at once: its code is fetched before, its data alongs
   await hub.memory(p.id, '- the project fact\n');
   const galaxyCalls: string[] = [];
   page.on('request', (r) => r.url().includes('/api/memory/galaxy') && galaxyCalls.push(r.url()));
+  // seen as requests, not in performance's resource entries: Home asks each part of every project
+  // for its git, and on a hub of many projects that fills the browser's buffer of 250 entries first
+  const chunks: string[] = [];
+  page.on('request', (r) => /\/MemoryPage-[^/]*\.js$/.test(new URL(r.url()).pathname) && chunks.push(r.url()));
   await page.goto('/');
   await expect(page.locator('.app-nav')).toBeVisible();
   // fetched while the app was idle, not with the first page
-  await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').some((e) => /\/MemoryPage-[^/]*\.js$/.test(e.name))), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => chunks.length, { timeout: 15_000 }).toBeGreaterThan(0);
   // the page that only says "Loading…" is never shown
   await page.evaluate(() => {
     const w = window as unknown as { sawLoading: boolean };

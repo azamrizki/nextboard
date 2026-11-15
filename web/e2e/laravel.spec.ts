@@ -39,7 +39,8 @@ test('a Laravel project gets its view and an editor that knows its names', async
   await hub.ops(p.wid, [{ op: 'put', node: { id: 'n_laravel001', kind: 'editor', x: 0, y: 0, w: 1300, h: 800, data: {} } }]);
   const answers: string[] = [];
   page.on('response', async (r) => {
-    if (new URL(r.url()).pathname.startsWith(`/api/projects/${p.id}/laravel`)) answers.push(await r.text().catch(() => ''));
+    // the part's ref, "<project>~<part>", as every workbench call names it (v0.9.0-beta.2)
+    if (new RegExp(`^/api/projects/${p.id}(~|%7E)[^/]+/laravel`).test(new URL(r.url()).pathname)) answers.push(await r.text().catch(() => ''));
   });
 
   await page.goto(`/p/${p.id}/w/${p.wid}?card=n_laravel001`);

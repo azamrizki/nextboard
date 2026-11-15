@@ -1,14 +1,19 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from './hub';
 
-// A project in several folders, on one machine or more (docs/API-board.md §1, ROADMAP #49).
+// A project in several folders, on one machine or more (docs/API-board.md §1, ROADMAP #49). All
+// parts are equal (v0.9.0-beta.2): none is "Main", and any one is renamed, moved or removed while
+// one is left. The editor, consoles and layouts by part: root-*.spec.ts and place.spec.ts.
 
-test('a project gets a part, shows it, and a terminal opens there', async ({ page, hub }) => {
+test('parts are equal: any one is renamed, moved first or removed, while one is left', async ({ page, hub }) => {
   const p = await hub.project('Shop');
   const other = await hub.project('Blog');
   const web = `${p.path}-web`;
   mkdirSync(web);
+  // the first part is named after its folder, as any part: none is "Main"
+  const folder = p.path.split('/').pop()!;
+  const parts = async () => (await hub.call('GET', '/api/projects')).find((x: any) => x.id === p.id);
 
   await page.goto('/');
   await page.getByRole('button', { name: `Actions for ${p.name}` }).click();
@@ -16,6 +21,12 @@ test('a project gets a part, shows it, and a terminal opens there', async ({ pag
   const dialog = page.getByRole('dialog', { name: `Parts of ${p.name}` });
   const list = dialog.getByRole('list', { name: `Parts of ${p.name}` });
   await expect(list.getByRole('listitem')).toHaveCount(1);
+  await expect(list.getByLabel(`Name of part ${folder}`)).toHaveValue(folder);
+  await expect(dialog).not.toContainText('Main');
+  await expect(dialog).not.toContainText('The project’s own folder');
+  // a project keeps at least one part
+  await expect(list.getByRole('button', { name: `Remove part ${folder}` })).toBeDisabled();
+  await expect(list.getByRole('button', { name: `Remove part ${folder}` })).toHaveAttribute('title', 'A project keeps at least one part: add another first');
 
   // another project's folder is refused, and says which project has it
   const add = dialog.getByRole('form', { name: 'Add a part' });
@@ -30,25 +41,50 @@ test('a project gets a part, shows it, and a terminal opens there', async ({ pag
   await expect(list.getByRole('listitem')).toHaveCount(2);
   await expect(add.getByLabel('Part name')).toHaveValue('');
 
-  // the first part gets a name of its role; the other becomes read-only for agents
-  await list.getByLabel('Name of part Main').fill('Backend');
-  await list.getByLabel('Name of part Main').press('Enter');
+  // a part's name is its folder in the project root: said before the hub is asked
+  const first = list.getByLabel(`Name of part ${folder}`);
+  await first.fill('api/v2');
+  await first.press('Enter');
+  await expect(list.getByText('A part’s name is a folder name in the project root: no / or \\.')).toBeVisible();
+  expect((await parts()).parts[0].name).toBe(folder);
+  await first.fill('Backend');
+  await first.press('Enter');
   await expect(list.getByLabel('Name of part Backend')).toBeVisible();
+  await expect.poll(async () => (await parts()).parts.map((pt: any) => pt.name)).toEqual(['Backend', 'Frontend']);
+
+  // the other becomes read-only for agents
   await list.getByRole('listitem').nth(1).getByLabel('Read-only').check();
-  await expect.poll(async () => (await hub.call('GET', '/api/projects')).find((x: any) => x.id === p.id).parts[1].readOnly).toBe(true);
-  await expect(list.getByRole('button', { name: 'Remove part Backend' })).toBeDisabled();
+  await expect.poll(async () => (await parts()).parts[1].readOnly).toBe(true);
+  await expect(list.getByRole('button', { name: 'Remove part Backend' })).toBeEnabled();
   // only parts on other machines are read only for agents, unless the project gives full access
   await dialog.getByLabel('Agents in parts on other machines').selectOption('full');
-  await expect.poll(async () => (await hub.call('GET', '/api/projects')).find((x: any) => x.id === p.id).partAccess).toBe('full');
+  await expect.poll(async () => (await parts()).partAccess).toBe('full');
+
+  // any part moves first: the order is only how parts are shown, and older clients see the first
+  await expect(list.getByRole('button', { name: 'Move Backend up' })).toBeDisabled();
+  await list.getByRole('button', { name: 'Move Frontend up' }).click();
+  await expect.poll(async () => (await parts()).parts.map((pt: any) => pt.name)).toEqual(['Frontend', 'Backend']);
+  await expect(list.getByRole('listitem').nth(0).locator('.part-name')).toHaveValue('Frontend');
+  await expect(list.getByRole('listitem').nth(1).locator('.part-name')).toHaveValue('Backend');
+  expect((await parts()).path).toBe(web);
   await dialog.getByRole('button', { name: 'Done' }).click();
 
-  // the card shows each part with its machine
-  const chips = page.getByRole('list', { name: `Parts of ${p.name}` });
-  await expect(chips.getByRole('listitem')).toHaveText(['BackendThis PC', 'FrontendThis PC']);
+  // the card names each part, in that order, and lists them with their machines
+  const card = page.locator('.project-card').filter({ hasText: p.name });
+  const line = card.locator('.project-partsline');
+  await expect(line).toHaveAccessibleName(/: Frontend, Backend\. Show the parts$/);
+  await line.click();
+  const rows = page.locator('.parts-pop .parts-pop-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('Frontend');
+  await expect(rows.nth(0)).toContainText('This PC');
+  await expect(rows.nth(1)).toContainText('Backend');
+  await page.keyboard.press('Escape');
+  await expect(rows).toHaveCount(0);
 
   // a terminal in the part opens in its folder
   const t = await hub.call('POST', '/api/sessions', { preset: 'shell', workspaceId: p.wid, cwd: `${web}` });
-  expect(t.partId).toBe((await hub.call('GET', '/api/projects')).find((x: any) => x.id === p.id).parts[1].id);
+  expect(t.partId).toBe((await parts()).parts[0].id);
   await hub.call('DELETE', `/api/sessions/${t.id}`);
 
   // the project menu says it spans more than one folder
@@ -57,14 +93,18 @@ test('a project gets a part, shows it, and a terminal opens there', async ({ pag
   await expect(page.getByRole('menu', { name: 'Switch project' }).getByRole('menuitemcheckbox', { name: new RegExp(`^${p.name}`) })).toContainText('This PC +1');
   await page.keyboard.press('Escape');
 
-  // a part goes; its folder stays
+  // the part shown first goes; the other stays, and so does its folder
   await page.goto('/');
   await page.getByRole('button', { name: `Actions for ${p.name}` }).click();
   await page.getByRole('menuitem', { name: 'Parts…' }).click();
   await dialog.getByRole('button', { name: 'Remove part Frontend' }).click();
   await expect(list.getByRole('listitem')).toHaveCount(1);
+  await expect.poll(async () => (await parts()).parts.map((pt: any) => pt.name)).toEqual(['Backend']);
+  expect((await parts()).path).toBe(p.path);
+  expect(existsSync(web)).toBe(true);
+  await expect(list.getByRole('button', { name: 'Remove part Backend' })).toBeDisabled();
   await dialog.getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByRole('list', { name: `Parts of ${p.name}` })).toHaveCount(0);
+  await expect(card.locator('.project-partsline')).toHaveCount(0);
 });
 
 test('a project is added in several parts at once, and a wrong folder makes nothing', async ({ page, hub }) => {
@@ -88,6 +128,8 @@ test('a project is added in several parts at once, and a wrong folder makes noth
   await dialog.getByRole('button', { name: 'Add a part' }).click();
   await expect(two.getByLabel('Part name')).toBeFocused();
   await expect(one.getByLabel('Folder')).toHaveValue(api);
+  // a new part starts on a machine the others are not on: servers other tests left are no matter
+  await two.getByLabel('Machine').selectOption('local');
   await one.getByLabel('Part name').fill('Api');
   await dialog.getByLabel('Project name').fill(name);
 
@@ -117,28 +159,6 @@ test('a project is added in several parts at once, and a wrong folder makes noth
     ['Api', api],
     ['Web', web],
   ]);
-});
-
-test('the editor shows one part at a time', async ({ page, hub }) => {
-  test.slow();
-  const p = await hub.project('Shop');
-  const web = `${p.path}-web`;
-  mkdirSync(web);
-  writeFileSync(`${p.path}/server.go`, 'package main\n');
-  writeFileSync(`${web}/index.html`, '<p>shop</p>\n');
-  await hub.call('POST', `/api/projects/${p.id}/parts`, { name: 'Frontend', machineId: 'local', path: web });
-  await hub.ops(p.wid, [{ op: 'put', node: { id: 'n_partsed01', kind: 'editor', x: 0, y: 0, w: 1300, h: 800, data: {} } }]);
-  await page.goto(`/p/${p.id}/w/${p.wid}?card=n_partsed01`);
-  const side = page.locator('.wb-side');
-  await expect(side.getByRole('treeitem', { name: 'server.go' })).toBeVisible({ timeout: 15_000 });
-  const pick = page.getByRole('combobox', { name: 'Part of the project' });
-  await pick.selectOption({ label: 'Frontend' });
-  await expect(side.getByRole('treeitem', { name: 'index.html' })).toBeVisible({ timeout: 15_000 });
-  await expect(side.getByRole('treeitem', { name: 'server.go' })).toHaveCount(0);
-  // remembered in this browser
-  await page.reload();
-  await expect(page.getByRole('combobox', { name: 'Part of the project' })).toHaveValue(/pt_/);
-  await expect(page.locator('.wb-side').getByRole('treeitem', { name: 'index.html' })).toBeVisible({ timeout: 15_000 });
 });
 
 test('a project merges into another, its old link opens there, and a part splits off', async ({ page, hub }) => {
