@@ -68,14 +68,14 @@ curl -fsSL https://raw.githubusercontent.com/<user>/nextboard/main/install.sh | 
 1. Detects the OS and architecture (linux/darwin, amd64/arm64).
 2. Downloads the binary from GitHub Releases and verifies its SHA-256 checksum.
 3. Installs the binary to `~/.local/bin/nextboard`, or to `/usr/local/bin` with `--system`.
-4. Runs `nextboard install`.
+4. Runs `nextboard install` (`--instance=<name>` is passed on as `nextboard install --instance <name>`). Instances already running on the binary it replaced are restarted, as `nextboard update` does.
 
 ### `nextboard install`
 
-- Creates `~/.nextboard/` (mode 0700) with its default files.
+- Creates `~/.nextboard/` (mode 0700) with its default files; with `--instance <name>`, `~/.nextboard-<name>/` with `instance`, a new `hubId` and the instance's own block of ports in `config.json`.
 - Registers the service:
-  - **Linux:** a systemd **user** service (`~/.config/systemd/user/nextboard.service`) plus `loginctl enable-linger $USER`, so that it keeps running after logout and reboot.
-  - **macOS:** a LaunchAgent (`~/Library/LaunchAgents/id.nextboard.plist`).
+  - **Linux:** a systemd **user** service (`~/.config/systemd/user/nextboard.service`, or `nextboard-<name>.service`) plus `loginctl enable-linger $USER`, so that it keeps running after logout and reboot.
+  - **macOS:** a LaunchAgent (`~/Library/LaunchAgents/id.nextboard.plist`, or `id.nextboard.<name>.plist`).
 - The service runs as **your own user**. This is deliberate, because agents run with that user's rights and use the SSH keys in `~/.ssh`. Agent logins and state are in `<data>/agents/<agent>` (decision 10); `~/.claude` is not touched.
 - Starts the service, then prints:
   ```
@@ -89,19 +89,26 @@ curl -fsSL https://raw.githubusercontent.com/<user>/nextboard/main/install.sh | 
 | Command | Purpose |
 |---|---|
 | `nextboard serve` | Runs in the foreground (used by the service, also for dev) |
-| `nextboard install` / `uninstall` | Installs or removes the service (data is kept unless `--purge` is given) |
-| `nextboard status` | Service status, address, and the number of sessions, machines and devices |
+| `nextboard install` / `uninstall` | Installs or removes the service (data is kept unless `--purge` is given; `--purge` refuses while the hub runs) |
+| `nextboard status` | Service status, address, and the number of sessions, machines and devices; `--all` for every instance |
+| `nextboard instances` | Lists every instance on the machine with its state, address, data folder and service |
 | `nextboard logs [-f]` | Shows the service logs |
 | `nextboard setup-link` | Creates a new setup link (if the old link expired before setup) |
 | `nextboard reset-password` | Resets the admin password from the server's terminal |
 | `nextboard pair` | Prints a QR + pairing code in the terminal (an alternative to the Web UI) |
-| `nextboard update [--version tag]` | Downloads the latest stable release (or the tag named, e.g. a beta) and restarts the service; never downgrades without `--force` |
+| `nextboard update [--version tag]` | Downloads the latest stable release (or the tag named, e.g. a beta) and restarts every instance's service that runs the binary; never downgrades without `--force` |
+
+Every command takes `--instance <name>` as well as `--data-dir`.
 
 ### First setup (wizard in the Web UI)
 
 1. The setup link carries a single-use code, so others on the same network cannot "claim" the hub before you do.
-2. The wizard asks you to create the admin password, name the hub (for example `devbox`), then check the agent CLIs detected on This PC.
-3. Done, and the empty board shows right away.
+2. The wizard shows which instance is being claimed (its name only, until the admin has logged in), asks you to create the admin password and name the hub (for example `devbox`, or `devbox · work` for an instance), then, for a named instance or when other instances exist, how this instance's agents sign in (separate NextBoard logins, your own CLI logins, or an API provider), offers to copy from another instance on this machine with that instance's admin password, and shows the agent CLIs detected on This PC.
+3. For those, a summary names the instance, data folder, config file, service, port and addresses, and says that instances of one OS user are not a confidentiality boundary. Then the empty board shows.
+
+### Several instances
+
+One OS user can run several hubs on one machine. Each **instance** has a name (`^[a-z][a-z0-9-]{0,23}$`; `default` is `~/.nextboard`), a data folder `~/.nextboard-<name>`, a block of 100 ports (`12312 + 100·k` for the hub, `12320 + 100·k` to `12339 + 100·k` for previews), a service `nextboard-<name>` (`id.nextboard.<name>`), a cookie `nb_session[_http]_<name>` and an admin of its own. The `default` instance keeps every name it had before instances existed. A hub holds `<data>/hub.lock` while it runs. A new instance comes from `nextboard install --instance <name>` or from **New instance…** in an existing instance's About this hub ([API.md Instances](API.md#instances)). Instances keep data and accounts apart; they are not a confidentiality boundary, since every instance runs as the same OS user.
 
 ## 5. Network and HTTPS
 
@@ -248,8 +255,10 @@ type Proc interface {
 
 ### Data layout (`~/.nextboard/`, mode 0700)
 
+`~/.nextboard-<name>/` for a named instance. `config.json` holds `instance` and `hubId`; `hub.lock` is held while a hub runs on the folder.
+
 ```
-config.json  auth.json  secret.key  devices.json  machines.json
+config.json  hub.lock  auth.json  secret.key  devices.json  machines.json
 creds/<id>.enc  known_hosts  presets.json  sessions.json  board.json  scrollback/<id>.log
 ```
 

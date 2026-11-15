@@ -55,12 +55,12 @@ The script checks the release's SHA-256, puts `nextboard` in `~/.local/bin`, set
 | Default | Value |
 |---|---|
 | Hub address | `http://127.0.0.1:12312` (plain HTTP, loopback only) |
-| Data folder | `~/.nextboard`, or `$NEXTBOARD_HOME` |
+| Data folder | `~/.nextboard`, or `$NEXTBOARD_HOME`; `~/.nextboard-<name>` for another [instance](#several-instances-on-one-machine) |
 | Other devices | Through HTTPS in nginx or a private network such as Tailscale; see [Security](#security) |
 
 ### Update
 
-`nextboard update` installs the latest stable release and restarts the service. The web does the same: the label at the end of the header (`v0.9.0 · 3f2a1c9`, the build that runs; on a phone, **… › About this hub**) opens About this hub, with the version, the commit, the build time and, when a newer release is out, an **Update to vX.Y.Z** button for the admin. It downloads the release, checks its SHA-256, replaces the binary (the old one stays as `nextboard.old`) and restarts the hub. Consoles reconnect, agents come back asleep or resume, and data and logins stay. A beta follows the newest beta, or the stable release after it; a dev build updates with `git pull`. The button needs a hub run by the service that `nextboard install` sets up. To go back, `nextboard update --version <tag> --force`.
+`nextboard update` installs the latest stable release and restarts the service. The web does the same: the label at the end of the header (`v0.9.0 · 3f2a1c9`, the build that runs; on a phone, **… › About this hub**) opens About this hub, with the version, the commit, the build time and, when a newer release is out, an **Update to vX.Y.Z** button for the admin. It downloads the release, checks its SHA-256, replaces the binary (the old one stays as `nextboard.old`) and restarts the hub. Consoles reconnect, agents come back asleep or resume, and data and logins stay. A beta follows the newest beta, or the stable release after it; a dev build updates with `git pull`. The button needs a hub run by the service that `nextboard install` sets up. With [several instances](#several-instances-on-one-machine), both ways restart every instance that runs the binary and name them first. To go back, `nextboard update --version <tag> --force`.
 
 > [!TIP]
 > No subscription? Claude Code, Codex and OpenCode consoles can run on an Anthropic- or OpenAI-compatible API with a key of your own. See [API providers](#api-providers).
@@ -109,6 +109,60 @@ Do not use `go install`. It builds a hub without the web UI, because the built b
 | `ffmpeg` with VA-API, PipeWire | Hardware video and sound in desktop tiles |
 
 </details>
+
+### Several instances on one machine
+
+One machine can run separate hubs, for example **work** and **personal**. Each instance has its own data folder, port, service, admin password, agent logins, projects and consoles, and they do not log each other out. One installed binary runs them all.
+
+**Install a second instance** from a terminal:
+
+```bash
+nextboard install --instance work
+# or, with the install script
+curl -fsSL https://raw.githubusercontent.com/azamrizki/nextboard/main/install.sh | sh -s -- --instance=work
+```
+
+It creates `~/.nextboard-work`, picks the next free block of ports, starts the `nextboard-work` service and prints that instance's setup link. From the web, the admin of an existing instance opens **About this hub › New instance…**, picks a name, a hub name, the address and the port, confirms with the admin password, and gets the new instance's setup link. An instance made from the web listens on the same address as the one that made it, so it is reached the same way (over Tailscale, say); choose **This machine only** for loopback.
+
+| | Default instance | Instance `<name>` |
+|---|---|---|
+| Data and config | `~/.nextboard`, `~/.nextboard/config.json` | `~/.nextboard-<name>`, `~/.nextboard-<name>/config.json` |
+| Hub address | `127.0.0.1:12312` | `127.0.0.1:12412` for the first, `12512` for the second, … |
+| Preview ports | `12320–12339` | in the same block: `12420–12439`, … |
+| Service | `nextboard` (macOS: `id.nextboard`) | `nextboard-<name>` (macOS: `id.nextboard.<name>`) |
+| Logs | `journalctl --user -u nextboard` | `journalctl --user -u nextboard-<name>` |
+| Browser cookie | `nb_session_http`, `nb_session` | `nb_session_http_<name>`, `nb_session_<name>` |
+
+**Ports.** Each instance gets a block of 100 ports: the hub on `12312 + 100·k`, its previews from `12320 + 100·k`. A block that is busy, or claimed by another instance, is skipped. `--listen` picks the address yourself; `install` refuses a port or a `--status-listen` address that another instance uses. Names are lowercase letters, digits and `-`, up to 24 characters; `default` means `~/.nextboard`.
+
+**The wizard.** Every new instance starts with the setup wizard:
+1. **Claim it**: the setup code, the hub name (`<hostname> · <name>` to start with) and the admin password. The instance's name is fixed by then.
+2. **How its agents sign in**: separate NextBoard logins for this instance (the default, kept in its data folder), your own CLI logins (`~/.claude`, `~/.codex`, shared with your terminal and every instance that makes the same choice), or an API provider kept in this instance.
+3. **Copy from another instance** on this machine, with that instance's admin password: settings, custom agents and layouts, and MCP servers are ticked; SSH machines, API providers, every secret (MCP values, SSH keys and passwords, API keys) and the vault only when you tick them. The admin login, the master key, paired devices, projects, boards, consoles and memory are never copied.
+4. **Agent CLIs found** on This PC.
+5. **Summary**: the instance, its data folder, config file, service, port and addresses.
+
+The default instance on a machine without other instances keeps the short first run: steps 1 and 4.
+
+About this hub shows the same rows at any time, with the other instances on This PC (to the admin) and a link to each.
+
+**Commands.** Every command takes `--instance <name>`, for example `nextboard status --instance work`, `nextboard logs --instance work -f` or `nextboard setup-link --instance work`. `nextboard instances` (`--json`) lists them all, with state, address, version, data folder and service, and warns about two with the same name or overlapping ports; `nextboard status --all` shows each one's status. Typed in a console of an instance, `nextboard …` acts on that instance.
+
+**Update.** `nextboard update`, or **Update** in About this hub, replaces the one binary and restarts every instance that runs it, after naming them. `nextboard update --instance work` restarts only that one and names the others still on the old build; About this hub of an instance that still runs it says *Updated on disk since this hub started*.
+
+**Remove one.** `nextboard uninstall --instance work` stops and removes only that service; its data folder stays. Add `--purge` to delete `~/.nextboard-work` too; it refuses while that hub still runs. The other instances are not touched.
+
+> [!IMPORTANT]
+> **Instances keep data and accounts apart, not secrets.** Every instance of one OS user runs as that user, so an agent in *personal* can read `~/.nextboard-work`, its master key included, and both use your `~/.ssh`, git and `gh` credentials. For real secrecy, run the instance as an OS user of its own, with its own agent CLIs and logins (Linux):
+>
+> ```bash
+> sudo useradd --create-home --shell /bin/bash nb-work
+> sudo loginctl enable-linger nb-work
+> sudo -iu nb-work env XDG_RUNTIME_DIR=/run/user/$(id -u nb-work) \
+>   sh -c 'curl -fsSL https://raw.githubusercontent.com/azamrizki/nextboard/main/install.sh | sh -s -- --instance=work'
+> ```
+>
+> Give it a name other than `default`: browsers keep cookies per host, not per port or user, so two `default` instances on one host log each other out.
 
 ## Features
 
@@ -317,11 +371,12 @@ Agents of your two most recent projects stay awake, as does a console set to **K
 <details>
 <summary><b>Data layout</b></summary>
 
-Everything lives in one folder (mode 0700). Files are 0600, written atomically, in plain JSON with no database.
+Everything lives in one folder (mode 0700), `~/.nextboard-<name>` for [another instance](#several-instances-on-one-machine). Files are 0600, written atomically, in plain JSON with no database.
 
 ```
 ~/.nextboard/
-  config.json  settings.json         listen address, hub settings
+  config.json  settings.json         instance name, hub id, listen address; hub settings
+  hub.lock                           held while a hub runs on this folder, so only one does
   auth.json  secret.key              admin login, the hub's master key
   machines.json  known_hosts  creds/ SSH machines, accepted host keys, sealed credentials
   projects.json  sessions.json       projects with their parts, consoles
@@ -368,7 +423,7 @@ Once a month's budget is spent, new consoles, restarts and hidden runs on that p
 
 - **Network.** The hub speaks plain HTTP and binds to `127.0.0.1` by default. For remote access, put it behind HTTPS with nginx ([`deploy/nginx.conf.example`](deploy/nginx.conf.example)) or use a private network such as Tailscale. `tailscale serve` only forwards the main port, so web tiles do not work through it.
 - **Development.** `make dev` binds to `0.0.0.0` by default. On an untrusted network, use `make dev LISTEN=127.0.0.1:12312`.
-- **Agent access.** Agents run as your user and can read everything that user can, including NextBoard's data folder. Critical notes, blocked commands and read-only parts are not an OS security boundary: a CLI's own local tools may reach other folders on the same machine. Read the [agent access rules](docs/API-agents.md#211-project-parts-roadmap-49) before you rely on them.
+- **Agent access.** Agents run as your user and can read everything that user can, including NextBoard's data folder and the data folders of your [other instances](#several-instances-on-one-machine). Critical notes, blocked commands and read-only parts are not an OS security boundary: a CLI's own local tools may reach other folders on the same machine. Read the [agent access rules](docs/API-agents.md#211-project-parts-roadmap-49) before you rely on them.
 - **Project sandbox.** Memory › Critical notes › Sandbox restricts local Codex and Claude Code commands to the working folder, temporary folders and package caches, with or without network. Claude Code needs bubblewrap and, on some Ubuntu systems, an AppArmor step. Other CLIs and SSH work are not covered; see [sandbox limits](docs/API-agents.md#27-agent-sandbox-2026-11-11).
 - **Credentials vault.** Encryption happens in the browser and the hub stores only ciphertext. If you forget the master password, the contents are gone. Letting agents use a credential guards against accidents, not against an agent set on stealing it. See [what it does not protect against](docs/API-vault.md#what-it-does-not-protect-against).
 - **API keys.** Provider keys are sealed with the hub's master key and reach only the agent process that uses them, never a browser, a command line or a log. Commands run by Codex, or by Claude Code with `bubblewrap` installed, do not get the key; OpenCode's commands do. An agent set on finding it can still read it from its own process.
@@ -378,7 +433,7 @@ Please report security problems through a [private security advisory](https://gi
 
 ## CLI
 
-`nextboard help` lists the commands. Every command accepts `--data-dir` (default `~/.nextboard`, or `$NEXTBOARD_HOME`).
+`nextboard help` lists the commands. Every command accepts `--instance <name>` (its data folder is `~/.nextboard-<name>`) and `--data-dir` (default `~/.nextboard`, or `$NEXTBOARD_HOME`). See [Several instances on one machine](#several-instances-on-one-machine).
 
 <details>
 <summary><b>Command reference</b></summary>
@@ -386,19 +441,20 @@ Please report security problems through a [private security advisory](https://gi
 | Command | Purpose |
 |---|---|
 | `nextboard serve [--listen addr] [--status-listen addr]` | Run in the foreground |
-| `nextboard install [--listen addr] [--public-url url] [--status-listen addr]` | Install the service and print a setup link |
-| `nextboard uninstall [--purge]` | Remove the service; `--purge` also deletes the data folder |
-| `nextboard status` | Service state, address, and session, machine and device counts |
+| `nextboard install [--instance name] [--listen addr] [--public-url url] [--status-listen addr]` | Install the service and print a setup link; with `--instance`, a new instance with its own data folder, ports and service |
+| `nextboard uninstall [--instance name] [--purge]` | Remove that instance's service; `--purge` also deletes its data folder, and refuses while its hub runs |
+| `nextboard status [--instance name \| --all]` | Service state, address, and session, machine and device counts |
+| `nextboard instances [--json]` | Every instance on this machine: state, address, version, data folder, service, and conflicts such as overlapping ports |
 | `nextboard logs [-f]` | Service logs |
 | `nextboard connlog [--machine name] [-n count] [--json]` | Server connection history: drops, reconnects, latency; works while the hub is down |
 | `nextboard setup-link` | Create a new one-time setup link |
 | `nextboard reset-password` | Reset the admin password; every browser logs in again |
 | `nextboard pair` | Print a QR code and pairing code for a device |
-| `nextboard update [--version tag] [--force]` | Install the latest stable release, or the one named, and restart the service |
-| `sudo nextboard browser-sandbox` | Let NextBoard Chromium make its sandbox where Ubuntu 23.10+ restricts it; only needed without a Chrome or Chromium installed from a package |
+| `nextboard update [--version tag] [--force] [--instance name]` | Install the latest stable release, or the one named, and restart every instance's service that runs this binary (with `--instance`, only that one) |
+| `sudo nextboard browser-sandbox [--instance name]` | Let NextBoard Chromium make its sandbox where Ubuntu 23.10+ restricts it; only needed without a Chrome or Chromium installed from a package |
 | `nextboard version` | Print the version, channel, commit and build time |
 
-`serve --debug-listen 127.0.0.1:6060` serves the hub's Go profiles and a few counts (`/debug/pprof/`, `/debug/hub`) for looking into its memory. It is off unless given, takes only a loopback address, and answers no request from a web page.
+`serve --debug-listen 127.0.0.1:6060` serves the hub's Go profiles and a few counts (`/debug/pprof/`, `/debug/hub`) for looking into its memory. It is off unless given, takes only a loopback address, and answers no request from a web page. Each instance needs an address of its own.
 
 </details>
 
@@ -412,7 +468,7 @@ go install github.com/air-verse/air@latest
 make dev
 ```
 
-The web UI runs at `http://localhost:15173`, the hub at `http://localhost:12312`, and development data lives in `./.devdata`. Saving a Go file restarts the hub; `RELOAD=0` turns that off.
+The web UI runs at `http://localhost:15173`, the hub at `http://localhost:12312`, and development data lives in `./.devdata`. Saving a Go file restarts the hub; `RELOAD=0` turns that off. The dev hub is the [instance](#several-instances-on-one-machine) `dev`, with a cookie of its own (`nb_session_http_dev`), so it never logs your browser out of an installed hub on the same host; log in to it once after upgrading from a checkout without instances.
 
 By default the tests never touch a real agent CLI or your agent plan. `NEXTBOARD_REAL_CLI_TEST=1` turns on tests that do, and these use your real account.
 

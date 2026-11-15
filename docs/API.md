@@ -7,7 +7,7 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
 - **Error:** a non-2xx HTTP status with the body `{"error": "message"}`.
 - **CSRF:** every `POST`/`PUT`/`PATCH`/`DELETE` request **must** carry the `X-NextBoard: 1` header (app clients always send it too). Without the header → `403`.
 - **Auth:** one of
-  - the browser session cookie (`HttpOnly; SameSite=Strict; Path=/`, 30 days, extended on use): `nb_session` + `Secure` when the client comes over HTTPS, `nb_session_http` over HTTP. The names differ because browsers refuse to let an `http://` page overwrite a `Secure` cookie of the same name on that host; or
+  - the browser session cookie (`HttpOnly; SameSite=Strict; Path=/`, 30 days, extended on use): `nb_session` + `Secure` when the client comes over HTTPS, `nb_session_http` over HTTP. The names differ because browsers refuse to let an `http://` page overwrite a `Secure` cookie of the same name on that host. A named instance ([Instances](#instances)) adds its name: `nb_session_<name>`, `nb_session_http_<name>`, because cookies ignore the port and two hubs on one host would otherwise overwrite each other's login; the `default` instance keeps the names without a suffix; or
   - `Authorization: Bearer <accessToken>` (a paired device), also for WebSocket. A token in the URL is refused, because reverse proxies record query strings.
 - Without auth → `401 {"error":"unauthorized"}`.
 - **WebSocket Origin:** if a WS request uses a cookie and carries an `Origin` header, the Origin host must match `Host`. A WS that uses a bearer token does not have its Origin checked.
@@ -18,9 +18,10 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
 | Method | Path | Auth | Request | Response |
 |---|---|---|---|---|
 | GET | `/api/health` | — | — | `{"ok":true,"name":"devbox","version":"0.9.0","commit":"3f2a1c9","builtAt":"2026-11-10T09:00:00Z","channel":"stable"}` (the build fields as in `Hub`) |
-| GET | `/api/setup/status` | — | — | `{"needsSetup":true,"hubName":""}` |
+| GET | `/api/setup/status` | — | — | `{"needsSetup":true,"hubName":"","instance":"work","defaultInstance":false,"hubId":"k7qxm2pa9d","suggestedHubName":"devbox · work"}`. `suggestedHubName` only while it needs setup: the hub name New instance… was given, else `<hostname>` (default) or `<hostname> · <instance>`. Never a path: the folders wait for a login |
 | POST | `/api/setup` | — | `{"code":"K7QX-M2PA","password":"...","hubName":"devbox"}` | `200 {"ok":true}` + sets a cookie (logged in right away). `400` password < 8 characters / empty hubName. `403` wrong/expired/used code. `409` already set up. |
 | GET | `/api/hub` | yes | — | `Hub` |
+| GET | `/manifest.json` | — | — | The web manifest named after this hub: `name` "NextBoard · <hub name>", `short_name` the hub name (a named instance before setup: its instance name), so two installed instances look different |
 
 ```jsonc
 // Hub
@@ -32,7 +33,24 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
   "channel": "stable",         // "stable" (v0.9.0), "beta" (v0.9.0-beta.2, also alpha.N/rc.N), "dev" (anything else)
   "repo": "azamrizki/nextboard", // the GitHub repository its releases and commits come from
   "urls": ["https://board.example.com"],   // over HTTPS: that origin + the HTTPS extraUrls; over HTTP: the hub's http:// addresses
-  "listen": "0.0.0.0:12312"
+  "listen": "0.0.0.0:12312",
+  // which instance this is (Instances below)
+  "instance": { "name": "work", "default": false },
+  "hubId": "k7qxm2pa9d",       // 10 random characters, made once; never secret. Names tmux sessions and temp folders on servers
+  "statusListen": "",          // the public status listener, "" when off
+  "replacedSinceStart": false, // the binary changed on disk after this hub started (an update): restart it to run the new one
+  "service": { "kind": "systemd", "name": "nextboard-work.service", "managed": true,
+               "unitPath": "/home/alice/.config/systemd/user/nextboard-work.service" },
+                               // kind "systemd" | "launchd" | "none" (no service serves this folder: started by hand, by `make dev`);
+                               // managed: this process is the one that service runs; unitPath for the admin only
+  // the admin only; a paired device sees none of these
+  "dataDir": "/home/alice/.nextboard-work",
+  "configFile": "/home/alice/.nextboard-work/config.json",
+  "binary": { "path": "/home/alice/.local/bin/nextboard", "replacedSinceStart": false },
+  "siblings": [                // the other instances on This PC
+    { "name": "default", "hubName": "devbox", "listen": "127.0.0.1:12312", "port": 12312, "urls": ["http://127.0.0.1:12312"],
+      "running": true, "state": "running", "service": "nextboard.service", "problems": [] }
+  ]
 }
 ```
 
@@ -61,14 +79,64 @@ The web's way to run `nextboard update` (README, Update): whether a newer releas
   "blocked": "",             // why this hub cannot install it from the web (+ "blockedCode", one of the 409 codes above)
   "jobId": "",               // an update job running
   "installed": "",           // a tag swapped in that the hub does not run yet (its restart is pending or failed)
-  "restartError": ""         // why that restart failed
+  "restartError": "",        // why that restart failed
+  "restarts": [              // when an update can start: every instance whose service runs this binary, this one too
+    { "name": "default", "listen": "127.0.0.1:12312", "service": "nextboard.service" },
+    { "name": "work", "listen": "127.0.0.1:12412", "service": "nextboard-work.service", "self": true }
+  ]
 }
 ```
 
 - **Channel:** a stable build follows the latest stable release; a beta follows the newest release of any kind, beta or stable (`v0.9.0-beta.3`, then `v0.9.0`). Never an older one, never a draft. A dev build follows none: update it with `git pull` and a rebuild.
-- **The job** (events `{"type":"job"}`, API-studio.md §1.2) has the phases `download` (with `pct`), `verify` (SHA-256 against the release's `checksums.txt`), `swap`, `restarting`, then `done` with `result` `{"from","to","binary","old","restart":true}`. Assets must come from the repository's own releases (`https://github.com/<repo>/releases/download/…`); nothing from the download runs. The new binary is written next to the old one, which stays as `<binary>.old`, then renamed over it in one step. To go back: `nextboard update --version <old tag> --force`, or move `<binary>.old` back and restart the service.
-- **Restart:** about 1.5 s after the job ends, the hub asks its service manager to restart it (`systemctl --user --no-block restart nextboard`, `launchctl kickstart -k`). Consoles reconnect and agents come back asleep or resume, as after any hub restart; data and logins stay. A client waits until `/api/health` answers with the new `version`.
+- **The job** (events `{"type":"job"}`, API-studio.md §1.2) has the phases `download` (with `pct`), `verify` (SHA-256 against the release's `checksums.txt`), `swap`, `restarting`, then `done` with `result` `{"from","to","binary","old","restart":true,"restarts":["default","work"]}`. Assets must come from the repository's own releases (`https://github.com/<repo>/releases/download/…`); nothing from the download runs. The new binary is written next to the old one, which stays as `<binary>.old`, then renamed over it in one step. To go back: `nextboard update --version <old tag> --force`, or move `<binary>.old` back and restart the service.
+- **Restart:** about 1.5 s after the job ends, the hub restarts every other instance whose service runs the same binary, then asks its own service manager to restart itself (`systemctl --user --no-block restart nextboard`, `nextboard-<name>` for a named instance, `launchctl kickstart -k`): one binary serves them all, so none keeps running old code. The confirm dialog names them (`restarts`), with their addresses, first. `nextboard update --instance <name>` in a terminal restarts only that one and names the others still on the old build. Consoles reconnect and agents come back asleep or resume, as after any hub restart; data and logins stay. A client waits until `/api/health` answers with the new `version`.
 - **Tests only:** `NEXTBOARD_TEST_RELEASE_API=<base URL>` points the hub and `nextboard update` at a fake GitHub (the API and every download from that base).
+
+### Instances
+
+Several hubs on one machine (README, Several instances on one machine): each **instance** has a name, its own data folder, ports, service, cookie and admin. `default` is `~/.nextboard` and keeps every name it had; `<name>` (`^[a-z][a-z0-9-]{0,23}$`) is `~/.nextboard-<name>`. `config.json` records `instance` and `hubId`; a folder without them gets them once (`~/.nextboard` and any other path → `default`, `.nextboard-<x>` → `x`). A hub holds `<data>/hub.lock` (`flock`) while it runs, so a second hub on the same folder stops at start.
+
+| Method | Path | Auth | Request | Response |
+|---|---|---|---|---|
+| GET | `/api/instances` | admin | — | `{"self":"work","items":[Instance…],"suggest":{"host":"127.0.0.1","loopback":true,"hostname":"devbox","port":12512,"previewRange":[12520,12539]}}`; `items` holds this hub too. Without a free block: no `port`, and `noFreeBlock` says why |
+| POST | `/api/instances` | admin | `{"name":"personal","hubName"?:"devbox · personal","listenHost"?:"127.0.0.1","port"?:12512,"allowNetwork"?:false,"password":"<this hub's admin password>"}` | `201 Created` (below). `400 bad_instance_name` · `bad_hub_name` · `bad_listen`. `403 origin` · `bad_password` · `admin only`. `409 instance_exists` · `port_in_use` · `no_free_block` · `network_not_allowed` · `not_set_up`. `429 too_many_attempts` |
+| GET | `/api/instances/import` | admin of the **new** hub | — | `{"self":"side","sources":[{"name":"personal","hubName":"devbox · personal","setUp":true}]}`: the other instances a copy can come from (this one left out; `setUp:false` has no admin yet) |
+| POST | `/api/instances/import` | admin of the **new** hub | `{"from":"personal","password":"<that instance's admin password>","settings":true,"presets":true,"mcp":true,"mcpSecrets":false,"machines":false,"machineCredentials":false,"providers":false,"providerKeys":false,"vault":false}` | `{"from":"personal","copied":{"settings":true,"agents":2,"layouts":1,"mcp":1,"machines":0,"providers":0,"vault":false,"vaultItems":0,"secretsTaken":false},"notes":["…"]}`. `400 bad_instance_name` · `nothing_to_copy`. `403 origin` · `bad_password`. `404 unknown_instance`. `409 not_set_up` · `ambiguous_instance` · `no_master_key`. `429 too_many_attempts` |
+
+```jsonc
+// Instance (an item of GET /api/instances; read from disk, no registry file)
+{
+  "name": "personal", "hubId": "p3zt8wq1ma",
+  "dataDir": "/home/alice/.nextboard-personal", "configFile": "/home/alice/.nextboard-personal/config.json",
+  "configured": true,                   // the folder holds a config.json (a unit can name one that does not)
+  "listen": "127.0.0.1:12512", "statusListen": "", "previewRange": [12520, 12539],
+  "service": { "kind": "systemd", "name": "nextboard-personal.service", "unitPath": "…/nextboard-personal.service", "bin": "/home/alice/.local/bin/nextboard" },
+  "running": true, "pid": 4242,         // its hub.lock is held, by that process
+  "problems": []                        // e.g. two folders with the same name, overlapping ports
+}
+// Created (201 of POST /api/instances)
+{
+  "instance": "personal", "hubId": "p3zt8wq1ma", "dataDir": "…", "configFile": "…",
+  "listen": "127.0.0.1:12512", "previewRange": [12520, 12539], "service": { … },
+  "started": true, "healthy": true,     // started:false: no user service manager here; run `command`
+  "command": "",                        // "nextboard serve --instance personal" when not started
+  "urls": ["http://127.0.0.1:12512"],
+  "setupUrls": ["http://127.0.0.1:12512/setup?code=K7QX-M2PA"],
+  "expiresAt": "…",                     // the setup code's, 30 minutes
+  "warnings": [],                       // e.g. loginctl enable-linger failed
+  "startError": ""                      // its service did not start: what was made stays, `nextboard logs --instance` says why
+}
+```
+
+- **Where instances come from:** units `~/.config/systemd/user/nextboard.service` and `nextboard-*.service` (macOS `~/Library/LaunchAgents/id.nextboard.plist`, `id.nextboard.*.plist`), with the data folder from their `ExecStart`, and folders `~/.nextboard`, `~/.nextboard-*` that hold a `config.json`, merged by data folder.
+- **Ports:** a block of 100 per instance: the hub on `12312 + 100·k`, previews `12320 + 100·k` to `12339 + 100·k`, the smallest k ≥ 1 (at most 50) whose ports can be bound now and that no other instance claims. Nobody else's hub, status or preview port is accepted, and a preview never opens a sibling's hub port.
+- **Who and how:** the admin only (a paired device gets `403 admin only`), with this hub's admin password in the body (rate limited like login, under its own key), `X-NextBoard: 1`, and an `Origin` whose host is the request's `Host`. Sibling instances and preview ports count as the same site, so `SameSite=Strict` alone would not stop them.
+- **What the web can create:** an instance on This PC, always in `~/.nextboard-<name>`; the web never names a folder. It listens on `listenHost` (by default the host this hub listens on, so it is reached the same way; `127.0.0.1` for this machine only). A non-loopback host needs `allowNetwork:true`, which the dialog asks for with the plain-HTTP warning. The endpoint never sets `statusListen`, `extraUrls` or a debug listener.
+- **Creating** (`internal/instance.Create`, the same as `nextboard install --instance`): the folder (0700), `config.json` with `instance`, a new `hubId`, `listen` and the hub name given, `settings.json` with the preview range, `presets.json`, a setup code (single use, 30 minutes) in the new hub's `auth.json`, then, when the user's service manager answers, the unit or LaunchAgent, `daemon-reload` + `enable` + `restart` (and `loginctl enable-linger`) and a wait of up to 15 s for health. Without one (a hub run by hand or under air) nothing is started: `started:false` and the `command` to run; the setup code works once that hub runs. A failure before the service starts leaves nothing behind. A port given that is not the suggested one keeps that port and takes the preview range of the next free block.
+- **The setup link** is only in this answer: never in events, logs or the connection log. The hub logs `instance <name> created on <listen> by instance <self>`, without the code. The dialog's **Start from this instance's settings** only adds `&from=<this instance>` to the link, which preselects the copy step of the new hub's wizard.
+- **Import** runs in the new hub and reads the other instance's files from disk (same OS user), picked by name from the sources; nothing in its folder is written or locked. The password is checked against that instance's `auth.json` (rate limited like login), so a new instance's setup link alone cannot pull a sibling's settings. `presets` brings custom agents (`presets.json`) and saved layouts. A secret comes only with its own box ticked, and only with what it belongs to (`mcpSecrets` with `mcp`, `machineCredentials` with `machines`, `providerKeys` with `providers`): opened with the sibling's `secret.key` and sealed again with the new hub's. The vault is copied as ciphertext, so the same master password opens it. An MCP server whose values stay behind comes turned off, SSH machines come disconnected, providers without keys ask for one; `notes` says so. Never copied: `auth.json`, `secret.key`, `hub.lock`, `devices.json`, sessions, boards, projects, memory, scrollback, logs, login profile folders. Settings are remapped: `agents.profiles` and `previews.portRange` stay the new hub's own; `runner.provider`, `lead.runner` and `lead.providers` point at the imported providers or are cleared (with a note).
+- **Not on the status listener:** `/api/hub`, `/api/setup/status` and `/api/instances` are absent from `--status-listen`, which knows only status pages; nothing about instances appears there.
+- **Shared with every instance of the OS user:** `$HOME`, `~/.ssh`, git and `gh` credentials, the agent CLIs, and `~/.claude`/`~/.codex` for an instance whose agents use your own CLI logins. An agent of one instance can read another's data folder: instances keep data and accounts apart, not secrets. A separate OS user per instance is the way to keep secrets apart.
 
 ## Auth
 
@@ -163,8 +231,8 @@ The web's way to run `nextboard update` (README, Update): whether a newer releas
 | POST | `/api/machines/bulk` | `{"ids": ["m_…", …], "action": "archive"\|"restore"\|"delete"}` (1–200 ids; `delete` = for good) | `{"results": [{"id","ok":true} \| {"id","ok":false,"error":"…","code"?}]}`; each id on its own (`code`: `in_use`, `local`, `machine_not_found`, `not_archived`), then one `{"type":"machines"}` event: clients refetch the list |
 | GET | `/api/machines/{id}/presets` | — | `Preset[]` |
 | GET | `/api/machines/{id}/ls?path=` | empty `path` / `~` = home | `DirListing` |
-| GET | `/api/machines/{id}/orphans` | — | `{"names":["nb-abc123"]}` |
-| POST | `/api/machines/{id}/cleanup` | `{"names":["nb-abc123"]}` | `{"killed":["nb-abc123"]}` |
+| GET | `/api/machines/{id}/orphans` | — | `{"names":["nb-k7qxm2pa9d-s_abc123"],"legacy":["nb-s_def456"]}`: `names` are this hub's own tmux sessions (`nb-<hubId>-<sid>`) that no console has; `legacy` carry no hub mark (from before hubIds), so they may be another hub's live consoles, and the dialog leaves them unselected. A sibling hub's names are in neither |
+| POST | `/api/machines/{id}/cleanup` | `{"names":["nb-k7qxm2pa9d-s_abc123"]}` | `{"killed":["nb-k7qxm2pa9d-s_abc123"]}` |
 
 ```jsonc
 // AddMachine
@@ -319,4 +387,4 @@ The client does not need to send anything. The server pings every 30 seconds.
 | codex | Codex | `codex` | — | `resume --last` | `#10a37f` |
 | gemini | Gemini CLI | `gemini` | — | — | `#4285f4` |
 
-Custom presets are added through `~/.nextboard/presets.json` (an array of `Preset` without `available`; the same id overrides the default).
+Custom presets are added through `<data>/presets.json` (`~/.nextboard/presets.json` for the default instance) (an array of `Preset` without `available`; the same id overrides the default).

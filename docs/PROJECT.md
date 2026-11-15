@@ -208,28 +208,33 @@ Pages: `/` (project list), `/p/:projectId/w/:workspaceId` (board), `/machines`, 
 
 ### 5.1 Installation, service, CLI
 
-`install.sh` detects the OS and architecture, downloads the release, verifies its SHA-256, installs to `~/.local/bin` (or `/usr/local/bin` with `--system`), then runs `nextboard install`. That command creates `~/.nextboard/` (0700), installs a systemd user service with `enable-linger` (Linux) or a LaunchAgent (macOS), and prints a one-time setup link that is valid for 30 minutes.
+`install.sh` detects the OS and architecture, downloads the release, verifies its SHA-256, installs to `~/.local/bin` (or `/usr/local/bin` with `--system`), then runs `nextboard install`. That command creates `~/.nextboard/` (0700), installs a systemd user service with `enable-linger` (Linux) or a LaunchAgent (macOS), and prints a one-time setup link that is valid for 30 minutes. `--instance <name>` (also `install.sh --instance=<name>`) installs another instance instead: `~/.nextboard-<name>`, its own block of ports, the service `nextboard-<name>` (`id.nextboard.<name>`), and its own setup link (§5.1.1).
 
-Setup in the Web UI: create the admin password (at least 8 characters), name the hub, check the detected CLIs.
+Setup in the Web UI: claim the hub with the setup code, the hub name and the admin password (at least 8 characters), choose how its agents sign in, optionally copy from another instance, check the detected CLIs, and read the summary with the data folder, config file, service, port and addresses. A default instance with no other instance on the machine keeps the short first run: the admin, then the detected CLIs.
 
 | Command | Purpose |
 |---|---|
 | `serve [--listen] [--dev]` | Foreground, used by the service |
-| `install [--listen] [--public-url]` / `uninstall [--purge]` | Install or remove the service |
-| `status` | Service, health, address, counts of sessions, machines, devices |
+| `install [--instance] [--listen] [--public-url]` / `uninstall [--instance] [--purge]` | Install or remove the service of an instance |
+| `status [--all]` | Service, health, address, counts of sessions, machines, devices |
+| `instances [--json]` | Every instance on the machine: state, address, data folder, service, conflicts |
 | `logs [-f]` | Service logs |
 | `connlog [--machine] [-n] [--json]` | Connection log, works even while the hub is down |
 | `setup-link` | A new setup link |
 | `reset-password` | Change the admin password, every browser is logged out |
 | `pair` | QR and pairing code in the terminal |
-| `update [--repo]` | Download the release, verify its checksum, restart the service |
+| `update [--repo]` | Download the release, verify its checksum, restart every instance's service that runs the binary |
 | `version`, `help` | |
 
-All commands accept `--data-dir` (default `~/.nextboard` or `$NEXTBOARD_HOME`).
+All commands accept `--instance <name>` and `--data-dir` (default `~/.nextboard` or `$NEXTBOARD_HOME`). Which folder a command acts on: `--data-dir`, else `--instance` (the folder in that instance's unit, else `~/.nextboard-<name>`), else `$NEXTBOARD_HOME`, then `$NEXTBOARD_INSTANCE` (set in every console of an instance), else `~/.nextboard`. A flag and a folder that belong to different instances are an error.
+
+#### 5.1.1 Several instances on one machine
+
+One OS user can run several hubs, each an **instance** with a name (`default` is `~/.nextboard`), a `hubId`, a data folder, a port block, a service, a cookie and an admin of its own ([API.md Instances](API.md#instances)). One binary serves them all; `update` restarts every instance that runs it. About this hub shows the instance, data folder, config file, service, the other instances (admin only) and **New instance…**, which creates one from the web with the admin password. Every new instance goes through the setup wizard. What stays apart: data, settings, agent logins (by default), projects, consoles, cookies, browser storage, preview ports, tmux sessions and paste folders on a shared server (named with the `hubId`), usage checks, AppArmor and snap/flatpak browser profiles. What is shared: the OS user with its `$HOME`, `~/.ssh`, git and `gh` credentials and CLI binaries, and `~/.claude`/`~/.codex` for an instance that uses your own CLI logins. Instances are not a confidentiality boundary (§6).
 
 ### 5.2 Auth and devices
 
-- **Browser:** admin password, an `HttpOnly; SameSite=Strict` cookie for 30 days that is extended on use. The cookie name differs per scheme: `nb_session` (HTTPS, `Secure`) and `nb_session_http`.
+- **Browser:** admin password, an `HttpOnly; SameSite=Strict` cookie for 30 days that is extended on use. The cookie name differs per scheme: `nb_session` (HTTPS, `Secure`) and `nb_session_http`, and per instance: a named instance adds `_<name>` (`nb_session_http_work`), because cookies ignore the port.
 - **CSRF:** every request that changes data must carry the `X-NextBoard: 1` header. Cookie-based WebSockets have their `Origin` checked.
 - **Rate limit:** 5 failed logins per IP per 10 minutes.
 - **Pairing:** a `XXXX-XXXX` code for 5 minutes, single use, as a `nextboard://pair?…` QR. The app creates an Ed25519 keypair (private key in Keystore/Keychain); later logins go through challenge-response and get an opaque 1-hour access token.
@@ -524,10 +529,10 @@ Security and limits: §6 and §14.
 
 ### 5.15 Usage
 
-- **Usage pill:** a hidden PTY session in `/tmp/nb-usage-<uid>` (deleted after use) types `/usage`, `/status`, or `/stats`, then its screen is parsed. The result is a bar per window, the reset time, and the raw screen when parsing fails. Best-effort, because the screen format changes between versions.
+- **Usage pill:** a hidden PTY session in `/tmp/nb-usage-<uid>-<hubId>` (deleted after use, one per instance so two hubs never delete each other's) types `/usage`, `/status`, or `/stats`, then its screen is parsed. The result is a bar per window, the reset time, and the raw screen when parsing fails. Best-effort, because the screen format changes between versions.
 - **Defaults:** background checks off and Codex off, because the side effects are real (§14).
 - **Reset chime:** sounds at `resetsAt + 30 seconds`, with the option `after100` or `always`.
-- **Token charts:** 30 days per agent from transcripts, an incremental index reads only new bytes, deduplicated per `message.id`. The UI states that this is not a bill.
+- **Token charts:** 30 days per agent from transcripts, an incremental index reads only new bytes, deduplicated per `message.id`. The UI states that this is not a bill, and that the count includes your own CLI's use (`~/.claude`, `~/.codex`), which every instance on the machine reads too.
 
 ### 5.16 Voice
 
@@ -596,6 +601,7 @@ A password manager on the board, modeled on Bitwarden; its contract and security
 **What is not protected** (already stated to the owner):
 
 - An agent on This PC has Bash as the same user, so it can read its environment, including MCP secrets, and the hub's data folder. Do not provide a token that the agent must not see.
+- Instances of one OS user (§5.1.1) keep data and accounts apart, not secrets: an agent of one can read another's data folder, its `secret.key` included. A separate OS user per instance is the way to keep secrets apart (README, Several instances on one machine).
 - Critical notes are instructions; compliance depends on the model. Blocked commands are enforced by the CLI or the hub, but they are not a sandbox (decision #38).
 - Desktop app profiles use `--password-store=basic`, so saved passwords are protected only by the file permissions of `<data>`.
 - A browser in a tile can reach everything This PC can reach, including localhost services and the local network.
@@ -636,10 +642,10 @@ A password manager on the board, modeled on Bitwarden; its contract and security
 
 ## 8. Data and persistence
 
-Everything is in `<data>` (`~/.nextboard/`, 0700). Files are 0600, written atomically (tmp + rename).
+Everything is in `<data>` (`~/.nextboard/`, or `~/.nextboard-<name>` for a named instance, 0700). Files are 0600, written atomically (tmp + rename). `config.json` holds `instance` and `hubId`; `hub.lock` is held (`flock`) while a hub runs on the folder.
 
 ```
-config.json  auth.json  secret.key  known_hosts  settings.json
+config.json  auth.json  secret.key  known_hosts  settings.json  hub.lock
 devices.json  machines.json  creds/<id>.enc      identity and machines
 projects.json  sessions.json  scrollback/<id>.log  projects and consoles
 presets.json  profiles.json  profiles/<id>/      custom agents and profiles
@@ -662,7 +668,7 @@ logs/connections.jsonl                           connection log
 
 **In memory only, lost when the hub restarts:** deliveries, confirmations, handoffs, engine state, the reply cache, the attention ring, previews and their listeners.
 
-**What is written to the target machine**, only on a user action: repo files (git, studio, project skills), `.git/nextboard-trash/` or `.nextboard-trash/`, `<cfg>/skills|commands` with confirmation, and the temporary folders `/tmp/nb-usage-<uid>` and `/tmp/nb-run.*`, which are always deleted.
+**What is written to the target machine**, only on a user action: repo files (git, studio, project skills), `.git/nextboard-trash/` or `.nextboard-trash/`, `<cfg>/skills|commands` with confirmation, and the temporary folders `/tmp/nb-usage-<uid>-<hubId>` and `/tmp/nb-run.*`, which are always deleted. Paste folders on a server are `/tmp/nb-paste-<uid>-<hubId>-<sid>` and new tmux sessions `nb-<hubId>-<sid>`, so two hubs that share a server never clean up each other's.
 
 ## 9. API and events
 
@@ -717,7 +723,7 @@ Needs Go 1.26+ and Node 22+. Go module: `github.com/azamrizki/nextboard`. `go in
 
 | Command | Purpose |
 |---|---|
-| `make dev` | Hub + Vite; web `:15173`, hub `:12312`, data `./.devdata`; a changed Go file → the hub restarts through air (`RELOAD=0` turns this off) |
+| `make dev` | Hub + Vite; web `:15173`, hub `:12312`, data `./.devdata`, which `scripts/devinstance` makes the instance `dev` (cookie `nb_session_http_dev`, so it does not log the browser out of an installed hub on the same host; one login again after the upgrade); a changed Go file → the hub restarts through air (`RELOAD=0` turns this off) |
 | `make dev-hub`, `make dev-web` | One side only |
 | `make test` | `go vet` + `go test -race ./...` |
 | `make test-web` | Web unit tests (Vitest); needs `web/node_modules` |
@@ -911,6 +917,7 @@ The test names are in `internal/cli`, `internal/server`, and `internal/machine`.
 | Phone and tablet layout | Done: the frame (header, phone tab bar, `…` menu, sheets), every page, and the board on touch screens (labeled Insert, long-press, two fingers, Focus mode, Select several), the board on phones (Board, Cards, Lead tabs), the console key bar (Esc, Ctrl, arrows, copy text, attachments), the touch path of every card (Kanban and Memory tile grips, tap to edit, Rename and Straighten in the menu, the Calendar day list, charts with tap), the Code card and studios on phones and tablets (side bar drawer, editor key bar, list then contents in studios), and installing as an app (manifest, icons, Settings › Install app, a warning and a way out on plain HTTP) (DESIGN §3.0, §3.5, §3.6, §3.9, §3.17). No service worker, so nothing runs offline. Tested with Chromium emulation; real devices (Poco F5, Xiaomi Pad 6, Galaxy Tab S9) not yet |
 | Tests | Web unit tests cover the vault, markdown, sockets, memory blocks, wire rules, and layout choice (148 tests). Browser tests in the repo (`make test-e2e`) so far cover the memory tile, the Send dialog, the blocked command list, the public status page, credential approval for agents, the vault window from the header, phone, tablet, and desktop layouts on every page (projects `phone`, `tablet-portrait`, `tablet-landscape`), the board on touch screens (Insert, long-press, two fingers, Focus mode, lines, Select several), the board on phones (Cards list, swipe, Board and Lead tabs), the console key bar (keys, one-shot Ctrl, copy text, photo attachments), cards by finger (Kanban scrolling and grips, long-press on a card, editing a Checklist with tap, Memory tile grip, Calendar day list, Rename in the menu, Straighten, `?card=` links), the Code card and studios on phones and tablets (side bar drawer, the editor key bar up to a saved file, Find then Esc, the terminal panel key bar, list then contents in studios), an installable manifest and the Install app pane (browser offer, installed, HTTP warning), plus a sweep of every page, the Settings panes, dialogs, every card kind in focus mode, the Laravel view, the debugger process picker, the large file warning, the browser tile header, and the passkey dialog in all five profiles (nothing goes past the screen edge); other UI flows are still tried outside the repo. The remaining SPEC §12 criteria are in §13 |
 | Clients | See §10 |
+| Instances | Tested in Go (two hubs sharing one cookie jar, `install --instance` with a fake `systemctl`) and in e2e (two hubs in one browser, the info panel, New instance, the wizard). Not automated, tried by hand only or not yet: real Chrome and Firefox over plain HTTP on two ports of a Tailscale IP, two nginx subdomains over HTTPS, macOS LaunchAgents and whether Claude Code keeps its Keychain entry per `CLAUDE_CONFIG_DIR`, a real snap Firefox tile in two instances |
 
 ### Questions for the owner
 
