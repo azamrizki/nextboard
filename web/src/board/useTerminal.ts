@@ -8,7 +8,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { api, openSessionSocket, type SocketState } from '../api';
 import { useTheme } from '../lib/theme';
@@ -16,6 +15,8 @@ import type { SessionStatusFrame } from '../lib/types';
 import { store } from '../store';
 import { applyMods, registerConsole } from './consoleKeys';
 import { clipboardFiles, sendPasted } from './files';
+import { registerTerminal } from './webglPool';
+import { disposeTerminal } from './xtermPatches';
 
 /** The console's colours (tokens.css, DESIGN.md §3.9), for the theme around this element. */
 function themeOf(el: Element): { theme: ITheme; minimumContrastRatio: number } {
@@ -74,78 +75,6 @@ function waitForMonoFont(): Promise<void> {
     fontReady = Promise.race([load.catch(() => undefined), timeout]);
   }
   return fontReady;
-}
-
-/**
- * WebGL only pays off on a hardware GPU. Software rasterisers (SwiftShader, llvmpipe —
- * headless browsers, VMs, GPU-blocklisted machines) are slower than xterm's DOM renderer,
- * so we skip WebGL there.
- */
-let hardwareWebgl: boolean | null = null;
-function hasHardwareWebgl(): boolean {
-  if (hardwareWebgl !== null) return hardwareWebgl;
-  hardwareWebgl = false;
-  try {
-    const canvas = document.createElement('canvas');
-    const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) as WebGLRenderingContext | null;
-    if (gl) {
-      const info = gl.getExtension('WEBGL_debug_renderer_info');
-      const renderer = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
-      hardwareWebgl = !/swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer);
-      gl.getExtension('WEBGL_lose_context')?.loseContext();
-    }
-  } catch {
-    hardwareWebgl = false;
-  }
-  return hardwareWebgl;
-}
-
-/**
- * Try the WebGL renderer; on failure or context loss xterm falls back to its DOM renderer, and
- * `fellBack` runs (its cells differ in size). Gives back what stops watching it, for when the
- * terminal goes.
- */
-function tryWebgl(term: Terminal, fellBack: () => void): () => void {
-  if (!hasHardwareWebgl() || !term.element) return () => undefined;
-  let addon: WebglAddon | null = null;
-  // The renderer sizes its canvas by the device pixels the browser reports for it. Under an
-  // emulated pixel ratio (Chrome's device mode, test browsers) the browser reports CSS pixels,
-  // the text lands outside the canvas, and the console shows nothing.
-  const watch = new ResizeObserver(([e]) => {
-    const device = e?.devicePixelContentBoxSize?.[0]?.inlineSize;
-    const css = e?.contentRect.width ?? 0;
-    const ratio = window.devicePixelRatio || 1;
-    if (device && css > 0 && Math.abs(device - css * ratio) > Math.max(2, ratio)) drop();
-  });
-  function drop() {
-    watch.disconnect();
-    if (!addon) return;
-    try {
-      addon.dispose();
-    } catch {
-      /* ignore */
-    }
-    addon = null;
-    fellBack();
-  }
-  try {
-    addon = new WebglAddon();
-    // Browsers cap live WebGL contexts (~16); the oldest ones get dropped.
-    addon.onContextLoss(drop);
-    term.loadAddon(addon);
-  } catch {
-    // WebGL unavailable → default renderer
-    addon = null;
-    watch.disconnect();
-    return () => undefined;
-  }
-  try {
-    watch.observe(term.element, { box: 'device-pixel-content-box' });
-  } catch {
-    // not reported by this browser; the renderer keeps its own canvas size then
-    watch.disconnect();
-  }
-  return () => watch.disconnect();
 }
 
 interface PointerAt {
@@ -261,7 +190,6 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
       term.loadAddon(fit);
       term.open(el);
       followBoardZoom(term);
-      const unwatchWebgl = tryWebgl(term, () => fitAndSend());
 
       let awaitingSnapshot = true;
       let sent = { c: 0, r: 0 };
@@ -399,12 +327,14 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         resizeTimer = window.setTimeout(() => fitAndSend(), 60);
       });
       ro.observe(el);
+      // WebGL or the DOM renderer (webglPool.ts), decided before the first fit
+      const unpool = registerTerminal(term, el, () => fitAndSend(), () => fit.proposeDimensions());
       fitAndSend();
       live.current = { term, refit: () => fitAndSend() };
 
       return () => {
         live.current = null;
-        unwatchWebgl();
+        unpool();
         unregister();
         window.clearTimeout(resizeTimer);
         el.removeEventListener('paste', onPaste, true);
@@ -412,7 +342,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         dataSub.dispose();
         binSub.dispose();
         sock.close();
-        term.dispose();
+        disposeTerminal(term);
       };
     }
   }, [sessionId, containerRef]);

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './hub';
 
-// Consoles drawn by the GPU (useTerminal.ts tryWebgl). xterm's WebGL renderer sizes its canvas by
+// Consoles drawn by the GPU (webglPool.ts). xterm's WebGL renderer sizes its canvas by
 // the device pixels the browser reports, and under an emulated pixel ratio (Chrome's device mode,
 // these test browsers) those are CSS pixels: the text fell outside the canvas and a console showed
 // nothing. Such a console falls back to the DOM renderer. The test browser gets a GPU it would
