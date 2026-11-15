@@ -11,13 +11,16 @@ import { formatDateTime } from '../../lib/format';
 import { gitError } from '../../git/common';
 import { gitApi } from '../api';
 import type { GitStash } from '../types';
-import { STASH_LABEL } from './CommitView';
-import type { Workspace } from './workspace';
+import type { GitHost } from './CommitGraph';
 
-export function StashSection({ ws }: { ws: Workspace }) {
+/** How a stash's tab is named: CommitView knows a stash by it. Here, not there: the board's Git
+ * panel shows the stash too, and CommitView brings the whole editor along. */
+export const STASH_LABEL = 'Stash: ';
+
+export function StashSection({ ws, defaultOpen = true }: { ws: GitHost; defaultOpen?: boolean }) {
   const target = ws.gitTarget;
   const [items, setItems] = useState<GitStash[]>([]);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [untracked, setUntracked] = useState(true);
@@ -127,7 +130,7 @@ export function StashSection({ ws }: { ws: Workspace }) {
                 onClick={async () => {
                   setBusy(true);
                   try {
-                    await ws.saveAll();
+                    await ws.saveAll?.();
                     await gitApi.stashSave(target, message, untracked);
                     setSaving(false);
                     setMessage('');

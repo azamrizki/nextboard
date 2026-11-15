@@ -1,0 +1,256 @@
+/* The board's Git panel across the parts of a project, and the editor's Source Control pieces it
+   shows (history graph, stash): what `.wb` gives them in the editor, the panel gives here. */
+
+.side-panel.git-panel {
+  --wb-line: var(--glass-border);
+  --git-added: var(--c-success);
+  --git-modified: var(--c-warning);
+  --git-renamed: var(--c-primary-300);
+  --git-deleted: var(--c-danger-300);
+}
+
+/* ---- one section per part ---- */
+.git-panel-parts {
+  gap: var(--s-2);
+}
+.git-part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  border-top: var(--hairline) solid var(--glass-border);
+  padding-top: var(--s-2);
+}
+.git-part-head {
+  margin: 0;
+  font: inherit;
+}
+.git-part-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--h-control-sm);
+  padding: var(--s-1) var(--s-2);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.git-part-toggle:hover {
+  background: var(--surface-hover);
+}
+.git-part-toggle:focus-visible,
+.git-part-repo:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.git-part-chev {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  color: var(--text-3);
+}
+.git-part-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.git-part-name {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.git-part-machine {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.git-part-stat {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.git-part-stat .git-branch {
+  max-width: calc(var(--s-12) * 3);
+}
+.git-part-changed {
+  color: var(--git-modified);
+  font-weight: var(--fw-medium);
+}
+.git-part-repos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding-left: var(--s-6);
+}
+.git-part-repo {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--h-control-sm);
+  padding: 0 var(--s-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.git-part-repo:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.git-part-repo.is-current {
+  background: var(--surface-active);
+  color: var(--text);
+}
+.git-part-repo:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.git-part-repo-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.git-part-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: 0 0 var(--s-2) var(--s-2);
+}
+
+/* ---- branches, stash, history, discarded: the editor's sections ---- */
+.git-scm {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: var(--hairline) solid var(--glass-border);
+  padding-top: var(--s-2);
+  font-size: var(--fs-sm);
+}
+.git-scm .wb-section-title {
+  height: var(--h-control-sm);
+  font-size: var(--fs-sm);
+}
+.git-scm .wb-graph-row {
+  flex: 0 0 auto;
+}
+.git-scm .wb-history,
+.git-scm .wb-stash,
+.git-scm .git-fold {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.git-scm .wb-history {
+  max-height: var(--h-list);
+  overflow-y: auto;
+}
+.git-scm .git-trash {
+  padding: 0 var(--s-2);
+}
+/* no hover on a touch screen: the row's actions stay out */
+:root[data-input='touch'] .git-scm .wb-result-act {
+  display: inline-grid;
+}
+.git-branch-new {
+  display: flex;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-2);
+}
+.git-branch-new .control {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.git-branch-row {
+  padding-right: var(--s-1);
+  cursor: default;
+}
+.git-branch-switch {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.git-branch-switch:disabled {
+  cursor: default;
+}
+.git-branch-switch .wb-result-dir {
+  margin-left: auto;
+}
+
+/* ---- a commit picked in the graph ---- */
+.git-peek {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: var(--s-1) 0 var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  border: var(--hairline) solid var(--glass-border-strong);
+  background: var(--surface-input);
+}
+.git-peek-head,
+.git-peek-meta,
+.git-peek-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.git-peek-subject {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.git-peek-body {
+  margin: 0;
+  max-height: calc(var(--h-list) / 3);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+}
+.git-peek-files {
+  max-height: calc(var(--h-list) / 2);
+  overflow-y: auto;
+  border-radius: var(--r-sm);
+  background: var(--surface-solid);
+}
+.git-peek-files .git-file-row {
+  min-height: var(--h-control-sm);
+}
+.git-peek-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.git-peek .spacer {
+  flex: 1 1 auto;
+}

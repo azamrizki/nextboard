@@ -250,6 +250,18 @@ Explorer also dims ignored files in repositories below the parent folder: in a p
 - **Backup:** `refs/nextboard/backup/<id>` points to the old history and is not pushed. `.git` does not shrink until that ref is deleted (`git update-ref -d`) and `git gc` runs. Undo reverts it as long as there is no new commit.
 - **UI:** a warning appears in the Git panel and Source Control when `ahead` is 1–200, or after a push fails with code `large_files`.
 
+### 3.8 The board's Git panel: every part, history graph
+
+No new endpoint: each part's git is already served under its project ref (`<project>~<part>`, API-board §1 "Project parts"), and its events come as `gitPart`.
+
+- **Several parts:** the panel (G) lists every part at once, in the project's order and under its own name. No part is marked as the main one. Each header shows the part's machine and its repository: branch, ahead/behind and the number of changed files. A part with several repositories (§3.6) shows one line per repository; a click picks that repository. A part with none says so. Opening the panel scans every part (`GET …~<part>/git/repos`). Refresh reads every part again.
+- **Opening a part:** each part opens and closes on its own, and several can be open at once. Which parts are open is kept per project in the browser (`nb.git.parts.<project>`). An open part has the whole panel for its picked repository: changes and diffs, commit, push, pull, fetch, publish to GitHub through the `gh` of that part's machine, discard and trash, and files over 100 MB. Its ticks go to its own `PUT …/git/selection`. Messages about a job say which part they are about (`Web: Push done.`).
+- **One part:** the panel looks as before, with the repository picker of §3.6.
+- **Branches, Stash, History, Discarded:** the sections of the editor's Source Control, closed until opened. History is the commit graph of the workbench (the same component, all branches or the current one, the right-click menu for checkout, branch, tag, merge, cherry-pick, revert and reset). A commit picked there, or a stash, shows its files with their line counts (`GET …/git/commits/{ref}`). **Open in editor** shows it in a tab of the editor card, with the diff of each file. When the card shows another part, a file of that commit moves the card to the commit's part.
+- **`github` event:** it carries only `projectId`. A part's publish card reads `GET …~<part>/github` again on each one, so a sign-in on another machine shows without a reload.
+
+**Verification (This PC, 2026-11-15):** `web/src/git/parts.test.ts`, and `e2e/git-parts.spec.ts` in light and dark. A project in two parts: both headers with their branch, changes and ahead count before opening either; both parts open at once with their own message box; a commit in the second part lands only there; the history graph with the remote branch; a commit's files; Open in editor. A project in one folder: the panel as before, with stash and graph, and no overflow at phone width. Not tried yet: parts on another machine over SSH, and a GitHub sign-in on that machine.
+
 ## 4. Web preview (B17–B19)
 
 ### 4.1 Port probe

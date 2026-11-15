@@ -1999,7 +1999,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
           />
         )}
         {handoff && <HandoffDialog sessionId={handoff} workspaceId={ctl.workspaceId} projectId={project.id} onClose={() => ui.set({ handoff: null })} />}
-        {panel === 'git' && <GitPanel project={project} workspaceId={ctl.workspaceId} onClose={() => ui.set({ panel: null })} />}
+        {panel === 'git' && <GitPanel project={project} workspaceId={ctl.workspaceId} onClose={() => ui.set({ panel: null })} openEditor={(path) => openCode(path)} ui={ui} />}
         {panel === 'diagrams' && <DiagramsPanel ctl={ctl} project={project} viewCenter={viewCenter} reveal={revealRect} onClose={() => ui.set({ panel: null })} />}
         {diagramRuns.length > 0 && <DrawingCards ctl={ctl} viewCenter={viewCenter} reveal={revealRect} />}
         {studio?.kind === 'documents' && (

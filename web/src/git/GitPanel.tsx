@@ -2,69 +2,262 @@
 // the changes list with checkboxes (synced to the hub so the command bar's "commit and
 // push" uses the same files), per-file diff, a suggested subject, Commit & Push /
 // Commit, Push / Publish branch, Pull, Fetch (only when clicked), Discard to the
-// project trash (with restore), history, files over 100 MB, Create repository and
-// Publish to GitHub through the gh CLI of the project's machine. A project folder may hold
-// several repositories (§3.6): the panel scans it and works on the one picked.
+// project trash (with restore), branches, the stash, the history graph, files over 100 MB,
+// Create repository and Publish to GitHub through the gh CLI of the project's machine. A
+// project folder may hold several repositories (§3.6): the panel scans it and works on the one
+// picked. A project in several parts (ROADMAP #49) shows every part at once, each with its own
+// repositories, and each opens on its own.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isCode, type ApiError } from '../api';
 import { useEffectiveSettings } from '../agents/settings';
+import type { UiStore } from '../board/ui';
 import { Button } from '../components/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SegmentedControl } from '../components/form';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
-import { timeAgo } from '../lib/format';
-import type { Project } from '../lib/types';
+import { formatDateTime, prefs, timeAgo } from '../lib/format';
+import { projectParts } from '../lib/parts';
+import type { Project, ProjectPart } from '../lib/types';
 import { orchStore } from '../orch/store';
 import type { Job } from '../orch/types';
+import { useMachines } from '../store';
 import { gitApi, jobApi } from '../studio/api';
+import { HistorySection, RefPills, type GitHost } from '../studio/code/CommitGraph';
+import { StashSection } from '../studio/code/StashSection';
 import { jobActive, studioStore, useJob, useStudio } from '../studio/store';
-import type { GitCommit, GitDiff, GitFile, GitRepoInfo, GitStatus, GitTarget, GitTrashItem } from '../studio/types';
+import type { GitBranch, GitCommitDetail, GitDiff, GitFile, GitRepoInfo, GitStatus, GitSummary, GitTarget, GitTrashItem } from '../studio/types';
 import { formatBytes, gitError, jobSummary, lineCounts, splitPath, STATUS_LABEL, STATUS_LETTER } from './common';
 import { LargeInCommits } from './LargeInCommits';
+import { showCommitInEditor } from './openInEditor';
+import { openPartsFrom, partRef, sumRepos, summaryLabel } from './parts';
 import { RepoPicker } from './RepoPicker';
 import { SUGGEST_LABEL, SUGGEST_LABEL_OFFLINE, suggestCommitMessage } from './suggest';
+import '../styles/workbench.css';
+import '../styles/git-panel.css';
 
 interface GitPanelProps {
   project: Project;
   workspaceId: string;
   onClose: () => void;
+  /** Shows the editor card, with this file when given: "Open in editor" of a commit. */
+  openEditor?: (path?: string) => void;
+  /** The board's UI state, which the editor card reads files from. */
+  ui?: UiStore;
 }
 
+const OPEN_PREF = (projectId: string) => `git.parts.${projectId}`;
+
 export default function GitPanel(props: GitPanelProps) {
-  const pid = props.project.id;
-  const repos = useStudio((s) => s.gitRepos[pid]?.items);
-  const repo = useStudio((s) => s.gitRepo[pid] ?? '');
+  const parts = projectParts(props.project);
+  const { onClose } = props;
+
+  // one Escape for the whole panel, whatever is open in it
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !document.querySelector('.modal-layer') && !(e.target as HTMLElement)?.closest?.('input, textarea, select')) onClose();
+    };
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onClose]);
+
+  return parts.length < 2 ? <OnePart {...props} part={parts[0]} /> : <AllParts {...props} parts={parts} />;
+}
+
+/** A project in one folder: the panel as it always was. */
+function OnePart(props: GitPanelProps & { part: ProjectPart }) {
+  const pref = props.project.id;
+  const repos = useStudio((s) => s.gitRepos[pref]?.items);
+  const repo = useStudio((s) => s.gitRepo[pref] ?? '');
 
   // every open looks again: a repository may have been cloned in a console since
   useEffect(() => {
-    void studioStore.loadGitRepos(pid, true);
-  }, [pid]);
+    void studioStore.loadGitRepos(pref, true);
+  }, [pref]);
 
-  if (!repos) {
-    return (
-      <aside className="side-panel git-panel" aria-label="Git">
-        <div className="side-panel-head">
-          <Icon name="branch" />
-          <h2>Git</h2>
-          <span className="spacer" />
-          <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close Git" onClick={props.onClose} />
-        </div>
-        <div className="list-msg" role="status">
-          <span className="spinner" aria-hidden="true" /> Looking for repositories…
-        </div>
-      </aside>
-    );
-  }
-  // ticks, draft and open diffs belong to one repository
-  return <RepoPanel key={repo} {...props} repo={repo} repos={repos} />;
+  return (
+    <aside className="side-panel git-panel" aria-label="Git">
+      {!repos ? (
+        <>
+          <div className="side-panel-head">
+            <Icon name="branch" />
+            <h2>Git</h2>
+            <span className="spacer" />
+            <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close Git" onClick={props.onClose} />
+          </div>
+          <div className="list-msg" role="status">
+            <span className="spinner" aria-hidden="true" /> Looking for repositories…
+          </div>
+        </>
+      ) : (
+        // ticks, draft and open diffs belong to one repository
+        <RepoPanel key={repo} {...props} pref={pref} label={props.project.name} repo={repo} repos={repos} picker head refresh={0} />
+      )}
+    </aside>
+  );
 }
 
-function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps & { repo: string; repos: GitRepoInfo[] }) {
-  const pid = project.id;
-  const target = useMemo<GitTarget>(() => ({ pid, repo }), [pid, repo]);
-  const rev = useStudio((s) => s.gitRev[pid] ?? 0);
+/** A project in several parts: every part's git at once, each part opens on its own. */
+function AllParts(props: GitPanelProps & { parts: ProjectPart[] }) {
+  const { project, parts, onClose } = props;
+  const machines = useMachines();
+  const machineName = (id: string) => machines.find((m) => m.id === id)?.name ?? id;
+  const [open, setOpen] = useState(() => openPartsFrom(prefs.get(OPEN_PREF(project.id)), parts));
+  const [refresh, setRefresh] = useState(0);
+  const refs = parts.map((pt) => partRef(project, pt));
+  const refsKey = refs.join('\n');
+
+  const scan = useCallback(() => Promise.all(refsKey.split('\n').map((r) => studioStore.loadGitRepos(r, true))), [refsKey]);
+  // every open looks again, in every part
+  useEffect(() => {
+    void scan();
+  }, [scan]);
+
+  const toggle = (id: string, to?: boolean) =>
+    setOpen((cur) => {
+      const next = new Set(cur);
+      if (to ?? !next.has(id)) next.add(id);
+      else next.delete(id);
+      prefs.set(OPEN_PREF(project.id), JSON.stringify([...next]));
+      return next;
+    });
+
+  return (
+    <aside className="side-panel git-panel git-panel-parts" aria-label="Git">
+      <div className="side-panel-head">
+        <Icon name="branch" />
+        <h2>Git</h2>
+        <span className="text-3 fs-xs">{parts.length} parts</span>
+        <span className="spacer" />
+        <Button size="sm" variant="ghost" iconOnly icon="refresh" aria-label="Refresh every part" title="Refresh every part" onClick={() => void scan().then(() => setRefresh((n) => n + 1))} />
+        <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close Git" onClick={onClose} />
+      </div>
+      {parts.map((pt, i) => (
+        <PartSection key={pt.id} {...props} part={pt} pref={refs[i]} machine={machineName(pt.machineId)} open={open.has(pt.id)} onToggle={(to) => toggle(pt.id, to)} refresh={refresh} />
+      ))}
+    </aside>
+  );
+}
+
+function RepoStat({ s, error }: { s: GitSummary; error?: string }) {
+  if (error)
+    return (
+      <span className="git-part-stat text-3 truncate" title={error}>
+        Could not read it
+      </span>
+    );
+  return (
+    <span className="git-part-stat tabular">
+      <span className="sr-only">{summaryLabel(s)}</span>
+      <span className="badge git-branch" aria-hidden="true">
+        <Icon name="branch" />
+        <span className="truncate">{s.branch || 'detached'}</span>
+      </span>
+      {!!s.ahead && <span aria-hidden="true">↑{s.ahead}</span>}
+      {!!s.behind && <span aria-hidden="true">↓{s.behind}</span>}
+      <span className={s.changed ? 'git-part-changed' : 'text-3'} aria-hidden="true">
+        {s.changed > 999 ? '999+' : s.changed} changed
+      </span>
+    </span>
+  );
+}
+
+/** One part: a header with its repositories' state, and the whole panel for it when open. */
+function PartSection(props: GitPanelProps & { part: ProjectPart; pref: string; machine: string; open: boolean; onToggle: (to?: boolean) => void; refresh: number }) {
+  const { part, pref, machine, open, onToggle } = props;
+  const list = useStudio((s) => s.gitRepos[pref]);
+  const repo = useStudio((s) => s.gitRepo[pref] ?? '');
+  const [busy, setBusy] = useState(false);
+  const bodyId = useId();
+  const items = list?.items;
+  const sum = sumRepos(items);
+
+  return (
+    <section className={`git-part ${open ? 'is-open' : ''}`} aria-label={`Part ${part.name}`}>
+      <h3 className="git-part-head">
+        <button type="button" className="git-part-toggle" aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={() => onToggle()}>
+          <Icon name={open ? 'chevronDown' : 'chevronRight'} className="git-part-chev" />
+          <span className="git-part-title">
+            <span className="git-part-name truncate">{part.name}</span>
+            <span className="git-part-machine truncate" title={part.path}>
+              {machine}
+            </span>
+          </span>
+          {!items ? (
+            <span className="spinner" role="status" aria-label="Reading" />
+          ) : items.length === 0 ? (
+            <span className="git-part-stat text-3">No Git repository</span>
+          ) : items.length === 1 ? (
+            <RepoStat s={items[0]} error={items[0].error} />
+          ) : (
+            <span className="git-part-stat tabular">
+              <span>{items.length} repositories</span>
+              {!!sum.ahead && <span>↑{sum.ahead}</span>}
+              {!!sum.behind && <span>↓{sum.behind}</span>}
+              <span className={sum.changed ? 'git-part-changed' : 'text-3'}>{sum.changed} changed</span>
+            </span>
+          )}
+        </button>
+      </h3>
+      {items && items.length > 1 && (
+        <ul className="plain git-part-repos" aria-label={`Repositories of ${part.name}`}>
+          {items.map((r) => (
+            <li key={r.path}>
+              <button
+                type="button"
+                className={`git-part-repo ${open && r.path === repo ? 'is-current' : ''}`}
+                aria-current={open && r.path === repo ? 'true' : undefined}
+                disabled={busy}
+                title={r.root || r.path}
+                onClick={() => {
+                  studioStore.selectGitRepo(pref, r.path);
+                  onToggle(true);
+                }}
+              >
+                <span className="git-part-repo-name truncate">{r.path || `${r.name} (part folder)`}</span>
+                <RepoStat s={r} error={r.error} />
+              </button>
+            </li>
+          ))}
+          {list?.truncated && <li className="fs-xs text-3">Not every repository is listed</li>}
+        </ul>
+      )}
+      {open && (
+        <div className="git-part-body" id={bodyId}>
+          {!items ? (
+            <div className="list-msg" role="status">
+              <span className="spinner" aria-hidden="true" /> Looking for repositories…
+            </div>
+          ) : (
+            <RepoPanel key={repo} {...props} label={part.name} repo={repo} repos={items} onBusy={setBusy} />
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface RepoPanelProps extends GitPanelProps {
+  part: ProjectPart;
+  /** The part's git, as the hub names it: the project, or "<project>~<part>". */
+  pref: string;
+  /** What the messages call it: the project, or the part in a project of several. */
+  label: string;
+  repo: string;
+  repos: GitRepoInfo[];
+  /** The repository picker and the panel's own title: a project of one part. */
+  picker?: boolean;
+  head?: boolean;
+  /** Moves when the whole panel was refreshed. */
+  refresh: number;
+  onBusy?: (busy: boolean) => void;
+}
+
+function RepoPanel({ project, part, pref, label, workspaceId, onClose, openEditor, ui, repo, repos, picker, head, refresh, onBusy }: RepoPanelProps) {
+  const target = useMemo<GitTarget>(() => ({ pid: pref, repo }), [pref, repo]);
+  const rev = useStudio((s) => s.gitRev[pref] ?? 0);
+  const msgId = useId();
   const [st, setSt] = useState<GitStatus | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -79,7 +272,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
   const [largeRescan, setLargeRescan] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useJob(jobId);
-  const [section, setSection] = useState<'' | 'history' | 'trash'>('');
+  const [peek, setPeek] = useState<{ hash: string; label: string } | null>(null);
   const settings = useEffectiveSettings();
   const useCli = settings.git?.commitWithRunner !== false;
 
@@ -87,9 +280,9 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
     (next: GitStatus) => {
       setSt(next);
       setError('');
-      if (next.isRepo && studioStore.gitTarget(pid).repo === repo) studioStore.setGitSummary(pid, { branch: next.branch, ahead: next.ahead, behind: next.behind, changed: next.changed ?? next.files?.length ?? 0 });
+      if (next.isRepo && studioStore.gitTarget(pref).repo === repo) studioStore.setGitSummary(pref, { branch: next.branch, ahead: next.ahead, behind: next.behind, changed: next.changed ?? next.files?.length ?? 0 });
     },
-    [pid, repo],
+    [pref, repo],
   );
 
   const load = useCallback(async () => {
@@ -102,7 +295,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
     }
   }, [target, apply]);
 
-  // first load, then whenever the hub reports a change (debounced)
+  // first load, then whenever the hub reports a change (debounced), or the panel is refreshed
   const first = useRef(true);
   useEffect(() => {
     if (first.current) {
@@ -112,15 +305,29 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
     }
     const t = window.setTimeout(() => void load(), 300);
     return () => window.clearTimeout(t);
-  }, [rev, load]);
+  }, [rev, refresh, load]);
 
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('.modal-layer') && !(e.target as HTMLElement)?.closest?.('input, textarea, select')) onClose();
-    };
-    document.addEventListener('keydown', esc);
-    return () => document.removeEventListener('keydown', esc);
-  }, [onClose]);
+  // the history graph and the stash of the editor's Source Control, working on this repository
+  const live = useRef({ load, rev, st, peek });
+  live.current = { load, rev, st, peek };
+  const host = useMemo<GitHost>(
+    () => ({
+      gitTarget: target,
+      get gitVersion() {
+        return live.current.rev;
+      },
+      get git() {
+        return live.current.st;
+      },
+      refreshGit: () => live.current.load(),
+      openCommit: (hash, o) => setPeek({ hash, label: o?.label ?? hash.slice(0, 8) }),
+      get activeTab() {
+        const p = live.current.peek;
+        return p ? { commit: { hash: p.hash } } : null;
+      },
+    }),
+    [target],
+  );
 
   const files = useMemo(() => st?.files ?? [], [st]);
   const checked = useMemo(() => files.filter((f) => !excluded.has(f.path)).map((f) => f.path), [files, excluded]);
@@ -140,14 +347,21 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
     if (!job || jobActive(job) || reported.current === job.id) return;
     reported.current = job.id;
     const s = jobSummary(job);
+    const where = head ? '' : `${label}: `;
     if (job.purpose === 'publish' && job.state === 'done') {
       const url = (job.result as { repoUrl?: string } | null)?.repoUrl;
-      toast.success(url ? `Published to ${url}.` : 'Published to GitHub.');
-    } else if (s.ok) toast.success(s.text);
-    else toast.error(s.text);
+      toast.success(`${where}${url ? `Published to ${url}.` : 'Published to GitHub.'}`);
+    } else if (s.ok) toast.success(`${where}${s.text}`);
+    else toast.error(`${where}${s.text}`);
     if (job.code === 'large_files') setLargeRescan((n) => n + 1);
     void load();
-  }, [job, load]);
+  }, [job, load, head, label]);
+
+  const running = jobActive(job);
+  // switching the repository would lose the job and the draft
+  useEffect(() => {
+    onBusy?.(running || !!committing);
+  }, [running, committing, onBusy]);
 
   const toggle = (path: string) =>
     setExcluded((cur) => {
@@ -195,7 +409,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
       setMessage('');
       setSuggested('');
       setLarge(null);
-      toast.success(`Committed ${r.commit.short} “${r.commit.subject}”.`);
+      toast.success(`Committed ${r.commit.short} “${r.commit.subject}”${head ? '' : ` in ${label}`}.`);
       if (andPush) await push();
     } catch (err) {
       if (isCode(err, 'large_files')) {
@@ -225,35 +439,37 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
     toast.success(`Discarded ${paths.length === 1 ? '1 file' : `${paths.length} files`}. Your versions are in ${r.trashedTo}.`);
   };
 
-  const simple = async (fn: () => Promise<Job | GitStatus>, label: string) => {
+  const simple = async (fn: () => Promise<Job | GitStatus>, what: string) => {
     try {
       const r = await fn();
       if ('isRepo' in r) apply(r);
       else startJob(r);
     } catch (err) {
-      toast.error(`${label}: ${gitError(err)}`);
+      toast.error(`${what}: ${gitError(err)}`);
     }
   };
 
-  const running = jobActive(job);
   const conflicts = !!st && st.merging && st.conflicts > 0;
   const canPush = !!st && st.hasRemote && !st.detached && !!st.hasCommits && (st.ahead > 0 || !st.upstream);
   const commitPushLabel = st?.detached ? 'Commit' : 'Commit & Push';
+  const folder = part.path || project.path;
 
   return (
-    <aside className="side-panel git-panel" aria-label="Git">
-      <div className="side-panel-head">
-        <Icon name="branch" />
-        <h2>Git</h2>
-        <span className="text-3 fs-xs truncate" title={st?.root || project.path}>
-          {(st?.root || project.path).split('/').filter(Boolean).pop()}
-        </span>
-        <span className="spacer" />
-        <Button size="sm" variant="ghost" iconOnly icon="refresh" aria-label="Refresh status" title="Refresh status" onClick={() => void studioStore.loadGitRepos(pid, true).then(load)} />
-        <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close Git" onClick={onClose} />
-      </div>
+    <>
+      {head && (
+        <div className="side-panel-head">
+          <Icon name="branch" />
+          <h2>Git</h2>
+          <span className="text-3 fs-xs truncate" title={st?.root || folder}>
+            {(st?.root || folder).split('/').filter(Boolean).pop()}
+          </span>
+          <span className="spacer" />
+          <Button size="sm" variant="ghost" iconOnly icon="refresh" aria-label="Refresh status" title="Refresh status" onClick={() => void studioStore.loadGitRepos(pref, true).then(load)} />
+          <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close Git" onClick={onClose} />
+        </div>
+      )}
 
-      <RepoPicker pid={pid} className="git-repo-row" disabled={jobActive(job) || !!committing} />
+      {picker && <RepoPicker pid={pref} className="git-repo-row" disabled={running || !!committing} />}
 
       {loading && !st && (
         <div className="list-msg" role="status">
@@ -270,9 +486,9 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
       {st && !st.isRepo && repos.length > 0 && (
         <div className="git-empty">
           <p>
-            <strong>{repo || project.name}</strong> is no longer a Git repository.
+            <strong>{repo || label}</strong> is no longer a Git repository.
           </p>
-          <Button size="sm" icon="refresh" onClick={() => void studioStore.loadGitRepos(pid, true)}>
+          <Button size="sm" icon="refresh" onClick={() => void studioStore.loadGitRepos(pref, true)}>
             Scan again
           </Button>
         </div>
@@ -280,7 +496,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
       {st && !st.isRepo && repos.length === 0 && (
         <div className="git-empty">
           <p>
-            <strong>{project.name}</strong> isn’t a Git repository yet.
+            <strong>{label}</strong> isn’t a Git repository yet.
           </p>
           <p className="fs-xs text-3">Create one on the main branch to track changes, commit and publish them. Repositories in subfolders show up here by themselves.</p>
           <Button
@@ -290,7 +506,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
             onClick={() =>
               void simple(async () => {
                 const created = await gitApi.init(target);
-                await studioStore.loadGitRepos(pid, true);
+                await studioStore.loadGitRepos(pref, true);
                 return created;
               }, 'Could not create the repository')
             }
@@ -361,7 +577,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
           {!!st.largeFiles?.length && <LargeFiles files={st.largeFiles} onKeepOff={(p) => void keepOff(p)} />}
           <LargeInCommits target={target} unpushed={st.ahead} rescan={largeRescan} disabled={running} onStatus={apply} />
 
-          {!st.hasRemote && <PublishCard project={project} target={target} workspaceId={workspaceId} status={st} running={running} onJob={startJob} />}
+          {!st.hasRemote && <PublishCard project={project} pref={pref} target={target} folder={folder} label={label} workspaceId={workspaceId} status={st} running={running} onJob={startJob} />}
 
           {(st.behind > 0 || canPush) && (
             <div className="row-gap wrap">
@@ -402,58 +618,60 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
           </section>
 
           {files.length > 0 && (
-          <div className="git-commit">
-            <div className="git-message">
-              <label className="sr-only" htmlFor="git-msg">
-                Commit message
-              </label>
-              <textarea
-                id="git-msg"
-                className="control prose"
-                rows={Math.min(10, message.split('\n').length)}
-                value={message}
-                readOnly={suggesting}
-                placeholder={suggesting ? 'Reading the changes…' : suggested ? '' : 'Commit message'}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && message.trim() && checked.length) void commit(st.hasRemote && !st.detached);
-                }}
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                iconOnly
-                icon="sparkle"
-                loading={suggesting}
-                disabled={!checked.length}
-                aria-label={SUGGEST_LABEL}
-                title={useCli ? SUGGEST_LABEL : SUGGEST_LABEL_OFFLINE}
-                onClick={() => void suggest()}
-              />
-            </div>
-            <div className="row-gap wrap">
-              {st.hasRemote && !st.detached && (
-                <Button size="sm" variant="primary" icon="upload" loading={committing === 'push'} disabled={!checked.length || !message.trim() || conflicts || !!committing || running} onClick={() => void commit(true)}>
-                  {commitPushLabel}
+            <div className="git-commit">
+              <div className="git-message">
+                <label className="sr-only" htmlFor={msgId}>
+                  Commit message
+                </label>
+                <textarea
+                  id={msgId}
+                  className="control prose"
+                  rows={Math.min(10, message.split('\n').length)}
+                  value={message}
+                  readOnly={suggesting}
+                  placeholder={suggesting ? 'Reading the changes…' : suggested ? '' : 'Commit message'}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && message.trim() && checked.length) void commit(st.hasRemote && !st.detached);
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  iconOnly
+                  icon="sparkle"
+                  loading={suggesting}
+                  disabled={!checked.length}
+                  aria-label={SUGGEST_LABEL}
+                  title={useCli ? SUGGEST_LABEL : SUGGEST_LABEL_OFFLINE}
+                  onClick={() => void suggest()}
+                />
+              </div>
+              <div className="row-gap wrap">
+                {st.hasRemote && !st.detached && (
+                  <Button size="sm" variant="primary" icon="upload" loading={committing === 'push'} disabled={!checked.length || !message.trim() || conflicts || !!committing || running} onClick={() => void commit(true)}>
+                    {commitPushLabel}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant={st.hasRemote && !st.detached ? 'secondary' : 'primary'}
+                  icon="check"
+                  loading={committing === 'commit'}
+                  disabled={!checked.length || !message.trim() || conflicts || !!committing}
+                  onClick={() => void commit(false)}
+                >
+                  {st.hasRemote && !st.detached ? 'Commit only' : 'Commit'}
                 </Button>
-              )}
-              <Button
-                size="sm"
-                variant={st.hasRemote && !st.detached ? 'secondary' : 'primary'}
-                icon="check"
-                loading={committing === 'commit'}
-                disabled={!checked.length || !message.trim() || conflicts || !!committing}
-                onClick={() => void commit(false)}
-              >
-                {st.hasRemote && !st.detached ? 'Commit only' : 'Commit'}
-              </Button>
-              <span className="spacer" />
-              <Button size="sm" variant="danger-ghost" icon="trash" disabled={!checked.length} onClick={() => setDiscard(checked)}>
-                Discard…
-              </Button>
+                <span className="spacer" />
+                <Button size="sm" variant="danger-ghost" icon="trash" disabled={!checked.length} onClick={() => setDiscard(checked)}>
+                  Discard…
+                </Button>
+              </div>
+              <p className="fs-xs text-3">
+                {checked.length === files.length ? `All ${files.length} files` : `${checked.length} of ${files.length} files`} ticked. Your commit hooks run as usual.
+              </p>
             </div>
-            <p className="fs-xs text-3">{checked.length === files.length ? `All ${files.length} files` : `${checked.length} of ${files.length} files`} ticked. Your commit hooks run as usual.</p>
-          </div>
           )}
 
           {large && (
@@ -480,16 +698,28 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
             </div>
           )}
 
-          <div className="git-more" role="tablist" aria-label="More">
-            <button type="button" role="tab" aria-selected={section === 'history'} className={`git-more-tab ${section === 'history' ? 'is-active' : ''}`} onClick={() => setSection(section === 'history' ? '' : 'history')}>
-              <Icon name="history" /> History
-            </button>
-            <button type="button" role="tab" aria-selected={section === 'trash'} className={`git-more-tab ${section === 'trash' ? 'is-active' : ''}`} onClick={() => setSection(section === 'trash' ? '' : 'trash')}>
-              <Icon name="trash" /> Discarded
-            </button>
+          <div className="git-scm">
+            <BranchesSection target={target} rev={rev} disabled={running || !!committing} onChanged={() => void load()} />
+            <StashSection ws={host} defaultOpen={false} />
+            {peek && (
+              <CommitPeek
+                key={peek.hash}
+                target={target}
+                hash={peek.hash}
+                onClose={() => setPeek(null)}
+                onOpen={
+                  openEditor
+                    ? (file) => {
+                        const root = st.root?.replace(/\/+$/, '');
+                        void showCommitInEditor({ project, part, hash: peek.hash, label: peek.label, file: root && file ? `${root}/${file}` : undefined, openEditor, ui }).catch((err) => toast.error(gitError(err)));
+                      }
+                    : undefined
+                }
+              />
+            )}
+            <HistorySection ws={host} defaultOpen={false} />
+            <TrashSection target={target} rev={rev} onRestored={() => void load()} />
           </div>
-          {section === 'history' && <History target={target} rev={rev} />}
-          {section === 'trash' && <Trash target={target} rev={rev} onRestored={() => void load()} />}
         </>
       )}
 
@@ -512,7 +742,7 @@ function RepoPanel({ project, workspaceId, onClose, repo, repos }: GitPanelProps
           </ul>
         </ConfirmDialog>
       )}
-    </aside>
+    </>
   );
 }
 
@@ -536,7 +766,9 @@ function FileRow({ target, f, checked, onToggle, open, onOpen }: { target: GitTa
         </button>
         {counts && (
           <span className="git-counts tabular" title={f.binary ? 'Binary file' : `${f.added} lines added, ${f.deleted} removed`}>
-            {f.binary ? 'bin' : (
+            {f.binary ? (
+              'bin'
+            ) : (
               <>
                 <span className="add">+{f.added}</span> <span className="del">−{f.deleted}</span>
               </>
@@ -584,9 +816,7 @@ function LargeFiles({ files, onKeepOff }: { files: NonNullable<GitStatus['largeF
     <div className="alert warning" role="status">
       <Icon name="alert" />
       <div className="stack-sm">
-        <span>
-          {files.length === 1 ? '1 file is' : `${files.length} files are`} over 100 MB — GitHub refuses files that big.
-        </span>
+        <span>{files.length === 1 ? '1 file is' : `${files.length} files are`} over 100 MB — GitHub refuses files that big.</span>
         <ul className="plain mono fs-xs">
           {files.slice(0, 4).map((f) => (
             <li key={f.path} className="truncate">
@@ -606,38 +836,243 @@ function LargeFiles({ files, onKeepOff }: { files: NonNullable<GitStatus['largeF
   );
 }
 
-function History({ target, rev }: { target: GitTarget; rev: number }) {
-  const [items, setItems] = useState<GitCommit[] | null>(null);
-  useEffect(() => {
-    gitApi
-      .log(target, 100)
-      .then(setItems)
-      .catch(() => setItems([]));
-  }, [target, rev]);
-  if (!items) return <p className="list-msg">Loading history…</p>;
-  if (!items.length) return <p className="list-msg">No commits yet.</p>;
+/** A section that opens and closes, as Source Control's in the editor. */
+function Fold({ title, count, act, open, onOpen, children }: { title: string; count?: number; act?: ReactNode; open: boolean; onOpen: () => void; children: ReactNode }) {
   return (
-    <ul className="plain git-log" aria-label="Last 100 commits">
-      {items.map((c) => (
-        <li key={c.hash} className="git-commit-row">
-          <span className={`git-pushed ${c.pushed ? 'is-pushed' : ''}`} title={c.pushed ? 'Pushed' : 'Not pushed yet'} aria-label={c.pushed ? 'Pushed' : 'Not pushed yet'}>
-            <Icon name={c.pushed ? 'check' : 'upload'} />
-          </span>
-          <span className="mono fs-xs text-3">{c.short}</span>
-          <span className="truncate" title={c.subject}>
-            {c.subject}
-          </span>
-          <span className="spacer" />
-          <span className="fs-xs text-3 nowrap" title={`${c.author} · ${new Date(c.at).toLocaleString()}`}>
-            {timeAgo(c.at)}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div className="git-fold">
+      <div className="wb-section-title wb-history-head">
+        <button type="button" className="wb-history-toggle" aria-expanded={open} onClick={onOpen}>
+          <Icon name={open ? 'chevronDown' : 'chevronRight'} className="wb-chev" />
+          <span>{title}</span>
+        </button>
+        {act}
+        {count !== undefined && <span className="wb-result-count tabular">{count}</span>}
+      </div>
+      {open && children}
+    </div>
   );
 }
 
-function Trash({ target, rev, onRestored }: { target: GitTarget; rev: number; onRestored: () => void }) {
+/** The local branches: switch (git refuses when it would overwrite work), create, delete. */
+function BranchesSection({ target, rev, disabled, onChanged }: { target: GitTarget; rev: number; disabled: boolean; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<GitBranch[] | null>(null);
+  const [error, setError] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState('');
+
+  const load = useCallback(() => {
+    gitApi
+      .branches(target)
+      .then((r) => {
+        setItems(r.items ?? []);
+        setError('');
+      })
+      .catch((err) => setError(gitError(err)));
+  }, [target]);
+  useEffect(() => {
+    if (open) load();
+  }, [open, load, rev]);
+
+  const act = async (key: string, fn: () => Promise<unknown>, done: string): Promise<boolean> => {
+    setBusy(key);
+    try {
+      await fn();
+      toast.success(done);
+      load();
+      onChanged();
+      return true;
+    } catch (err) {
+      toast.error(gitError(err));
+      return false;
+    } finally {
+      setBusy('');
+    }
+  };
+  const create = () => {
+    const n = name.trim();
+    if (!n) return;
+    void act('new', () => gitApi.createBranch(target, n, true), `Created ${n} and switched to it.`).then((ok) => {
+      if (!ok) return;
+      setName('');
+      setAdding(false);
+    });
+  };
+
+  return (
+    <Fold
+      title="Branches"
+      count={items?.length}
+      open={open}
+      onOpen={() => setOpen((v) => !v)}
+      act={
+        <button
+          type="button"
+          className="wb-section-act"
+          disabled={disabled}
+          onClick={() => {
+            setOpen(true);
+            setAdding(true);
+          }}
+        >
+          New branch
+        </button>
+      }
+    >
+      {adding && (
+        <div className="git-branch-new">
+          <input
+            className="control control-sm mono"
+            value={name}
+            autoFocus
+            placeholder="feature/new-thing"
+            aria-label="New branch name"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') create();
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                setAdding(false);
+              }
+            }}
+          />
+          <Button size="sm" variant="primary" loading={busy === 'new'} disabled={!name.trim() || disabled} onClick={create}>
+            Create
+          </Button>
+        </div>
+      )}
+      {error && (
+        <div className="wb-row-msg is-error" role="alert">
+          {error}
+        </div>
+      )}
+      {!items && !error && <div className="wb-row-msg">Loading…</div>}
+      {items?.map((b) => (
+        <div key={b.name} className={`wb-row git-branch-row ${b.current ? 'is-selected' : ''}`}>
+          <button
+            type="button"
+            className="git-branch-switch"
+            disabled={b.current || !!busy || disabled}
+            aria-current={b.current || undefined}
+            title={b.current ? 'Current branch' : `Switch to ${b.name}`}
+            onClick={() => void act(b.name, () => gitApi.switchBranch(target, b.name), `Switched to ${b.name}.`)}
+          >
+            {busy === b.name ? <span className="spinner" aria-hidden="true" /> : <Icon name={b.current ? 'check' : 'branch'} className="wb-icon" />}
+            <span className="wb-row-name truncate">{b.name}</span>
+            <span className="wb-result-dir tabular">
+              {b.ahead ? `↑${b.ahead} ` : ''}
+              {b.behind ? `↓${b.behind} ` : ''}
+              {b.lastCommitAt ? timeAgo(b.lastCommitAt) : ''}
+            </span>
+          </button>
+          {!b.current && (
+            <button
+              type="button"
+              className="wb-result-act"
+              aria-label={`Delete branch ${b.name}`}
+              title="Delete (git branch -d: unmerged branches are kept)"
+              disabled={!!busy || disabled}
+              onClick={() => void act(`del:${b.name}`, () => gitApi.deleteBranch(target, b.name), `Deleted ${b.name}.`)}
+            >
+              <Icon name="trash" />
+            </button>
+          )}
+        </div>
+      ))}
+    </Fold>
+  );
+}
+
+/** A commit picked in the graph or the stash: what it changed; the diffs open in the editor. */
+function CommitPeek({ target, hash, onClose, onOpen }: { target: GitTarget; hash: string; onClose: () => void; onOpen?: (file?: string) => void }) {
+  const [d, setD] = useState<GitCommitDetail | null>(null);
+  const [err, setErr] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let stop = false;
+    gitApi
+      .commitDetail(target, hash)
+      .then((x) => !stop && setD(x))
+      .catch((e) => !stop && setErr(gitError(e)));
+    return () => {
+      stop = true;
+    };
+  }, [target, hash]);
+  useEffect(() => {
+    box.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [d]);
+  const kept = d?.files.find((f) => f.status !== 'deleted');
+  const add = d?.files.reduce((n, f) => n + f.add, 0) ?? 0;
+  const del = d?.files.reduce((n, f) => n + f.del, 0) ?? 0;
+  return (
+    <div className="git-peek" ref={box} role="region" aria-label={d ? `Commit ${d.short}` : 'Commit'}>
+      <div className="git-peek-head">
+        <span className="mono fs-xs text-3">{d?.short ?? hash.slice(0, 7)}</span>
+        <strong className="git-peek-subject truncate" title={d?.subject}>
+          {d?.subject ?? ''}
+        </strong>
+        <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close the commit" onClick={onClose} />
+      </div>
+      {err && <p className="field-error">{err}</p>}
+      {!d && !err && <p className="fs-xs text-3">Loading the commit…</p>}
+      {d && (
+        <>
+          <div className="git-peek-meta fs-xs text-3">
+            <span className="truncate" title={`${d.author}${d.email ? ` <${d.email}>` : ''}\n${formatDateTime(d.at)}`}>
+              {d.author} · {timeAgo(d.at)}
+            </span>
+            <RefPills refs={d.refs} color={0} max={3} />
+          </div>
+          {d.body.trim() && <p className="git-peek-body fs-xs">{d.body.trim()}</p>}
+          <ul className="plain git-peek-files" aria-label={`Files of ${d.short}`}>
+            {d.files.map((f) => {
+              const { dir, name } = splitPath(f.path);
+              return (
+                <li key={`${f.oldPath ?? ''}:${f.path}`} className="git-file-row">
+                  <span className={`git-status st-${f.status}`} title={STATUS_LABEL[f.status] ?? f.status} aria-label={STATUS_LABEL[f.status] ?? f.status}>
+                    {STATUS_LETTER[f.status] ?? '?'}
+                  </span>
+                  <span className="git-peek-path truncate" title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}>
+                    {dir && <span className="text-3">{dir}</span>}
+                    {name}
+                  </span>
+                  <span className="git-counts tabular" title={f.binary ? 'Binary file' : `${f.add} lines added, ${f.del} removed`}>
+                    {f.binary ? (
+                      'bin'
+                    ) : (
+                      <>
+                        <span className="add">+{f.add}</span> <span className="del">−{f.del}</span>
+                      </>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="git-peek-foot">
+            <span className="fs-xs text-3 tabular">
+              {d.files.length} file{d.files.length === 1 ? '' : 's'}
+              {d.truncated ? '+' : ''} ·{' '}
+              <span className="git-counts">
+                <span className="add">+{add}</span> <span className="del">−{del}</span>
+              </span>
+            </span>
+            <span className="spacer" />
+            {onOpen && (
+              <Button size="sm" icon="code" onClick={() => onOpen(kept?.path)}>
+                Open in editor
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrashSection({ target, rev, onRestored }: { target: GitTarget; rev: number; onRestored: () => void }) {
+  const [open, setOpen] = useState(false);
   const [items, setItems] = useState<GitTrashItem[] | null>(null);
   const reload = useCallback(() => {
     gitApi
@@ -645,7 +1080,9 @@ function Trash({ target, rev, onRestored }: { target: GitTarget; rev: number; on
       .then(setItems)
       .catch(() => setItems([]));
   }, [target]);
-  useEffect(reload, [reload, rev]);
+  useEffect(() => {
+    if (open) reload();
+  }, [open, reload, rev]);
   const restore = async (it: GitTrashItem) => {
     try {
       const r = await gitApi.restore(target, it.id);
@@ -657,33 +1094,61 @@ function Trash({ target, rev, onRestored }: { target: GitTarget; rev: number; on
       toast.error(paths?.length ? `Not restored: ${paths.slice(0, 3).join(', ')} already exist${paths.length === 1 ? 's' : ''}. Move or discard them first.` : gitError(err));
     }
   };
-  if (!items) return <p className="list-msg">Loading…</p>;
-  if (!items.length) return <p className="list-msg">Nothing discarded yet. Discarded versions land here so you can bring them back.</p>;
   return (
-    <ul className="plain git-trash">
-      {items.map((it) => (
-        <li key={it.id} className="git-trash-row">
-          <div className="grow">
-            <div className="fs-sm">
-              {it.paths?.length ?? 0} file{it.paths?.length === 1 ? '' : 's'} · {timeAgo(it.at)}
-            </div>
-            <div className="mono fs-xs text-3 truncate">{(it.paths ?? []).slice(0, 3).join(', ')}</div>
-          </div>
-          <Button size="sm" icon="undo" onClick={() => void restore(it)}>
-            Restore
-          </Button>
-        </li>
-      ))}
-    </ul>
+    <Fold title="Discarded" count={open ? items?.length : undefined} open={open} onOpen={() => setOpen((v) => !v)}>
+      {!items ? (
+        <div className="wb-row-msg">Loading…</div>
+      ) : !items.length ? (
+        <div className="wb-row-msg">Nothing discarded yet. Discarded versions land here so you can bring them back.</div>
+      ) : (
+        <ul className="plain git-trash">
+          {items.map((it) => (
+            <li key={it.id} className="git-trash-row">
+              <div className="grow">
+                <div className="fs-sm">
+                  {it.paths?.length ?? 0} file{it.paths?.length === 1 ? '' : 's'} · {timeAgo(it.at)}
+                </div>
+                <div className="mono fs-xs text-3 truncate">{(it.paths ?? []).slice(0, 3).join(', ')}</div>
+              </div>
+              <Button size="sm" icon="undo" onClick={() => void restore(it)}>
+                Restore
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Fold>
   );
 }
 
-/** No remote yet: publish to GitHub with the gh CLI of the project's machine (B21). */
-function PublishCard({ project, target, workspaceId, status, running, onJob }: { project: Project; target: GitTarget; workspaceId: string; status: GitStatus; running: boolean; onJob: (j: Job) => void }) {
-  const pid = project.id;
-  const gh = useStudio((s) => s.github[pid]);
+/** No remote yet: publish to GitHub with the gh CLI of the part's machine (B21). */
+function PublishCard({
+  project,
+  pref,
+  target,
+  folder,
+  label,
+  workspaceId,
+  status,
+  running,
+  onJob,
+}: {
+  project: Project;
+  pref: string;
+  target: GitTarget;
+  folder: string;
+  label: string;
+  workspaceId: string;
+  status: GitStatus;
+  running: boolean;
+  onJob: (j: Job) => void;
+}) {
+  const gh = useStudio((s) => s.github[pref]);
+  // the hub's "github" event names only the project: each part asks its own machine again
+  const signal = useStudio((s) => JSON.stringify(s.github[project.id] ?? null));
+  const nameId = useId();
   const [loading, setLoading] = useState(!gh);
-  const [name, setName] = useState(() => (status.root || project.path).split('/').filter(Boolean).pop() ?? project.name);
+  const [name, setName] = useState(() => (status.root || folder).split('/').filter(Boolean).pop() ?? label);
   const [visibility, setVisibility] = useState<'private' | 'public'>('private');
   const [commitAll, setCommitAll] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -691,15 +1156,21 @@ function PublishCard({ project, target, workspaceId, status, running, onJob }: {
   const load = useCallback(() => {
     gitApi
       .github(target)
-      .then((g) => studioStore.setGitHub(pid, g))
+      .then((g) => studioStore.setGitHub(pref, g))
       .catch(() => undefined)
       .finally(() => setLoading(false));
-  }, [pid, target]);
+  }, [pref, target]);
   useEffect(load, [load]);
+  const seen = useRef(signal);
+  useEffect(() => {
+    if (seen.current === signal) return;
+    seen.current = signal;
+    load();
+  }, [signal, load]);
 
   const connect = async () => {
     try {
-      await gitApi.githubLogin(pid, workspaceId);
+      await gitApi.githubLogin(pref, workspaceId);
       toast.info('A console on the board runs gh auth login. Finish the sign-in there; this panel updates by itself.');
     } catch (err) {
       toast.error(`Could not start the sign-in: ${gitError(err)}`);
@@ -724,7 +1195,7 @@ function PublishCard({ project, target, workspaceId, status, running, onJob }: {
         <p className="fs-xs text-3">Checking the GitHub CLI…</p>
       ) : !gh?.ghInstalled ? (
         <div className="stack-sm">
-          <p className="fs-sm">Publishing uses the GitHub CLI (gh) on this project’s machine, and it isn’t installed there.</p>
+          <p className="fs-sm">Publishing uses the GitHub CLI (gh) on this machine, and it isn’t installed there.</p>
           {gh?.installHint && (
             <div className="git-hint">
               <code className="mono">{gh.installHint}</code>
@@ -747,10 +1218,10 @@ function PublishCard({ project, target, workspaceId, status, running, onJob }: {
       ) : (
         <div className="stack-sm">
           <p className="fs-xs text-3">Signed in as {gh.user || 'your account'}. Creates the repository, adds it as origin and pushes.</p>
-          <label className="field-label" htmlFor="gh-name">
+          <label className="field-label" htmlFor={nameId}>
             Repository name
           </label>
-          <input id="gh-name" className="control control-sm mono" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+          <input id={nameId} className="control control-sm mono" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
           <SegmentedControl<'private' | 'public'>
             value={visibility}
             onChange={setVisibility}

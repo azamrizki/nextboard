@@ -12,6 +12,7 @@ import { gitApi } from '../api';
 import type { GitCommitDetail, GitCommitFile, GitTarget } from '../types';
 import { LANE_COLORS } from './commitGraph';
 import { RefPills } from './CommitGraph';
+import { STASH_LABEL } from './StashSection';
 import { FileIcon } from './Explorer';
 import { currentTheme, FONT, languageFor, monaco } from './monaco';
 import type { CommitTab, Workspace } from './workspace';
@@ -19,7 +20,7 @@ import type { CommitTab, Workspace } from './workspace';
 /** Narrower than this, the diff starts inline; the button then decides, not the width. */
 const SIDE_BY_SIDE_FROM = 900;
 
-export const STASH_LABEL = 'Stash: ';
+export { STASH_LABEL };
 
 const copyHash = (hash: string) => void navigator.clipboard?.writeText(hash).then(() => toast.success('Hash copied.'));
 

@@ -12,10 +12,29 @@ import { errorMessage } from '../../api';
 import { gitError } from '../../git/common';
 import { formatDateTime } from '../../lib/format';
 import { gitApi } from '../api';
-import type { GitCommit, GitRef, GitTarget } from '../types';
+import type { GitCommit, GitRef, GitStatus, GitTarget } from '../types';
 import { layoutGraph, refPills, type GraphRow } from './commitGraph';
 import { useWs } from './useWs';
 import type { Workspace } from './workspace';
+
+/**
+ * Where the history and the stash show: the editor's workbench (a Workspace fits as it is), or a
+ * part of the project in the board's Git panel.
+ */
+export interface GitHost {
+  readonly gitTarget: GitTarget;
+  /** Moves when the repository changed: the lists read again. */
+  readonly gitVersion: number;
+  readonly git: GitStatus | null;
+  refreshGit(): unknown;
+  openCommit(hash: string, o?: { label?: string; pin?: boolean }): void;
+  /** What shows now: its commit is marked in the list. */
+  readonly activeTab?: { commit?: { hash: string } } | null;
+  /** The graph in a tab of its own, where there are tabs. */
+  openView?(view: { kind: 'graph' }, o?: { pin?: boolean }): void;
+  /** Unsaved edits go to disk before a stash. */
+  saveAll?(): Promise<unknown>;
+}
 
 const PAGE = 100;
 const MAX_COMMITS = 1000;
@@ -160,7 +179,7 @@ function NameDialog({ title, label, cta, onSave, onClose }: { title: string; lab
 type Ask = { kind: 'branch' | 'tag'; commit: GitCommit } | { kind: 'hard'; commit: GitCommit };
 
 /** The commits of the graph, loaded a page at a time and kept fresh. */
-function useHistory(ws: Workspace, open: boolean) {
+function useHistory(ws: GitHost, open: boolean) {
   const target = ws.gitTarget;
   const [all, setAllState] = useState(true);
   const [items, setItems] = useState<GitCommit[] | null>(null);
@@ -231,7 +250,7 @@ function ScopeButton({ all, toggle }: { all: boolean; toggle: () => void }) {
 }
 
 /** The right-click menu of a commit, and the dialogs it asks with. */
-function useCommitMenu(ws: Workspace) {
+function useCommitMenu(ws: GitHost) {
   const target = ws.gitTarget;
   const [menu, setMenu] = useState<{ x: number; y: number; commit: GitCommit } | null>(null);
   const [ask, setAsk] = useState<Ask | null>(null);
@@ -320,8 +339,9 @@ function lanesFit(lanes: number, gutter: number) {
   return { step, width: Math.min(gutter + LEFT, LEFT * 2 + step * Math.max(lanes - 1, 0)) };
 }
 
-export function HistorySection({ ws }: { ws: Workspace }) {
-  const [open, setOpen] = useState(true);
+/** `defaultOpen` false: the graph reads nothing until it is opened (the board's Git panel). */
+export function HistorySection({ ws, defaultOpen = true }: { ws: GitHost; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const h = useHistory(ws, open);
   const commitMenu = useCommitMenu(ws);
   const { step, width } = lanesFit(h.graph.lanes, GUTTER);
@@ -336,9 +356,11 @@ export function HistorySection({ ws }: { ws: Workspace }) {
         </button>
         {open && (
           <>
-            <button type="button" className="wb-section-act wb-graph-open" title="See the graph in a tab of its own" onClick={() => ws.openView({ kind: 'graph' }, { pin: true })}>
-              Open graph
-            </button>
+            {ws.openView && (
+              <button type="button" className="wb-section-act wb-graph-open" title="See the graph in a tab of its own" onClick={() => ws.openView?.({ kind: 'graph' }, { pin: true })}>
+                Open graph
+              </button>
+            )}
             <ScopeButton all={h.all} toggle={h.toggleAll} />
           </>
         )}
