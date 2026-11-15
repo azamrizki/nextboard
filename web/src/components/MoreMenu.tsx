@@ -8,7 +8,7 @@ import { useLayout } from '../lib/layout';
 import { memoryPath, navigate } from '../lib/router';
 import { setThemePref, useTheme } from '../lib/theme';
 import type { Project } from '../lib/types';
-import { AboutHubDialog } from './HubInfo';
+import { AboutHubDialog, useBuildLabel } from './HubInfo';
 import { Menu, type MenuEntry } from './Menu';
 
 export function MoreMenu({ project }: { project?: Project }) {
@@ -17,6 +17,7 @@ export function MoreMenu({ project }: { project?: Project }) {
   const { layout } = useLayout();
   const { state: installState, install } = useInstall();
   const [about, setAbout] = useState(false);
+  const buildLabel = useBuildLabel();
   const next = theme === 'dark' ? 'light' : 'dark';
 
   const items = (): MenuEntry[] => [
@@ -34,7 +35,8 @@ export function MoreMenu({ project }: { project?: Project }) {
     // only while the browser offers it (lib/install.ts): Settings › Install app says the rest
     ...(installState === 'ready' ? [{ label: 'Install app', icon: 'download', onSelect: () => void install() } as MenuEntry] : []),
     { label: `Switch to ${next} mode`, icon: theme === 'dark' ? 'sun' : 'moon', onSelect: () => setThemePref(next) },
-    { label: 'About this hub', icon: 'info', onSelect: () => setAbout(true) },
+    // the build is here on a phone, which has no room for the header's label
+    { label: 'About this hub', icon: 'info', meta: buildLabel || undefined, onSelect: () => setAbout(true) },
     'sep',
     me.kind === 'admin'
       ? { label: 'Log out', icon: 'logout', onSelect: () => void logout() }

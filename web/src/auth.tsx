@@ -3,6 +3,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api } from './api';
+import { hubUpdateStore } from './components/hubUpdate';
 import type { Hub, Me } from './lib/types';
 
 export interface AuthInfo {
@@ -29,8 +30,16 @@ export function AuthProvider({ me, onLogout, children }: AuthProviderProps) {
       .hub()
       .then((h) => alive && setHub(h))
       .catch(() => undefined);
+    // the hub came back from an update: it runs another build now
+    const off = hubUpdateStore.onUpdated(() => {
+      api
+        .hub()
+        .then((h) => alive && setHub(h))
+        .catch(() => undefined);
+    });
     return () => {
       alive = false;
+      off();
     };
   }, []);
 

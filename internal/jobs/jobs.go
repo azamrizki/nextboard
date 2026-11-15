@@ -385,13 +385,17 @@ func (m *Manager) finish(j *job, state, code, msg string, result json.RawMessage
 }
 
 // setProgress updates the phase; the event is throttled.
-func (m *Manager) setProgress(j *job, phase, text string) {
+func (m *Manager) setProgress(j *job, phase, text string) { m.setProgressPct(j, phase, text, nil) }
+
+// setProgressPct is setProgress with a percentage (nil = none).
+func (m *Manager) setProgressPct(j *job, phase, text string, pct *float64) {
 	m.mu.Lock()
-	if j.State != StateRunning || (j.Progress.Phase == phase && j.Progress.Text == text) {
+	same := j.Progress.Phase == phase && j.Progress.Text == text && (pct == nil) == (j.Progress.Pct == nil) && (pct == nil || *pct == *j.Progress.Pct)
+	if j.State != StateRunning || same {
 		m.mu.Unlock()
 		return
 	}
-	j.Progress = Progress{Phase: phase, Text: text}
+	j.Progress = Progress{Phase: phase, Text: text, Pct: pct}
 	m.mu.Unlock()
 	m.emit(j, false)
 }

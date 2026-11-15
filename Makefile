@@ -1,5 +1,10 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)
-LDFLAGS := -s -w -X github.com/azamrizki/nextboard/internal/version.Version=$(VERSION)
+# The short commit, "-dirty" with uncommitted changes, empty outside a git checkout (the hub then
+# reads Go's build info, else says "unknown"); the build time in UTC, RFC 3339.
+COMMIT ?= $(shell c=$$(git rev-parse --short HEAD 2>/dev/null) && { git diff --quiet HEAD -- 2>/dev/null || c="$$c-dirty"; echo "$$c"; })
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+VPKG    := github.com/azamrizki/nextboard/internal/version
+LDFLAGS := -s -w -X $(VPKG).Version=$(VERSION) -X $(VPKG).Commit=$(COMMIT) -X $(VPKG).Date=$(BUILD_DATE)
 DATA    ?= $(CURDIR)/.devdata
 LISTEN  ?= 0.0.0.0:12312
 WEB_PORT ?= 15173

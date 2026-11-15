@@ -17,7 +17,7 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
 
 | Method | Path | Auth | Request | Response |
 |---|---|---|---|---|
-| GET | `/api/health` | — | — | `{"ok":true,"name":"devbox","version":"0.1.0"}` |
+| GET | `/api/health` | — | — | `{"ok":true,"name":"devbox","version":"0.9.0","commit":"3f2a1c9","builtAt":"2026-11-10T09:00:00Z","channel":"stable"}` (the build fields as in `Hub`) |
 | GET | `/api/setup/status` | — | — | `{"needsSetup":true,"hubName":""}` |
 | POST | `/api/setup` | — | `{"code":"K7QX-M2PA","password":"...","hubName":"devbox"}` | `200 {"ok":true}` + sets a cookie (logged in right away). `400` password < 8 characters / empty hubName. `403` wrong/expired/used code. `409` already set up. |
 | GET | `/api/hub` | yes | — | `Hub` |
@@ -26,11 +26,49 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
 // Hub
 {
   "name": "devbox",
-  "version": "0.1.0",
+  "version": "0.9.0",          // the release, or what the build was given ("0.1.0-dev", a git describe)
+  "commit": "3f2a1c9",         // short hash it was built from, "-dirty" with uncommitted changes, "unknown" when not recorded
+  "builtAt": "2026-11-10T09:00:00Z", // build time, RFC 3339 UTC; "" when not known
+  "channel": "stable",         // "stable" (v0.9.0), "beta" (v0.9.0-beta.2, also alpha.N/rc.N), "dev" (anything else)
+  "repo": "azamrizki/nextboard", // the GitHub repository its releases and commits come from
   "urls": ["https://board.example.com"],   // over HTTPS: that origin + the HTTPS extraUrls; over HTTP: the hub's http:// addresses
   "listen": "0.0.0.0:12312"
 }
 ```
+
+**Where the build fields come from:** a release sets `version`, `commit` and `builtAt` at build time (`-ldflags` in `.goreleaser.yaml`), as `make build` does from git. A binary built without them takes the commit from Go's build info (`vcs.revision`, `-dirty` from `vcs.modified`), else `"unknown"`, and the build time from the binary's own file time. The dev hub (`make dev`) records the commit but no build time, so its binary changes only when the code does. `nextboard version` prints the same: `nextboard 0.9.0 (stable, commit 3f2a1c9, built 2026-11-10T09:00:00Z)`.
+
+### Hub update
+
+The web's way to run `nextboard update` (README, Update): whether a newer release is out, and installing it on a hub that runs as the service `nextboard install` set up.
+
+| Method | Path | Auth | Request | Response |
+|---|---|---|---|---|
+| GET | `/api/hub/update` | yes | — | `HubUpdate`. Asks GitHub at most once an hour (after a failure, again after 10 minutes); a dev build asks nothing. |
+| POST | `/api/hub/update` | admin | `{"version":"v0.9.1"}` (optional: the release the owner confirmed) | `202 Job` (kind `hubUpdate`, purpose = the tag). `409` `dev_build` · `not_service` (not started by its service, so it cannot restart itself: use `nextboard update` where it runs) · `not_writable` (the binary's folder) · `update_running` (`jobId`) · `restart_pending` (swapped in, not restarted yet) · `up_to_date` · `version_changed` (the newest release is no longer the one asked). `502 check_failed` (GitHub could not be asked). `403` for a device. |
+
+```jsonc
+// HubUpdate
+{
+  "status": "available",     // "current" | "available" | "dev" (no check) | "unknown" (could not ask: offline, rate limited)
+  "current": "0.9.0",
+  "channel": "stable",
+  "latest": "v0.9.1",        // the newest release of the channel
+  "url": "https://github.com/azamrizki/nextboard/releases/tag/v0.9.1",
+  "command": "nextboard update",   // the same in a terminal; "nextboard update --version vX" for a beta
+  "error": "",               // why status is "unknown"
+  "checkedAt": "2026-11-15T09:00:00Z",
+  "blocked": "",             // why this hub cannot install it from the web (+ "blockedCode", one of the 409 codes above)
+  "jobId": "",               // an update job running
+  "installed": "",           // a tag swapped in that the hub does not run yet (its restart is pending or failed)
+  "restartError": ""         // why that restart failed
+}
+```
+
+- **Channel:** a stable build follows the latest stable release; a beta follows the newest release of any kind, beta or stable (`v0.9.0-beta.3`, then `v0.9.0`). Never an older one, never a draft. A dev build follows none: update it with `git pull` and a rebuild.
+- **The job** (events `{"type":"job"}`, API-studio.md §1.2) has the phases `download` (with `pct`), `verify` (SHA-256 against the release's `checksums.txt`), `swap`, `restarting`, then `done` with `result` `{"from","to","binary","old","restart":true}`. Assets must come from the repository's own releases (`https://github.com/<repo>/releases/download/…`); nothing from the download runs. The new binary is written next to the old one, which stays as `<binary>.old`, then renamed over it in one step. To go back: `nextboard update --version <old tag> --force`, or move `<binary>.old` back and restart the service.
+- **Restart:** about 1.5 s after the job ends, the hub asks its service manager to restart it (`systemctl --user --no-block restart nextboard`, `launchctl kickstart -k`). Consoles reconnect and agents come back asleep or resume, as after any hub restart; data and logins stay. A client waits until `/api/health` answers with the new `version`.
+- **Tests only:** `NEXTBOARD_TEST_RELEASE_API=<base URL>` points the hub and `nextboard update` at a fake GitHub (the API and every download from that base).
 
 ## Auth
 

@@ -4,10 +4,21 @@ import type { OrchEvent } from '../orch/types';
 import type { StudioEvent } from '../studio/types';
 import type { Beat, Monitor } from '../uptime/api';
 
-export interface Health {
+/** Which build a hub runs (docs/API.md Hub); older hubs send only the version. */
+export interface BuildInfo {
+  version: string;
+  /** Short hash, "-dirty" with uncommitted changes, "unknown" when not recorded. */
+  commit?: string;
+  /** Build time, RFC 3339; "" when not known. */
+  builtAt?: string;
+  channel?: 'stable' | 'beta' | 'dev' | string;
+  /** GitHub owner/name of the releases and commits. */
+  repo?: string;
+}
+
+export interface Health extends BuildInfo {
   ok: boolean;
   name: string;
-  version: string;
 }
 
 export interface SetupStatus {
@@ -15,11 +26,27 @@ export interface SetupStatus {
   hubName: string;
 }
 
-export interface Hub {
+export interface Hub extends BuildInfo {
   name: string;
-  version: string;
   urls: string[];
   listen: string;
+}
+
+/** GET /api/hub/update (docs/API.md Hub update). */
+export interface HubUpdate {
+  status: 'current' | 'available' | 'dev' | 'unknown';
+  current: string;
+  channel: string;
+  latest?: string;
+  url?: string;
+  command?: string;
+  error?: string;
+  checkedAt: string;
+  blocked?: string;
+  blockedCode?: string;
+  jobId?: string;
+  installed?: string;
+  restartError?: string;
 }
 
 export type Me =

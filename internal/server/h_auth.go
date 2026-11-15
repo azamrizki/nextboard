@@ -11,8 +11,11 @@ import (
 	"github.com/azamrizki/nextboard/internal/version"
 )
 
+// handleHealth also says which build runs: what a monitor, or the web after an update, asks.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": s.hubName(), "version": version.Version})
+	b := version.Info()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": s.hubName(),
+		"version": b.Version, "commit": b.Commit, "builtAt": b.BuiltAt, "channel": b.Channel})
 }
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
@@ -155,9 +158,10 @@ func (s *Server) handleDeviceAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHub(w http.ResponseWriter, r *http.Request, p *principal) {
+	b := version.Info()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"name": s.hubName(), "version": version.Version,
-		"urls": s.urlsFor(r), "listen": s.listen,
+		"name": s.hubName(), "version": b.Version, "commit": b.Commit, "builtAt": b.BuiltAt, "channel": b.Channel,
+		"repo": version.Repo, "urls": s.urlsFor(r), "listen": s.listen,
 	})
 }
 

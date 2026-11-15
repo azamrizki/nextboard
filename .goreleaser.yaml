@@ -17,6 +17,8 @@ builds:
     ldflags:
       - -s -w
       - -X github.com/azamrizki/nextboard/internal/version.Version={{ .Version }}
+      - -X github.com/azamrizki/nextboard/internal/version.Commit={{ .ShortCommit }}{{ if .IsGitDirty }}-dirty{{ end }}
+      - -X github.com/azamrizki/nextboard/internal/version.Date={{ .Date }}
       - -X github.com/azamrizki/nextboard/internal/version.Repo={{ envOrDefault "GITHUB_REPOSITORY" "azamrizki/nextboard" }}
 
 archives:

@@ -1409,6 +1409,57 @@ textarea.control {
   font-size: var(--fs-sm);
   color: var(--text-2);
 }
+/* which build runs ("v0.9.0 · 3f2a1c9"): muted, mono, opens About this hub (DESIGN.md §3.4) */
+.btn.build-label {
+  min-width: var(--h-control-sm);
+  padding: 0 var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
+}
+.btn.build-label:hover,
+.btn.build-label[aria-expanded='true'] {
+  color: var(--text-2);
+}
+.build-label-text {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hub-kv .build-version {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.update-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+.update-bar {
+  display: block;
+  width: 100%;
+  height: var(--s-1);
+  border-radius: var(--r-pill);
+  background: var(--surface-active);
+  overflow: hidden;
+}
+.update-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--c-primary-300);
+  transition: width var(--t-fast) var(--ease);
+}
+.update-steps {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding-left: var(--s-5);
+  list-style: disc;
+}
 
 /* page frame below the floating header */
 .page {

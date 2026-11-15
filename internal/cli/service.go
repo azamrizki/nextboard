@@ -22,11 +22,12 @@ import (
 	"github.com/azamrizki/nextboard/internal/server"
 	"github.com/azamrizki/nextboard/internal/session"
 	"github.com/azamrizki/nextboard/internal/store"
+	"github.com/azamrizki/nextboard/internal/update"
 )
 
 const (
-	serviceName = "nextboard"
-	launchLabel = "id.nextboard"
+	serviceName = update.ServiceName
+	launchLabel = update.LaunchLabel
 )
 
 // Kept in sync with deploy/nextboard.service and deploy/id.nextboard.plist.
@@ -79,19 +80,7 @@ type unitData struct {
 	Bin, DataDir, Shell, Home string
 }
 
-func unitPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	switch runtime.GOOS {
-	case "linux":
-		return filepath.Join(home, ".config", "systemd", "user", serviceName+".service"), nil
-	case "darwin":
-		return filepath.Join(home, "Library", "LaunchAgents", launchLabel+".plist"), nil
-	}
-	return "", fmt.Errorf("OS %s is not supported yet for the service", runtime.GOOS)
-}
+func unitPath() (string, error) { return update.UnitPath() }
 
 func run(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
@@ -235,15 +224,7 @@ func stopService(path string) {
 	}
 }
 
-func restartService() error {
-	switch runtime.GOOS {
-	case "linux":
-		return run("systemctl", "--user", "restart", serviceName)
-	case "darwin":
-		return run("launchctl", "kickstart", "-k", "gui/"+strconv.Itoa(os.Getuid())+"/"+launchLabel)
-	}
-	return errors.New("unsupported OS")
-}
+func restartService() error { return update.RestartService() }
 
 func cmdUninstall(args []string) error {
 	fs, dir := newFlags("uninstall")

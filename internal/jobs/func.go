@@ -41,6 +41,11 @@ type Reporter struct {
 // Progress sets the job phase (events throttled like runner jobs).
 func (r *Reporter) Progress(phase, text string) { r.m.setProgress(r.j, phase, text) }
 
+// ProgressPct sets the phase with how far it is, 0–100 (a download).
+func (r *Reporter) ProgressPct(phase, text string, pct float64) {
+	r.m.setProgressPct(r.j, phase, text, &pct)
+}
+
 // Output streams a text chunk ({"type":"jobOutput"}).
 func (r *Reporter) Output(text string) { r.m.output(r.j, text) }
 

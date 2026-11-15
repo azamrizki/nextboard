@@ -1,9 +1,9 @@
 // The app's header, one per layout (DESIGN.md §3.4).
 //
 //   desktop  floating glass bar: brand + hub chip, navigation, usage, needs-you and live chips,
-//            connection, then the vault key, Settings, theme, About and Log out as buttons
-//   tablet   the same bar on one row, with Settings, theme, About and Log out (and, inside a
-//            project, the other pages) in a "…" menu
+//            connection, then the vault key, Settings, theme, the build label (About) and Log out
+//   tablet   the same bar on one row, with the vault key and the build label, and Settings,
+//            theme, About and Log out (and, inside a project, the other pages) in a "…" menu
 //   phone    a bar along the top edge, one row, and outside a project a tab bar along the bottom
 //
 // Inside a project the navigation gives way to the project switcher and the workspace tabs (a
@@ -218,7 +218,10 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
               )}
             </>
           ) : (
-            <MoreMenu project={project} />
+            <>
+              <HubInfoButton />
+              <MoreMenu project={project} />
+            </>
           )}
         </div>
       </div>

@@ -62,6 +62,8 @@ func (s *Server) routes() {
 	pub("POST /api/auth/challenge", s.handleChallenge)
 	pub("POST /api/auth/device", s.handleDeviceAuth)
 	authed("GET /api/hub", s.handleHub)
+	authed("GET /api/hub/update", s.handleHubUpdateCheck)
+	admin("POST /api/hub/update", s.handleHubUpdate)
 
 	admin("POST /api/pair/start", s.handlePairStart)
 	pub("POST /api/pair/complete", s.handlePairComplete)

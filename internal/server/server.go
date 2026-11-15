@@ -88,6 +88,7 @@ type Server struct {
 	providers           *providers.Store
 	spend               spendCache
 	jobs                *jobs.Manager
+	hubUpdate           hubUpdater
 	deliver             *delivery.Engine
 	orch                *orch.Service
 	attn                *attentionRing
@@ -405,7 +406,8 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 	go s.watchBudgets(ctx)
 	go s.returnMemory(ctx)
 
-	log.Printf("NextBoard %s running at http://%s", version.Version, s.listen)
+	b := version.Info()
+	log.Printf("NextBoard %s (%s, commit %s, built %s) running at http://%s", b.Version, b.Channel, b.Commit, orUnknown(b.BuiltAt), s.listen)
 	if !isLoopbackListen(s.listen) {
 		log.Printf("WARNING: the hub serves unencrypted HTTP on %s. Passwords, tokens and terminal contents can be intercepted on this network. To deploy: listen on 127.0.0.1 and set up HTTPS in nginx (deploy/nginx.conf.example).", s.listen)
 	}

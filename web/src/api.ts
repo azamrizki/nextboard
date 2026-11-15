@@ -41,6 +41,7 @@ import type {
   GitInfo,
   Health,
   Hub,
+  HubUpdate,
   Machine,
   McpProbe,
   McpServer,
@@ -232,6 +233,10 @@ export const api = {
   setup: (code: string, password: string, hubName: string) =>
     post<Ok>('/api/setup', { code, password, hubName }, { noRedirect: true }),
   hub: () => get<Hub>('/api/hub'),
+  /** Whether a newer release is out; the hub asks GitHub at most once an hour. */
+  hubUpdate: () => get<HubUpdate>('/api/hub/update'),
+  /** Install it (admin): a job, then the hub restarts. */
+  startHubUpdate: (version: string) => post<Job>('/api/hub/update', { version }),
 
   // auth
   login: (password: string) => post<Ok>('/api/auth/login', { password }, { noRedirect: true }),

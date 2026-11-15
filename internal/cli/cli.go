@@ -82,7 +82,7 @@ func Main(args []string) int {
 	case "browser-sandbox":
 		err = cmdBrowserSandbox(rest)
 	case "version", "--version", "-v":
-		fmt.Println("nextboard", version.Version)
+		fmt.Println(version.Info())
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:
