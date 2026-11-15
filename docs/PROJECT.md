@@ -1,118 +1,118 @@
-# NextBoard Hub: dokumen proyek
+# NextBoard Hub: project document
 
-Gambaran utuh hub NextBoard: tujuan, cara kerja, seluruh fitur, batas sistem, status, dan yang belum selesai. Baca dokumen ini dulu kalau baru masuk ke proyek. Bentuk JSON dan kode error persis ada di `API*.md` (peta di §15).
+The complete picture of the NextBoard hub: goals, how it works, every feature, system limits, status, and what is not done yet. Read this document first if you are new to the project. Exact JSON shapes and error codes are in `API*.md` (map in §15).
 
-**Keadaan per 2026-11-05.** Angka di sini dicocokkan ke kode pada tanggal itu. Status "teruji" berasal dari catatan verifikasi di docs; tes tidak dijalankan ulang saat dokumen ini ditulis. Kalau dokumen ini berbeda dengan kode, kode yang benar.
+**State as of 2026-11-05.** The numbers here were checked against the code on that date. "Tested" status comes from the verification notes in the docs; the tests were not rerun when this document was written. If this document differs from the code, the code is right.
 
-## Daftar isi
+## Contents
 
-1. [Ringkasan](#1-ringkasan)
-2. [Tujuan](#2-tujuan)
-3. [Konsep dan istilah](#3-konsep-dan-istilah)
-4. [Arsitektur](#4-arsitektur)
-5. [Fitur](#5-fitur)
-6. [Keamanan](#6-keamanan)
-7. [Batas sistem](#7-batas-sistem)
-8. [Data dan persistensi](#8-data-dan-persistensi)
-9. [API dan event](#9-api-dan-event)
-10. [Klien](#10-klien)
-11. [Pengembangan, test, deploy](#11-pengembangan-test-deploy)
-12. [Keputusan pemilik](#12-keputusan-pemilik)
-13. [Status dan riwayat](#13-status-dan-riwayat)
-14. [Yang belum selesai dan risiko](#14-yang-belum-selesai-dan-risiko)
-15. [Peta dokumen](#15-peta-dokumen)
+1. [Summary](#1-summary)
+2. [Purpose](#2-purpose)
+3. [Concepts and terms](#3-concepts-and-terms)
+4. [Architecture](#4-architecture)
+5. [Features](#5-features)
+6. [Security](#6-security)
+7. [System limits](#7-system-limits)
+8. [Data and persistence](#8-data-and-persistence)
+9. [API and events](#9-api-and-events)
+10. [Clients](#10-clients)
+11. [Development, testing, deployment](#11-development-testing-deployment)
+12. [Owner decisions](#12-owner-decisions)
+13. [Status and history](#13-status-and-history)
+14. [Unfinished work and risks](#14-unfinished-work-and-risks)
+15. [Document map](#15-document-map)
 
-## 1. Ringkasan
+## 1. Summary
 
-NextBoard adalah board visual self-hosted untuk AI coding agent. Satu binary Go (`nextboard`) dipasang sekali di sebuah komputer, berjalan sebagai service, lalu menyajikan Web UI dan API. Dari sana pemilik menjalankan banyak agent CLI (Claude Code, Codex, Gemini CLI, dan lain-lain) sebagai tile terminal di kanvas tak terbatas, melihat status tiap agent, memberi perintah lewat satu command bar, dan mengerjakan git, file, preview web, serta aplikasi desktop dari board yang sama.
+NextBoard is a self-hosted visual board for AI coding agents. One Go binary (`nextboard`) is installed once on a computer, runs as a service, and serves the Web UI and API. From there the owner runs many agent CLIs (Claude Code, Codex, Gemini CLI, and others) as terminal tiles on an infinite canvas, sees each agent's status, gives orders through one command bar, and works on git, files, web previews, and desktop apps from the same board.
 
-Ini proyek open source berlisensi MIT dengan satu pengelola, yang di dokumen ini disebut pemilik. Bukan produk untuk dijual. Tidak ada multi-tenant, billing, atau relay cloud.
+This is an MIT-licensed open-source project with one maintainer, called the owner in this document. It is not a product for sale. There is no multi-tenancy, billing, or cloud relay.
 
 | | |
 |---|---|
-| Versi | `0.2.0` (rilis terakhir; build dev menulis `0.1.0-dev`) |
-| Teknologi | Go 1.26, React 19 + TypeScript + Vite |
-| Ukuran | 36 paket Go, sekitar 70 ribu baris kode dan 39 ribu baris tes (134 file, 751 fungsi `Test`); sekitar 65 ribu baris TS/TSX; sekitar 280 pola route HTTP |
-| Alamat | `127.0.0.1:12312` (HTTP polos, HTTPS diberikan nginx); preview `12320–12339` |
-| Penyimpanan | File JSON di `~/.nextboard/`, tanpa database |
-| Target build | Linux dan macOS, amd64 dan arm64. Tile aplikasi desktop hanya Linux. Semua uji nyata yang tercatat dilakukan di Linux |
-| Klien | Web UI (tertanam di binary). Android dan desktop ada, tetapi ditunda (§10) |
+| Version | `0.2.0` (latest release; dev builds write `0.1.0-dev`) |
+| Technology | Go 1.26, React 19 + TypeScript + Vite |
+| Size | 36 Go packages, about 70 thousand lines of code and 39 thousand lines of tests (134 files, 751 `Test` functions); about 65 thousand lines of TS/TSX; about 280 HTTP route patterns |
+| Address | `127.0.0.1:12312` (plain HTTP, HTTPS provided by nginx); previews `12320–12339` |
+| Storage | JSON files in `~/.nextboard/`, no database |
+| Build targets | Linux and macOS, amd64 and arm64. Desktop app tiles are Linux only. All recorded real tests were done on Linux |
+| Clients | Web UI (embedded in the binary). Android and desktop exist, but are paused (§10) |
 
-## 2. Tujuan
+## 2. Purpose
 
-### Masalah yang diselesaikan
+### Problems it solves
 
-- Terlalu banyak tab terminal dan sesi SSH, sehingga sulit melihat agent mana yang bekerja dan mana yang menunggu input.
-- Agent berhenti ketika laptop ditutup.
-- Agent tidak bisa dipantau dari HP.
-- Agent dan project tersebar di beberapa server tanpa satu tempat untuk melihat semuanya.
+- Too many terminal tabs and SSH sessions, so it is hard to see which agent is working and which is waiting for input.
+- Agents stop when the laptop is closed.
+- Agents cannot be watched from a phone.
+- Agents and projects are spread over several servers with no one place to see them all.
 
-### Goal
+### Goals
 
-1. **Pasang sekali.** Satu perintah memasang binary dan service; link setup sekali pakai menyelesaikan sisanya.
-2. **Satu board untuk semua agent.** Status `WORKING`, `NEEDS YOU`, `READY` terlihat tanpa membuka tiap terminal.
-3. **Agent tetap jalan tanpa klien.** Browser ditutup atau jaringan putus tidak menghentikan kerja; loop tetap berjalan di hub 24 jam.
-4. **Pemantauan dari mana saja.** Browser, app desktop, dan Android yang di-pair melihat board yang sama, dengan notifikasi saat agent butuh input.
-5. **Mengarahkan tim agent dengan bahasa biasa.** Satu command bar untuk menyuruh, membagi kerja, meneruskan hasil, dan menjadwalkan.
-6. **Tidak perlu keluar dari board.** Editor sekelas VS Code/Cursor, git, preview, dan browser sungguhan semuanya tile di board.
-7. **Paritas fitur dengan Symvibe**, dalam desain NextBoard sendiri ("Glass", [DESIGN.md](DESIGN.md)), bukan salinan tampilan. Inventaris fitur acuan adalah catatan internal dan tidak ikut di repo ini.
+1. **Install once.** One command installs the binary and the service; a one-time setup link finishes the rest.
+2. **One board for every agent.** The `WORKING`, `NEEDS YOU`, `READY` states are visible without opening each terminal.
+3. **Agents keep running without a client.** A closed browser or a dropped network does not stop work; loops keep running on the hub 24 hours a day.
+4. **Watching from anywhere.** Paired browsers, desktop apps, and Android see the same board, with notifications when an agent needs input.
+5. **Directing a team of agents in plain language.** One command bar to give orders, split work, forward results, and schedule.
+6. **No need to leave the board.** A VS Code/Cursor-class editor, git, previews, and real browsers are all tiles on the board.
+7. **Feature parity with Symvibe**, in NextBoard's own design ("Glass", [DESIGN.md](DESIGN.md)), not a copy of its look. The reference feature inventory is an internal note and is not in this repo.
 
-### Bukan tujuan
+### Non-goals
 
-- Multi-user, multi-tenant, atau layanan yang dibuka ke publik.
-- Planner atau TTS berbasis cloud. Planner memakai CLI lokal dengan plan milik pemilik; suara memakai API browser.
-- Dari Symvibe yang sengaja tidak diambil: subscription dan credits (F5), instalasi khusus macOS (A1), banner iCloud, Quick Look/Finder, inspector WebKit native (diganti kartu log).
+- Multi-user, multi-tenant, or a service open to the public.
+- A cloud-based planner or TTS. The planner uses a local CLI with the owner's plan; voice uses the browser API.
+- Left out of Symvibe on purpose: subscription and credits (F5), macOS-only installation (A1), the iCloud banner, Quick Look/Finder, the native WebKit inspector (replaced by a log card).
 
-### Prinsip yang mengikat
+### Binding principles
 
-Aturan ini membentuk banyak keputusan teknis. Melanggarnya butuh keputusan pemilik (§12).
+These rules shape many technical decisions. Breaking one takes an owner decision (§12).
 
-1. **Agentless di server.** Tidak memasang binary atau service dan tidak mengubah file config yang sudah ada di server tujuan. Syaratnya hanya `sshd`.
-2. **Agent selalu di This PC.** State CLI (login, memory, setting) ada di folder NextBoard; server dijangkau lewat tool hub.
-3. **Tidak ada config CLI yang ditulis.** Hooks, MCP, memory, dan instruksi diberikan per launch lewat flag dan environment. `~/.claude` tidak disentuh.
-4. **1 project = 1 memory**, apa pun agent atau CLI-nya.
-5. **Teks orkestrasi hanya masuk lewat delivery engine.** Tidak pernah ke shell, tidak pernah ke prompt izin.
-6. **Tindakan merusak butuh konfirmasi, dan "hapus" berarti pindah ke trash** bila menyangkut file pengguna.
-7. **Hidden runner tidak pernah yolo.** Tool-nya baca-saja atau tidak ada sama sekali.
-8. **Hub tidak dibuka ke internet.** Hub pada dasarnya shell ke mesin; HTTPS diakhiri nginx di host yang sama.
+1. **Agentless on servers.** No binary or service is installed, and no existing config file on the target server is changed. The only requirement is `sshd`.
+2. **Agents always on This PC.** CLI state (login, memory, settings) lives in the NextBoard folder; servers are reached through hub tools.
+3. **No CLI config is written.** Hooks, MCP, memory, and instructions are given per launch through flags and the environment. `~/.claude` is not touched.
+4. **1 project = 1 memory**, whatever the agent or CLI.
+5. **Orchestration text enters only through the delivery engine.** Never into a shell, never into a permission prompt.
+6. **Destructive actions need confirmation, and "delete" means move to trash** when user files are involved.
+7. **Hidden runs are never yolo.** Their tools are read-only, or there are none at all.
+8. **The hub is not exposed to the internet.** The hub is essentially a shell into the machine; HTTPS is terminated by nginx on the same host.
 
-### Prioritas sekarang
+### Current priorities
 
-Sejak 2026-11-02 fokusnya **core backend** (keputusan 8). Android dan desktop ditunda sampai core stabil, dan pemilik yang memutuskan kapan lanjut. Perubahan hub yang berdampak ke klien tetap boleh, asalkan `API*.md` dijaga akurat.
+Since 2026-11-02 the focus is the **core backend** (decision 8). Android and desktop are paused until the core is stable, and the owner decides when to resume. Hub changes that affect clients are still allowed, as long as `API*.md` stays accurate.
 
-## 3. Konsep dan istilah
+## 3. Concepts and terms
 
-| Istilah | Arti |
+| Term | Meaning |
 |---|---|
-| **Hub** | Daemon `nextboard`. Menyajikan UI dan API, menyimpan semua state, mengatur sesi. |
-| **Device** | Klien yang melihat dan mengontrol board: browser, app desktop, app Android. |
-| **Machine** | Komputer tempat proses berjalan. `local` ("This PC") selalu ada; lainnya lewat SSH. |
-| **Project** | Folder di sebuah machine, biasanya repo git, boleh folder induk berisi banyak repo. |
-| **Workspace** | Satu tab board di dalam project. |
-| **Board** | Dokumen per workspace berisi node dan edge, disinkronkan lewat op. |
-| **Node / tile** | Satu elemen board. Node adalah datanya, tile tampilannya. |
-| **Session / console** | Satu terminal (proses agent atau shell), tampil sebagai node `terminal`. |
-| **Agent** | CLI AI di console. Katalog = preset yang diperluas dengan kapabilitas. |
-| **Handle** | Nama unik console per hub, seperti `@Ash`. |
-| **Order** | Perintah ke satu atau beberapa console, dilacak sampai ada laporan. |
-| **Delivery** | Satu pengiriman teks ke satu console, lewat antrean dengan guard. |
-| **Thread** | Riwayat perintah dan laporan: satu per project, satu per kartu orchestrator. |
-| **Planner** | Claude Code lokal yang menerjemahkan kalimat menjadi langkah. |
-| **Group** | Tim console di dalam bingkai, dengan nama, peran, dan warna. |
-| **Orchestrator card** | Command bar kecil di board, lingkupnya console yang di-wire ke kartu itu. |
-| **Lead agent** | Orchestrator sebagai orang: asisten owner dan pemimpin agent, punya nama (default Aruna, pilihan pemilik 2026-11-08) dan kepribadian. Berbincang dulu; kerja untuk tim menunggu persetujuan. |
-| **Runner / job** | CLI headless tersembunyi untuk pekerjaan latar: dokumen, diagram, scan memory, planner. |
-| **Preview** | Proxy dev server di machine, satu listener per port. |
-| **Critical notes** | Aturan pemilik yang tidak boleh dilanggar agent mana pun. |
+| **Hub** | The `nextboard` daemon. Serves the UI and API, stores all state, manages sessions. |
+| **Device** | A client that views and controls the board: browser, desktop app, Android app. |
+| **Machine** | A computer where processes run. `local` ("This PC") always exists; the others are reached over SSH. |
+| **Project** | A folder on a machine, usually a git repo; it may be a parent folder holding many repos. |
+| **Workspace** | One board tab inside a project. |
+| **Board** | A per-workspace document of nodes and edges, synced through ops. |
+| **Node / tile** | One board element. The node is its data, the tile its view. |
+| **Session / console** | One terminal (an agent or shell process), shown as a `terminal` node. |
+| **Agent** | An AI CLI in a console. Catalog = presets extended with capabilities. |
+| **Handle** | A console's name, unique per hub, such as `@Ash`. |
+| **Order** | An instruction to one or more consoles, tracked until a report comes back. |
+| **Delivery** | One send of text to one console, through a queue with guards. |
+| **Thread** | A history of orders and reports: one per project, one per orchestrator card. |
+| **Planner** | A local Claude Code that turns sentences into steps. |
+| **Group** | A team of consoles inside a frame, with a name, roles, and a color. |
+| **Orchestrator card** | A small command bar on the board, scoped to the consoles wired to that card. |
+| **Lead agent** | The orchestrator as a person: the owner's assistant and the agents' leader, with a name (default Aruna, the owner's choice 2026-11-08) and a personality. It talks first; work for the team waits for approval. |
+| **Runner / job** | A hidden headless CLI for background work: documents, diagrams, memory scans, the planner. |
+| **Preview** | A proxy to a dev server on a machine, one listener per port. |
+| **Critical notes** | The owner's rules that no agent may break. |
 
-## 4. Arsitektur
+## 4. Architecture
 
 ```
                       ┌────────────────────── HUB (nextboard) ──────────────────────┐
  Browser ──┐          │ Router, auth, CSRF    Project, workspace, board (ops)        │
  Desktop ──┤  nginx   │ Session manager       Status engine, transcript              │      This PC
  Android ──┼─ HTTPS ─►│ Orchestrator          Delivery, planner, loop, memory        │ ───► PTY + agent CLI
-           │  :443    │ Git, preview, studio  Job runner, usage, MCP                 │      aplikasi desktop
+           │  :443    │ Git, preview, studio  Job runner, usage, MCP                 │      desktop apps
            └──────────│ WebSocket /api/events, terminal, LSP, DAP, RFB, video, audio │
                       └───────────────┬──────────────────────────────┬───────────────┘
                                       │                              │ SSH (agentless)
@@ -121,815 +121,815 @@ Sejak 2026-11-02 fokusnya **core backend** (keputusan 8). Android dan desktop di
                                                               git, direct-tcpip
 ```
 
-Hub memegang semua state. Klien tidak menyimpan apa pun selain preferensi per browser, jadi web, desktop, dan Android mendapat hasil yang sama dari perintah yang sama.
+The hub holds all state. Clients store nothing except per-browser preferences, so web, desktop, and Android get the same result from the same command.
 
-### 4.1 Teknologi
+### 4.1 Technology
 
-| Bagian | Pilihan |
+| Part | Choice |
 |---|---|
-| Hub | Go, satu binary, frontend lewat `go:embed`, `CGO_ENABLED=0` |
-| PTY dan SSH | `creack/pty`, `x/crypto/ssh`, `pkg/sftp`, `kevinburke/ssh_config` |
-| Model layar | `charmbracelet/x/vt` di balik paket `internal/screen` |
+| Hub | Go, one binary, frontend through `go:embed`, `CGO_ENABLED=0` |
+| PTY and SSH | `creack/pty`, `x/crypto/ssh`, `pkg/sftp`, `kevinburke/ssh_config` |
+| Screen model | `charmbracelet/x/vt` behind the `internal/screen` package |
 | Transport | `gorilla/websocket` |
 | Auth | argon2id, Ed25519, AES-256-GCM |
 | Frontend | React 19, Vite, TypeScript |
-| Kanvas | `@xyflow/react`, `roughjs`, `perfect-freehand` |
-| Terminal | `@xterm/xterm` (fit, WebGL dengan fallback) |
+| Canvas | `@xyflow/react`, `roughjs`, `perfect-freehand` |
+| Terminal | `@xterm/xterm` (fit, WebGL with fallback) |
 | Editor | Monaco (workbench), CodeMirror 6 (Markdown, Skills), `vscode-textmate` + Oniguruma |
-| Lain-lain | `@novnc/novnc`, `d3-force`, `markdown-it` + `dompurify`, `highlight.js` |
+| Other | `@novnc/novnc`, `d3-force`, `markdown-it` + `dompurify`, `highlight.js` |
 
-### 4.2 Paket Go (`internal/`)
+### 4.2 Go packages (`internal/`)
 
-| Paket | Baris | Tugas |
+| Package | Lines | Job |
 |---|---:|---|
-| `orch` | 11156 | Orkestrasi: parser, planner, step, thread, group, handoff, forward, loop, memory, layout, Mission Map, kontrol board |
-| `server` | 9731 | Router, middleware, REST, WebSocket, SPA, tool MCP hub, input tertaut |
-| `machine` | 4884 | Interface `Host`; PTY lokal, SSH, SFTP, exec, probe, dial, pause |
-| `studio` | 3753 | Code (file, search, LSP, DAP, extension), Documents, Diagrams, Markdown |
-| `gui` | 3009 | Aplikasi desktop: display virtual, RFB, video, suara, browser |
-| `session` | 2816 | Session, ring scrollback, manager, wrapper agent |
-| `gitsvc` | 2623 | Git, multi-repo, branch, trash, publish GitHub |
-| `usage` | 2020 | Usage pill, chime, indeks token |
-| `agent` | 1660 | Katalog, launch, wrapper, prompt, aturan layar |
-| `preview` | 1651 | Proxy preview, bridge, log, deteksi URL, probe port |
-| `board` | 1442 | Dokumen board, op, snapshot, arsip |
-| `skills` | 1242 | Skills manager, lint, konfirmasi tulis, starter |
-| `jobs` | 1219 | Model job, antrean, hidden runner |
-| `transcript` | 1213 | Pembaca transcript, balasan terakhir, token |
-| `cli` | 880 | Subcommand, service systemd/launchd, pair, update |
-| `auth` | 750 | Password, cookie, setup code, pairing, challenge device, rate limit |
+| `orch` | 11156 | Orchestration: parser, planner, steps, threads, groups, handoff, forward, loops, memory, layouts, Mission Map, board control |
+| `server` | 9731 | Router, middleware, REST, WebSocket, SPA, hub MCP tools, linked input |
+| `machine` | 4884 | `Host` interface; local PTY, SSH, SFTP, exec, probe, dial, pause |
+| `studio` | 3753 | Code (files, search, LSP, DAP, extensions), Documents, Diagrams, Markdown |
+| `gui` | 3009 | Desktop apps: virtual display, RFB, video, sound, browser |
+| `session` | 2816 | Sessions, scrollback ring, manager, agent wrapper |
+| `gitsvc` | 2623 | Git, multi-repo, branches, trash, GitHub publish |
+| `usage` | 2020 | Usage pill, chime, token index |
+| `agent` | 1660 | Catalog, launch, wrapper, prompts, screen rules |
+| `preview` | 1651 | Preview proxy, bridge, logs, URL detection, port probe |
+| `board` | 1442 | Board document, ops, snapshots, archive |
+| `skills` | 1242 | Skills manager, lint, write confirmation, starters |
+| `jobs` | 1219 | Job model, queue, hidden runs |
+| `transcript` | 1213 | Transcript reader, last reply, tokens |
+| `cli` | 880 | Subcommands, systemd/launchd service, pair, update |
+| `auth` | 750 | Password, cookies, setup code, pairing, device challenge, rate limit |
 | `delivery` | 690 | Delivery engine |
-| `mcpreg` | 681 | Registri MCP server dan probe-nya |
-| `agentstate` | 673 | Engine status (`agentState`) |
-| `settings` | 479 | Store pengaturan dan validasi |
-| `project` | 367 | Project dan workspace |
-| `screen` | 338 | Pembungkus model layar VT |
-| `marker` | 335 | Stripper marker OSC |
-| `connlog` | 298 | Log koneksi |
-| `profiles` | 237 | Profil login CLI, folder state agent |
-| `store`, `secret`, `config`, `webui`, `version` | 264 | JSON atomik, AES-GCM, config, embed web, metadata build |
+| `mcpreg` | 681 | MCP server registry and its probes |
+| `agentstate` | 673 | Status engine (`agentState`) |
+| `settings` | 479 | Settings store and validation |
+| `project` | 367 | Projects and workspaces |
+| `screen` | 338 | Wrapper around the VT screen model |
+| `marker` | 335 | OSC marker stripper |
+| `connlog` | 298 | Connection log |
+| `profiles` | 237 | CLI login profiles, agent state folder |
+| `store`, `secret`, `config`, `webui`, `version` | 264 | Atomic JSON, AES-GCM, config, web embed, build metadata |
 
 ### 4.3 Web UI (`web/src/`)
 
-| Folder | Baris TS/TSX | Isi |
+| Folder | TS/TSX lines | Contents |
 |---|---:|---|
-| `studio/` | 12807 | Code workbench, Documents, Diagrams, Markdown, Skills, cetak |
-| `board/` | 10566 | Kanvas, rail, inspector, tile, sinkronisasi op, rute garis |
-| `orch/` | 6041 | Command bar, thread, antrean, Mission Map, panel loop, memory, layout, composer |
-| `memory/` | 2637 | Halaman galaxy |
-| `components/` | 2339 | Komponen dasar Glass |
-| `settings/` | 2008 | Panel pengaturan |
-| `agents/` | 1905 | Pemilih agent, output viewer, resume, yolo, attention |
-| `git/`, `lib/`, `gui/`, `web/`, `machines/`, `pages/`, `usage/`, `home/`, `voice/`, `devices/` | 8470 | Sisanya, sesuai nama folder |
+| `studio/` | 12807 | Code workbench, Documents, Diagrams, Markdown, Skills, printing |
+| `board/` | 10566 | Canvas, rail, inspector, tiles, op sync, edge routing |
+| `orch/` | 6041 | Command bar, threads, queue, Mission Map, loop panel, memory, layouts, composer |
+| `memory/` | 2637 | Galaxy page |
+| `components/` | 2339 | Glass base components |
+| `settings/` | 2008 | Settings panels |
+| `agents/` | 1905 | Agent picker, output viewer, resume, yolo, attention |
+| `git/`, `lib/`, `gui/`, `web/`, `machines/`, `pages/`, `usage/`, `home/`, `voice/`, `devices/` | 8470 | The rest, as the folder names say |
 
-Halaman: `/` (daftar project), `/p/:projectId/w/:workspaceId` (board), `/machines`, `/devices`, `/memory`, `/settings`, `/print/…`, `/setup`, `/login`.
+Pages: `/` (project list), `/p/:projectId/w/:workspaceId` (board), `/machines`, `/devices`, `/memory`, `/settings`, `/print/…`, `/setup`, `/login`.
 
-### 4.4 Alur utama
+### 4.4 Main flows
 
-**Agent dan status.** Hub menjalankan wrapper shell yang menjalankan CLI. Hooks Claude dan notify Codex diberikan per launch dan menulis marker `OSC 777;nb;…` ke terminal. Hub membuang marker dari stream sebelum masuk scrollback, lalu engine status menggabungkan marker, aturan layar per CLI, dan aktivitas output menjadi `agentState`. Saat agent keluar, wrapper jatuh ke shell di tempat, sehingga tile tidak mati.
+**Agents and status.** The hub runs a shell wrapper that runs the CLI. Claude hooks and Codex notify are given per launch and write `OSC 777;nb;…` markers to the terminal. The hub strips the markers from the stream before it enters scrollback, then the status engine combines markers, per-CLI screen rules, and output activity into `agentState`. When the agent exits, the wrapper drops to a shell in place, so the tile does not die.
 
-**Perintah ke agent.** Teks masuk `POST /api/projects/{id}/commands` → parser lokal → (opsional) planner → steps → kebijakan konfirmasi → eksekusi → thread. Step `send` membuat order; tiap target mendapat delivery yang menunggu agent siap, mengetik dengan bracketed paste, lalu mengonfirmasi lewat perubahan state. Saat giliran selesai, hub membaca balasan dari transcript dan menulis laporan di thread.
+**Orders to agents.** Text enters `POST /api/projects/{id}/commands` → local parser → (optional) planner → steps → confirmation policy → execution → thread. A `send` step creates an order; each target gets a delivery that waits for the agent to be ready, types with bracketed paste, then confirms through a state change. When the turn ends, the hub reads the reply from the transcript and writes a report in the thread.
 
-**Board.** Klien mengirim batch op (`put`, `patch`, `del`, `z`, `putEdge`, `delEdge`). Hub menerapkannya secara atomik, menaikkan `rev`, dan menyiarkannya lewat `/api/events`. Konflik diselesaikan last-writer-wins per node. Kalau `rev` melompat, klien memuat ulang board.
+**Board.** Clients send op batches (`put`, `patch`, `del`, `z`, `putEdge`, `delEdge`). The hub applies them atomically, bumps `rev`, and broadcasts them through `/api/events`. Conflicts are resolved last-writer-wins per node. If `rev` jumps, the client reloads the board.
 
-**Pekerjaan latar.** Git jaringan, publish, usage, dan runner berjalan sebagai job dengan progres, pembatalan, dan event. `POST /api/machines/{id}/exec` sengaja tidak ada: setiap pemakai exec membangun perintah dari template tetap.
+**Background work.** Network git, publish, usage, and runners run as jobs with progress, cancellation, and events. `POST /api/machines/{id}/exec` does not exist on purpose: every user of exec builds its command from a fixed template.
 
 ### 4.5 Realtime
 
-| Kanal | Isi |
+| Channel | Contents |
 |---|---|
-| `/api/events` | Semua perubahan state dalam JSON; `?topics=` menyaring supaya hemat data |
-| `/api/sessions/{id}/ws` | Output terminal biner (frame pertama snapshot scrollback), input, resize, status |
-| `/api/projects/{id}/lsp/{server}/ws` | JSON-RPC language server |
+| `/api/events` | Every state change as JSON; `?topics=` filters it to save data |
+| `/api/sessions/{id}/ws` | Binary terminal output (the first frame is a scrollback snapshot), input, resize, status |
+| `/api/projects/{id}/lsp/{server}/ws` | Language server JSON-RPC |
 | `/api/projects/{id}/dap/{adapter}/ws` | Debug Adapter Protocol |
 | `/api/gui/sessions/{id}/ws`, `/video`, `/audio` | RFB, AV1/H.264, PCM |
 
-## 5. Fitur
+## 5. Features
 
-### 5.1 Instalasi, service, CLI
+### 5.1 Installation, service, CLI
 
-`install.sh` mendeteksi OS dan arsitektur, mengunduh rilis, memverifikasi SHA-256, memasang ke `~/.local/bin` (atau `/usr/local/bin` dengan `--system`), lalu menjalankan `nextboard install`. Perintah itu membuat `~/.nextboard/` (0700), memasang systemd user service dengan `enable-linger` (Linux) atau LaunchAgent (macOS), dan mencetak link setup sekali pakai yang berlaku 30 menit.
+`install.sh` detects the OS and architecture, downloads the release, verifies its SHA-256, installs to `~/.local/bin` (or `/usr/local/bin` with `--system`), then runs `nextboard install`. That command creates `~/.nextboard/` (0700), installs a systemd user service with `enable-linger` (Linux) or a LaunchAgent (macOS), and prints a one-time setup link that is valid for 30 minutes.
 
-Setup di Web UI: buat password admin (minimal 8 karakter), beri nama hub, cek CLI yang terdeteksi.
+Setup in the Web UI: create the admin password (at least 8 characters), name the hub, check the detected CLIs.
 
-| Perintah | Fungsi |
+| Command | Purpose |
 |---|---|
-| `serve [--listen] [--dev]` | Foreground, dipakai service |
-| `install [--listen] [--public-url]` / `uninstall [--purge]` | Pasang atau lepas service |
-| `status` | Service, health, alamat, jumlah sesi, machine, device |
-| `logs [-f]` | Log service |
-| `connlog [--machine] [-n] [--json]` | Log koneksi, tetap jalan saat hub mati |
-| `setup-link` | Link setup baru |
-| `reset-password` | Ganti password admin, semua browser logout |
-| `pair` | QR dan kode pairing di terminal |
-| `update [--repo]` | Unduh rilis, verifikasi checksum, restart service |
+| `serve [--listen] [--dev]` | Foreground, used by the service |
+| `install [--listen] [--public-url]` / `uninstall [--purge]` | Install or remove the service |
+| `status` | Service, health, address, counts of sessions, machines, devices |
+| `logs [-f]` | Service logs |
+| `connlog [--machine] [-n] [--json]` | Connection log, works even while the hub is down |
+| `setup-link` | A new setup link |
+| `reset-password` | Change the admin password, every browser is logged out |
+| `pair` | QR and pairing code in the terminal |
+| `update [--repo]` | Download the release, verify its checksum, restart the service |
 | `version`, `help` | |
 
-Semua perintah menerima `--data-dir` (default `~/.nextboard` atau `$NEXTBOARD_HOME`).
+All commands accept `--data-dir` (default `~/.nextboard` or `$NEXTBOARD_HOME`).
 
-### 5.2 Auth dan device
+### 5.2 Auth and devices
 
-- **Browser:** password admin, cookie `HttpOnly; SameSite=Strict` 30 hari yang diperpanjang saat dipakai. Nama cookie beda per skema: `nb_session` (HTTPS, `Secure`) dan `nb_session_http`.
-- **CSRF:** semua request yang mengubah data wajib header `X-NextBoard: 1`. WebSocket berbasis cookie dicek `Origin`-nya.
-- **Rate limit:** 5 login gagal per IP per 10 menit.
-- **Pairing:** kode `XXXX-XXXX` 5 menit, sekali pakai, sebagai QR `nextboard://pair?…`. App membuat keypair Ed25519 (private key di Keystore/Keychain), lalu login berikutnya lewat challenge-response dan mendapat access token opaque 1 jam.
-- **Revoke** langsung memutus semua WebSocket device itu (close code 4401). Token tidak pernah ditaruh di URL, karena reverse proxy mencatat query string.
-- **Peran:** `admin` (browser) dan `device`. Sebagian endpoint khusus admin, seperti pairing, kelola device, MCP, dan log koneksi.
+- **Browser:** admin password, an `HttpOnly; SameSite=Strict` cookie for 30 days that is extended on use. The cookie name differs per scheme: `nb_session` (HTTPS, `Secure`) and `nb_session_http`.
+- **CSRF:** every request that changes data must carry the `X-NextBoard: 1` header. Cookie-based WebSockets have their `Origin` checked.
+- **Rate limit:** 5 failed logins per IP per 10 minutes.
+- **Pairing:** a `XXXX-XXXX` code for 5 minutes, single use, as a `nextboard://pair?…` QR. The app creates an Ed25519 keypair (private key in Keystore/Keychain); later logins go through challenge-response and get an opaque 1-hour access token.
+- **Revoke** cuts all of that device's WebSockets at once (close code 4401). Tokens are never put in a URL, because reverse proxies log query strings.
+- **Roles:** `admin` (browser) and `device`. Some endpoints are admin-only, such as pairing, device management, MCP, and the connection log.
 
 ### 5.3 Machines
 
-Tambah dari `~/.ssh/config` (cukup pilih `Host`) atau manual. Tidak ada yang dipasang di server.
+Add from `~/.ssh/config` (just pick a `Host`) or by hand. Nothing is installed on the server.
 
-- **Auth berurutan:** `IdentityFile` atau key default → ssh-agent → key yang di-upload → password. Key dan password yang di-upload dienkripsi dan tidak pernah kembali ke klien. `ProxyJump` didukung.
-- **Host key:** dicek ke `~/.ssh/known_hosts`. Host baru minta konfirmasi fingerprint dan disimpan di `~/.nextboard/known_hosts`. Host key yang **berubah ditolak**.
-- **Probe:** OS, arsitektur, shell, home, tmux, dan CLI yang ada. Disimpan, dengan tombol Re-probe.
-- **Koneksi:** satu TCP per machine, satu channel SSH per terminal, keepalive 15 detik (3 gagal = putus), reconnect 1/2/5/10/30 detik.
-- **Persistensi:** `tmux` (proses hidup walau SSH putus atau hub restart, lalu di-attach ulang) atau `direct` (diluncurkan ulang). Default `auto`. *Clean up* membersihkan sesi `nb-*` yatim.
-- **File:** SFTP di koneksi yang ada, dengan fallback exec read-only bila SFTP dimatikan.
+- **Auth in order:** `IdentityFile` or the default key → ssh-agent → an uploaded key → password. Uploaded keys and passwords are encrypted and never go back to the client. `ProxyJump` is supported.
+- **Host key:** checked against `~/.ssh/known_hosts`. A new host asks for fingerprint confirmation and is stored in `~/.nextboard/known_hosts`. A **changed** host key **is refused**.
+- **Probe:** OS, architecture, shell, home, tmux, and the CLIs present. Stored, with a Re-probe button.
+- **Connection:** one TCP connection per machine, one SSH channel per terminal, 15-second keepalive (3 failures = disconnected), reconnect at 1/2/5/10/30 seconds.
+- **Persistence:** `tmux` (the process lives on when SSH drops or the hub restarts, then is reattached) or `direct` (launched again). Default `auto`. *Clean up* removes orphaned `nb-*` sessions.
+- **Files:** SFTP on the existing connection, with a read-only exec fallback when SFTP is turned off.
 
-Setelah keputusan 10, CLI agent tetap di This PC; di server ia bekerja lewat tool hub (§5.7).
+Since decision 10, agent CLIs stay on This PC; on a server they work through hub tools (§5.7).
 
-### 5.4 Project dan workspace
+### 5.4 Projects and workspaces
 
-- Project dibuat dari machine + path; path yang sama tidak membuat duplikat. Menghapus project menghentikan sesinya dan mengarsipkan board, sedangkan file di disk tidak disentuh.
-- Workspace adalah tab board. Workspace terakhir tidak bisa dihapus. "Close all boards" di menu project menutup semua tab sekaligus dan menyisakan satu board kosong; yang sedang berjalan di board itu berakhir, dan tile bisa dipulihkan dari arsip.
-- Home screen menampilkan project, branch, ahead/behind, dan jumlah perubahan.
-- **Banyak repo dalam satu project** (keputusan 12): hub memindai folder project sampai 4 level, klien memilih lewat picker, `?repo=` berlaku di semua endpoint git.
+- A project is created from a machine + path; the same path does not make a duplicate. Deleting a project stops its sessions and archives its boards, while files on disk are not touched.
+- A workspace is a board tab. The last workspace cannot be deleted. "Close all boards" in the project menu closes every tab at once and leaves one empty board; whatever was running on those boards ends, and tiles can be restored from the archive.
+- The home screen shows projects, branch, ahead/behind, and the number of changes.
+- **Many repos in one project** (decision 12): the hub scans the project folder up to 4 levels deep, the client picks through a picker, and `?repo=` applies to every git endpoint.
 
 ### 5.5 Board
 
-**Interaksi.** Pan dan zoom 20–300 %, marquee, clipboard, duplikat, undo/redo 80 langkah, guide, rail kiri (tools), rail kanan (Code editor, Studios, Memory, Git, Loops, Mission Map, Auto arrange), ring klik kanan di board kosong (Spawn agent, gambar, web, Paste, shape, Compose group, More), tombol satu huruf. Viewport disimpan per klien, bukan di board. Semua card memakai satu susunan header (mark, judul, meta, aksi, tombol display, `…`); tombol display mengubah ukuran card ke Fit tile, tiga monitor, atau lima ponsel. Rinciannya di DESIGN §3.5.
+**Interaction.** Pan and zoom 20–300 %, marquee, clipboard, duplicate, undo/redo for 80 steps, guides, left rail (tools), right rail (Code editor, Studios, Memory, Git, Loops, Mission Map, Auto arrange), a right-click ring on empty board (Spawn agent, drawing, web, Paste, shape, Compose group, More), single-letter keys. The viewport is stored per client, not in the board. Every card uses one header layout (mark, title, meta, actions, display button, `…`); the display button resizes the card to Fit tile, three monitors, or five phones. Details are in DESIGN §3.5.
 
-**Tile.**
+**Tiles.**
 
-| Kind | Isi |
+| Kind | Contents |
 |---|---|
-| `terminal` | Console; dibuat dan dihapus hub |
-| `note`, `text` | Sticky note 6 warna; teks dengan font, ukuran, perataan |
-| `checklist`, `kanban`, `calendar` | Daftar centang; kolom dan kartu (due, prioritas); event bulanan |
-| `uptime` | Uptime monitoring seperti Uptime Kuma: heartbeat, grafik respons, sertifikat, alert; hub yang mengecek ([API-uptime.md](API-uptime.md)) |
-| `credentials` | Password manager seperti Bitwarden, terenkripsi di browser; node hanya menyimpan judul ([API-vault.md](API-vault.md)) |
-| `shape`, `line`, `ink` | Bentuk gaya rough.js, garis dan panah, coretan pena |
-| `image` | Dari aset hub atau file machine, dengan editor markup |
-| `file` | `code` (snapshot), `markdown` (live), `file`, `folder` (≤ 40 file) |
-| `group` | Bingkai tim: nama, peran, warna, anggota, input tertaut |
-| `orchestrator` | Kartu pengarah dengan thread sendiri |
-| `memory` | Tumpukan memory seperti lego: project selalu aktif, blok dari semua project atau project lain ditambahkan; di-wire ke console, grup, orchestrator, atau editor |
-| `web`, `weblog`, `link` | Preview atau browser sungguhan; log konsol dan jaringan; kartu tautan |
-| `branches` | Branch, ahead/behind, switch, buat, hapus |
-| `document` | Dokumen dari studio Documents |
-| `editor` | Code workbench, satu per board |
-| `app` | Aplikasi desktop This PC |
+| `terminal` | Console; created and deleted by the hub |
+| `note`, `text` | Sticky note in 6 colors; text with font, size, alignment |
+| `checklist`, `kanban`, `calendar` | A list with checkboxes; columns and cards (due, priority); monthly events |
+| `uptime` | Uptime monitoring like Uptime Kuma: heartbeats, response chart, certificates, alerts; the hub does the checking ([API-uptime.md](API-uptime.md)) |
+| `credentials` | A password manager like Bitwarden, encrypted in the browser; the node stores only the title ([API-vault.md](API-vault.md)) |
+| `shape`, `line`, `ink` | rough.js-style shapes, lines and arrows, pen strokes |
+| `image` | From a hub asset or a machine file, with a markup editor |
+| `file` | `code` (snapshot), `markdown` (live), `file`, `folder` (≤ 40 files) |
+| `group` | Team frame: name, roles, color, members, linked input |
+| `orchestrator` | A directing card with its own thread |
+| `memory` | A lego-like memory stack: the project is always on, blocks from all projects or another project are added; wired to a console, group, orchestrator, or editor |
+| `web`, `weblog`, `link` | Preview or a real browser; console and network log; link card |
+| `branches` | Branches, ahead/behind, switch, create, delete |
+| `document` | A document from the Documents studio |
+| `editor` | Code workbench, one per board |
+| `app` | A This PC desktop app |
 
-Kind yang tidak dikenal klien tampil sebagai "Unsupported tile", jadi kind baru tidak memecah klien lama.
+A kind the client does not know shows as "Unsupported tile", so a new kind does not break old clients.
 
-**Edge.** `wire` (abu-abu; orchestrator, memory, editor, atau tile berisi → console/grup; isi tile dikirim sekali saat tersambung), `forward` (jingga putus-putus; console/grup → console/grup, tanpa siklus), `preview` (sian; terminal → web), `log` (web → weblog). Rute garis lurus bila tile berhadapan, satu siku bila tidak, dan memutar kalau ada tile di jalurnya. Kabel orchestrator yang bekerja menyala dan dialiri animasi halus.
+**Edges.** `wire` (gray; orchestrator, memory, editor, or a tile with content → console/group; the tile's content is sent once on connecting), `forward` (dashed orange; console/group → console/group, no cycles), `preview` (cyan; terminal → web), `log` (web → weblog). Lines route straight when tiles face each other, with one elbow when they do not, and go around when a tile is in the way. An orchestrator wire that is working lights up and carries a subtle animation.
 
-**Keawetan** (teruji dengan `kill -9` dan file rusak):
+**Durability** (tested with `kill -9` and corrupt files):
 
-- Simpan dengan debounce 2 detik, maksimal tertunda 7 detik; berhenti normal menyimpan semua perubahan.
-- `boards/<wid>.json` ditulis atomik dan punya `.prev`. File rusak diarsipkan dengan alasan `unreadable`.
-- Snapshot per jam, 24 terbaru. Restore selalu menyimpan versi saat ini lebih dulu, jadi restore bisa dibatalkan.
-- Arsip board yang ditutup atau dikosongkan tidak pernah dipangkas.
+- Saves are debounced by 2 seconds, delayed at most 7 seconds; a normal stop saves every change.
+- `boards/<wid>.json` is written atomically and has a `.prev`. A corrupt file is archived with the reason `unreadable`.
+- Hourly snapshots, the latest 24. A restore always saves the current version first, so a restore can be undone.
+- Archives of closed or emptied boards are never pruned.
 
-### 5.6 Console dan agent
+### 5.6 Consoles and agents
 
-**Katalog.**
+**Catalog.**
 
-| Sumber | Isi |
+| Source | Contents |
 |---|---|
 | Built-in | `shell`, `claude`, `codex`, `gemini` |
-| Katalog (17) | OpenCode, Aider, Amp, Auggie, Cline, Codebuff, Continue CLI, GitHub Copilot CLI, Crush, Cursor Agent, Droid, Goose, Kimi, Kiro, Pi, Qwen Code, Mistral Vibe |
-| Custom | Lewat Settings atau `presets.json`; boleh `base` Claude atau Codex untuk mewarisi kapabilitas |
+| Catalog (17) | OpenCode, Aider, Amp, Auggie, Cline, Codebuff, Continue CLI, GitHub Copilot CLI, Crush, Cursor Agent, Droid, Goose, Kimi, Kiro, Pi, Qwen Code, Mistral Vibe |
+| Custom | Through Settings or `presets.json`; may have a Claude or Codex `base` to inherit capabilities |
 
-Flag katalog yang belum diverifikasi pada CLI nyata tidak dikirim. Deteksi lewat `command -v` saat probe, path bisa di-override per machine, dan default agent bisa diatur per machine.
+Catalog flags not yet verified on a real CLI are not sent. Detection is through `command -v` during the probe, the path can be overridden per machine, and the default agent can be set per machine.
 
-**Handle.** Auto-assign dari `Arkan Bintang Cantika Daffa Elvan Farel Gibran Haikal Ilham Jihan Kayla Luna Maura Naufal Olivia Pandu Rafa Reyhan Salsa Tiara Vania Wildan Yasmin Zahra` (nama Indonesia yang umum sekarang), lalu `Arkan2`, dan seterusnya. Unik per hub, tidak peka huruf besar. Kata cadangan seperti `everyone`, `all`, `hub` ditolak.
+**Handles.** Auto-assigned from `Arkan Bintang Cantika Daffa Elvan Farel Gibran Haikal Ilham Jihan Kayla Luna Maura Naufal Olivia Pandu Rafa Reyhan Salsa Tiara Vania Wildan Yasmin Zahra` (common current Indonesian names), then `Arkan2`, and so on. Unique per hub, case-insensitive. Reserved words such as `everyone`, `all`, `hub` are refused.
 
 **Status.**
 
-| `agentState` | Arti |
+| `agentState` | Meaning |
 |---|---|
-| `starting` | Sedang diluncurkan |
-| `working` | Mengerjakan giliran, dengan `activity` seperti `Bash: npm test` |
-| `needsYou` | Izin, pertanyaan, atau dialog menunggu pengguna |
-| `ready` | Di prompt, menunggu order |
-| `shell` | Tidak ada agent di foreground |
-| `exited`, `reconnecting`, `error` | Proses selesai, link SSH putus, gagal start |
+| `starting` | Being launched |
+| `working` | Working on a turn, with an `activity` such as `Bash: npm test` |
+| `needsYou` | A permission, question, or dialog is waiting for the user |
+| `ready` | At the prompt, waiting for an order |
+| `shell` | No agent in the foreground |
+| `exited`, `reconnecting`, `error` | Process finished, SSH link dropped, failed to start |
 
-Sumber status berurutan: status proses → foreground → hooks (Claude) atau notify (Codex) → aturan layar per CLI → aktivitas output. Aturan layar diuji terhadap dump layar nyata di `internal/agent/testdata/`.
+Status sources in order: process status → foreground → hooks (Claude) or notify (Codex) → per-CLI screen rules → output activity. The screen rules are tested against real screen dumps in `internal/agent/testdata/`.
 
-**Mode peluncuran.** `fresh`, `resume` (percakapan persis), `continue` (terakhir di folder), `pick` (pemilih bawaan CLI), `shell`. Pemilih percakapan menandai percakapan yang sedang dibuka console lain. Hub restart mengikuti `resumeOnRestart`: `auto`, `ask`, atau `never`.
+**Launch modes.** `fresh`, `resume` (the exact conversation), `continue` (the latest in the folder), `pick` (the CLI's own picker), `shell`. The conversation picker marks conversations that another console has open. A hub restart follows `resumeOnRestart`: `auto`, `ask`, or `never`.
 
-**Lainnya.**
+**Other.**
 
-- **Output viewer:** tombol "See output" di console membuka balasan terakhirnya; di bubble thread membuka balasan milik bubble itu. Keduanya dalam Markdown, dengan Copy, Save `.md`, dan kolom balas.
-- **Yolo:** per launch, wajib konfirmasi, dengan badge di header. Default mati.
-- **Profil login:** beberapa akun per CLI lewat `CLAUDE_CONFIG_DIR` / `CODEX_HOME`. Folder state default `<data>/agents/<agent>` dibuat hub sekali. Folder baru belum login, jadi sign-in dilakukan sekali di console.
-- **Konteks peluncuran:** tiap launch mendapat instruksi sistem di `<data>/agents/prompts/<sid>.md`, memory project, critical notes, MCP server, dan tool hub.
-- **Terminal panel:** `POST /api/sessions` dengan `panel: true` membuat sesi tanpa node untuk panel bawah workbench. Sesi ini tidak bisa dijangkau order.
+- **Output viewer:** the "See output" button on a console opens its last reply; on a thread bubble it opens the reply that belongs to that bubble. Both are in Markdown, with Copy, Save `.md`, and a reply field.
+- **Yolo:** per launch, requires confirmation, with a badge in the header. Off by default.
+- **Login profiles:** several accounts per CLI through `CLAUDE_CONFIG_DIR` / `CODEX_HOME`. The default state folder `<data>/agents/<agent>` is created once by the hub. A new folder is not logged in yet, so you sign in once in the console.
+- **Launch context:** each launch gets system instructions in `<data>/agents/prompts/<sid>.md`, project memory, critical notes, MCP servers, and hub tools.
+- **Terminal panel:** `POST /api/sessions` with `panel: true` creates a session without a node for the workbench's bottom panel. Orders cannot reach this session.
 
-### 5.7 Agent yang bekerja di server
+### 5.7 Agents that work on a server
 
-CLI tetap berjalan di This PC, sedangkan tool file dan shell-nya bertindak di server lewat MCP hub. Status: stabil sejak 2026-11-08, `settings.agents.remoteTools` default `true`. Tanpa itu, agent di machine SSH ditolak dengan `422 agent_this_pc_only`.
+The CLI keeps running on This PC, while its file and shell tools act on the server through the hub's MCP. Status: stable since 2026-11-08, `settings.agents.remoteTools` defaults to `true`. Without it, an agent on an SSH machine is refused with `422 agent_this_pc_only`.
 
-| CLI | Tool lokal dimatikan lewat | Terverifikasi |
+| CLI | Local tools turned off through | Verified |
 |---|---|---|
-| Claude Code | `--tools Read,Write,Edit,TodoWrite,Skill`, tanpa Bash; lokal hanya untuk folder memory | Console nyata, dengan dan tanpa yolo |
-| Codex | `--disable shell_tool --disable unified_exec --sandbox read-only` | Console nyata tanpa yolo |
-| OpenCode | `permission` semua tool lokal `deny` kecuali `skill` | MCP terhubung; giliran penuh hanya terhadap model palsu |
+| Claude Code | `--tools Read,Write,Edit,TodoWrite,Skill`, no Bash; local only for the memory folder | Real console, with and without yolo |
+| Codex | `--disable shell_tool --disable unified_exec --sandbox read-only` | Real console without yolo |
+| OpenCode | `permission` of every local tool `deny` except `skill` | MCP connected; full turn only against a fake model |
 
-- **Tool hub:** `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`, ditambah `memory_search`, `memory_read`, `memory_save`, dan untuk project yang punya credential tertanda `credential_list`, `credential_run`, `credential_result` (API-vault.md).
-- **Kalau tool tidak bisa disiapkan, peluncuran gagal**, bukan jatuh ke tool lokal, karena agent akan mengerjakan file This PC.
-- **Yolo di server** tidak memakai flag lewati-semua milik CLI, sehingga tidak membuka akses ke This PC.
+- **Hub tools:** `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`, plus `memory_search`, `memory_read`, `memory_save`, and for a project with marked credentials `credential_list`, `credential_run`, `credential_result` (API-vault.md).
+- **If the tools cannot be set up, the launch fails** rather than falling back to local tools, because the agent would then work on This PC's files.
+- **Yolo on a server** does not use the CLI's skip-everything flag, so it opens no access to This PC.
 
-### 5.8 MCP server
+### 5.8 MCP servers
 
-MCP diatur sekali di Settings dan diberikan per launch ke Claude Code, Codex, dan OpenCode, jadi berganti agent tidak mengubah tool yang tersedia. Transport `http` atau `stdio`, maksimal 32 server, bisa dibatasi per project. Tombol Try berbicara dengan server seperti CLI (`initialize` lalu `tools/list`).
+MCP is set up once in Settings and given per launch to Claude Code, Codex, and OpenCode, so switching agents does not change the tools available. Transport `http` or `stdio`, at most 32 servers, can be limited per project. The Try button talks to the server like a CLI does (`initialize` then `tools/list`).
 
-Rahasia disegel di `mcp-servers.json`, tidak pernah kembali ke klien, dan keluar hanya lewat environment proses. Login OAuth tetap per CLI lewat `/mcp`. Agent yang sedang jalan mendapat perubahan saat restart berikutnya.
+Secrets are sealed in `mcp-servers.json`, never go back to the client, and leave only through the process environment. OAuth login stays per CLI through `/mcp`. A running agent gets the changes at its next restart.
 
-### 5.9 Orkestrasi
+### 5.9 Orchestration
 
-**Command bar.** Di bawah board (`Ctrl/⌘K`), riwayat ↑/↓, menu `@`. Mencakup semua board dalam project; project lain hanya tercapai lewat handle eksplisit.
+**Command bar.** Below the board (`Ctrl/⌘K`), history with ↑/↓, an `@` menu. It covers every board in the project; other projects are reached only through an explicit handle.
 
-**Parser lokal.** Bahasa Inggris dan bahasa Indonesia (`jeda semua`, `suruh Ash untuk …`, `buat 2 claude`; daftar di API-orchestration §3.2), tanpa AI, selalu tersedia:
+**Local parser.** English and Indonesian (`jeda semua`, `suruh Ash untuk …`, `buat 2 claude`; list in API-orchestration §3.2), no AI, always available:
 
-| Area | Contoh |
+| Area | Examples |
 |---|---|
-| Kirim | `@Ash run the tests`, `tell Bea to …`, `give everyone the same prompt: …` |
-| Spawn dan grup | `spawn 3 codex reviewers`, `make a group of 4 called Backend`, `add 2 to Backend`, `dissolve Backend` |
-| Kontrol | `pause`, `resume`, `restart Ash`, `kill all`, `cancel that` |
-| Alur kerja | `hand off to codex`, `when Ash finishes, pass it to Bea`, `every 15 minutes …` |
-| Tanya | `status`, `who needs me`, `who finished`, `give me a summary`, `help` |
+| Send | `@Ash run the tests`, `tell Bea to …`, `give everyone the same prompt: …` |
+| Spawn and groups | `spawn 3 codex reviewers`, `make a group of 4 called Backend`, `add 2 to Backend`, `dissolve Backend` |
+| Control | `pause`, `resume`, `restart Ash`, `kill all`, `cancel that` |
+| Workflow | `hand off to codex`, `when Ash finishes, pass it to Bea`, `every 15 minutes …` |
+| Ask | `status`, `who needs me`, `who finished`, `give me a summary`, `help` |
 | Board | `fit`, `go to Ash`, `open git`, `add a kanban`, `open localhost 5173`, `undo` |
 | Workspace | `switch to workspace 2`, `new workspace called API`, `deploy Duo` |
-| Git dan memory | `commit and push`, `repo app-a push`, `push memory`, `scan memory` |
+| Git and memory | `commit and push`, `repo app-a push`, `push memory`, `scan memory` |
 
-**@mention.** Urutan resolusi: handle → nama grup → role (`@reviewers`) → agent (`@codex`). Nama yang mirip (Damerau-Levenshtein, Double Metaphone) menimbulkan konfirmasi "did you mean".
+**@mention.** Resolution order: handle → group name → role (`@reviewers`) → agent (`@codex`). Similar names (Damerau-Levenshtein, Double Metaphone) trigger a "did you mean" confirmation.
 
-**Planner.** `claude -p` lokal di This PC dengan output JSON ber-schema, tanpa tool, batas 2 menit, tidak pernah yolo.
+**Planner.** A local `claude -p` on This PC with schema-bound JSON output, no tools, a 2-minute limit, never yolo.
 
-- Input: teks order, 10 pesan thread terakhir, snapshot console, grup, tile (≤ 30 per board), dan memory. Tidak memuat isi file project atau transcript.
-- Output: balasan dan maksimal 40 langkah. Output dianggap tidak tepercaya: nama diterjemahkan hub, step di luar daftar dibuang, kebijakan konfirmasi tetap berlaku.
-- Planner bisa mengontrol seluruh board: menambah, mengubah, menghapus tile, menghubungkan, membuka file di editor. `workspace.close` sengaja di luar kewenangannya.
-- Tanpa planner (Claude tidak ada, belum login, cooldown), parser tetap jalan dan pesan dengan addressee dikirim apa adanya.
+- Input: the order text, the last 10 thread messages, a snapshot of consoles, groups, tiles (≤ 30 per board), and memory. It does not include the contents of project files or transcripts.
+- Output: a reply and at most 40 steps. The output is treated as untrusted: names are resolved by the hub, steps outside the list are dropped, the confirmation policy still applies.
+- The planner can control the whole board: add, change, delete tiles, connect them, open files in the editor. `workspace.close` is outside its authority on purpose.
+- Without the planner (no Claude, not logged in, cooldown), the parser keeps working and messages with an addressee are sent as they are.
 
-**Delivery engine.** Inti keamanan orkestrasi.
+**Delivery engine.** The core of orchestration safety.
 
-| Kondisi console | Aksi |
+| Console condition | Action |
 |---|---|
-| Shell, agent sudah keluar | `failed not_agent`; tidak pernah mengetik ke shell |
-| `starting`, `needsYou`, `reconnecting`, `paused` | Menunggu, dengan batas waktu masing-masing |
-| `working` | Mengantre (default) |
-| `ready` | Mengetik |
+| Shell, the agent has exited | `failed not_agent`; never types into a shell |
+| `starting`, `needsYou`, `reconnecting`, `paused` | Waits, each with its own time limit |
+| `working` | Queues (default) |
+| `ready` | Types |
 
-Teks hanya diketik kalau layar **dikenali positif** sebagai prompt input normal CLI dan sudah diam ≥ 300 ms. Layar dicek ulang tepat sebelum Return, jadi dialog yang muncul di antara paste dan Return membatalkan pengiriman. Input manusia dalam 2 detik terakhir menunda delivery. Karakter kontrol dibuang. 24 fixture dialog nyata dan sintetis dipakai untuk menguji penolakan.
+Text is typed only when the screen is **positively recognized** as the CLI's normal input prompt and has been quiet for ≥ 300 ms. The screen is checked again right before Return, so a dialog that appears between the paste and Return cancels the send. Human input in the last 2 seconds delays the delivery. Control characters are dropped. 24 real and synthetic dialog fixtures are used to test the refusals.
 
-**Konfirmasi.**
+**Confirmation.**
 
-| Step | Konfirmasi |
+| Step | Confirmation |
 |---|---|
-| `kill`, `restart`, `node.delete` | Selalu (`destructive`) |
-| `workspace.close` dengan sesi berjalan | Selalu |
-| `loop.create` | Selalu, menampilkan jadwal dan estimasi prompt per jam |
-| `spawn` > 6 console | `bulkSpawn` |
-| Step planner yang tidak diminta: git, web URL, teks berisi pola berisiko (`rm -rf`, `sudo`, `curl \| sh`, `.env`, `--yolo`, force push, `drop table`, …) | `risky` |
-| Git yang diketik pengguna, pause/resume, handoff, forward, send verbatim, push memory | Tidak |
+| `kill`, `restart`, `node.delete` | Always (`destructive`) |
+| `workspace.close` with running sessions | Always |
+| `loop.create` | Always, showing the schedule and the estimated prompts per hour |
+| `spawn` > 6 consoles | `bulkSpawn` |
+| Planner steps that were not asked for: git, web URLs, text with risky patterns (`rm -rf`, `sudo`, `curl \| sh`, `.env`, `--yolo`, force push, `drop table`, …) | `risky` |
+| Git typed by the user, pause/resume, handoff, forward, verbatim send, push memory | No |
 
-TTL 60 detik (30–300). Keputusan pertama menang, dari klien mana pun, dan bisa dijawab dengan mengetik `yes` atau `cancel`.
+TTL 60 seconds (30–300). The first decision wins, from any client, and it can be answered by typing `yes` or `cancel`.
 
-**Thread dan laporan.** Plan note menunjukkan apa dikirim ke siapa. Setiap target berakhir `finished`, `failed`, `timeout`, atau `skipped`, dengan cuplikan balasan dan tombol "See output". Tanpa selesai 30 menit menghasilkan catatan timeout.
+**Threads and reports.** A plan note shows what is sent to whom. Each target ends as `finished`, `failed`, `timeout`, or `skipped`, with an excerpt of the reply and a "See output" button. Not finishing within 30 minutes produces a timeout note.
 
-**Grup dan composer.** Peran: `general`, `frontend`, `backend`, `testers`, `reviewers`, `design`, `docs`, `security`, masing-masing bisa punya agent default. Maksimal 12 anggota, dan satu console di satu grup. Spawn batch 1–12 console dalam satu siaran. **Input tertaut** (`syncInput`) menyalin ketikan satu anggota ke anggota lain, termasuk Ctrl+C, tetapi tidak menyalin balasan otomatis emulator.
+**Groups and the composer.** Roles: `general`, `frontend`, `backend`, `testers`, `reviewers`, `design`, `docs`, `security`, each of which can have a default agent. At most 12 members, and a console can be in only one group. Batch spawn of 1–12 consoles in one broadcast. **Linked input** (`syncInput`) copies one member's keystrokes to the other members, including Ctrl+C, but does not copy the emulator's automatic replies.
 
-**Kartu orchestrator.** Command bar kecil yang hanya menjangkau console ter-wire, dengan thread sendiri. Undo dan perintah workspace ditolak di sini. Kartu dipimpin lead agent; nama kartu = nama lead-nya.
+**Orchestrator cards.** A small command bar that reaches only the consoles wired to it, with its own thread. Undo and workspace commands are refused here. A card is led by a lead agent; the card's name = its lead's name.
 
-**Lead agent.** Di bar, kartu, dan editor, owner berbicara dengan lead (Settings › Lead agent: nama, kepribadian, Talk first). Sapaan dan pertanyaan dijawab sebagai obrolan. Pekerjaan langsung dibagikan ke agent tanpa perlu Go ahead. Hanya rencana yang bisa merusak (menghapus file atau data, reset database, menimpa riwayat git, production) yang menunggu tombol atau kata setuju, dan bisa diubah sambil mengobrol. Order yang menyebut `@agent` dan perintah polos tetap langsung jalan. Lead memakai Claude Code di This PC, jadi tiap giliran obrolan memakai plan owner.
+**Lead agent.** In the bar, cards, and the editor, the owner talks with the lead (Settings › Lead agent: name, personality, Talk first). Greetings and questions are answered as conversation. Work is handed to agents right away, with no need for Go ahead. Only a plan that could do damage (deleting files or data, resetting a database, rewriting git history, production) waits for a button or a word of approval, and it can be changed while chatting. Orders that name an `@agent` and plain commands still run right away. The lead uses Claude Code on This PC, so every chat turn uses the owner's plan.
 
-**Mengendalikan dari thread.** Tiap gelembung punya aksi saat disorot: Copy, Reply (balasan ke agent langsung ke agent itu, dengan kutipan), Ask lead, Show console, dan Edit and send again untuk pesan sendiri. Teks bisa dipilih langsung, menu kartu punya Copy thread.
+**Steering from the thread.** Each bubble has actions on hover: Copy, Reply (a reply to an agent goes straight to that agent, with a quote), Ask lead, Show console, and Edit and send again for your own messages. Text can be selected directly, and the card menu has Copy thread.
 
-**Mission Map** (`X`). Peta pengarah → grup → console, dengan filter All, Working, Needs you, Idle, Done, jumlah subagent, dan order berjalan.
+**Mission Map** (`X`). A map of director → group → console, with filters All, Working, Needs you, Idle, Done, subagent counts, and running orders.
 
-**Pause dan resume.** SIGSTOP/SIGCONT ke foreground process group, lokal maupun SSH, dengan validasi sesi. Selama paused, delivery menunggu dan loop melewati console itu.
+**Pause and resume.** SIGSTOP/SIGCONT to the foreground process group, local or SSH, with session validation. While paused, deliveries wait and loops skip that console.
 
-**Handoff.** Ringkasan (tujuan, yang selesai, kondisi, file, langkah berikut, pertanyaan terbuka) lewat runner, lalu dikirim ke console baru. Bila ringkasan gagal, 12 000 karakter terakhir dikirim apa adanya. Bila target tidak siap, hasilnya `manual` dan brief tampil di thread.
+**Handoff.** A summary (goal, what is done, state, files, next steps, open questions) through a runner, then sent to a new console. If the summary fails, the last 12 000 characters are sent as they are. If the target is not ready, the result is `manual` and the brief shows in the thread.
 
-**Switch agent di tile yang sama.** Tile, handle, dan folder tetap; memory, critical notes, dan tool ikut. Agent lama dijeda selama ringkasan ditulis. Kembali ke agent sebelumnya melanjutkan percakapan yang sama (maksimal 8 tercatat), dan ringkasan menjelaskan apa yang terjadi selama ia pergi.
+**Switching agents in the same tile.** The tile, handle, and folder stay; memory, critical notes, and tools come along. The old agent is paused while the summary is written. Going back to the previous agent continues the same conversation (at most 8 recorded), and the summary explains what happened while it was away.
 
-**Forward.** Edge permanen (`trigger`: `turn` atau `order`) atau sekali jalan dari perintah. Digest diberi label sumber; `forwardDepth` ≤ 3 dan tanpa siklus untuk mencegah injeksi berantai.
+**Forward.** A permanent edge (`trigger`: `turn` or `order`) or a one-off from a command. The digest is labeled with its source; `forwardDepth` ≤ 3 and no cycles, to prevent chained injection.
 
-**Loop.** Scheduler di hub, jalan tanpa klien.
+**Loops.** A scheduler on the hub, runs without a client.
 
-| Bagian | Pilihan |
+| Part | Options |
 |---|---|
-| Pemicu | Interval (60 detik–24 jam), cron 5 field, `agentIdle`, pola `output` |
-| Target | Handle, grup, orchestrator, semua agent |
-| Berhenti | `maxRuns`, durasi, tanggal, pola output, goal `agentJudged`, goal `command` |
-| Template | Status ping, Nudge idle agents, Build fixer, Test guard, Checkpoint commit, Review round, Daily summary |
+| Trigger | Interval (60 seconds–24 hours), 5-field cron, `agentIdle`, an `output` pattern |
+| Target | Handle, group, orchestrator, all agents |
+| Stop | `maxRuns`, duration, date, output pattern, `agentJudged` goal, `command` goal |
+| Templates | Status ping, Nudge idle agents, Build fixer, Test guard, Checkpoint commit, Review round, Daily summary |
 
-Target `needsYou` dilewati dan menimbulkan attention `loopHeld`. Run yang terlewat saat hub mati tidak diulang. Goal `command` hanya bisa dibuat pengguna, tidak oleh planner.
+A `needsYou` target is skipped and raises a `loopHeld` attention. Runs missed while the hub was down are not repeated. A `command` goal can only be created by the user, not by the planner.
 
-**Template layout.** Built-in: Duo, Trio, Quartet, Two quartets, Build & review, Front & back, Review trio, Triage, Preview lab, Docs crew, Solo, Sextet, Three trios, Lead & crew, Full stack, Code & pair, Web builder, Bug hunt, Security audit, Design studio, Release crew, Research desk, Two duos, Octet, Writer & checker, Relay, Editor & agent, Code & crew, Laravel crew, API crew, App team, UI lab, Refactor squad, Migration desk, Incident room, Review board, Planning desk, Content studio, Onboarding, Quality gate, Performance lab, Hackathon, Dependency update, Data crew. Jumlah console tiap grup bisa diatur sebelum deploy, dan grup bisa dikosongkan kalau layout punya lebih dari satu. Bisa menyimpan susunan sendiri (kind, geometri, agent, grup, wire), tanpa isi kartu dan gambar. Deploy sepenuhnya di hub.
+**Layout templates.** Built-in: Duo, Trio, Quartet, Two quartets, Build & review, Front & back, Review trio, Triage, Preview lab, Docs crew, Solo, Sextet, Three trios, Lead & crew, Full stack, Code & pair, Web builder, Bug hunt, Security audit, Design studio, Release crew, Research desk, Two duos, Octet, Writer & checker, Relay, Editor & agent, Code & crew, Laravel crew, API crew, App team, UI lab, Refactor squad, Migration desk, Incident room, Review board, Planning desk, Content studio, Onboarding, Quality gate, Performance lab, Hackathon, Dependency update, Data crew. The number of consoles in each group can be set before deploying, and a group can be emptied if the layout has more than one. You can save your own arrangement (kind, geometry, agents, groups, wires), without card contents and drawings. Deployment happens entirely on the hub.
 
-**Notifikasi.** Event `attention`: `needsYou`, `finished` (giliran ≥ `finishedMinSec`), `error`, `loopHeld`, `loopEnded`. Chip jumlah needs-you dan tombol `N` melompat ke yang paling lama menunggu. Web memakai Notification API saat tab tersembunyi; Android memakai foreground service sendiri tanpa FCM.
+**Notifications.** `attention` events: `needsYou`, `finished` (a turn ≥ `finishedMinSec`), `error`, `loopHeld`, `loopEnded`. A needs-you count chip and the `N` key jump to the one that has waited longest. The web uses the Notification API when the tab is hidden; Android uses its own foreground service without FCM.
 
 ### 5.10 Memory
 
-Halaman `/memory` berupa galaxy (referensi visual graph Obsidian), dengan daftar berisi hal yang sama yang bisa dipakai lewat keyboard.
+The `/memory` page is a galaxy (visual reference: Obsidian's graph), with a list of the same items that can be used from the keyboard.
 
-| Lapisan | Lokasi | Catatan |
+| Layer | Location | Notes |
 |---|---|---|
-| Main memory | `memory/<projectId>/MEMORY.md` | Dipakai panel, planner, semua CLI; ≤ 64 KB |
-| Catatan agent | `.md` lain di folder itu | |
-| Sub-memory | `memory/subs/<projectId\|global>/<slug>.md` | Halaman per topik, ≤ 64 per main, ≤ 64 KB |
-| Critical notes | Sub-memory `critical` | Wajib ada, ≤ 16 KB |
-| Global | `memory/global.md` | Berlaku semua project |
+| Main memory | `memory/<projectId>/MEMORY.md` | Used by the panel, the planner, every CLI; ≤ 64 KB |
+| Agent notes | Other `.md` files in that folder | |
+| Sub-memory | `memory/subs/<projectId\|global>/<slug>.md` | A page per topic, ≤ 64 per main, ≤ 64 KB |
+| Critical notes | The `critical` sub-memory | Always present, ≤ 16 KB |
+| Global | `memory/global.md` | Applies to every project |
 
-- **Critical notes** selalu masuk utuh dan paling depan ke tiap agent, tidak terpotong anggaran memory, dan hanya pemilik yang mengubahnya. Permintaan langsung pun tidak dihitung sebagai izin: agent harus berhenti dan menunggu konfirmasi. **Ini instruksi, bukan kunci teknis**, karena agent di This PC punya Bash sendiri. Teruji nyata dengan Haiku: `npm run db:reset` tidak dijalankan.
-- **Cara CLI memakai memory:** Claude Code lewat `autoMemoryDirectory` di `--settings`; Codex dan OpenCode lewat injeksi instruksi (≤ 16 000 karakter) dan tool hub; agent lain lewat push.
-- **Pencarian topik:** `memory_search` (BM25 dalam proses, tanpa indeks, ≤ 6 potongan), `memory_read`, `memory_save`. Prompt launch hanya berisi critical notes, main memory, dan daftar halaman; sisanya dicari saat perlu.
-- **Init:** job baca-saja yang mengusulkan fakta, sub-memory, dan critical rules dari apa yang bisa merusak project itu. Prompt-nya melarang membuka `.env`. Tidak ada yang tersimpan sampai pemilik menerima, dan menerapkan dua kali tidak menggandakan.
-- **Scan, refresh, push:** scan mengusulkan 6–14 fakta menurut effort; refresh mengecek satu fakta masih benar; push mengirim memory lewat delivery (≤ 4000 karakter) dengan label "background only".
-- **Memory tile dan Send to agents:** tile adalah tumpukan memory yang berlaku untuk semua agen yang terhubung, lewat launch, tool, dan delivery. Dialog Send memilih memory mana dan agen mana, semua agen project atau yang dipilih, dan menampilkan perkiraan token sebelum mengirim. Hub mencatat fakta yang sudah dimiliki tiap console, jadi yang diketik hanya yang baru, dan tanpa fakta baru tidak ada turn terpakai. Isi memory yang berubah tidak mengetik sendiri (keputusan #37).
+- **Critical notes** always go in whole and first to every agent, are not cut by the memory budget, and only the owner changes them. Even a direct request does not count as permission: the agent must stop and wait for confirmation. **These are instructions, not a technical lock**, because an agent on This PC has its own Bash. Tested for real with Haiku: `npm run db:reset` was not run.
+- **How CLIs use memory:** Claude Code through `autoMemoryDirectory` in `--settings`; Codex and OpenCode through instruction injection (≤ 16 000 characters) and hub tools; other agents through push.
+- **Topic lookup:** `memory_search` (in-process BM25, no index, ≤ 6 snippets), `memory_read`, `memory_save`. The launch prompt contains only the critical notes, the main memory, and the list of pages; the rest is looked up when needed.
+- **Init:** a read-only job that proposes facts, sub-memories, and critical rules from what could damage that project. Its prompt forbids opening `.env`. Nothing is saved until the owner accepts, and applying twice does not duplicate.
+- **Scan, refresh, push:** scan proposes 6–14 facts depending on effort; refresh checks that one fact is still true; push sends memory through delivery (≤ 4000 characters) labeled "background only".
+- **Memory tile and Send to agents:** the tile is a memory stack that applies to every connected agent, through launch, tools, and delivery. The Send dialog picks which memory and which agents, all of the project's agents or the selected ones, and shows a token estimate before sending. The hub records the facts each console already has, so only what is new is typed, and with no new facts no turn is used. Memory content that changes does not type by itself (decision #37).
 
 ### 5.11 Git
 
-Panel Git (`G`), pill di kiri bawah, kartu branch, dan Source Control di workbench. Berjalan di machine project, juga lewat SSH.
+The Git panel (`G`), a pill at the bottom left, the branch card, and Source Control in the workbench. Runs on the project's machine, over SSH too.
 
-- **Status dan diff:** rename, untracked, konflik, ringkasan ahead/behind tanpa fetch otomatis, peringatan file > 100 MiB.
-- **Commit:** path terpilih atau semua; hook milik pengguna tetap jalan; tombol sparkle menulis pesan Conventional Commits: CLI membaca diff file yang berubah, atau subjek instan dari nama file bila CLI dimatikan atau gagal; `422 git_identity` bila identitas belum diatur.
-- **Push, pull, fetch** sebagai job. Pull hanya `--ff-only`; divergen ditolak dengan pesan "merge in a console". Tidak pernah membuka prompt: `GIT_TERMINAL_PROMPT=0`, `BatchMode`, tanpa askpass, batas 5 menit tanpa output.
-- **Discard tidak pernah menghapus:** versi worktree disalin atau dipindah ke `.git/nextboard-trash/<ts>/`, dan restore tidak menimpa pekerjaan.
-- **Branch:** buat, switch (`--no-guess`), hapus (`-d`).
-- **GitHub lewat `gh`:** login di console biasa, publish `gh repo create`. Token tetap di keyring `gh`, hub tidak membacanya. Publish ditolak kalau sudah ada remote.
-- **Multi-repo:** scan read-only (≤ 50 repo, 10 detik), state per repo, command bar menolak bila repo tidak disebut dan ada lebih dari satu. Tidak pernah commit ke semua repo, dan repo baru tidak dibuat di atas repo yang ada.
-- **Keamanan:** tidak ada prompt, dan path divalidasi di dalam repo. Perintah baca tidak menjalankan kode dari config repo: `core.fsmonitor`, filter driver milik repo, dan `gpg.program` lewat `log.showSignature` dimatikan (filter butuh git 2.31). Aksi tulis seperti commit tetap menjalankan hook dan filter.
+- **Status and diff:** renames, untracked files, conflicts, an ahead/behind summary without automatic fetch, a warning for files > 100 MiB.
+- **Commit:** selected paths or all; the user's own hooks still run; the sparkle button writes a Conventional Commits message: a CLI reads the diff of the changed files, or an instant subject from the file names when the CLI is turned off or fails; `422 git_identity` when the identity is not set.
+- **Push, pull, fetch** as jobs. Pull is `--ff-only` only; a divergence is refused with the message "merge in a console". Never opens a prompt: `GIT_TERMINAL_PROMPT=0`, `BatchMode`, no askpass, a 5-minute limit without output.
+- **Discard never deletes:** the worktree version is copied or moved to `.git/nextboard-trash/<ts>/`, and restore does not overwrite work.
+- **Branches:** create, switch (`--no-guess`), delete (`-d`).
+- **GitHub through `gh`:** log in in an ordinary console, publish with `gh repo create`. The token stays in the `gh` keyring; the hub does not read it. Publish is refused if a remote already exists.
+- **Multi-repo:** read-only scan (≤ 50 repos, 10 seconds), state per repo, the command bar refuses when no repo is named and there is more than one. Never commits to every repo, and a new repo is not created on top of an existing one.
+- **Security:** no prompts, and paths are validated to stay inside the repo. Read commands do not run code from the repo's config: `core.fsmonitor`, the repo's own filter drivers, and `gpg.program` through `log.showSignature` are turned off (filters need git 2.31). Write actions such as commit still run hooks and filters.
 
 ### 5.12 Web tile
 
-Dua jalur dalam satu tile:
+Two paths in one tile:
 
-**Dev server dan situs tailnet lewat preview proxy.** Satu listener HTTP per preview di rentang 12320–12339; nginx memberi HTTPS di port yang sama. Target hanya loopback machine itu (lokal dial, SSH `direct-tcpip`) atau alamat yang resolve ke IP Tailscale, dicek ulang tiap koneksi (keputusan 19), jadi tidak ada SSRF ke jaringan lain. Auth lewat token sekali pakai 60 detik → cookie per listener 12 jam. Header pemblokir frame dibuang, skrip bridge disuntikkan, WebSocket/HMR transparan.
+**Dev servers and tailnet sites through the preview proxy.** One HTTP listener per preview in the range 12320–12339; nginx provides HTTPS on the same port. The target is only that machine's loopback (local dial, SSH `direct-tcpip`) or an address that resolves to a Tailscale IP, checked again on every connection (decision 19), so there is no SSRF into other networks. Auth through a single-use 60-second token → a per-listener cookie for 12 hours. Frame-blocking headers are dropped, a bridge script is injected, WebSocket/HMR is transparent.
 
-- **Preview otomatis:** URL localhost di output console, kalau port-nya terbuka, otomatis menjadi tile web dengan edge `preview`.
-- **Kartu log:** konsol, error, dan jaringan dari bridge, ring 500 entri per preview.
-- **Kontrol tile:** address bar, back/forward/reload, tab, ukuran device, zoom 50–250 %.
+- **Automatic preview:** a localhost URL in a console's output, if its port is open, automatically becomes a web tile with a `preview` edge.
+- **Log card:** console, errors, and network from the bridge, a ring of 500 entries per preview.
+- **Tile controls:** address bar, back/forward/reload, tabs, device size, zoom 50–250 %.
 
-**Situs luar lain lewat browser sungguhan** (keputusan 13). Chrome asli di This PC dengan jalur yang sama seperti tile aplikasi, sehingga situs yang melarang iframe, login, unduhan, dan DevTools semuanya jalan. Alamat berikutnya jadi tab baru, atau browser sendiri untuk tile itu dengan profil dan login terpisah; dua situs dengan satu login berdampingan lewat Split View bawaan Chrome. Mendukung Chrome, Chromium, Brave, Edge, Vivaldi, Opera, dan Firefox, termasuk paket snap dan flatpak (API-gui §8).
+**Other outside sites through a real browser** (decision 13). A real Chrome on This PC over the same path as app tiles, so sites that forbid iframes, logins, downloads, and DevTools all work. The next address becomes a new tab, or a browser of its own for that tile with a separate profile and login; two sites with one login sit side by side through Chrome's built-in Split View. Supports Chrome, Chromium, Brave, Edge, Vivaldi, Opera, and Firefox, including snap and flatpak packages (API-gui §8).
 
-### 5.13 Aplikasi desktop di tile
+### 5.13 Desktop apps in a tile
 
-Aplikasi GUI This PC (Chrome, VS Code, dan lain-lain, dari file `.desktop`) tampil di tile, tidak muncul di layar fisik, dan tidak mengganggu sesi desktop. Maksimal 8 aplikasi bersamaan, satu sesi per aplikasi, dengan profil khusus di `<data>/gui/profiles/<appId>/`. Sesi lepas dari hub: restart hub tidak menutup aplikasi.
+This PC's GUI apps (Chrome, VS Code, and others, from `.desktop` files) show in a tile, do not appear on the physical screen, and do not disturb the desktop session. At most 8 apps at once, one session per app, with a dedicated profile in `<data>/gui/profiles/<appId>/`. Sessions are detached from the hub: a hub restart does not close the apps.
 
-| Jalur | Isi |
+| Path | Contents |
 |---|---|
-| Display utama | `sway` headless + `wayvnc` + `wf-recorder`, buffer GPU langsung ke encoder |
-| Cadangan tanpa GPU | Xtigervnc + openbox |
-| Input, kursor, clipboard, gambar diam | RFB lewat noVNC, lossless |
-| Gerakan besar | AV1 atau H.264 VA-API lewat WebCodecs (butuh HTTPS atau localhost) |
-| Suara | Sink PipeWire per sesi → PCM 48 kHz |
+| Main display | Headless `sway` + `wayvnc` + `wf-recorder`, GPU buffers straight to the encoder |
+| Fallback without GPU | Xtigervnc + openbox |
+| Input, cursor, clipboard, still images | RFB through noVNC, lossless |
+| Large motion | AV1 or H.264 VA-API through WebCodecs (needs HTTPS or localhost) |
+| Sound | A PipeWire sink per session → 48 kHz PCM |
 
-**Kenapa dua jalur.** Scroll teks 1280×800 pada link 5 Mbps: RFB saja 1,5 fps dengan respons klik 1165 ms; dengan AV1 48 fps, 165 ms, 2,2 Mbps (diukur di Intel Arc A380, display X11). Display Wayland menurunkan CPU dari sekitar 104 % menjadi 50–65 % satu core, dengan harga respons klik sekitar 30 ms lebih lambat saat gerakan besar.
+**Why two paths.** Scrolling text at 1280×800 on a 5 Mbps link: RFB alone gives 1.5 fps with a 1165 ms click response; with AV1 48 fps, 165 ms, 2.2 Mbps (measured on an Intel Arc A380, X11 display). The Wayland display lowers CPU from about 104 % to 50–65 % of one core, at the cost of a click response about 30 ms slower during large motion.
 
-Keamanan dan batasan: §6 dan §14.
+Security and limits: §6 and §14.
 
 ### 5.14 Studio
 
-**Hidden runner.** Mode headless CLI (`claude -p`, `codex exec`) dengan tool baca-saja atau tanpa tool, tanpa yolo (dijaga `TestRunnerArgvNeverUnsafe`). Hanya Claude dan Codex. Antrean ≤ 2 per machine, ≤ 4 per hub. Purpose: `document`, `diagram`, `memory-scan`, `memory-init`, `memory-refresh`, `loop-goal`, `planner`, `handoff-summary`, `commit-subject`, `thread-summary`, `code-edit`, `code-complete`, `code-ask`.
+**Hidden runs.** The CLIs' headless mode (`claude -p`, `codex exec`) with read-only tools or no tools, no yolo (guarded by `TestRunnerArgvNeverUnsafe`). Claude and Codex only. Queue ≤ 2 per machine, ≤ 4 per hub. Purposes: `document`, `diagram`, `memory-scan`, `memory-init`, `memory-refresh`, `loop-goal`, `planner`, `handoff-summary`, `commit-subject`, `thread-summary`, `code-edit`, `code-complete`, `code-ask`.
 
-**Code workbench.** Node `editor`, satu per board, bukan overlay. Tab dan edit belum tersimpan milik project. Tombol Fill membesarkan card selebar tampilan.
+**Code workbench.** An `editor` node, one per board, not an overlay. Tabs and unsaved edits belong to the project. The Fill button widens the card to the width of the view.
 
-| Area | Kemampuan |
+| Area | Capabilities |
 |---|---|
-| Editor | Monaco, maksimal 3 grup, draft di IndexedDB, file ≤ 1 MB bisa diedit, 1–10 MB read-only, CRLF/BOM dijaga, konflik simpan lewat `ifMtime` |
-| Navigasi | Explorer, Go to file, command palette, panel bawah dengan terminal, status bar |
-| Search dan replace | `rg` → `git grep` → `grep`, ≤ 5000 hasil; replace melewati file yang punya edit belum tersimpan |
-| Source Control | Status, diff, stage, commit, picker repo |
-| Language server | Milik machine project, dijembatani hub (lokal atau SSH). 15 katalog: Go, TypeScript/JS, Python, PHP, Rust, C/C++, Java, Ruby, C#, Kotlin, Swift, YAML, Bash, Lua, Dockerfile. Tidak ada yang diinstal otomatis |
-| Debugger | DAP: Delve, debugpy, lldb-dap / gdb, php-debug-adapter; `.vscode/launch.json` dan entri otomatis Go/Python |
-| Extension | Open VSX, hanya data: tema, snippet, grammar, definisi bahasa. Kode extension tidak pernah jalan |
-| AI | Edit terpilih dengan diff dan Accept; ghost text (mati secara default, karena tiap saran menjalankan CLI); panel Ask yang mengikuti wire card |
-| On save | `editor.onSave` menjalankan perintah per pola, 60 detik per perintah |
+| Editor | Monaco, at most 3 groups, drafts in IndexedDB, files ≤ 1 MB are editable, 1–10 MB read-only, CRLF/BOM preserved, save conflicts through `ifMtime` |
+| Navigation | Explorer, Go to file, command palette, bottom panel with a terminal, status bar |
+| Search and replace | `rg` → `git grep` → `grep`, ≤ 5000 results; replace skips files that have unsaved edits |
+| Source Control | Status, diff, stage, commit, repo picker |
+| Language servers | The project machine's own, bridged by the hub (local or SSH). 15 in the catalog: Go, TypeScript/JS, Python, PHP, Rust, C/C++, Java, Ruby, C#, Kotlin, Swift, YAML, Bash, Lua, Dockerfile. None is installed automatically |
+| Debugger | DAP: Delve, debugpy, lldb-dap / gdb, php-debug-adapter; `.vscode/launch.json` and automatic Go/Python entries |
+| Extensions | Open VSX, data only: themes, snippets, grammars, language definitions. Extension code never runs |
+| AI | Edit a selection with a diff and Accept; ghost text (off by default, because every suggestion runs a CLI); an Ask panel that follows the card's wires |
+| On save | `editor.onSave` runs a command per pattern, 60 seconds per command |
 
-**Bantuan kerja di editor.** Panel **Review** menampilkan file yang diubah tiap agent, dengan keep dan undo per perubahan; **Local History** menyimpan semua versi file. Keduanya memakai repo bayangan di folder data hub (keputusan 24); project di server ikut lewat salinan di This PC. Source Control punya graph commit, tab detail commit, stage per perubahan, stash, penyelesaian konflik, dan pull request lewat `gh`. Panel bawah punya **Tasks** (skrip project, lokasi error, kirim kegagalan ke agent) dan **Ports**. Project Laravel mendapat view sendiri (routes, log, artisan), dan completion serta Go to Definition untuk route, view, dan config, dari file project tanpa menjalankan apa pun (API-studio §7.14). Debugger Node.js jalan tanpa unduhan lewat adapter bawaan hub (keputusan 25). Detail: [API-studio §3.2, §3.3, §7.2, §7.5, §7.10–§7.13](API-studio.md).
+**Work aids in the editor.** The **Review** panel shows the files each agent changed, with keep and undo per change; **Local History** stores every version of a file. Both use a shadow repo in the hub's data folder (decision 24); projects on a server take part through a copy on This PC. Source Control has a commit graph, a commit detail tab, staging per change, stash, conflict resolution, and pull requests through `gh`. The bottom panel has **Tasks** (project scripts, error locations, sending a failure to an agent) and **Ports**. Laravel projects get a view of their own (routes, logs, artisan), plus completion and Go to Definition for routes, views, and config, from the project's files without running anything (API-studio §7.14). The Node.js debugger works without a download through the hub's built-in adapter (decision 25). Details: [API-studio §3.2, §3.3, §7.2, §7.5, §7.10–§7.13](API-studio.md).
 
-**Documents.** Tipe `overview`, `onboarding`, `architecture`, `readme`, `api`, `dataModel`, `security`, `testing`, `releaseNotes`, `custom`. Effort `quick`, `balanced`, `thorough` (400–1500 kata, 6–25 menit), dengan median durasi. Streaming, versi, Stop menyimpan versi `incomplete`. Ekspor PDF A4/Letter dan Markdown, atau tambah ke board.
+**Documents.** Types `overview`, `onboarding`, `architecture`, `readme`, `api`, `dataModel`, `security`, `testing`, `releaseNotes`, `custom`. Effort `quick`, `balanced`, `thorough` (400–1500 words, 6–25 minutes), with the median duration. Streaming, versions, Stop saves an `incomplete` version. Export to PDF A4/Letter and Markdown, or add to the board.
 
-**Diagrams.** Subjek `architecture`, `userFlow`, `dataFlow`, `components`, `requestLifecycle`, `stateFlow`, `custom`. Output JSON `nb.diagram/v1` divalidasi hub (≤ 40 node, 80 edge, 8 grup), lalu mendarat sebagai shape dan garis lepas di board. Ekspor PNG dan Excalidraw. Starter tanpa AI: Flow, Steps, Decision, Mind map.
+**Diagrams.** Subjects `architecture`, `userFlow`, `dataFlow`, `components`, `requestLifecycle`, `stateFlow`, `custom`. The `nb.diagram/v1` JSON output is validated by the hub (≤ 40 nodes, 80 edges, 8 groups), then lands as loose shapes and lines on the board. Export to PNG and Excalidraw. Starters without AI: Flow, Steps, Decision, Mind map.
 
-**Markdown** (`D`). Vault `.md .markdown .mdx` (≤ 2000 file), mode Reading/Source/Graph, wikilink dan link Markdown, backlinks, autosave 1,5 detik, perubahan dari agent muncul ≤ 3 detik, PDF lewat rute cetak.
+**Markdown** (`D`). A vault of `.md .markdown .mdx` (≤ 2000 files), Reading/Source/Graph modes, wikilinks and Markdown links, backlinks, autosave after 1.5 seconds, changes from agents show up within ≤ 3 seconds, PDF through the print route.
 
-**Skills** (`S`). Skill dan command Claude di scope personal, project, plugin (read-only). Shadowing, lint 10 aturan tanpa AI, 12 starter, jalankan ke console lewat delivery. Menulis ke folder config di machine SSH memakai protokol konfirmasi: `428` dengan daftar path, UI menampilkan machine dan path, dan versi lama dicadangkan ke hub sebelum ditimpa.
+**Skills** (`S`). Claude skills and commands in personal, project, and plugin (read-only) scope. Shadowing, a 10-rule lint without AI, 12 starters, run into a console through delivery. Writing to a config folder on an SSH machine uses a confirmation protocol: `428` with a list of paths, the UI shows the machine and paths, and the old version is backed up to the hub before it is overwritten.
 
 ### 5.15 Usage
 
-- **Usage pill:** sesi PTY tersembunyi di `/tmp/nb-usage-<uid>` (dihapus setelah dipakai) mengetik `/usage`, `/status`, atau `/stats`, lalu layarnya di-parse. Hasilnya bar per window, waktu reset, dan layar mentah bila parse gagal. Best-effort, karena format layar berubah antar versi.
-- **Default:** pemeriksaan latar mati dan Codex mati, karena efek sampingnya nyata (§14).
-- **Chime reset:** bunyi di `resetsAt + 30 detik`, dengan opsi `after100` atau `always`.
-- **Grafik token:** 30 hari per agent dari transcript, indeks inkremental hanya membaca byte baru, dedupe per `message.id`. UI menyatakan ini bukan tagihan.
+- **Usage pill:** a hidden PTY session in `/tmp/nb-usage-<uid>` (deleted after use) types `/usage`, `/status`, or `/stats`, then its screen is parsed. The result is a bar per window, the reset time, and the raw screen when parsing fails. Best-effort, because the screen format changes between versions.
+- **Defaults:** background checks off and Codex off, because the side effects are real (§14).
+- **Reset chime:** sounds at `resetsAt + 30 seconds`, with the option `after100` or `always`.
+- **Token charts:** 30 days per agent from transcripts, an incremental index reads only new bytes, deduplicated per `message.id`. The UI states that this is not a bill.
 
-### 5.16 Suara
+### 5.16 Voice
 
-Sepenuhnya di klien; hub tidak menerima audio. Opt-in dengan pengungkapan bahwa browser bisa mengirim audio ke Google atau Microsoft.
+Entirely in the client; the hub receives no audio. Opt-in, with a disclosure that the browser may send audio to Google or Microsoft.
 
-- **Push-to-talk:** tahan Spasi, maksimal 60 detik, hasilnya masuk ke command bar.
-- **Dikte:** tahan `AltRight`, ke field yang fokus atau ke console lewat delivery guard `dictation`, maksimal 5 menit.
-- **TTS:** hanya kalimat pendek dari hub, tidak pernah balasan agent.
+- **Push-to-talk:** hold Space, at most 60 seconds, the result goes into the command bar.
+- **Dictation:** hold `AltRight`, into the focused field or into a console through the `dictation` delivery guard, at most 5 minutes.
+- **TTS:** only short sentences from the hub, never agent replies.
 
-### 5.17 Pengaturan dan shortcut
+### 5.17 Settings and shortcuts
 
-Di hub (`GET/PATCH /api/settings`, JSON Merge Patch, event `settings`): `agents`, `notifications`, `shortcuts`, `delivery`, `commands`, `memory`, `previews`, `usage`, `runner`, `git`, `editor`. Per browser (localStorage): tema, ukuran teks, agent armed, viewport, suara.
+On the hub (`GET/PATCH /api/settings`, JSON Merge Patch, `settings` event): `agents`, `notifications`, `shortcuts`, `delivery`, `commands`, `memory`, `previews`, `usage`, `runner`, `git`, `editor`. Per browser (localStorage): theme, text size, armed agent, viewport, voice.
 
-Panel Settings: Agents, Lead agent, Login profiles, MCP servers, Notifications, Shortcuts, Usage, Previews & studios, Voice, Connections, Appearance, Install app (DESIGN §3.17).
+Settings panels: Agents, Lead agent, Login profiles, MCP servers, Notifications, Shortcuts, Usage, Previews & studios, Voice, Connections, Appearance, Install app (DESIGN §3.17).
 
-**Tema** (per browser, Settings › Appearance dan tombol di header): System, Light, Dark. Tanpa reload, tab lain ikut. Console dan Monaco ikut berganti langsung; console bisa dibuat selalu gelap. Tema warna dari extension yang dipilih di editor tetap dipakai apa pun tema aplikasi. Langit Memory selalu gelap. Sistem desainnya di [DESIGN.md](DESIGN.md).
+**Theme** (per browser, Settings › Appearance and a button in the header): System, Light, Dark. No reload, other tabs follow. Consoles and Monaco switch right away; consoles can be made always dark. A color theme from an extension chosen in the editor stays in use whatever the app theme. The Memory sky is always dark. The design system is in [DESIGN.md](DESIGN.md).
 
-| Tombol | Aksi | Tombol | Aksi |
+| Key | Action | Key | Action |
 |---|---|---|---|
 | `V` | Select | `M` | Memory |
 | `T` | Spawn | `S` | Skills |
 | `P` | Pen | `L` | Loops |
 | `E` | Eraser | `D` | Markdown |
-| `G` | Git | `N` | Lompat ke needs-you |
-| `X` | Mission Map (tetap) | `Space` | Push-to-talk (tetap) |
+| `G` | Git | `N` | Jump to needs-you |
+| `X` | Mission Map (fixed) | `Space` | Push-to-talk (fixed) |
 
-Tombol selain yang bertanda tetap bisa di-rebind. `Ctrl/⌘K` memfokuskan command bar.
+Keys other than the ones marked fixed can be rebound. `Ctrl/⌘K` focuses the command bar.
 
-### 5.18 Log koneksi
+### 5.18 Connection log
 
-Selalu aktif, di `<data>/logs/connections.jsonl`, paling banyak sekitar 8 MiB. Mencatat `connected`, `disconnected` (dengan alasan `keepalive_timeout`, `connection_lost`, atau `closed`), `keepalive_miss`, `link_stats` tiap 30 menit, `tool_failed`, `tool_slow`, `hub_unclean_exit`, dan lainnya. Tidak mencatat perintah, output, isi file, atau path.
+Always on, in `<data>/logs/connections.jsonl`, at most about 8 MiB. Records `connected`, `disconnected` (with the reason `keepalive_timeout`, `connection_lost`, or `closed`), `keepalive_miss`, `link_stats` every 30 minutes, `tool_failed`, `tool_slow`, `hub_unclean_exit`, and others. It does not record commands, output, file contents, or paths.
 
-Dibaca lewat Machines › kartu server › Connection log, `nextboard connlog`, atau `jq`.
+Read it through Machines › server card › Connection log, `nextboard connlog`, or `jq`.
 
 ### 5.19 Credentials
 
-Password manager di board, mengikuti Bitwarden; kontrak dan model keamanannya di [API-vault.md](API-vault.md). Satu vault per hub, ditampilkan oleh semua kartu `credentials` dan oleh tombol kunci di header (jendela di halaman mana pun, tanpa kartu), dan menghapus kartu tidak menyentuh vault.
+A password manager on the board, modeled on Bitwarden; its contract and security model are in [API-vault.md](API-vault.md). One vault per hub, shown by every `credentials` card and by the key button in the header (a window on any page, no card needed), and deleting a card does not touch the vault.
 
-- **Enkripsi di browser:** Argon2id (64 MiB, 3 pass) + AES-256-GCM dengan master password yang tidak pernah sampai ke hub. Hub hanya menyimpan ciphertext, karena agent di This PC bisa membaca `<data>`.
-- **Isi:** login (TOTP, beberapa alamat, riwayat password), kartu, identitas, catatan, kunci SSH, field custom, folder, favorit, trash 30 hari, cari.
-- **Generator** password dan passphrase, salin dengan penghapusan clipboard otomatis, kunci idle (bawaan 15 menit, dihitung dari kerja di kartu saja), import dan export format Bitwarden.
-- **PIN 6 digit per browser,** butuh blob di browser dan persetujuan hub, 5 kali salah hangus. Master password minimal 8 karakter.
-- **Mengisi form** dari tombol kunci di browser tile, selalu atas pilihan orangnya: web tile lewat bridge dengan cek situs, Chrome di This PC lewat tempel ke field yang fokus.
-- **Jalan di HTTP biasa juga,** dengan AES dari `@noble/ciphers` karena `crypto.subtle` tidak ada di sana, dan layar password menyebut risikonya. Satu vault bisa dibuka dari HTTP maupun HTTPS.
-- **Agent memakai credential** (keputusan #40): item yang ditandai untuk sebuah project bisa diminta agent project itu lewat `credential_run`. Pemilik menyetujui tiap perintah di browser, hub menjalankannya dan menyensor output, dan agent tidak pernah menerima nilai.
+- **Encryption in the browser:** Argon2id (64 MiB, 3 passes) + AES-256-GCM with a master password that never reaches the hub. The hub stores only ciphertext, because agents on This PC can read `<data>`.
+- **Contents:** logins (TOTP, several addresses, password history), cards, identities, notes, SSH keys, custom fields, folders, favorites, a 30-day trash, search.
+- **Generator** for passwords and passphrases, copy with automatic clipboard clearing, idle lock (default 15 minutes, counted from work in the card only), import and export in Bitwarden format.
+- **6-digit PIN per browser,** needs a blob in the browser and the hub's approval, burned after 5 wrong tries. The master password is at least 8 characters.
+- **Filling forms** from the key button in a browser tile, always at the person's choice: web tiles through the bridge with a site check, Chrome on This PC by pasting into the focused field.
+- **Works on plain HTTP too,** with AES from `@noble/ciphers` because `crypto.subtle` is not available there, and the password screen names the risk. One vault can be opened over both HTTP and HTTPS.
+- **Agents using a credential** (decision #40): an item marked for a project can be requested by that project's agents through `credential_run`. The owner approves each command in the browser, the hub runs it and censors the output, and the agent never receives the value.
 
-## 6. Keamanan
+## 6. Security
 
-**Model ancaman.** Satu pemilik. Siapa pun yang bisa login ke hub setara punya shell ke mesin. Karena itu lapisan terpentingnya adalah tidak membuka hub ke publik.
+**Threat model.** One owner. Anyone who can log in to the hub effectively has a shell on the machine. That is why the most important layer is not exposing the hub to the public.
 
-| Lapisan | Perlindungan |
+| Layer | Protection |
 |---|---|
-| Jaringan | Default bind loopback, HTTPS di nginx, peringatan bila bind non-loopback. `X-Forwarded-Proto` hanya dipercaya dari peer loopback |
-| Browser | argon2id, cookie `HttpOnly` + `SameSite=Strict`, header CSRF, cek Origin WebSocket, rate limit, CSP dengan `font-src 'self'`. WebSocket berakhir bersama loginnya: logout dan reset password memutus terminal yang terbuka |
-| Device | Ed25519, challenge sekali pakai 60 detik, token opaque 1 jam, revoke seketika, token tidak di URL |
-| Kredensial SSH | AES-256-GCM dengan `secret.key` 0600, tidak pernah ke klien; host key berubah ditolak |
-| Credentials | Dienkripsi di browser dengan master password yang tidak pernah ke hub; board, log, dan agent tidak pernah melihat isinya. Agent hanya bisa meminta satu perintah yang disetujui per pemakaian, dan output-nya disensor |
-| File API | `<data>` diblokir untuk read/raw/write; `fs/raw` tidak menyajikan HTML sebagai HTML, dengan CSP `sandbox`; aset menolak SVG |
-| Exec | Tidak ada exec bebas, argumen di-quote, path setelah `--`, ref divalidasi |
-| Marker | Token per sesi 128 bit, tidak pernah ke klien; marker tanpa token valid dibuang |
-| Preview | Origin per port, token sekali pakai, target hanya loopback, `/api` tidak tersedia, cookie NextBoard dibuang dari upstream |
-| Aplikasi desktop | VNC hanya Unix socket di folder 0700, cookie X11 atau daftar akses per sesi |
-| Orkestrasi | Output planner tidak tepercaya, label sumber pada forward, batas kedalaman, pola berisiko |
-| Log | Tanpa password, kode, atau isi terminal |
+| Network | Binds to loopback by default, HTTPS in nginx, a warning on a non-loopback bind. `X-Forwarded-Proto` is trusted only from a loopback peer |
+| Browser | argon2id, `HttpOnly` + `SameSite=Strict` cookie, CSRF header, WebSocket Origin check, rate limit, CSP with `font-src 'self'`. WebSockets end together with their login: logout and password reset cut open terminals |
+| Device | Ed25519, single-use 60-second challenge, opaque 1-hour token, immediate revoke, tokens never in URLs |
+| SSH credentials | AES-256-GCM with a 0600 `secret.key`, never sent to the client; a changed host key is refused |
+| Credentials | Encrypted in the browser with a master password that never reaches the hub; the board, logs, and agents never see the contents. An agent can only request one approved command per use, and its output is censored |
+| File API | `<data>` is blocked for read/raw/write; `fs/raw` does not serve HTML as HTML, with a `sandbox` CSP; assets refuse SVG |
+| Exec | No free-form exec, arguments are quoted, paths after `--`, refs are validated |
+| Markers | A 128-bit token per session, never sent to the client; markers without a valid token are dropped |
+| Preview | An origin per port, single-use tokens, loopback-only targets, `/api` not available, NextBoard cookies stripped from the upstream |
+| Desktop apps | VNC only over a Unix socket in a 0700 folder, an X11 cookie or an access list per session |
+| Orchestration | Planner output is untrusted, source labels on forwards, depth limit, risky patterns |
+| Logs | No passwords, codes, or terminal contents |
 
-**Yang tidak dilindungi** (sudah dinyatakan ke pemilik):
+**What is not protected** (already stated to the owner):
 
-- Agent di This PC punya Bash sebagai user yang sama, jadi bisa membaca environment-nya, termasuk rahasia MCP, dan folder data hub. Jangan beri token yang tidak boleh dilihat agent.
-- Critical notes adalah instruksi, kepatuhan bergantung pada model. Perintah terblokir ditegakkan CLI atau hub, tetapi bukan sandbox (keputusan #38).
-- Profil aplikasi desktop memakai `--password-store=basic`, jadi password tersimpan hanya dilindungi izin file `<data>`.
-- Browser di tile bisa menjangkau semua yang bisa dijangkau This PC, termasuk layanan localhost dan jaringan lokal.
-- Dengan yolo, agent bisa melakukan apa saja tanpa bertanya.
-- Credentials: agent bisa membaca `vault.json` dan menebak master password secara offline, dan agent yang bisa menulis ke binary hub atau file web bisa menangkapnya saat unlock. Lupa master password berarti isi vault hilang. Di HTTP biasa, siapa pun yang bisa mengubah lalu lintas bisa menangkap master password. PIN bisa ditebak kalau storage browser dan folder hub ada di tangan yang sama. Mengisi form melepas rahasianya ke halaman itu, dan di Chrome This PC situsnya tidak bisa dipastikan. Perintah yang disetujui untuk agent menjalankan script project apa adanya, dan agent bisa mengubah script itu atau membaca env prosesnya ([API-vault.md](API-vault.md)).
+- An agent on This PC has Bash as the same user, so it can read its environment, including MCP secrets, and the hub's data folder. Do not provide a token that the agent must not see.
+- Critical notes are instructions; compliance depends on the model. Blocked commands are enforced by the CLI or the hub, but they are not a sandbox (decision #38).
+- Desktop app profiles use `--password-store=basic`, so saved passwords are protected only by the file permissions of `<data>`.
+- A browser in a tile can reach everything This PC can reach, including localhost services and the local network.
+- With yolo, an agent can do anything without asking.
+- Credentials: an agent can read `vault.json` and guess the master password offline, and an agent that can write to the hub binary or the web files can capture it at unlock. Forgetting the master password means the vault's contents are gone. On plain HTTP, anyone who can modify the traffic can capture the master password. The PIN can be guessed if the browser storage and the hub folder are in the same hands. Filling a form releases the secret to that page, and in This PC's Chrome the site cannot be verified. A command approved for an agent runs the project's script as it is, and the agent can change that script or read its process env ([API-vault.md](API-vault.md)).
 
-## 7. Batas sistem
+## 7. System limits
 
-| Area | Batas |
+| Area | Limit |
 |---|---|
-| Body request | 64 KB default; board ops 2 MB; aset dan tulis file 20 MB |
-| Console | Scrollback 1 MiB; total memori hub sekitar 6 MB per console |
-| Spawn | ≤ 12 per panggilan, ≤ 64 per workspace |
-| Board | ≤ 500 op per batch, node `data` ≤ 256 KB, board ≤ 8 MB, snapshot 24 |
-| Grup | ≤ 12 anggota, nama ≤ 24 karakter |
-| Perintah | Teks ≤ 4000 karakter; ke planner hanya ≤ 600; 3 antre per giliran planner |
-| Planner | 2 menit; ≤ 40 langkah; ≤ 30 tile per board; cooldown 60 detik setelah 2 gagal |
-| Delivery | ≤ 32 000 karakter, ≤ 20 antre per sesi, deadline default 1 jam, konfirmasi 8 detik |
-| Tunggu delivery | starting 60 dtk, prompt 120 dtk, reconnect 5 mnt, needsYou 15 mnt, working 30 mnt |
-| Konfirmasi | TTL 60 detik (30–300) |
-| Order | Laporan timeout 30 menit; simpan 200 |
-| Handoff | Ringkas 4 menit; siap 120 + 120 detik |
-| Forward | 20 000 per balasan, 32 000 per digest; depth ≤ 3; tiap edge 1× per 60 detik, hasil di dalam menit itu ditahan lalu dikirim bersama |
-| Loop | 50 per hub; `maxRuns` 1–500; durasi 15 menit–24 jam; goal tidak dua kali dalam 90 detik |
-| Memory | Main dan sub 64 KB; critical 16 KB; 64 sub; push 4000 karakter |
-| Job | 100 tersimpan; runner 10 menit dan idle 200 detik |
+| Request body | 64 KB default; board ops 2 MB; assets and file writes 20 MB |
+| Console | Scrollback 1 MiB; total hub memory about 6 MB per console |
+| Spawn | ≤ 12 per call, ≤ 64 per workspace |
+| Board | ≤ 500 ops per batch, node `data` ≤ 256 KB, board ≤ 8 MB, 24 snapshots |
+| Groups | ≤ 12 members, name ≤ 24 characters |
+| Commands | Text ≤ 4000 characters; only ≤ 600 go to the planner; 3 queued per planner turn |
+| Planner | 2 minutes; ≤ 40 steps; ≤ 30 tiles per board; 60-second cooldown after 2 failures |
+| Delivery | ≤ 32 000 characters, ≤ 20 queued per session, default deadline 1 hour, confirmation 8 seconds |
+| Delivery waits | starting 60 s, prompt 120 s, reconnect 5 min, needsYou 15 min, working 30 min |
+| Confirmation | TTL 60 seconds (30–300) |
+| Orders | Timeout report at 30 minutes; 200 kept |
+| Handoff | Summary 4 minutes; ready 120 + 120 seconds |
+| Forward | 20 000 per reply, 32 000 per digest; depth ≤ 3; each edge 1× per 60 seconds, results within that minute are held and then sent together |
+| Loops | 50 per hub; `maxRuns` 1–500; duration 15 minutes–24 hours; a goal not twice within 90 seconds |
+| Memory | Main and sub 64 KB; critical 16 KB; 64 subs; push 4000 characters |
+| Jobs | 100 kept; runner 10 minutes and idle 200 seconds |
 | Exec | Output ≤ 4 MiB |
-| Git | Status ≤ 400 file, diff ≤ 512 KB, log ≤ 100, branch ≤ 200; jaringan 15 menit, idle 5 menit |
-| Multi-repo | 4 level, ≤ 50 repo, scan 10 detik |
-| Preview | ≤ 20 listener, idle 30 menit, log 500 entri |
-| Aplikasi desktop | 8 sesi, 16 aliran video/audio, 320×200 sampai 3840×2160 |
-| Code | ≤ 200 000 file; search 5000 hasil, 30 detik; replace 2000 file; 3 grup editor; `onSave` 50 aturan |
-| Markdown | 2000 file; 256 KB per file; indeks 20 MB / 20 detik |
-| Skills | 400 item; isi 512 KB; import 50 file / 5 MB |
-| MCP | 32 server; Try 20 detik (URL), 45 detik (perintah) |
-| Attention | Ring 200 |
-| Credentials | ≤ 5000 record; satu item ≤ 64 KB base64; vault ≤ 64 MB; master password ≥ 8 karakter; PIN 6 digit, 5 kali salah, ≤ 32 browser |
+| Git | Status ≤ 400 files, diff ≤ 512 KB, log ≤ 100, branches ≤ 200; network 15 minutes, idle 5 minutes |
+| Multi-repo | 4 levels, ≤ 50 repos, scan 10 seconds |
+| Preview | ≤ 20 listeners, idle 30 minutes, log 500 entries |
+| Desktop apps | 8 sessions, 16 video/audio streams, 320×200 to 3840×2160 |
+| Code | ≤ 200 000 files; search 5000 results, 30 seconds; replace 2000 files; 3 editor groups; `onSave` 50 rules |
+| Markdown | 2000 files; 256 KB per file; index 20 MB / 20 seconds |
+| Skills | 400 items; contents 512 KB; import 50 files / 5 MB |
+| MCP | 32 servers; Try 20 seconds (URL), 45 seconds (command) |
+| Attention | Ring of 200 |
+| Credentials | ≤ 5000 records; one item ≤ 64 KB base64; vault ≤ 64 MB; master password ≥ 8 characters; 6-digit PIN, 5 wrong tries, ≤ 32 browsers |
 
-## 8. Data dan persistensi
+## 8. Data and persistence
 
-Semua di `<data>` (`~/.nextboard/`, 0700). File 0600, tulis atomik (tmp + rename).
+Everything is in `<data>` (`~/.nextboard/`, 0700). Files are 0600, written atomically (tmp + rename).
 
 ```
 config.json  auth.json  secret.key  known_hosts  settings.json
-devices.json  machines.json  creds/<id>.enc      identitas dan machine
-projects.json  sessions.json  scrollback/<id>.log  project dan console
-presets.json  profiles.json  profiles/<id>/      agent custom dan profil
-agents/<agent>/  agents/prompts/<sid>.md  agents/remote/…   state CLI per agent
-boards/<wid>.json(.prev)  snapshots/<wid>/  archive/    board
-assets/                                          gambar
-threads/<tid>.jsonl  orders.json  forwards.json  orkestrasi
-loops.json  loops/<id>.jsonl  layouts.json       loop dan layout
+devices.json  machines.json  creds/<id>.enc      identity and machines
+projects.json  sessions.json  scrollback/<id>.log  projects and consoles
+presets.json  profiles.json  profiles/<id>/      custom agents and profiles
+agents/<agent>/  agents/prompts/<sid>.md  agents/remote/…   CLI state per agent
+boards/<wid>.json(.prev)  snapshots/<wid>/  archive/    boards
+assets/                                          images
+threads/<tid>.jsonl  orders.json  forwards.json  orchestration
+loops.json  loops/<id>.jsonl  layouts.json       loops and layouts
 memory/<projectId>/MEMORY.md  memory/global.md  memory/subs/…   memory
-mcp-servers.json  extensions/                    MCP dan extension
-jobs.json  runner/planner/                       job
-vault.json(.prev)  vault.reset-*.json             credentials, hanya ciphertext
-credential-log.jsonl(.1)                         perintah agent dengan credential, tanpa nilai
-documents/<projectId>/…  diagrams/<projectId>/…  hasil studio
+mcp-servers.json  extensions/                    MCP and extensions
+jobs.json  runner/planner/                       jobs
+vault.json(.prev)  vault.reset-*.json             credentials, ciphertext only
+credential-log.jsonl(.1)                         agent commands with a credential, no values
+documents/<projectId>/…  diagrams/<projectId>/…  studio output
 usage/reports.json  usage/tokens/  usage/pending-cleanup.json
-gui/profiles/<appId>/  gui/sessions/<id>/        aplikasi desktop
-backups/skills/<machineId>/<ts>/                 cadangan skill
-logs/connections.jsonl                           log koneksi
+gui/profiles/<appId>/  gui/sessions/<id>/        desktop apps
+backups/skills/<machineId>/<ts>/                 skill backups
+logs/connections.jsonl                           connection log
 ```
 
-**Hanya di memori, hilang saat hub restart:** delivery, konfirmasi, handoff, state engine, cache balasan, ring attention, preview dan listener-nya.
+**In memory only, lost when the hub restarts:** deliveries, confirmations, handoffs, engine state, the reply cache, the attention ring, previews and their listeners.
 
-**Yang ditulis ke machine target**, hanya atas aksi pengguna: file repo (git, studio, skill project), `.git/nextboard-trash/` atau `.nextboard-trash/`, `<cfg>/skills|commands` dengan konfirmasi, dan folder sementara `/tmp/nb-usage-<uid>` serta `/tmp/nb-run.*` yang selalu dihapus.
+**What is written to the target machine**, only on a user action: repo files (git, studio, project skills), `.git/nextboard-trash/` or `.nextboard-trash/`, `<cfg>/skills|commands` with confirmation, and the temporary folders `/tmp/nb-usage-<uid>` and `/tmp/nb-run.*`, which are always deleted.
 
-## 9. API dan event
+## 9. API and events
 
-Konvensi: JSON camelCase, waktu RFC 3339, error `{"error","code"}`, header `X-NextBoard: 1` untuk request yang mengubah data, cookie atau `Authorization: Bearer`.
+Conventions: camelCase JSON, RFC 3339 times, errors as `{"error","code"}`, the `X-NextBoard: 1` header on requests that change data, a cookie or `Authorization: Bearer`.
 
-| Area | Route | Kontrak |
+| Area | Routes | Contract |
 |---|---:|---|
-| `/api/projects/*` (git, commands, loop, memory, file, LSP, DAP, studio) | 61 | Beberapa dokumen di bawah |
+| `/api/projects/*` (git, commands, loop, memory, file, LSP, DAP, studio) | 61 | Several documents below |
 | `/api/machines/*` (fs, skills, presets, probe) | 34 | [API.md](API.md), [API-board.md](API-board.md), [API-studio.md](API-studio.md) |
 | `/api/sessions/*` | 20 | [API.md](API.md), [API-agents.md](API-agents.md) |
 | `/api/workspaces/*` | 11 | [API-board.md](API-board.md), [API-orchestration.md](API-orchestration.md) |
 | `/api/gui/*` | 9 | [API-gui.md](API-gui.md) |
 | `/api/loops/*` | 8 | [API-orchestration.md](API-orchestration.md) §11 |
-| `previews`, `memory`, `documents`, `extensions`, `mcp`, `auth` | 5 per area | Sesuai area |
-| Lainnya (`agents`, `profiles`, `layouts`, `usage`, `threads`, `jobs`, `devices`, dan seterusnya) | 1–4 per area | Sesuai area |
+| `previews`, `memory`, `documents`, `extensions`, `mcp`, `auth` | 5 per area | By area |
+| Others (`agents`, `profiles`, `layouts`, `usage`, `threads`, `jobs`, `devices`, and so on) | 1–4 per area | By area |
 
-Di luar `/api`: `/nb/hook`, `/nb/mcp/{sid}`, `/nb/mcp-job` di listener loopback hook; `/__nb/*` di listener preview.
+Outside `/api`: `/nb/hook`, `/nb/mcp/{sid}`, `/nb/mcp-job` on the loopback hook listener; `/__nb/*` on the preview listeners.
 
-**Event `/api/events`:**
+**`/api/events` events:**
 
-| Kelompok | `type` |
+| Group | `type` |
 |---|---|
-| Inti | `snapshot`, `session`, `removed`, `machine`, `machineRemoved`, `device`, `deviceRemoved`, `project`, `projectRemoved`, `boardOps` |
-| Agent | `attention`, `settings`, `agents`, `profile`, `profileRemoved` |
-| Orkestrasi | `delivery`, `thread`, `threadCleared`, `order`, `confirmation`, `command`, `handoff`, `forward`, `loop`, `loopRemoved`, `loopRun`, `memory`, `layouts` |
+| Core | `snapshot`, `session`, `removed`, `machine`, `machineRemoved`, `device`, `deviceRemoved`, `project`, `projectRemoved`, `boardOps` |
+| Agents | `attention`, `settings`, `agents`, `profile`, `profileRemoved` |
+| Orchestration | `delivery`, `thread`, `threadCleared`, `order`, `confirmation`, `command`, `handoff`, `forward`, `loop`, `loopRemoved`, `loopRun`, `memory`, `layouts` |
 | Studio | `job`, `jobOutput`, `git`, `gitRepo`, `github`, `preview`, `previewRemoved`, `previewSuggested`, `previewLog`, `document`, `documentRemoved`, `diagram`, `usage`, `usageReset`, `skills`, `fsChanged` |
-| Aplikasi | `guiSession`, `guiSessionRemoved` |
+| Apps | `guiSession`, `guiSessionRemoved` |
 | Credentials | `vaultChanged`, `credentialRequest` |
 
-## 10. Klien
+## 10. Clients
 
-| Klien | Lokasi | Status |
+| Client | Location | Status |
 |---|---|---|
-| Web | `web/`, tertanam di binary | Aktif, mengikuti hub |
-| Android | Proyek terpisah, belum dipublikasikan (Kotlin, Compose, tanpa Google Play Services) | **Ditunda.** Mencakup sampai Fase 7, tanpa edit kanvas di HP |
-| Desktop | Proyek terpisah, belum dipublikasikan (Tauri v2) | **Ditunda.** Multi-hub, menampilkan SPA hub lewat proxy lokal |
+| Web | `web/`, embedded in the binary | Active, follows the hub |
+| Android | A separate project, not published yet (Kotlin, Compose, no Google Play Services) | **Paused.** Covers up to Phase 7, no canvas editing on phones |
+| Desktop | A separate project, not published yet (Tauri v2) | **Paused.** Multi-hub, shows the hub's SPA through a local proxy |
 
-Jangan mengubah, membangun, atau menguji folder Android dan desktop kecuali diminta pemilik.
+Do not change, build, or test the Android and desktop folders unless the owner asks.
 
-**Yang perlu dikejar klien saat dilanjutkan:**
+**What the clients need to catch up on when work resumes:**
 
-- Node `app` dan `editor` tampil sebagai "Unsupported tile" di klien yang belum mengenalnya.
-- Picker multi-repo belum ada; tanpa `?repo=` perilaku lama tetap.
-- `settings.editor.onSave` belum dipakai Android.
-- Fitur sesudah Fase 7 pada umumnya belum ada di Android: memory galaxy, MCP, switch agent.
+- `app` and `editor` nodes show as "Unsupported tile" in clients that do not know them yet.
+- The multi-repo picker does not exist yet; without `?repo=` the old behavior stays.
+- `settings.editor.onSave` is not used by Android yet.
+- Features after Phase 7 are generally missing from Android: the memory galaxy, MCP, switching agents.
 
-**Kontrak yang harus tetap stabil,** karena di-parse app desktop: `var HUB = <array JSON>;` di `bridge.js`, entri `<skema>://<host>:<port>` di `frame-src` CSP, objek preview ber-`id` `pv_…` dengan `listenPort`, dan `launchPath` berbentuk `/__nb/launch?t=…`.
+**Contracts that must stay stable,** because the desktop app parses them: `var HUB = <array JSON>;` in `bridge.js`, the `<skema>://<host>:<port>` entries in the CSP `frame-src`, preview objects with an `id` of `pv_…` and a `listenPort`, and a `launchPath` of the form `/__nb/launch?t=…`.
 
-## 11. Pengembangan, test, deploy
+## 11. Development, testing, deployment
 
-Butuh Go 1.26+ dan Node 22+. Module Go: `github.com/azamrizki/nextboard`. `go install` membangun hub tanpa UI, karena bundle web tidak ada di repo; halaman utamanya lalu menyuruh memakai `make build`.
+Needs Go 1.26+ and Node 22+. Go module: `github.com/azamrizki/nextboard`. `go install` builds a hub without the UI, because the web bundle is not in the repo; its main page then says to use `make build`.
 
-| Perintah | Fungsi |
+| Command | Purpose |
 |---|---|
-| `make dev` | Hub + Vite; web `:15173`, hub `:12312`, data `./.devdata`; file Go berubah → hub restart lewat air (`RELOAD=0` mematikannya) |
-| `make dev-hub`, `make dev-web` | Satu sisi saja |
+| `make dev` | Hub + Vite; web `:15173`, hub `:12312`, data `./.devdata`; a changed Go file → the hub restarts through air (`RELOAD=0` turns this off) |
+| `make dev-hub`, `make dev-web` | One side only |
 | `make test` | `go vet` + `go test -race ./...` |
-| `make test-web` | Test unit web (Vitest); butuh `web/node_modules` |
-| `make test-e2e` | Uji browser (Playwright) terhadap hub sementara dengan agent palsu; butuh `cd web && npx playwright install chromium` sekali. Tidak ikut di workflow rilis |
-| `make test-ssh` | Uji SSH terhadap sshd sementara |
+| `make test-web` | Web unit tests (Vitest); needs `web/node_modules` |
+| `make test-e2e` | Browser tests (Playwright) against a temporary hub with fake agents; needs `cd web && npx playwright install chromium` once. Not part of the release workflow |
+| `make test-ssh` | SSH tests against a temporary sshd |
 | `make build` | Web + `bin/nextboard` |
-| `make snapshot` | goreleaser lokal |
+| `make snapshot` | Local goreleaser |
 
-`make dev` bind ke `0.0.0.0` secara default, berbeda dengan default rilis `127.0.0.1`. Pakai `LISTEN=127.0.0.1:12312` di jaringan yang tidak dipercaya.
+`make dev` binds to `0.0.0.0` by default, unlike the release default `127.0.0.1`. Use `LISTEN=127.0.0.1:12312` on an untrusted network.
 
-**Hot reload Go (`.air.toml`, `scripts/dev-build.sh`, `scripts/dev-hub.sh`).** Air memantau `cmd/` dan `internal/`, kecuali `_test.go`. Hub hanya restart bila binernya berubah: build gagal, komentar, dan simpanan yang isinya sama tidak menyentuhnya. Restart tetap restart penuh: konsol lokal dihentikan hub lalu dilanjutkan sesuai `agents.resumeOnRestart` (turn yang berjalan terputus), dan delivery, konfirmasi, serta rencana lead yang menunggu hilang (API-orchestration §15). Aplikasi GUI tetap jalan karena hub berjalan di luar pohon proses air. Saat agent di board mengerjakan repo ini sendiri, pakai `make dev RELOAD=0`, supaya simpanan agent tidak memutus turn-nya sendiri.
+**Go hot reload (`.air.toml`, `scripts/dev-build.sh`, `scripts/dev-hub.sh`).** Air watches `cmd/` and `internal/`, except `_test.go`. The hub restarts only when its binary changes: a failed build, comments, and a save with the same contents do not touch it. A restart is still a full restart: the hub stops local consoles and then resumes them according to `agents.resumeOnRestart` (a running turn is cut off), and pending deliveries, confirmations, and lead plans are lost (API-orchestration §15). GUI apps keep running because the hub runs outside air's process tree. When an agent on the board works on this repo itself, use `make dev RELOAD=0`, so the agent's saves do not cut off its own turn.
 
-**Gerbang test.** Default `go test` tidak menyentuh CLI asli atau plan pemilik.
+**Test gates.** By default `go test` does not touch real CLIs or the owner's plan.
 
-| Variabel | Membuka |
+| Variable | Turns on |
 |---|---|
-| `NEXTBOARD_SSHD_TEST=1` | Uji SSH dengan sshd sekali pakai (juga jalan saat rilis) |
-| `NEXTBOARD_TMUX_SSH`, `_USER`, `_KEY` | Uji mode tmux terhadap sshd dengan tmux |
-| `NEXTBOARD_REAL_CLI_TEST=1` | CLI nyata; **memakai plan pemilik** |
-| `NEXTBOARD_REAL_ORCH=1`, `NEXTBOARD_REAL_USAGE=1` | Orkestrasi dan usage nyata, bersama gerbang di atas |
+| `NEXTBOARD_SSHD_TEST=1` | SSH tests with a throwaway sshd (also run during a release) |
+| `NEXTBOARD_TMUX_SSH`, `_USER`, `_KEY` | tmux mode tests against an sshd with tmux |
+| `NEXTBOARD_REAL_CLI_TEST=1` | Real CLIs; **uses the owner's plan** |
+| `NEXTBOARD_REAL_ORCH=1`, `NEXTBOARD_REAL_USAGE=1` | Real orchestration and usage, together with the gate above |
 
-**Aturan di host bersama.** Kalau This PC juga menjalankan layanan lain, test ikut memakai memori yang sama, dan `/tmp` bisa punya kuota per user. Helper test rekursif pernah memunculkan ratusan `Xtigervnc` sampai OOM killer menghantam layanan lain. Jadi: test yang memunculkan proses dijalankan satu kasus kecil dulu dengan `-timeout`, proses sisa dihitung sesudahnya, dan test tidak boleh meng-exec dirinya sendiri tanpa guard.
+**Rules on a shared host.** If This PC also runs other services, the tests use the same memory, and `/tmp` may have a per-user quota. A recursive test helper once spawned hundreds of `Xtigervnc` processes until the OOM killer hit other services. So: tests that spawn processes are run as one small case first with `-timeout`, leftover processes are counted afterwards, and a test must not exec itself without a guard.
 
-**CI dan rilis (keputusan #36).** Selama pengembangan, CI tidak jalan tiap push atau pull request, jadi test dijalankan sendiri sebelum push. Rilis dipicu manual dari Actions atau `gh workflow run release.yml`, dengan `-f dry_run=true` untuk melihat versi berikutnya tanpa menerbitkan apa pun. Workflow menjalankan `make web`, `make test-web`, `go vet`, `NEXTBOARD_SSHD_TEST=1 go test -race ./...`, dan build goreleaser percobaan. Sesudah semuanya lolos, semantic-release menentukan versi dari pesan commit sejak tag terakhir, membuat tag, lalu goreleaser menerbitkan linux/darwin × amd64/arm64 + `checksums.txt`. Tag yang di-push manual tidak lagi memicu apa pun. Rilis pertama, `v0.1.0`, terbit 2026-11-05 lewat tag manual.
+**CI and releases (decision #36).** During development, CI does not run on every push or pull request, so run the tests yourself before pushing. A release is started by hand from Actions or with `gh workflow run release.yml`, with `-f dry_run=true` to see the next version without publishing anything. The workflow runs `make web`, `make test-web`, `go vet`, `NEXTBOARD_SSHD_TEST=1 go test -race ./...`, and a trial goreleaser build. Once everything passes, semantic-release works out the version from the commit messages since the last tag and creates the tag, then goreleaser publishes linux/darwin × amd64/arm64 + `checksums.txt`. A tag pushed by hand no longer triggers anything. The first release, `v0.1.0`, came out 2026-11-05 through a manual tag.
 
-Commit memakai Conventional Commits: `fix:`, `perf:`, `revert:` → patch; `feat:` → minor; `docs:`, `test:`, `ci:`, `chore:`, dan commit lain → tidak merilis. Sebelum 1.0, perubahan breaking (`feat!:`, footer `BREAKING CHANGE:`) juga minor. Aturannya di `.releaserc.json`.
+Commits use Conventional Commits: `fix:`, `perf:`, `revert:` → patch; `feat:` → minor; `docs:`, `test:`, `ci:`, `chore:`, and other commits → no release. Before 1.0, a breaking change (`feat!:`, a `BREAKING CHANGE:` footer) is also minor. The rules are in `.releaserc.json`.
 
-**Beta.** Branch `beta` adalah branch prerelease semantic-release. Samakan dulu dengan main (`git push origin main:beta`), lalu `gh workflow run release.yml --ref beta`. Hasilnya tag `vX.Y.Z-beta.N`, dan goreleaser (`release.prerelease: auto`) menerbitkannya sebagai pre-release di GitHub, jadi `releases/latest` tetap rilis stabil terakhir: `nextboard update` dan `install.sh` tidak memasang beta kecuali diminta dengan tag (`nextboard update --version v0.4.0-beta.1`, `install.sh --version=…`). `nextboard update` tanpa tag juga tidak pernah turun versi: hub yang menjalankan beta lebih baru dari rilis stabil terakhir dibiarkan, dengan perintah `--version … --force` untuk kembali.
+**Beta.** The `beta` branch is semantic-release's prerelease branch. First bring it level with main (`git push origin main:beta`), then `gh workflow run release.yml --ref beta`. The result is a `vX.Y.Z-beta.N` tag, and goreleaser (`release.prerelease: auto`) publishes it as a pre-release on GitHub, so `releases/latest` stays the last stable release: `nextboard update` and `install.sh` do not install a beta unless asked to with a tag (`nextboard update --version v0.4.0-beta.1`, `install.sh --version=…`). `nextboard update` without a tag also never downgrades: a hub running a beta newer than the last stable release is left alone, with the command `--version … --force` to go back.
 
 **Deploy.** `deploy/nginx.conf.example` + `deploy/nextboard-proxy.inc`:
 
-- Port utama dan tiap port preview masing-masing diberi HTTPS.
-- Port preview di nginx wajib bind ke IP publik, bukan `0.0.0.0`, supaya tidak bentrok dengan hub.
-- HTTPS di port selain 443: `nextboard install --public-url https://host:port`.
-- `tailscale serve` hanya meneruskan port utama, jadi web tile tidak berfungsi lewat sana.
+- The main port and each preview port each get HTTPS.
+- Preview ports in nginx must bind to the public IP, not `0.0.0.0`, so they do not clash with the hub.
+- HTTPS on a port other than 443: `nextboard install --public-url https://host:port`.
+- `tailscale serve` only forwards the main port, so web tiles do not work through it.
 
-**Syarat tile desktop (opsional).**
+**Requirements for desktop tiles (optional).**
 
 ```sh
-sudo apt install --no-install-recommends sway wayvnc wf-recorder xwayland   # utama, butuh GPU + ffmpeg VA-API
-sudo apt install tigervnc-standalone-server openbox                         # cadangan tanpa GPU
+sudo apt install --no-install-recommends sway wayvnc wf-recorder xwayland   # main, needs GPU + ffmpeg VA-API
+sudo apt install tigervnc-standalone-server openbox                         # fallback without GPU
 ```
 
-## 12. Keputusan pemilik
+## 12. Owner decisions
 
-Sumber: [ROADMAP.md](ROADMAP.md).
+Source: [ROADMAP.md](ROADMAP.md).
 
-| # | Tanggal | Keputusan |
+| # | Date | Decision |
 |---|---|---|
-| 1 | 10-28 | Status live di SSH lewat hooks per-launch, tanpa menulis config. *Bagian agent remote digantikan #10* |
-| 2 | 10-28 | Folder sementara di `/tmp` remote boleh, selalu dibersihkan |
-| 3 | 10-28 | Skill di remote boleh ditulis, hanya atas aksi eksplisit dengan konfirmasi path |
-| 4 | 10-28 | Profil remote hanya memakai folder yang sudah ada. *Bagian agent remote digantikan #10* |
-| 5 | 10-28 | Agent keluar → console jatuh ke shell di tempat |
-| 6 | 10-28 | Planner = Claude Code lokal di This PC, tanpa planner cloud |
-| 7 | 11-02 | Hub hanya HTTP, HTTPS di nginx |
-| 8 | 11-02 | Core backend dulu; Android dan desktop ditunda |
-| 9 | 11-03 | Profil aplikasi desktop khusus NextBoard, satu per aplikasi |
-| 10 | 11-03 | Agent selalu di This PC, state di folder NextBoard, server lewat tool hub (opsi A) |
-| 11 | 11-03 | 1 project = 1 memory, apa pun agent-nya |
-| 12 | 11-03 | 1 project boleh banyak repo; tidak pernah commit ke semua repo |
-| 13 | 11-03 | Situs luar di web tile memakai browser sungguhan, bukan iframe atau proxy. *Diubah #19 dan #26* |
-| 14 | 11-03 | Critical notes wajib; permintaan langsung tidak dihitung sebagai izin |
-| 15 | 11-03 | Ganti agent di tile yang sama; percakapan lama bisa dilanjutkan |
-| 16 | 11-03 | MCP diatur di NextBoard, diberikan per launch, tidak ditulis ke config CLI |
-| 17 | 11-03 | Isi tile dikirim sekali saat dikabelkan, tidak otomatis tiap agent bekerja |
-| 18 | 11-03 | File yang dipaste disimpan hub di luar project |
-| 19 | 11-03 | Alamat yang resolve ke IP Tailscale tampil lewat proxy hub |
-| 20 | 11-03 | Uptime: hub yang mengecek, monitor milik project, kartu hanya menampilkan |
-| 21 | 11-03 | Password SSH salah: machine berhenti dan bertanya, tidak mencoba ulang |
-| 22 | 11-03 | Mematikan agent: satu switch untuk semua machine, console yang jalan tidak disentuh |
-| 23 | 11-04 | Rail kanan hanya yang penting, sisanya di ring klik kanan |
-| 24 | 11-04 | Review agent dan Local History lewat repo bayangan di folder data hub |
-| 25 | 11-04 | Debugger Node.js buatan sendiri di hub, bukan `js-debug` |
-| 26 | 11-04 | Situs publik dicoba lewat proxy hub dulu, Chrome untuk yang tidak bisa |
-| 27 | 11-04 | Tema terang dan gelap monokrom, pilihan per browser |
-| 28 | 11-04 | Model dan effort disimpan per console, dikirim sebagai flag tiap peluncuran |
-| 29 | 11-04 | Papan tugas digerakkan hub dari status order; pembagian otomatis hanya bila dinyalakan |
-| 30 | 11-04 | Credentials zero-knowledge seperti Bitwarden, HTTP biasa juga didukung |
-| 31 | 11-04 | Master password minimal 8; PIN 6 digit butuh browser dan hub; isi form selalu klik orang |
-| 32 | 11-04 | Group project adalah tree sendiri, bukan path di nama |
-| 33 | 11-04 | Agent tidak menandatangani commit, berlaku global |
-| 34 | 11-05 | Order yang belum diketik saat hub restart ditawarkan untuk dikirim ulang, hub tidak mengirim sendiri |
-| 35 | 11-05 | Open source: repo publik, lisensi MIT, data pribadi tidak masuk repo |
-| 36 | 11-05 | CI hanya jalan saat rilis; rilis manual, versi ditentukan semantic-release dari pesan commit |
-| 40 | 11-06 | Agent memakai credential lewat satu perintah yang disetujui per pemakaian; nilai tidak pernah sampai ke agent |
+| 1 | 10-28 | Live status over SSH through per-launch hooks, without writing config. *The remote agent part is replaced by #10* |
+| 2 | 10-28 | Temporary folders in the remote `/tmp` are allowed, always cleaned up |
+| 3 | 10-28 | Skills on a remote may be written, only on an explicit action with path confirmation |
+| 4 | 10-28 | Remote profiles use only folders that already exist. *The remote agent part is replaced by #10* |
+| 5 | 10-28 | Agent exits → the console drops to a shell in place |
+| 6 | 10-28 | Planner = local Claude Code on This PC, no cloud planner |
+| 7 | 11-02 | The hub is HTTP only, HTTPS in nginx |
+| 8 | 11-02 | Core backend first; Android and desktop paused |
+| 9 | 11-03 | Desktop app profiles dedicated to NextBoard, one per app |
+| 10 | 11-03 | Agents always on This PC, state in the NextBoard folder, servers through hub tools (option A) |
+| 11 | 11-03 | 1 project = 1 memory, whatever the agent |
+| 12 | 11-03 | 1 project may have many repos; never commit to every repo |
+| 13 | 11-03 | Outside sites in a web tile use a real browser, not an iframe or proxy. *Changed by #19 and #26* |
+| 14 | 11-03 | Critical notes are mandatory; a direct request does not count as permission |
+| 15 | 11-03 | Switch agents in the same tile; the old conversation can be continued |
+| 16 | 11-03 | MCP is set up in NextBoard, given per launch, not written to CLI config |
+| 17 | 11-03 | A tile's content is sent once when wired, not automatically every time an agent works |
+| 18 | 11-03 | Pasted files are stored by the hub outside the project |
+| 19 | 11-03 | Addresses that resolve to a Tailscale IP are shown through the hub proxy |
+| 20 | 11-03 | Uptime: the hub does the checking, monitors belong to the project, cards only display |
+| 21 | 11-03 | Wrong SSH password: the machine stops and asks, does not retry |
+| 22 | 11-03 | Turning agents off: one switch for every machine, running consoles are not touched |
+| 23 | 11-04 | The right rail holds only what matters, the rest is in the right-click ring |
+| 24 | 11-04 | Agent review and Local History through a shadow repo in the hub's data folder |
+| 25 | 11-04 | A home-made Node.js debugger in the hub, not `js-debug` |
+| 26 | 11-04 | Public sites are tried through the hub proxy first, Chrome for those that cannot work that way |
+| 27 | 11-04 | Monochrome light and dark themes, chosen per browser |
+| 28 | 11-04 | Model and effort stored per console, sent as flags on every launch |
+| 29 | 11-04 | Task boards moved by the hub from order status; automatic assignment only when turned on |
+| 30 | 11-04 | Zero-knowledge credentials like Bitwarden, plain HTTP supported too |
+| 31 | 11-04 | Master password at least 8; 6-digit PIN needs the browser and the hub; filling a form is always a person's click |
+| 32 | 11-04 | Project groups are a tree of their own, not a path in the name |
+| 33 | 11-04 | Agents do not sign commits, applies globally |
+| 34 | 11-05 | Orders not yet typed when the hub restarts are offered for resending; the hub does not send them by itself |
+| 35 | 11-05 | Open source: public repo, MIT license, personal data stays out of the repo |
+| 36 | 11-05 | CI runs only during a release; releases are manual, the version is set by semantic-release from commit messages |
+| 40 | 11-06 | Agents use a credential through one command approved per use; the value never reaches the agent |
 
-## 13. Status dan riwayat
+## 13. Status and history
 
-| Fase | Isi | Status |
+| Phase | Contents | Status |
 |---|---|---|
-| 1–3 | Hub inti, SSH agentless, pairing dan app | Selesai; kriteria SPEC §12 ada di tabel di bawah |
-| 4 | Project, workspace, board multi-tile | Selesai: hub, web, Android |
-| 5 | Agent, status, notifikasi | Selesai: hub, web, Android |
-| 6 | Orkestrasi | Selesai: hub, web, Android |
-| 7 | Web, Git, studio, usage, suara | Selesai: hub, web, Android, desktop |
-| 8 | Aplikasi desktop di board | Selesai: hub, web |
+| 1–3 | Core hub, agentless SSH, pairing and apps | Done; the SPEC §12 criteria are in the table below |
+| 4 | Projects, workspaces, multi-tile board | Done: hub, web, Android |
+| 5 | Agents, status, notifications | Done: hub, web, Android |
+| 6 | Orchestration | Done: hub, web, Android |
+| 7 | Web, Git, studio, usage, voice | Done: hub, web, Android, desktop |
+| 8 | Desktop apps on the board | Done: hub, web |
 
-Sesudah Fase 8, tidak tercatat sebagai fase: agent selalu di This PC dan profil default, agent di server, MCP, switch agent di tile yang sama, memory galaxy dengan critical notes dan Init, multi-repo, browser sungguhan, Code workbench sebagai card dengan LSP, DAP, extension, AI, review agent dan Local History, kontrol board oleh planner, lead agent dan papan tugas, Credentials, uptime, tema terang dan gelap, group project, log koneksi, batas memori hub.
+After Phase 8, not recorded as phases: agents always on This PC and default profiles, agents on servers, MCP, switching agents in the same tile, the memory galaxy with critical notes and Init, multi-repo, real browsers, the Code workbench as a card with LSP, DAP, extensions, AI, agent review and Local History, board control by the planner, the lead agent and task boards, Credentials, uptime, light and dark themes, project groups, the connection log, hub memory limits.
 
-**Belum ada rencana tertulis sesudah ini.** Kandidat pekerjaan berikutnya adalah §14, dan urutannya keputusan pemilik.
+**There is no written plan after this yet.** The candidates for the next work are §14, and their order is the owner's decision.
 
-### Kriteria selesai fase 1–3 (SPEC §12), dicek 2026-11-05
+### Phase 1–3 done criteria (SPEC §12), checked 2026-11-05
 
-Nama test ada di `internal/cli`, `internal/server`, dan `internal/machine`. Test di `internal/cli` menjalankan binary asli dengan `HOME` sementara dan `systemctl`, `loginctl`, serta `curl` palsu.
+The test names are in `internal/cli`, `internal/server`, and `internal/machine`. The tests in `internal/cli` run the real binary with a temporary `HOME` and fake `systemctl`, `loginctl`, and `curl`.
 
-| Kriteria | Status | Bukti dan batasnya |
+| Criterion | Status | Evidence and its limits |
 |---|---|---|
-| Pasang lewat `curl … \| sh`, cetak link setup | Teruji | `TestInstallScriptFromReleaseToSetup`, `TestInstallScriptRefusesABadChecksum` dengan rilis palsu dan `systemctl` palsu. Rilis asli dicoba di container Ubuntu 24.04 dengan systemd sungguhan: `install.sh` publik memasang `v0.1.0`, service aktif dan menyala lagi setelah container restart |
-| HTTPS di nginx, wizard, login | Teruji | `TestBehindTheNginxExample` memakai file `deploy/` di nginx 1.24 dan 1.28. Halaman wizard hanya dicek bila build punya bundle web. Port preview hanya dimuat, tidak dicoba |
-| Reboot, service hidup lagi | Sebagian | Test memastikan `enable-linger` dipanggil. Reboot sungguhan belum pernah dicoba |
-| Terminal: output, `vim`, `htop`, Ctrl-C | Teruji | `TestTerminalIsARealOne`: raw mode, alternate screen, Ctrl-C, resize, `vi`, `htop` |
-| Browser ditutup dan dibuka | Teruji | `TestTerminalGoesOnWhileTheBrowserIsGone` |
-| Restart service: posisi, scrollback, lanjut | Teruji, tanpa systemctl asli | `TestHubProcessComesBackFromSIGTERM` memakai proses dan sinyal asli. Claude kini lanjut dengan `--resume <uuid>`, bukan `--continue` (`TestHubRestartResumeModes`) |
-| Tanpa auth 401, link setup sekali pakai | Teruji | `TestEveryRouteRefusesAnonymous` menelusuri semua route dari sumbernya. `TestPublicRoutesAreOnlyThese` mengunci daftar route publik |
-| Machine dari `~/.ssh/config` | Teruji | `TestAddMachineFromSSHConfig`, `TestSSHConfig*` |
-| Fingerprint host baru, host key berubah | Teruji | `TestSSHAgentlessEndToEnd`, di lapisan machine |
-| Probe preset dan tmux | Teruji | `TestProbeFindsEveryCommandInEachShell` di sh, dash, bash, zsh, dengan `PATH` palsu |
-| Claude Code di remote | Tergantikan | Keputusan #10: agent selalu di This PC (`TestAgentsStayOnThisPC`) |
-| Mode tmux kembali setelah putus | Sebagian, tidak di CI | `TestSSHTmuxPersistence` butuh sshd dengan tmux. Restart hub dalam mode ini belum diuji |
-| Mode direct kembali setelah putus | Tergantikan sebagian | Di server tinggal console shell: `TestServerConsoleComesBackAfterADrop`. `resumeArgs` tidak berlaku untuk shell |
-| Server tujuan tidak berubah | Dicek sekali, bukan test | Di container, sesudah test SSH hanya `.bash_history` yang berubah, karena test mengetik di shell interaktif. Keputusan #2, #3, dan #18 mengizinkan `/tmp` dan skill atas perintah |
-| Pair lewat QR, device terdaftar | Teruji tanpa QR | `TestPairingDeviceAuthAndRevoke`, `TestRevokeCutsADeviceOffAtOnce`. QR-nya sendiri tidak |
-| Revoke memutus koneksi | Teruji | `TestRevokeCutsADeviceOffAtOnce`: terminal dan event. GUI, LSP, dan IDE memakai daftar socket yang sama, tanpa test sendiri |
-| App menolak sertifikat tak dipercaya | Di luar repo | Klien Android |
+| Install through `curl … \| sh`, print a setup link | Tested | `TestInstallScriptFromReleaseToSetup`, `TestInstallScriptRefusesABadChecksum` with a fake release and a fake `systemctl`. The real release was tried in an Ubuntu 24.04 container with real systemd: the public `install.sh` installs `v0.1.0`, the service is active and comes back up after the container restarts |
+| HTTPS in nginx, wizard, login | Tested | `TestBehindTheNginxExample` uses the `deploy/` files in nginx 1.24 and 1.28. The wizard page is checked only when the build has the web bundle. Preview ports are only loaded, not tried |
+| Reboot, the service comes back | Partial | The test makes sure `enable-linger` is called. A real reboot has never been tried |
+| Terminal: output, `vim`, `htop`, Ctrl-C | Tested | `TestTerminalIsARealOne`: raw mode, alternate screen, Ctrl-C, resize, `vi`, `htop` |
+| Browser closed and reopened | Tested | `TestTerminalGoesOnWhileTheBrowserIsGone` |
+| Service restart: position, scrollback, continue | Tested, without a real systemctl | `TestHubProcessComesBackFromSIGTERM` uses a real process and real signals. Claude now continues with `--resume <uuid>`, not `--continue` (`TestHubRestartResumeModes`) |
+| 401 without auth, single-use setup link | Tested | `TestEveryRouteRefusesAnonymous` walks every route from the source. `TestPublicRoutesAreOnlyThese` locks the list of public routes |
+| Machine from `~/.ssh/config` | Tested | `TestAddMachineFromSSHConfig`, `TestSSHConfig*` |
+| New host fingerprint, changed host key | Tested | `TestSSHAgentlessEndToEnd`, at the machine layer |
+| Preset and tmux probe | Tested | `TestProbeFindsEveryCommandInEachShell` in sh, dash, bash, zsh, with a fake `PATH` |
+| Claude Code on a remote | Superseded | Decision #10: agents always on This PC (`TestAgentsStayOnThisPC`) |
+| tmux mode comes back after a drop | Partial, not in CI | `TestSSHTmuxPersistence` needs an sshd with tmux. A hub restart in this mode is not tested yet |
+| direct mode comes back after a drop | Partly superseded | Only shell consoles remain on servers: `TestServerConsoleComesBackAfterADrop`. `resumeArgs` does not apply to shells |
+| Target server unchanged | Checked once, not a test | In a container, after the SSH tests only `.bash_history` changed, because the tests type in an interactive shell. Decisions #2, #3, and #18 allow `/tmp` and skills on command |
+| Pair through QR, device registered | Tested without QR | `TestPairingDeviceAuthAndRevoke`, `TestRevokeCutsADeviceOffAtOnce`. Not the QR itself |
+| Revoke cuts the connection | Tested | `TestRevokeCutsADeviceOffAtOnce`: terminal and events. GUI, LSP, and IDE use the same socket list, without tests of their own |
+| App refuses an untrusted certificate | Outside the repo | Android client |
 
-### Yang pernah diuji nyata
+### Tested for real
 
-| Hal | Hasil tercatat |
+| Item | Recorded result |
 |---|---|
-| Claude Code 2.1.312–2.1.316, hooks, wrapper, delivery | Order diketik, dikonfirmasi 0,46 detik, laporan dari transcript |
-| Planner `claude -p` | 4,4 detik, `structured_output` terisi |
-| Codex 0.163–0.165 | Notify, resume by id, console di server tanpa yolo |
-| tmux 3.4 dan 3.2a, sshd sementara, login shell zsh | Passthrough, attach ulang, git, preview, skill |
-| Usage Claude dan Codex | Window ter-parse, folder terhapus |
-| Documents | 1 run Haiku, 24,7 detik |
-| Critical notes | Haiku menolak `npm run db:reset` |
-| Memory tile | Haiku menerima tumpukan dari launch, membaca blok lewat `memory_read`, dan membalas `OK` untuk kiriman 163 karakter; kiriman tanpa fakta baru tidak mengetik apa pun (`TestRealMemoryTile`) |
-| Perintah terblokir | Claude Code berhenti di dialog izin, juga lewat `bash -c`, dan skripnya tidak jalan (`TestRealBlockedCommand`). Mode skip permissions tidak dicoba |
-| Chrome 156 di Wayland | github.com, Wikipedia, tab, restart hub (lewat Playwright) |
-| Firefox 159 di Wayland dan X11 | Halaman, tab lewat bus, tab sesudah hub restart, tile kedua (`TestRealFirefox`, tarball resmi) |
+| Claude Code 2.1.312–2.1.316, hooks, wrapper, delivery | Order typed, confirmed in 0.46 seconds, report from the transcript |
+| Planner `claude -p` | 4.4 seconds, `structured_output` filled |
+| Codex 0.163–0.165 | Notify, resume by id, console on a server without yolo |
+| tmux 3.4 and 3.2a, temporary sshd, zsh login shell | Passthrough, reattach, git, preview, skills |
+| Claude and Codex usage | Windows parsed, folder deleted |
+| Documents | 1 Haiku run, 24.7 seconds |
+| Critical notes | Haiku refuses `npm run db:reset` |
+| Memory tile | Haiku receives the stack from the launch, reads a block through `memory_read`, and replies `OK` to a 163-character send; a send without new facts types nothing (`TestRealMemoryTile`) |
+| Blocked commands | Claude Code stops at the permission dialog, also through `bash -c`, and the script does not run (`TestRealBlockedCommand`). Skip permissions mode was not tried |
+| Chrome 156 on Wayland | github.com, Wikipedia, tabs, hub restart (through Playwright) |
+| Firefox 159 on Wayland and X11 | Pages, tabs through the bus, tabs after a hub restart, a second tile (`TestRealFirefox`, official tarball) |
 | Video | Intel Arc A380 |
-| Workbench | gopls, pyright, typescript-language-server, Vue, Tailwind, ESLint, rust-analyzer, taplo, Delve, debugpy di browser; dua extension Open VSX |
-| Diagram | Dua job Claude Code di hub dev, masing-masing sekitar 95 detik |
-| Lead agent | Satu giliran model asli, 33 detik |
+| Workbench | gopls, pyright, typescript-language-server, Vue, Tailwind, ESLint, rust-analyzer, taplo, Delve, debugpy in the browser; two Open VSX extensions |
+| Diagrams | Two Claude Code jobs on the dev hub, about 95 seconds each |
+| Lead agent | One turn with a real model, 33 seconds |
 
-### Belum pernah diuji nyata
+### Never tested for real
 
-- Gemini CLI (tidak terpasang) dan flag katalog bertanda † di API-agents.
-- Jalur AI di workbench dengan model sungguhan (tes memakai CLI palsu).
-- Field `danger` milik lead dari model sungguhan: pada uji 2026-11-11 (API-orchestration §3.9) model menolak atau bertanya balik, tidak pernah mengisinya. Langkah tugas, pembagian kerja, dan forward `split` sudah lolos dengan model sungguhan.
-- `idelink` dengan Claude yang login dan model sungguhan.
-- Review agent dengan Codex, dan Codex melewati layar login di panel card.
-- Pull request ke GitHub sungguhan (tes memakai `gh` palsu).
-- Panel agent di project yang ada di server lewat SSH dengan model sungguhan. Dengan agent palsu dan sshd sungguhan (MaxSessions bawaan), Code card di project server sudah diuji di `e2e/studio-ssh.spec.ts`: tree dengan file ignored, simpan, search, commit, terminal, dan agent di tab.
-- OpenCode sampai menjawab di server.
-- Log koneksi pada jaringan sungguhan (baru lewat proxy TCP lokal).
-- macOS, NVENC, iframe preview dengan sertifikat self-signed.
-- Browser dari snap: jabat tangan Wayland dari dalam kurungan AppArmor snap sungguhan sudah, browser snap-nya belum. Browser dari flatpak: hanya baris perintahnya.
-- Passkey situs lain di Google Chrome dan di situs internet sungguhan: end-to-end baru dengan Chromium dan halaman di localhost, diverifikasi seperti relying party.
-- Mikrofon dengan aplikasi sungguhan yang merekam: sampai ke sumber PipeWire sesi, belum sampai ke situs di Chrome.
-- Laravel pada aplikasi Laravel sungguhan: pembaca route dan config baru diuji dengan fixture, dan `artisan` dengan PHP sungguhan tetapi file artisan buatan.
-- Review dan Local History pada server sungguhan: baru sshd sementara.
-- Debug attach pada server sungguhan: baru sshd sementara.
+- Gemini CLI (not installed) and the catalog flags marked † in API-agents.
+- The workbench's AI paths with a real model (the tests use a fake CLI).
+- The lead's `danger` field from a real model: in the 2026-11-11 test (API-orchestration §3.9) the model refused or asked back, and never filled it. Task steps, work splitting, and `split` forwards have passed with a real model.
+- `idelink` with a logged-in Claude and a real model.
+- Agent review with Codex, and Codex getting past the login screen in the card panel.
+- Pull requests to the real GitHub (the tests use a fake `gh`).
+- The agent panel in a project on a server over SSH with a real model. With a fake agent and a real sshd (default MaxSessions), the Code card on a server project is tested in `e2e/studio-ssh.spec.ts`: a tree with ignored files, save, search, commit, terminal, and an agent in a tab.
+- OpenCode getting as far as answering on a server.
+- The connection log on a real network (so far only through a local TCP proxy).
+- macOS, NVENC, preview iframes with a self-signed certificate.
+- Browsers from snap: the Wayland handshake from inside a real snap AppArmor confinement is done, the snap browser itself is not. Browsers from flatpak: only their command line.
+- Passkeys for other sites in Google Chrome and on real internet sites: end-to-end only with Chromium and a page on localhost, verified the way a relying party does.
+- A microphone with a real app that records: it reaches the session's PipeWire source, but not yet a site in Chrome.
+- Laravel on a real Laravel app: the route and config readers are tested only with fixtures, and `artisan` with real PHP but a made-up artisan file.
+- Review and Local History on a real server: only a temporary sshd so far.
+- Debug attach on a real server: only a temporary sshd so far.
 
-## 14. Yang belum selesai dan risiko
+## 14. Unfinished work and risks
 
-### Risiko utama
+### Main risks
 
-1. **Rilis baru dicoba di container.** `v0.2.0` keluar lewat semantic-release. Di Ubuntu 24.04 dengan systemd sungguhan di dalam container: `install.sh` memasang `v0.1.0`, `nextboard update` menggantinya ke `v0.2.0` dengan data dan login tetap, service kembali setelah container restart, dan uninstall bersih. Mesin sungguhan belum dicoba, dan binary macOS belum pernah dijalankan.
-2. **Blokir perintah bukan sandbox** (§6); sandbox project sungguhan ada sejak 2026-11-11 untuk Codex (teruji) dan Claude Code (butuh langkah AppArmor di Ubuntu, API-agents §27). Critical notes tetap instruksi. Perintah terblokir ditegakkan CLI atau hub, tetapi agent dengan shell masih bisa menulis skrip yang melakukan hal sama. Penegakan di Codex dan OpenCode, serta di Claude Code dengan skip permissions, belum diuji dengan model sungguhan.
-3. **Aksi tulis git tetap memakai config repo.** Stage, commit, pull, dan push menjalankan hook, filter, dan `core.sshCommand` dari repo, sama seperti git di terminal. Perintah baca sudah tidak (§5.11), tetapi di git < 2.31 filter driver milik repo masih jalan saat `status` dan `diff`.
+1. **Releases have only been tried in a container.** `v0.2.0` came out through semantic-release. On Ubuntu 24.04 with real systemd inside a container: `install.sh` installs `v0.1.0`, `nextboard update` replaces it with `v0.2.0` with data and login kept, the service comes back after the container restarts, and uninstall is clean. A real machine has not been tried yet, and the macOS binary has never been run.
+2. **Command blocking is not a sandbox** (§6); a real project sandbox exists since 2026-11-11 for Codex (tested) and Claude Code (needs an AppArmor step on Ubuntu, API-agents §27). Critical notes remain instructions. Blocked commands are enforced by the CLI or the hub, but an agent with a shell can still write a script that does the same thing. Enforcement in Codex and OpenCode, and in Claude Code with skip permissions, has not been tested with a real model.
+3. **Git write actions still use the repo's config.** Stage, commit, pull, and push run the repo's hooks, filters, and `core.sshCommand`, the same as git in a terminal. Read commands no longer do (§5.11), but on git < 2.31 the repo's own filter drivers still run during `status` and `diff`.
 
-### Celah per area
+### Gaps by area
 
-| Area | Celah |
+| Area | Gap |
 |---|---|
-| Workbench | Debug Node di server hanya attach, tanpa source map dan proses anak. Extension hanya data, karena Monaco tidak punya extension host. Perubahan planner tidak masuk undo klien; pemulihannya lewat snapshot. Review agent dan Local History di server bekerja dari salinan di This PC, tanpa file kredensial dan link |
-| Agent di server | Skill dan command server sampai ke ketiga CLI dalam bentuk dilucuti, tapi hanya teruji terhadap model palsu; model sungguhan belum diuji memilih skill-nya sendiri. Git memakai kredensial server. OpenCode belum pernah diamati menjawab dengan provider sungguhan; login-nya masih di folder OpenCode sendiri. Agent katalog lain belum didukung |
-| Status dan delivery | Agent tanpa aturan layar dibaca secara generik. Bacaan proses CLI (`rchar` plus byte yang diterima socket TCP-nya, jadi juga CLI yang membaca lewat `recv()` seperti Python dan Rust) menahan `working` selama model mengirim stream; model yang berpikir tanpa mengirim apa pun masih bisa terbaca `ready`: sesudah 3 detik di layar prompt, sesudah 15 detik di layar lain. Belum diuji dengan Aider atau Goose sungguhan. Daftar CLI aman untuk `whileWorking:"type"` belum ada |
-| Orkestrasi | Bingkai grup bisa sedikit tidak akurat saat dua klien memindahkan anggota bersamaan |
-| Multi-repo | Tanpa ripgrep, Search di folder induk hanya memakai daftar prune |
-| Git | File > 100 MB hanya bisa dibuang dari commit yang belum di-push (API-studio §3.7). Di server lewat SSH, commit menunggu proses yang ditinggalkan hook, paling lama 2 menit |
-| Preview | Menulis ulang `Host`/`Origin` bisa merusak app yang membangun URL absolut, seperti OAuth callback. Butuh `AllowTcpForwarding` di server |
-| Aplikasi desktop | VA-API saja, baru teruji di Arc A380. Shortcut yang ditahan browser (Ctrl+T, Ctrl+W, Ctrl+N) hanya lewat menu keyboard di tile. Mikrofon butuh HTTPS atau localhost. `wayvnc` 0.9.1 sesekali segfault (hub menyalakannya ulang dalam sekitar 2 detik). Di mesin tanpa output suara asli, sink sesi bisa menjadi default |
-| Browser di tile | Snap dan flatpak belum pernah dicoba dengan browser sungguhan ([API-gui §8](API-gui.md)). Tile kedua punya profil dan login sendiri. Firefox hanya dipakai kalau tidak ada keluarga Chromium; belum ada pengaturan untuk memilih |
-| Usage | Tiap pemeriksaan Claude menambah 2 baris ke `history.jsonl` pada config yang dipakai. Codex 0.165 menulis `[tui]` ke `config.toml` sekali, dan hub tidak bisa mencegahnya tanpa menulis config. Format layar bisa berubah kapan saja |
-| Handoff | Ringkasan untuk sumber remote memindahkan isi transcript ke This PC |
-| Credentials | Passkey situs lain butuh extension di tile browser: otomatis di Chromium, sekali lewat tangan di Google Chrome, tidak ada di Firefox ([API-vault.md](API-vault.md)). Kartu Android dan desktop belum ada. Agent memakai credential hanya teruji dengan agent palsu dan Claude Code; Codex dan OpenCode belum ([API-vault.md](API-vault.md)) |
-| Uptime | Halaman publik tidak menampilkan grup atau jadwal maintenance. WebSocket hanya mengecek upgrade, tanpa bertukar pesan. Steam hanya dari This PC. Halaman status publik mati bersama hub, jadi tidak bisa memberi tahu hub-nya sendiri mati ([API-uptime.md](API-uptime.md)) |
-| Layout HP dan tablet | Kerangka (header, tab bar HP, menu `…`, sheet), semua halaman, dan board di layar sentuh (Insert berlabel, long-press, dua jari, Focus mode, Select several), board di HP (tab Board, Cards, Lead), bar tombol console (Esc, Ctrl, panah, salin teks, lampiran), jalur sentuh tiap kartu (grip Kanban dan Memory tile, tap untuk edit, Rename dan Straighten di menu, daftar hari Calendar, grafik dengan tap), Code card serta studio di HP dan tablet (laci side bar, bar tombol editor, daftar lalu isi di studio), dan pemasangan sebagai aplikasi (manifest, ikon, Settings › Install app, peringatan dan jalan keluar di HTTP biasa) sudah (DESIGN §3.0, §3.5, §3.6, §3.9, §3.17). Tanpa service worker, jadi tidak ada yang berjalan offline. Diuji dengan emulasi Chromium; perangkat asli (Poco F5, Xiaomi Pad 6, Galaxy Tab S9) belum |
-| Test | Test unit web mencakup vault, markdown, socket, blok memory, aturan wire, dan pilihan layout (148 test). Uji browser di repo (`make test-e2e`) baru mencakup memory tile, dialog Send, daftar perintah terblokir, halaman status publik, persetujuan credential untuk agent, jendela vault dari header, layout HP, tablet, dan desktop di setiap halaman (proyek `phone`, `tablet-portrait`, `tablet-landscape`), board di layar sentuh (Insert, long-press, dua jari, Focus mode, garis, Select several), board di HP (daftar Cards, swipe, tab Board dan Lead), bar tombol console (tombol, Ctrl sekali pakai, salin teks, lampiran foto), kartu dengan jari (scroll dan grip Kanban, long-press kartu, edit Checklist dengan tap, grip Memory tile, daftar hari Calendar, Rename di menu, Straighten, link `?card=`), Code card serta studio di HP dan tablet (laci side bar, bar tombol editor sampai file tersimpan, Find lalu Esc, bar tombol terminal panel, daftar lalu isi di studio), manifest yang bisa di-install dan pane Install app (tawaran browser, terpasang, peringatan HTTP), serta sapuan semua halaman, pane Settings, dialog, tiap jenis kartu dalam focus mode, view Laravel, pemilih proses debugger, peringatan file besar, header tile browser, dan dialog passkey di kelima profil (tidak ada yang keluar dari tepi layar); alur UI lain masih dicoba di luar repo. Sisa kriteria SPEC §12 ada di §13 |
-| Klien | Lihat §10 |
+| Workbench | Node debugging on a server is attach only, without source maps and child processes. Extensions are data only, because Monaco has no extension host. Planner changes do not go into the client's undo; recovery is through snapshots. Agent review and Local History on a server work from a copy on This PC, without credential files and links |
+| Agents on servers | Server skills and commands reach all three CLIs in disarmed form, but are tested only against a fake model; a real model choosing its own skill has not been tested. Git uses the server's credentials. OpenCode has never been seen answering with a real provider; its login is still in OpenCode's own folder. Other catalog agents are not supported yet |
+| Status and delivery | Agents without screen rules are read generically. Reading the CLI process (`rchar` plus the bytes its TCP socket received, so also CLIs that read through `recv()` such as Python and Rust) holds `working` while the model streams; a model that thinks without sending anything can still read as `ready`: after 3 seconds on a prompt screen, after 15 seconds on other screens. Not tested with a real Aider or Goose. There is no list yet of CLIs that are safe for `whileWorking:"type"` |
+| Orchestration | A group frame can be slightly off when two clients move members at the same time |
+| Multi-repo | Without ripgrep, Search in a parent folder uses only the prune list |
+| Git | Files > 100 MB can only be removed from commits that are not pushed (API-studio §3.7). On a server over SSH, a commit waits for processes left behind by hooks, for at most 2 minutes |
+| Preview | Rewriting `Host`/`Origin` can break apps that build absolute URLs, such as an OAuth callback. Needs `AllowTcpForwarding` on the server |
+| Desktop apps | VA-API only, tested only on an Arc A380. Shortcuts the browser holds on to (Ctrl+T, Ctrl+W, Ctrl+N) only through the keyboard menu in the tile. The microphone needs HTTPS or localhost. `wayvnc` 0.9.1 occasionally segfaults (the hub starts it again within about 2 seconds). On a machine without a real sound output, the session sink can become the default |
+| Browser tiles | Snap and flatpak have never been tried with a real browser ([API-gui §8](API-gui.md)). A second tile has its own profile and login. Firefox is used only when there is no Chromium-family browser; there is no setting to choose yet |
+| Usage | Each Claude check adds 2 lines to `history.jsonl` in the config in use. Codex 0.165 writes `[tui]` to `config.toml` once, and the hub cannot prevent it without writing config. The screen format can change at any time |
+| Handoff | A summary for a remote source moves transcript contents to This PC |
+| Credentials | Passkeys for other sites need an extension in the browser tile: automatic in Chromium, once by hand in Google Chrome, not available in Firefox ([API-vault.md](API-vault.md)). Android and desktop cards do not exist yet. Agents using a credential is tested only with a fake agent and Claude Code; Codex and OpenCode not yet ([API-vault.md](API-vault.md)) |
+| Uptime | The public page does not show groups or maintenance schedules. WebSocket checks only the upgrade, without exchanging messages. Steam only from This PC. The public status page goes down with the hub, so it cannot report that its own hub is down ([API-uptime.md](API-uptime.md)) |
+| Phone and tablet layout | Done: the frame (header, phone tab bar, `…` menu, sheets), every page, and the board on touch screens (labeled Insert, long-press, two fingers, Focus mode, Select several), the board on phones (Board, Cards, Lead tabs), the console key bar (Esc, Ctrl, arrows, copy text, attachments), the touch path of every card (Kanban and Memory tile grips, tap to edit, Rename and Straighten in the menu, the Calendar day list, charts with tap), the Code card and studios on phones and tablets (side bar drawer, editor key bar, list then contents in studios), and installing as an app (manifest, icons, Settings › Install app, a warning and a way out on plain HTTP) (DESIGN §3.0, §3.5, §3.6, §3.9, §3.17). No service worker, so nothing runs offline. Tested with Chromium emulation; real devices (Poco F5, Xiaomi Pad 6, Galaxy Tab S9) not yet |
+| Tests | Web unit tests cover the vault, markdown, sockets, memory blocks, wire rules, and layout choice (148 tests). Browser tests in the repo (`make test-e2e`) so far cover the memory tile, the Send dialog, the blocked command list, the public status page, credential approval for agents, the vault window from the header, phone, tablet, and desktop layouts on every page (projects `phone`, `tablet-portrait`, `tablet-landscape`), the board on touch screens (Insert, long-press, two fingers, Focus mode, lines, Select several), the board on phones (Cards list, swipe, Board and Lead tabs), the console key bar (keys, one-shot Ctrl, copy text, photo attachments), cards by finger (Kanban scrolling and grips, long-press on a card, editing a Checklist with tap, Memory tile grip, Calendar day list, Rename in the menu, Straighten, `?card=` links), the Code card and studios on phones and tablets (side bar drawer, the editor key bar up to a saved file, Find then Esc, the terminal panel key bar, list then contents in studios), an installable manifest and the Install app pane (browser offer, installed, HTTP warning), plus a sweep of every page, the Settings panes, dialogs, every card kind in focus mode, the Laravel view, the debugger process picker, the large file warning, the browser tile header, and the passkey dialog in all five profiles (nothing goes past the screen edge); other UI flows are still tried outside the repo. The remaining SPEC §12 criteria are in §13 |
+| Clients | See §10 |
 
-### Pertanyaan untuk pemilik
+### Questions for the owner
 
-- Android dan desktop: dilanjutkan hanya bila pemilik memintanya (keputusan 2026-11-05).
-- Urutan kerja berikutnya.
+- Android and desktop: resumed only if the owner asks (decision 2026-11-05).
+- The order of the next work.
 
-## 15. Peta dokumen
+## 15. Document map
 
-| Dokumen | Isi |
+| Document | Contents |
 |---|---|
-| [../README.md](../README.md) | Instalasi dan pengembangan singkat |
-| [SPEC.md](SPEC.md) | Spesifikasi awal Fase 1–3, jaringan, auth, SSH, batas memori |
-| [ROADMAP.md](ROADMAP.md) | Fase, keputusan pemilik, verifikasi flag CLI |
-| [DESIGN.md](DESIGN.md) | Design system NextBoard Glass: token, komponen, aksesibilitas |
-| [API.md](API.md) | Konvensi, auth, machine, session, WebSocket, log koneksi |
-| [API-board.md](API-board.md) | Project, workspace, board, file, aset |
-| [API-agents.md](API-agents.md) | Katalog, wrapper, status, transcript, profil, settings, notifikasi, agent di server, MCP |
-| [API-orchestration.md](API-orchestration.md) | Delivery, command, planner, thread, grup, handoff, forward, loop, memory, layout |
-| [API-studio.md](API-studio.md) | Job, runner, Git, preview, studio, usage, suara |
-| [API-gui.md](API-gui.md) | Aplikasi desktop, browser sungguhan, video, suara |
-| [API-uptime.md](API-uptime.md) | Monitor uptime |
-| [API-vault.md](API-vault.md) | Credentials: format enkripsi, API, perilaku, yang tidak dilindungi |
+| [../README.md](../README.md) | Installation and a short development guide |
+| [SPEC.md](SPEC.md) | Original Phase 1–3 specification, network, auth, SSH, memory limits |
+| [ROADMAP.md](ROADMAP.md) | Phases, owner decisions, CLI flag verification |
+| [DESIGN.md](DESIGN.md) | The NextBoard Glass design system: tokens, components, accessibility |
+| [API.md](API.md) | Conventions, auth, machines, sessions, WebSocket, connection log |
+| [API-board.md](API-board.md) | Projects, workspaces, boards, files, assets |
+| [API-agents.md](API-agents.md) | Catalog, wrapper, status, transcripts, profiles, settings, notifications, agents on servers, MCP |
+| [API-orchestration.md](API-orchestration.md) | Delivery, commands, planner, threads, groups, handoff, forward, loops, memory, layouts |
+| [API-studio.md](API-studio.md) | Jobs, runner, Git, previews, studios, usage, voice |
+| [API-gui.md](API-gui.md) | Desktop apps, real browsers, video, sound |
+| [API-uptime.md](API-uptime.md) | Uptime monitors |
+| [API-vault.md](API-vault.md) | Credentials: encryption format, API, behavior, what is not protected |

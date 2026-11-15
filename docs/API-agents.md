@@ -1,64 +1,64 @@
-# NextBoard API — Fase 5: agen, status & notifikasi
+# NextBoard API — Phase 5: agents, status & notifications
 
-Tambahan atas [API.md](API.md) dan [API-board.md](API-board.md); konvensi (auth, CSRF `X-NextBoard: 1`, camelCase, RFC 3339) tetap. Fitur: [ROADMAP.md](ROADMAP.md) Fase 5. Keputusan pemilik #1, #4, #5 mengikat dokumen ini.
+An addition to [API.md](API.md) and [API-board.md](API-board.md); the conventions (auth, CSRF `X-NextBoard: 1`, camelCase, RFC 3339) stay the same. Features: [ROADMAP.md](ROADMAP.md) Phase 5. Owner decisions #1, #4, #5 bind this document.
 
-**Error:** body tetap `{"error":"pesan"}`, kini boleh membawa `"code"` (snake_case, stabil untuk klien). Klien lama cukup membaca `error`. Kode yang dipakai hub Fase 5: `bad_agent`, `agent_exists`, `agent_builtin`, `agent_not_found`, `bad_handle`, `handle_taken`, `unknown_agent`, `bad_mode`, `profile_not_found`, `profile_mismatch`, `profile_unsupported`, `profile_dir_missing`, `remote_create_forbidden`, `bad_profile`, `not_agent`, `agent_running`, `shell_busy`, `wrap_missing`, `machine_offline`, `no_reply`, `no_transcript`, `bad_setting`, `bad_shortcut`, `job_not_found`.
+**Error:** the body stays `{"error":"message"}`, and may now carry `"code"` (snake_case, stable for clients). Old clients only need to read `error`. Codes the Phase 5 hub uses: `bad_agent`, `agent_exists`, `agent_builtin`, `agent_not_found`, `bad_handle`, `handle_taken`, `unknown_agent`, `bad_mode`, `profile_not_found`, `profile_mismatch`, `profile_unsupported`, `profile_dir_missing`, `remote_create_forbidden`, `bad_profile`, `not_agent`, `agent_running`, `shell_busy`, `wrap_missing`, `machine_offline`, `no_reply`, `no_transcript`, `bad_setting`, `bad_shortcut`, `job_not_found`.
 
-## 0. Ringkasan desain
+## 0. Design summary
 
-- **Katalog agen** = preset yang diperluas dengan kapabilitas (yolo, resume, live status, transcript, profil). Endpoint `/api/presets` tetap ada (superset).
-- Setiap console punya **handle** unik per hub (`Ash`, `Bea`, …) untuk @mention (Fase 6).
-- Console agen berjalan di **wrapper shell**: agen keluar → console jatuh ke shell user di tempat. Hub tahu agen sedang di foreground lewat **marker OSC** + cek proses.
-- **Kanal event tanpa jaringan:** wrapper dan hooks menulis escape `OSC 777;nb;…` ke `/dev/tty`, atau — karena hook Claude Code berjalan tanpa controlling TTY (terverifikasi, §20) — langsung ke terminal proses CLI induknya; hub membuangnya dari stream sebelum scrollback/fanout. Cadangan: HTTP lewat reverse port-forward SSH / loopback lokal.
-- **Engine status** menggabungkan hooks Claude, notify Codex, aturan layar VT per CLI, dan aktivitas output menjadi `agentState`.
-- Tidak ada file config CLI yang ditulis, di machine mana pun (termasuk This PC): semua injeksi per-launch lewat flag.
+- **Agent catalog** = presets extended with capabilities (yolo, resume, live status, transcript, profile). The `/api/presets` endpoint stays (superset).
+- Every console has a **handle** unique per hub (`Ash`, `Bea`, …) for @mentions (Phase 6).
+- An agent console runs in a **wrapper shell**: when the agent exits, the console drops to the user's shell in place. The hub knows the agent is in the foreground through **OSC markers** + a process check.
+- **Event channel without a network:** the wrapper and hooks write an `OSC 777;nb;…` escape to `/dev/tty`, or — because Claude Code hooks run without a controlling TTY (verified, §20) — straight to the terminal of their parent CLI process; the hub drops it from the stream before scrollback/fanout. Fallback: HTTP over an SSH reverse port-forward / local loopback.
+- The **status engine** combines Claude hooks, Codex notify, per-CLI VT screen rules and output activity into `agentState`.
+- No CLI config file is written, on any machine (This PC included): every injection is per-launch, through flags.
 
-## 1. Katalog agen (P2, C7, C9)
+## 1. Agent catalog (P2, C7, C9)
 
 ```jsonc
-// Agent (= Preset v2). Field lama Preset tetap ada dan bermakna sama.
+// Agent (= Preset v2). The old Preset fields stay and mean the same.
 {
   "id": "claude", "name": "Claude Code",
   "kind": "agent",                 // "agent" | "shell"
   "source": "builtin",             // "builtin" | "catalog" | "custom"
-  "base": "",                      // custom saja: "claude" | "codex" | "" — mewarisi kapabilitas base
+  "base": "",                      // custom only: "claude" | "codex" | "" — inherits the base's capabilities
   "command": "claude", "args": [], "env": [], "color": "#d97757",
-  "detect": "claude",              // nama perintah untuk `command -v` saat probe; "" = tidak dideteksi
+  "detect": "claude",              // command name for `command -v` during the probe; "" = not detected
   "yoloArgs": ["--dangerously-skip-permissions"], "yoloEnv": [],
   "resume": {
     "kind": "session-id",          // "session-id" | "continue" | "picker" | "none"
-    "launchArgs":   ["--session-id", "{agentSessionId}"],   // dipakai saat mode fresh (hub membuat UUID)
+    "launchArgs":   ["--session-id", "{agentSessionId}"],   // used in fresh mode (the hub makes the UUID)
     "resumeArgs":   ["--resume", "{agentSessionId}"],
-    "continueArgs": ["--continue"],                        // "terakhir di folder ini"
-    "pickerArgs":   ["--resume"]                           // pemilih bawaan CLI
+    "continueArgs": ["--continue"],                        // "latest in this folder"
+    "pickerArgs":   ["--resume"]                           // the CLI's built-in picker
   },
   "liveStatus": "claude-hooks",    // "claude-hooks" | "codex-notify" | "screen" | "none"
   "transcript": "claude",          // "claude" | "codex" | "none"
-  "profileEnv": "CLAUDE_CONFIG_DIR", // "" = tidak mendukung profil
-  "screenRules": "claude",         // id aturan layar (§6.4); "" = generik (aktivitas output)
-  "resumeArgs": ["--continue"],    // legacy = resume.continueArgs (klien lama)
-  "available": true                // hanya di endpoint per machine
+  "profileEnv": "CLAUDE_CONFIG_DIR", // "" = profiles not supported
+  "screenRules": "claude",         // screen rules id (§6.4); "" = generic (output activity)
+  "resumeArgs": ["--continue"],    // legacy = resume.continueArgs (old clients)
+  "available": true                // only on the per-machine endpoint
 }
 ```
 
-- Placeholder template hanya `{agentSessionId}`. Hub menolak template lain.
-- `kind:"shell"` tidak memakai wrapper, tidak pernah menerima delivery, `agentState` selalu `shell`.
-- Custom tanpa `base` hanya boleh `liveStatus` `"screen"|"none"`, `transcript:"none"`, `profileEnv:""`, `resume.kind` `"continue"|"none"`.
+- The only template placeholder is `{agentSessionId}`. The hub rejects any other template.
+- `kind:"shell"` does not use the wrapper, never receives a delivery, and its `agentState` is always `shell`.
+- A custom entry without `base` may only have `liveStatus` `"screen"|"none"`, `transcript:"none"`, `profileEnv:""`, `resume.kind` `"continue"|"none"`.
 
-### 1.1 Built-in dan katalog
+### 1.1 Built-in and catalog
 
 Built-in (`source:"builtin"`):
 
 | id | command | yolo | resume | liveStatus | transcript | profileEnv |
 |---|---|---|---|---|---|---|
 | `shell` | `$SHELL -l` (kind shell) | — | none | none | none | — |
-| `claude` | `claude` | `--dangerously-skip-permissions` | session-id (seperti contoh di atas) | claude-hooks | claude | `CLAUDE_CONFIG_DIR` |
-| `codex` | `codex` | `--dangerously-bypass-approvals-and-sandbox` | session-id: launch `[]` (id ditemukan, §8.1), resume `resume {agentSessionId}`, continue `resume --last`, picker `resume` | codex-notify | codex | `CODEX_HOME` |
+| `claude` | `claude` | `--dangerously-skip-permissions` | session-id (as in the example above) | claude-hooks | claude | `CLAUDE_CONFIG_DIR` |
+| `codex` | `codex` | `--dangerously-bypass-approvals-and-sandbox` | session-id: launch `[]` (id discovered, §8.1), resume `resume {agentSessionId}`, continue `resume --last`, picker `resume` | codex-notify | codex | `CODEX_HOME` |
 | `gemini` | `gemini` | `--yolo` | continue `--resume latest`† | screen | none | — |
 
-Katalog (`source:"catalog"`, semua `kind:"agent"`, `liveStatus:"screen"`, `transcript:"none"`, deteksi = nama perintah):
+Catalog (`source:"catalog"`, all `kind:"agent"`, `liveStatus:"screen"`, `transcript:"none"`, detection = command name):
 
-| id | name | command / detect | yolo (kandidat) | resume (kandidat) |
+| id | name | command / detect | yolo (candidate) | resume (candidate) |
 |---|---|---|---|---|
 | `opencode` | OpenCode | `opencode` | — | continue `--continue` |
 | `aider` | Aider | `aider` | `--yes-always` | — |
@@ -78,140 +78,140 @@ Katalog (`source:"catalog"`, semua `kind:"agent"`, `liveStatus:"screen"`, `trans
 | `qwen` | Qwen Code | `qwen` | `--approval-mode yolo` | — |
 | `vibe` | Mistral Vibe | `vibe` | —† | — |
 
-† = kandidat yang **belum diverifikasi**: dikirim sebagai `yoloArgs: []` / `resume.kind:"none"` sampai diuji pada versi CLI nyata. Entri riset lain (Antigravity, Ante, Autohand, Command Code, Devin, Grok, Hermes, Kilocode, MiMo, OpenClaude, OpenClaw, Prime Agent, Rovo Dev, Trae) **tidak** dimasukkan sampai terbukti CLI publik dengan nama perintah itu; user bisa menambahkannya sebagai custom.
+† = a candidate **not yet verified**: sent as `yoloArgs: []` / `resume.kind:"none"` until tested on a real CLI version. Other research entries (Antigravity, Ante, Autohand, Command Code, Devin, Grok, Hermes, Kilocode, MiMo, OpenClaude, OpenClaw, Prime Agent, Rovo Dev, Trae) are **not** included until proven to be a public CLI with that command name; the user can add them as custom.
 
-### 1.2 Deteksi dan default agent
+### 1.2 Detection and default agent
 
-- Probe (`machine.probeScript`) memeriksa `detect` semua entri (built-in + katalog + custom). `available` = `probe.commands[detect] != ""` atau ada override path di `settings.agents.paths[machineId][agentId]`.
-- Override path menggantikan `command` saat launch dan saat probe (`command -v <path>`).
-- **Default agent per machine:** `settings.agents.defaults[machineId]`; bila kosong → entri `available` pertama dengan urutan `claude, codex, gemini`, lalu katalog alfabetis, lalu custom; bila tidak ada → `shell`. Field turunan `defaultAgent` ada di `GET /api/machines/{id}/agents`.
-- Agent "armed" untuk tool Spawn (`T`) adalah state per klien (localStorage), bukan di hub.
-- **Mematikan agent:** `settings.agents.disabled[agentId] = true` (hapus dengan `null`), satu switch untuk semua machine. Agent itu tetap terdeteksi tapi tidak ditawarkan: hilang dari `GET /api/machines/{id}/agents` dan `/presets` kecuali dengan `?all=1` (ditandai `disabled:true`, untuk halaman Settings), tidak pernah jadi default (`defaults` tetap tersimpan dan berlaku lagi saat dinyalakan), dan runner beralih ke Claude Code atau Codex yang lain. `POST /api/sessions` dan ganti agent lewat restart menjawab `409 agent_disabled`. Lane layout dan role agent jatuh ke default. **Console yang sedang jalan tidak disentuh** dan bisa di-restart. `GET /api/agents` tetap mengembalikan semuanya, karena console lama masih perlu nama dan kemampuannya. Shell bukan agent dan tidak bisa dimatikan.
+- The probe (`machine.probeScript`) checks `detect` for every entry (built-in + catalog + custom). `available` = `probe.commands[detect] != ""` or there is a path override in `settings.agents.paths[machineId][agentId]`.
+- A path override replaces `command` at launch and during the probe (`command -v <path>`).
+- **Default agent per machine:** `settings.agents.defaults[machineId]`; when empty → the first `available` entry in the order `claude, codex, gemini`, then the catalog alphabetically, then custom; when there is none → `shell`. The derived field `defaultAgent` is in `GET /api/machines/{id}/agents`.
+- The agent "armed" for the Spawn tool (`T`) is per-client state (localStorage), not on the hub.
+- **Turning an agent off:** `settings.agents.disabled[agentId] = true` (remove with `null`), one switch for all machines. The agent is still detected but not offered: it disappears from `GET /api/machines/{id}/agents` and `/presets` except with `?all=1` (marked `disabled:true`, for the Settings page), it never becomes the default (`defaults` stays stored and applies again when it is turned back on), and the runner switches to the other of Claude Code or Codex. `POST /api/sessions` and switching agent through a restart answer `409 agent_disabled`. Layout lanes and agent roles fall back to the default. **Running consoles are not touched** and can be restarted. `GET /api/agents` still returns all of them, because old consoles still need their name and capabilities. The shell is not an agent and cannot be turned off.
 
-### 1.3 Endpoint
+### 1.3 Endpoints
 
 | Method | Path | Request | Response / error |
 |---|---|---|---|
-| GET | `/api/agents` | — | `Agent[]` (tanpa `available`); urut built-in, katalog, custom |
-| GET | `/api/machines/{id}/agents` | — | `{"defaultAgent":"claude","agents":[Agent…]}` (dengan `available`) |
-| GET | `/api/presets`, `/api/machines/{id}/presets` | — | tetap: `Agent[]` (superset Preset lama) |
-| POST | `/api/agents` | `{id?, name, command, args?, env?, color?, kind?, base?, yoloArgs?, yoloEnv?, resume?}` | `201 Agent`. `400 bad_agent` (id tidak cocok `^[a-z][a-z0-9-]{1,23}$`, command kosong, field terlarang untuk custom), `409 agent_exists` (id built-in/katalog/custom) |
-| PATCH | `/api/agents/{id}` | field yang sama (tanpa `id`) | `Agent`. `403 agent_builtin` untuk built-in/katalog |
-| DELETE | `/api/agents/{id}` | — | `{"ok":true}`; console yang sedang jalan tidak disentuh (Spec menyimpan command sendiri). `403 agent_builtin` |
+| GET | `/api/agents` | — | `Agent[]` (without `available`); ordered built-in, catalog, custom |
+| GET | `/api/machines/{id}/agents` | — | `{"defaultAgent":"claude","agents":[Agent…]}` (with `available`) |
+| GET | `/api/presets`, `/api/machines/{id}/presets` | — | unchanged: `Agent[]` (superset of the old Preset) |
+| POST | `/api/agents` | `{id?, name, command, args?, env?, color?, kind?, base?, yoloArgs?, yoloEnv?, resume?}` | `201 Agent`. `400 bad_agent` (id does not match `^[a-z][a-z0-9-]{1,23}$`, empty command, a field forbidden for custom), `409 agent_exists` (built-in/catalog/custom id) |
+| PATCH | `/api/agents/{id}` | the same fields (without `id`) | `Agent`. `403 agent_builtin` for built-in/catalog |
+| DELETE | `/api/agents/{id}` | — | `{"ok":true}`; running consoles are not touched (the Spec stores its own command). `403 agent_builtin` |
 
-`id` default = slug dari `name`. Entri lama di `presets.json` dengan id built-in tetap dihormati sebagai override (tampil `source:"custom"`, `base` = id itu) demi kompatibilitas, tapi API tidak bisa membuatnya lagi.
+The default `id` = a slug of `name`. Old entries in `presets.json` with a built-in id are still honored as an override (shown as `source:"custom"`, `base` = that id) for compatibility, but the API can no longer create them.
 
-## 2. Handle console (C1)
+## 2. Console handles (C1)
 
-- `handle`: `^[A-Za-z][A-Za-z0-9-]{0,19}$`, unik **per hub** (lintas machine/project), dibandingkan case-insensitive.
-- Kata cadangan (ditolak): `everyone`, `all`, `everybody`, `me`, `bar`, `hub`, `orchestrator`, `group`, `loop`, `memory`.
-- Auto-assign saat create: nama pertama yang belum dipakai dari daftar bawaan NextBoard, urut:
+- `handle`: `^[A-Za-z][A-Za-z0-9-]{0,19}$`, unique **per hub** (across machines/projects), compared case-insensitively.
+- Reserved words (rejected): `everyone`, `all`, `everybody`, `me`, `bar`, `hub`, `orchestrator`, `group`, `loop`, `memory`.
+- Auto-assign on create: the first unused name from NextBoard's built-in list, in order:
   `Arkan Bintang Cantika Daffa Elvan Farel Gibran Haikal Ilham Jihan Kayla Luna Maura Naufal Olivia Pandu Rafa Reyhan Salsa Tiara Vania Wildan Yasmin Zahra`.
-  Bila habis, sufiks angka: `Arkan2`, `Bintang2`, … (angka terkecil yang bebas).
-- Rename lewat `PATCH /api/sessions/{id} {"handle":"Rex"}` → `400 bad_handle` / `409 handle_taken`. Fase 6 juga menolak handle yang sama dengan nama grup di workspace console itu.
-- Handle dilepas saat sesi dihapus. Sesi lama tanpa handle diberi handle saat hub start (migrasi, urut `createdAt`).
-- Header node: `@Ash · Claude Code @ devbox` + badge YOLO + pill status (DESIGN.md).
+  When they run out, a number suffix: `Arkan2`, `Bintang2`, … (the smallest free number).
+- Rename through `PATCH /api/sessions/{id} {"handle":"Rex"}` → `400 bad_handle` / `409 handle_taken`. Phase 6 also rejects a handle equal to a group name in that console's workspace.
+- The handle is released when the session is deleted. Old sessions without a handle get one when the hub starts (migration, in `createdAt` order).
+- Node header: `@Ash · Claude Code @ devbox` + YOLO badge + status pill (DESIGN.md).
 
-## 3. Peluncuran dengan wrapper (C4, C10, keputusan #5)
+## 3. Launching with a wrapper (C4, C10, decision #5)
 
-### 3.1 Mode peluncuran
+### 3.1 Launch modes
 
-| mode | Arti | Argumen agen |
+| mode | Meaning | Agent arguments |
 |---|---|---|
-| `fresh` | percakapan baru | `args` + `resume.launchArgs` (Claude: UUID baru dari hub) |
-| `resume` | lanjutkan `agentSessionId` persis | `args` + `resume.resumeArgs`; tanpa id → jatuh ke `continue` |
-| `continue` | terakhir di folder | `args` + `resume.continueArgs` |
-| `pick` | pemilih bawaan CLI | `args` + `resume.pickerArgs` |
-| `shell` | jangan jalankan agen, langsung shell | — |
+| `fresh` | a new conversation | `args` + `resume.launchArgs` (Claude: a new UUID from the hub) |
+| `resume` | continue exactly `agentSessionId` | `args` + `resume.resumeArgs`; without an id → falls back to `continue` |
+| `continue` | the latest in the folder | `args` + `resume.continueArgs` |
+| `pick` | the CLI's built-in picker | `args` + `resume.pickerArgs` |
+| `shell` | do not run the agent, go straight to the shell | — |
 
-Argumen live status (§4.3/§4.4) dan `yoloArgs` (bila `yolo`) ditambahkan di akhir. `kind:"shell"` tidak memakai wrapper (perilaku lama: `exec $SHELL -l`).
+Live status arguments (§4.3/§4.4) and `yoloArgs` (when `yolo`) are appended at the end. `kind:"shell"` does not use the wrapper (old behavior: `exec $SHELL -l`).
 
 ### 3.2 Wrapper
 
-Hub menyiapkan env per launch lalu menjalankan, di bawah login shell (POSIX: `$SHELL -lc`, non-POSIX seperti fish: `/bin/sh -lc`, sama dengan `loginWrap` sekarang):
+The hub prepares the env per launch, then runs, under a login shell (POSIX: `$SHELL -lc`, non-POSIX such as fish: `/bin/sh -lc`, the same as the current `loginWrap`):
 
 ```sh
-export NEXTBOARD_SESSION_ID=<sid> NB_TOKEN=<token> NB_WRAP=<skrip> NB_HOOK_SH=<skrip hook> NB_HOOKS=<json> \
-       [NB_HOOK_URL=<url>] [CLAUDE_CONFIG_DIR|CODEX_HOME=<dir profil>] TERM_PROGRAM=nextboard COLORTERM=truecolor
+export NEXTBOARD_SESSION_ID=<sid> NB_TOKEN=<token> NB_WRAP=<script> NB_HOOK_SH=<hook script> NB_HOOKS=<json> \
+       [NB_HOOK_URL=<url>] [CLAUDE_CONFIG_DIR|CODEX_HOME=<profile dir>] TERM_PROGRAM=nextboard COLORTERM=truecolor
 exec /bin/sh -c "$NB_WRAP" nb <mode> <agentSessionId|-> <yolo 0|1>
 ```
 
-Lokal: env lewat `exec.Cmd.Env` (bukan baris perintah). Remote: inline seperti sekarang (`cdExpr && export … && exec …`), di-quote dengan `machine.Quote`. Panjang total baris perintah ≤ 12 KiB (batas pesan tmux 16 KiB).
+Local: the env goes through `exec.Cmd.Env` (not the command line). Remote: inline as now (`cdExpr && export … && exec …`), quoted with `machine.Quote`. The total command line length is ≤ 12 KiB (the tmux message limit is 16 KiB).
 
-Isi `NB_WRAP` (normatif; hub membangun blok `case` dari katalog):
+Contents of `NB_WRAP` (normative; the hub builds the `case` block from the catalog):
 
 ```sh
 nb_m() { p=$(printf '%s' "$2" | base64 | tr -d '\n=' | tr '+/' '-_')
   if [ -n "$TMUX" ]; then printf '\033Ptmux;\033\033]777;nb;%s;%s\007\033\\' "$1" "$p"
   else printf '\033]777;nb;%s;%s\007' "$1" "$p"; fi >/dev/tty 2>/dev/null; }
 [ "$1" = shell ] && exec "${SHELL:-/bin/sh}" -l
-trap : INT QUIT                      # wrapper tahan Ctrl-C; anak tetap disposisi default
+trap : INT QUIT                      # the wrapper withstands Ctrl-C; the child keeps the default disposition
 nb_m agent-start "{\"k\":\"$NB_TOKEN\",\"pid\":$$,\"mode\":\"$1\",\"sid\":\"$2\"}"
-set -- "$1" "$2" "$3" claude         # command + args katalog
+set -- "$1" "$2" "$3" claude         # catalog command + args
 case "$1" in fresh) set -- "$@" --session-id "$2";; resume) set -- "$@" --resume "$2";;
   continue) set -- "$@" --continue;; pick) set -- "$@" --resume;; esac
-set -- "$@" --settings "$NB_HOOKS"   # §4.3, hanya bila live status aktif
+set -- "$@" --settings "$NB_HOOKS"   # §4.3, only when live status is on
 [ "$3" = 1 ] && set -- "$@" --dangerously-skip-permissions
-command -v "$4" >/dev/null 2>&1 || printf '\r\n\033[1;31mnextboard: perintah tidak ditemukan: %s\033[0m\r\n' "$4"
+command -v "$4" >/dev/null 2>&1 || printf '\r\n\033[1;31mnextboard: command not found: %s\033[0m\r\n' "$4"
 shift 3; "$@"; nb_rc=$?
 trap - INT QUIT
 nb_m agent-exit "{\"k\":\"$NB_TOKEN\",\"rc\":$nb_rc}"
 exec "${SHELL:-/bin/sh}" -l
 ```
 
-- `pid` = PID wrapper; setelah `exec $SHELL -l` PID yang sama menjadi shell interaktif user. Hub menyimpannya sebagai `wrapperPid` (runtime, juga untuk pause Fase 6).
-- `Session.status` tetap semantik proses: agen keluar → `status` tetap `running`, `agentState:"shell"`. `exited` hanya bila shell fallback juga keluar.
-- Env yang diwarisi service dan dibuang sebelum launch: `CLAUDECODE`, `CLAUDE_CODE_*`, `NB_*`, `NEXTBOARD_*` (lalu diisi ulang oleh hub).
-- Implementasi: blok `case` memakai `:` untuk mode tanpa argumen, `pick` jatuh ke `continueArgs` bila agen tanpa picker, `yoloEnv` diekspor dengan `[ "$3" = 1 ] && export K=V`. Baris `command -v` hanya mencetak pesan merah (agen tetap dijalankan, rc 127 → `agent-exit`); di This PC hub juga memeriksa perintah sebelum launch (status `error` seperti Fase 1–4). `NB_HOOK_CH` (`tty`/`http`) diisi dari `settings.agents.hookChannel`.
+- `pid` = the wrapper's PID; after `exec $SHELL -l` the same PID becomes the user's interactive shell. The hub stores it as `wrapperPid` (runtime, also for the Phase 6 pause).
+- `Session.status` keeps process semantics: the agent exits → `status` stays `running`, `agentState:"shell"`. `exited` only when the fallback shell exits too.
+- Env inherited from the service and dropped before launch: `CLAUDECODE`, `CLAUDE_CODE_*`, `NB_*`, `NEXTBOARD_*` (then filled in again by the hub).
+- Implementation: the `case` block uses `:` for modes without arguments, `pick` falls back to `continueArgs` when the agent has no picker, `yoloEnv` is exported with `[ "$3" = 1 ] && export K=V`. The `command -v` line only prints a red message (the agent still runs, rc 127 → `agent-exit`); on This PC the hub also checks the command before launch (status `error` as in Phases 1–4). `NB_HOOK_CH` (`tty`/`http`) is filled from `settings.agents.hookChannel`.
 
-### 3.3 Restart / resume dari shell
+### 3.3 Restart / resume from the shell
 
 `POST /api/sessions/{id}/agent {"mode":"fresh"|"resume"|"continue"|"pick","agentSessionId"?}`:
 
-1. Syarat: `agentKind:"agent"`, `foreground:"shell"`, shell **idle di prompt** (cek proses §6.5: foreground pgrp = `wrapperPid`) dan tidak ada input klien ke sesi itu dalam 2 dtk terakhir.
-2. Hub menulis `\x03` (Ctrl-C, membatalkan baris di semua shell dan mode; hanya shell yang menerimanya karena syarat 1), menunggu 200 ms, lalu mengetik satu baris yang diawali spasi: ` exec /bin/sh -c "$NB_WRAP" nb <mode> <id|-> <yolo>`. `\r` hanya ditekan bila layar menampilkan persis baris itu sampai posisi kursor. Bila tidak muncul dalam 3 dtk, baris dibatalkan lagi, tidak ada yang jalan, dan responsnya `412 wrap_missing`. Untuk `fresh` Claude, hub membuat UUID baru dulu.
+1. Requirements: `agentKind:"agent"`, `foreground:"shell"`, the shell is **idle at the prompt** (process check §6.5: foreground pgrp = `wrapperPid`) and there has been no client input to that session in the last 2 s.
+2. The hub writes `\x03` (Ctrl-C, which cancels the line in every shell and mode; only the shell receives it because of requirement 1), waits 200 ms, then types one line that starts with a space: ` exec /bin/sh -c "$NB_WRAP" nb <mode> <id|-> <yolo>`. `\r` is pressed only when the screen shows exactly that line up to the cursor position. When it does not appear within 3 s, the line is canceled again, nothing runs, and the response is `412 wrap_missing`. For a Claude `fresh`, the hub makes a new UUID first.
 
-   Ctrl-U tidak cukup: ia hanya mengosongkan sampai kursor, sehingga sisa setelah kursor menempel ke baris (`> file` ikut jalan dan mengosongkan file itu), dan di mode perintah vi tombol yang diketik menjadi perintah edit. Teruji di bash 5.2, zsh 5.9, dan fish 3.7, mode biasa dan vi (`TestStartingAnAgentInAnyShell`).
-3. Respons `200 Session` (state `starting`). Error: `409 agent_running`, `409 shell_busy` (ada job di foreground), `409 not_agent` (kind shell), `412 wrap_missing` (marker `agent-start` tidak datang dalam 10 dtk → UI menawarkan restart penuh), `503 machine_offline`.
+   Ctrl-U is not enough: it only clears up to the cursor, so whatever is after the cursor sticks to the line (`> file` runs too and empties that file), and in vi command mode the typed keys become edit commands. Tested on bash 5.2, zsh 5.9 and fish 3.7, normal and vi mode (`TestStartingAnAgentInAnyShell`).
+3. Response `200 Session` (state `starting`). Errors: `409 agent_running`, `409 shell_busy` (a job is in the foreground), `409 not_agent` (kind shell), `412 wrap_missing` (the `agent-start` marker does not come within 10 s → the UI offers a full restart), `503 machine_offline`.
 
-`POST /api/sessions/{id}/restart` tetap = **restart penuh** (kill wrapper + launch baru, scrollback hub tetap). Body: `{"resume"?:bool, "mode"?, "agentSessionId"?, "agent"?, "profileId"?, "yolo"?}`; `resume:true` lama = mode `resume` bila `agentSessionId` ada, selain itu `continue`. `agentSessionId` (tambahan atas permintaan klien) memindahkan console ke percakapan itu dalam satu panggilan: mode default `resume`, id disimpan sebagai `agentSessionId` baru (tanpa harus restart mode `shell` lalu §3.3). Ganti agen/profil selalu restart penuh.
+`POST /api/sessions/{id}/restart` stays a **full restart** (kill the wrapper + a new launch, the hub scrollback stays). Body: `{"resume"?:bool, "mode"?, "agentSessionId"?, "agent"?, "profileId"?, "yolo"?}`; the old `resume:true` = mode `resume` when `agentSessionId` exists, otherwise `continue`. `agentSessionId` (added at a client's request) moves the console to that conversation in one call: default mode `resume`, the id is stored as the new `agentSessionId` (without having to restart in mode `shell` and then §3.3). Switching agent/profile is always a full restart.
 
-### 3.4 Hub restart dan reconnect
+### 3.4 Hub restart and reconnect
 
-| Situasi | Perilaku |
+| Situation | Behavior |
 |---|---|
-| Hub restart, sesi lokal / SSH direct (proses mati) | `settings.agents.resumeOnRestart`: `auto` (default) → mode `resume` bila agen terakhir di foreground, `shell` bila terakhir di shell; `ask` → mode `shell` + `resumeOffer:true` di Info (UI: "Resume conversation?" per node + banner "Resume all"; aksi = §3.3 mode `resume`); `never` → `shell`. Console Claude yang belum menyimpan percakapan (belum pernah diberi pesan, transcript tidak ada) tidak punya yang bisa dilanjutkan: `auto` → mode `fresh` dengan id baru, `ask` → tanpa `resumeOffer`. Bila pengecekan gagal, `resume` tetap dipakai. CLI yang berakhir karena hub sendiri berhenti tidak dihitung sebagai keluar dari agen |
-| SSH tmux re-attach (proses hidup) | marker selama putus hilang; state dihitung ulang dari layar + cek proses (`stateSource:"screen"`) sampai event hook berikutnya |
+| Hub restart, local / direct SSH session (process dead) | `settings.agents.resumeOnRestart`: `auto` (default) → mode `resume` when the agent was last in the foreground, `shell` when last in the shell; `ask` → mode `shell` + `resumeOffer:true` in Info (UI: "Resume conversation?" per node + a "Resume all" banner; action = §3.3 mode `resume`); `never` → `shell`. A Claude console that has not saved a conversation yet (never given a message, no transcript) has nothing to continue: `auto` → mode `fresh` with a new id, `ask` → without `resumeOffer`. When the check fails, `resume` is still used. A CLI that ended because the hub itself stopped does not count as exiting the agent |
+| SSH tmux re-attach (process alive) | markers during the disconnect are lost; the state is recomputed from the screen + process check (`stateSource:"screen"`) until the next hook event |
 
-## 4. Kanal event dari terminal
+## 4. Event channel from the terminal
 
-### 4.1 Format marker
+### 4.1 Marker format
 
 ```
-ESC ] 777 ; nb ; <type> ; <payload> BEL        (ST = ESC \ juga diterima sebagai terminator)
-payload = base64url(JSON) tanpa padding (decoder hub juga menerima alfabet standar dan padding)
+ESC ] 777 ; nb ; <type> ; <payload> BEL        (ST = ESC \ is also accepted as the terminator)
+payload = base64url(JSON) without padding (the hub decoder also accepts the standard alphabet and padding)
 ```
 
-| type | Pengirim | JSON |
+| type | Sender | JSON |
 |---|---|---|
-| `agent-start` | wrapper | `{"k":token,"pid":int,"mode":"fresh…shell","sid":"uuid atau -"}` |
+| `agent-start` | wrapper | `{"k":token,"pid":int,"mode":"fresh…shell","sid":"uuid or -"}` |
 | `agent-exit` | wrapper | `{"k":token,"rc":int}` |
-| `hook` | hooks Claude | `{"k":token,"ev":"PreToolUse","raw":"<base64 std dari ≤3072 byte pertama stdin hook>"}` |
-| `notify` | notify Codex | `{"k":token,"ev":"turn","raw":"<base64 std dari ≤3072 byte argumen JSON>"}` |
+| `hook` | Claude hooks | `{"k":token,"ev":"PreToolUse","raw":"<std base64 of the first ≤3072 bytes of the hook stdin>"}` |
+| `notify` | Codex notify | `{"k":token,"ev":"turn","raw":"<std base64 of ≤3072 bytes of the JSON argument>"}` |
 
-`k` = `hookToken` per sesi (128 bit acak, base64url), dibuat saat sesi dibuat, disimpan di `sessions.json`, **tidak pernah** dikirim ke klien. Marker dengan token salah dibuang dan diabaikan (dihitung di log debug). Token mencegah pemalsuan dari konten yang sekadar ditampilkan (`cat file`, output web).
+`k` = the per-session `hookToken` (128 random bits, base64url), made when the session is created, stored in `sessions.json`, **never** sent to clients. A marker with a wrong token is dropped and ignored (counted in the debug log). The token prevents forgery from content that is merely displayed (`cat file`, web output).
 
-### 4.2 Stripper di hub
+### 4.2 Stripper in the hub
 
-- Berjalan di `Session.output` **sebelum** `ring.Write`, fanout, dan model VT. Marker tidak pernah masuk scrollback, WebSocket, atau file `scrollback/`.
-- Mesin state streaming: deteksi prefiks `ESC ] 777 ; nb ;` lintas batas `Read`; tahan maksimal 16 KiB. Tanpa terminator dalam 16 KiB atau 2 dtk → byte dilepas apa adanya (bukan marker).
-- Semua OSC `777;nb;` dibuang dari stream, valid atau tidak. OSC lain (judul, hyperlink) diteruskan.
-- Rate: > 50 marker/dtk per sesi → kelebihan dibuang.
-- Dekode `raw` toleran: hub mencari field yang dikenal (`session_id`, `transcript_path`, `hook_event_name`, `tool_name`, `notification_type`, `message`, `type`, `thread-id`, `last-assistant-message`) dengan pemindai string, karena JSON bisa terpotong di 3072 byte.
+- Runs in `Session.output` **before** `ring.Write`, fanout and the VT model. Markers never enter the scrollback, the WebSocket or the `scrollback/` files.
+- A streaming state machine: detects the `ESC ] 777 ; nb ;` prefix across `Read` boundaries; holds at most 16 KiB. No terminator within 16 KiB or 2 s → the bytes are released as they are (not a marker).
+- Every `777;nb;` OSC is dropped from the stream, valid or not. Other OSCs (title, hyperlink) are passed on.
+- Rate: > 50 markers/s per session → the excess is dropped.
+- Tolerant `raw` decoding: the hub looks for the known fields (`session_id`, `transcript_path`, `hook_event_name`, `tool_name`, `notification_type`, `message`, `type`, `thread-id`, `last-assistant-message`) with a string scanner, because the JSON may be cut at 3072 bytes.
 
-### 4.3 Hooks Claude Code (injeksi per-launch, keputusan #1)
+### 4.3 Claude Code hooks (per-launch injection, decision #1)
 
-`NB_HOOKS` = JSON untuk `--settings` (string inline, tidak ada file):
+`NB_HOOKS` = JSON for `--settings` (an inline string, no file):
 
 ```jsonc
 { "hooks": {
@@ -225,7 +225,7 @@ payload = base64url(JSON) tanpa padding (decoder hub juga menerima alfabet stand
   "SessionEnd":       [{ "hooks": [ …ev SessionEnd… ] }] } }
 ```
 
-`NB_HOOK_SH` (normatif; argumen `$1`=type, `$2`=event, `$3`=JSON dari argv bila ada). **Diubah setelah verifikasi (§20):** Claude Code menjalankan hook di sesi baru tanpa controlling TTY, jadi `/dev/tty` gagal; kanal kedua menulis ke terminal proses CLI induk (`$PPID`):
+`NB_HOOK_SH` (normative; arguments `$1`=type, `$2`=event, `$3`=JSON from argv when present). **Changed after verification (§20):** Claude Code runs hooks in a new session without a controlling TTY, so `/dev/tty` fails; the second channel writes to the terminal of the parent CLI process (`$PPID`):
 
 ```sh
 if [ -n "$3" ]; then r=$(printf %s "$3" | head -c 3072 | base64 | tr -d '\n')
@@ -242,159 +242,159 @@ case "$NB_HOOK_CH" in http) nb_h "$1";; tty) nb_t "$1";; *) nb_t "$1" || nb_h "$
 exit 0
 ```
 
-Menulis ke terminal induk aman walau menyela tulisan TUI: stripper membuang byte marker persis, sehingga stream asli tersusun kembali (escape TUI yang terpotong marker tetap utuh setelah strip).
+Writing to the parent terminal is safe even when it interrupts a TUI write: the stripper drops exactly the marker bytes, so the original stream is put back together (a TUI escape cut by a marker is whole again after stripping).
 
-Aturan: hook tidak pernah menulis ke stdout (output `SessionStart`/`UserPromptSubmit` masuk ke konteks model), selalu exit 0, sisa stdin dikuras. Hook user sendiri tetap berjalan (`--settings` menambah sumber; terverifikasi §20). `--bare` tidak pernah dipakai.
+Rules: a hook never writes to stdout (`SessionStart`/`UserPromptSubmit` output goes into the model's context), always exits 0, and drains the rest of stdin. The user's own hooks still run (`--settings` adds a source; verified §20). `--bare` is never used.
 
 ### 4.4 Codex notify
 
-Argumen tambahan saat live status aktif: `-c 'notify=["sh","-c","eval \"$NB_HOOK_SH\"","nb","notify","turn"]'` (nilai TOML; Codex menambahkan JSON notifikasi sebagai argv terakhir → `$3`). Notify milik user di `config.toml` tertimpa selama sesi ini (lihat Open issues).
+Extra argument when live status is on: `-c 'notify=["sh","-c","eval \"$NB_HOOK_SH\"","nb","notify","turn"]'` (a TOML value; Codex appends the notification JSON as the last argv → `$3`). The user's own notify in `config.toml` is overridden for this session (see Open issues).
 
-### 4.5 Kanal cadangan HTTP
+### 4.5 HTTP fallback channel
 
-| Machine | Listener hub | `NB_HOOK_URL` |
+| Machine | Hub listener | `NB_HOOK_URL` |
 |---|---|---|
-| This PC | `127.0.0.1:<acak>` (HTTP, loopback) | `http://127.0.0.1:<port>/nb/hook` |
-| SSH | `ssh.Client.Listen("tcp","127.0.0.1:0")` (permintaan `tcpip-forward` di koneksi hub; port dipilih server) | `http://127.0.0.1:<portRemote>/nb/hook` |
+| This PC | `127.0.0.1:<random>` (HTTP, loopback) | `http://127.0.0.1:<port>/nb/hook` |
+| SSH | `ssh.Client.Listen("tcp","127.0.0.1:0")` (a `tcpip-forward` request on the hub's connection; the server picks the port) | `http://127.0.0.1:<portRemote>/nb/hook` |
 
-- `POST /nb/hook`, body `"<type>;<payload>"` (≤ 16 KiB) → `204`; diproses sama persis dengan marker (token wajib). Bukan bagian `/api`.
-- Saat reconnect hub meminta port yang sama dulu; gagal → port baru (sesi tmux lama tetap memakai URL basi → hanya kanal tty).
-- `settings.agents.hookChannel`: `auto` (default: tty, lalu HTTP bila forward tersedia), `tty`, `http`. Machine Info mendapat `hookForward: {"port":41234}` atau `{"error":"…"}`.
-- **Kanal primer (terverifikasi §20): OSC ke terminal** — `/dev/tty` bila ada, selain itu terminal proses CLI induk. HTTP tetap cadangan (bukan primer) karena kanal terminal induk bekerja tanpa jaringan, juga di SSH dan tmux. Probe selalu menambah `curl` ke daftar `command -v` (`probe.commands.curl`).
-- `hookChannel`: `auto` = terminal lalu HTTP; `tty` = tanpa HTTP (hub tidak mengisi `NB_HOOK_URL` dan tidak membuka forward); `http` = hanya HTTP (`NB_HOOK_CH=http`, hanya bila URL tersedia).
+- `POST /nb/hook`, body `"<type>;<payload>"` (≤ 16 KiB) → `204`; processed exactly like a marker (token required). Not part of `/api`.
+- On reconnect the hub asks for the same port first; on failure → a new port (old tmux sessions keep the stale URL → tty channel only).
+- `settings.agents.hookChannel`: `auto` (default: tty, then HTTP when a forward is available), `tty`, `http`. Machine Info gets `hookForward: {"port":41234}` or `{"error":"…"}`.
+- **Primary channel (verified §20): OSC to the terminal** — `/dev/tty` when present, otherwise the terminal of the parent CLI process. HTTP stays the fallback (not primary) because the parent-terminal channel works without a network, also over SSH and tmux. The probe always adds `curl` to the `command -v` list (`probe.commands.curl`).
+- `hookChannel`: `auto` = terminal then HTTP; `tty` = without HTTP (the hub does not fill `NB_HOOK_URL` and does not open a forward); `http` = HTTP only (`NB_HOOK_CH=http`, only when a URL is available).
 
 ### 4.6 tmux
 
-- Mode tmux: perintah `new-session` ditambah `\; set-option -wq allow-passthrough on` (opsi window sesi `nb-<id>` saja; `-q` agar tmux < 3.3 tidak error). Opsi global dan `~/.tmux.conf` tidak disentuh.
-- Marker dari dalam pane dibungkus `ESC P tmux; … ESC \` dengan ESC digandakan; tmux meneruskan OSC polos ke klien (hub). Hub hanya perlu mengenali bentuk polos.
-- Probe menambah `tmux -V` → `probe.tmuxVersion`.
+- tmux mode: the `new-session` command gets `\; set-option -wq allow-passthrough on` appended (a window option of the `nb-<id>` session only; `-q` so tmux < 3.3 does not error). Global options and `~/.tmux.conf` are not touched.
+- Markers from inside a pane are wrapped in `ESC P tmux; … ESC \` with ESC doubled; tmux passes the plain OSC on to the client (the hub). The hub only needs to recognize the plain form.
+- The probe adds `tmux -V` → `probe.tmuxVersion`.
 
-## 5. Model layar VT (P3)
+## 5. VT screen model (P3)
 
-- Pustaka: **`github.com/charmbracelet/x/vt`** (pure Go). Alasan: dirawat aktif; mendukung alt-screen, scroll region, mode privat (termasuk DECSET 2004 bracketed paste), lebar karakter Unicode/grapheme (TUI Claude/Codex penuh box-drawing dan emoji). `hinshun/vt10x` tidak aktif dirawat dan dukungan lebar Unicode/mode privatnya kurang. Modul `x` belum stabil → pin pseudo-version di `go.mod`, bungkus di paket `internal/screen` dengan antarmuka sempit (`Write`, `Resize`, `Lines`, `Cursor`, `AltScreen`, `BracketedPaste`, `Reset`) supaya bisa diganti.
-- **String kontrol dibuang sebelum emulator** (OSC, DCS, APC, PM, SOS; 2026-11-13). Emulator mengakhiri string seperti itu pada byte 0x9C (ST 8-bit), padahal dalam UTF-8 byte itu bagian dari banyak karakter. Judul jendela Claude Code "✳ Claude Code" (`E2 9C B3`) berhenti di situ, dan sisanya tercetak ke layar di atas prompt. Claude menggambar spasi di prompt dengan memindah kursor, jadi "draft for later" terbaca "draftdforolater", juga oleh cek prompt delivery dan aturan layar. Sekarang string berakhir hanya di BEL atau `ESC \` (ESC lain mengakhirinya juga), dengan state yang terbawa antar-read. Hub tidak memakai satu pun string itu, dan model tidak pernah menjawab CLI.
-- Satu model per sesi, ukuran = cols×rows sesi (ikut resize), hanya layar terlihat (tanpa scrollback). Diberi stream yang sudah di-strip, lewat goroutine dengan antrean ≤ 4 MiB; antrean penuh → reset model + `screenStale:true` sampai redraw berikutnya.
-- **Memori model** (2026-11-14). Emulator menyalin setiap baris yang tergulir ke riwayat kedua layarnya, dan hanya riwayat layar utama yang ukurannya bisa diatur: program di layar alternatif (tmux, pager, agen layar penuh) membuatnya tumbuh sampai 10.000 baris, lebih dari 100 MB per console. Parser-nya juga memesan 4 MB untuk string kontrol yang tidak pernah sampai. `slim` mematikan riwayat kedua layar dan mengecilkan buffer itu ke 1 KB lewat nama field (emulator tidak menyediakannya); `TestScreenMemoryIsBounded` gagal bila versi pustaka berikutnya mengganti namanya. Console yang tidur atau selesai **memarkir** layarnya: emulator dilepas, layar disimpan sebagai teks (baris, kursor, alt-screen, bracketed paste), dan output berikutnya memulai emulator baru dari teks itu. Diukur dengan 25 agen palsu: heap 152 → 26 MB, setelah output 3 MB per console 152 → 51 MB.
-- **Scrollback ring** per console (1 MiB) tumbuh mengikuti output, bukan dipesan penuh saat console dibuat. Console yang tidur atau selesai menulis scrollback-nya ke `scrollback/<id>.log` dan melepasnya dari memori; terminalnya dibuka, atau prosesnya jalan lagi, membacanya kembali. 25 console tidur setelah output 3 MB masing-masing: heap 3,7 MB, RSS hub 146 → 37 MB.
-- Sekali semenit hub mengembalikan ke sistem ruang heap bebas di atas 32 MiB (hash password saat login 64 MiB, emulator baru 4 MiB sebelum `slim`): Go sendiri mengembalikannya pelan, dan hub yang idle dengan heap beberapa MB menahan 50 sampai 100 MB selama bermenit-menit.
-- Hub start: replay 256 KiB terakhir scrollback ke model.
-- Model **tidak** membalas query terminal (DSR/DA/OSC 10/11) untuk console biasa (xterm.js klien yang membalas). Untuk sesi tersembunyi (Fase 7) model memakai mode `respond` dan membalas.
-- Dipakai oleh: aturan layar (§6.4), `promptOnScreen` (guard delivery Fase 6), balasan dari layar untuk agen tanpa transcript, parser usage (Fase 7).
+- Library: **`github.com/charmbracelet/x/vt`** (pure Go). Reasons: actively maintained; supports the alt screen, scroll regions, private modes (including DECSET 2004 bracketed paste), Unicode/grapheme character widths (the Claude/Codex TUIs are full of box drawing and emoji). `hinshun/vt10x` is not actively maintained and its Unicode width/private mode support is lacking. The `x` module is not stable yet → pin a pseudo-version in `go.mod`, wrap it in the `internal/screen` package behind a narrow interface (`Write`, `Resize`, `Lines`, `Cursor`, `AltScreen`, `BracketedPaste`, `Reset`) so it can be replaced.
+- **Control strings are dropped before the emulator** (OSC, DCS, APC, PM, SOS; 2026-11-13). The emulator ends such a string at byte 0x9C (8-bit ST), although in UTF-8 that byte is part of many characters. Claude Code's window title "✳ Claude Code" (`E2 9C B3`) stopped there, and the rest was printed to the screen above the prompt. Claude draws the spaces in the prompt by moving the cursor, so "draft for later" read as "draftdforolater", also to the delivery prompt check and the screen rules. Now a string ends only at BEL or `ESC \` (any other ESC ends it too), with the state carried across reads. The hub uses none of those strings, and the model never answers the CLI.
+- One model per session, size = the session's cols×rows (follows resize), the visible screen only (no scrollback). It is fed the already stripped stream, through a goroutine with a queue of ≤ 4 MiB; queue full → model reset + `screenStale:true` until the next redraw.
+- **Model memory** (2026-11-14). The emulator copies every line that scrolls off into the history of both its screens, and only the main screen's history size can be set: a program on the alternate screen (tmux, a pager, a full-screen agent) makes it grow to 10,000 lines, more than 100 MB per console. Its parser also reserves 4 MB for control strings that never arrive. `slim` turns off the history of both screens and shrinks that buffer to 1 KB through the field names (the emulator does not provide this); `TestScreenMemoryIsBounded` fails if the next library version renames them. A console that is sleeping or done **parks** its screen: the emulator is released, the screen is kept as text (lines, cursor, alt screen, bracketed paste), and the next output starts a new emulator from that text. Measured with 25 fake agents: heap 152 → 26 MB, after 3 MB of output per console 152 → 51 MB.
+- The per-console **scrollback ring** (1 MiB) grows with the output, rather than being reserved in full when the console is created. A console that is sleeping or done writes its scrollback to `scrollback/<id>.log` and releases it from memory; opening its terminal, or its process running again, reads it back. 25 sleeping consoles after 3 MB of output each: heap 3.7 MB, hub RSS 146 → 37 MB.
+- Once a minute the hub returns free heap space above 32 MiB to the system (the password hash at login is 64 MiB, a new emulator 4 MiB before `slim`): Go itself returns it slowly, and an idle hub with a heap of a few MB was holding 50 to 100 MB for minutes.
+- Hub start: replay the last 256 KiB of scrollback into the model.
+- The model does **not** answer terminal queries (DSR/DA/OSC 10/11) for ordinary consoles (the client's xterm.js answers them). For hidden sessions (Phase 7) the model uses `respond` mode and answers.
+- Used by: the screen rules (§6.4), `promptOnScreen` (the Phase 6 delivery guard), replies from the screen for agents without a transcript, the usage parser (Phase 7).
 
-## 6. Engine status (P4, C3, C11)
+## 6. Status engine (P4, C3, C11)
 
 ### 6.1 State
 
-| `agentState` | Arti | Pill |
+| `agentState` | Meaning | Pill |
 |---|---|---|
-| `starting` | proses/agen sedang diluncurkan | STARTING |
-| `working` | agen sedang mengerjakan giliran | WORKING (pulse) |
-| `needsYou` | izin, pertanyaan, atau dialog menunggu user | NEEDS YOU |
-| `ready` | agen di prompt, menunggu order | IDLE |
-| `shell` | tidak ada agen di foreground (console shell, atau agen sudah keluar) | IDLE, atau RUNNING + nama perintah bila ada perintah berjalan |
-| `exited` | proses sesi berakhir | DONE |
-| `reconnecting` | link SSH putus | RECONNECTING |
-| `error` | gagal start / perintah tidak ada | ERROR |
+| `starting` | the process/agent is being launched | STARTING |
+| `working` | the agent is working on a turn | WORKING (pulse) |
+| `needsYou` | a permission, a question or a dialog is waiting for the user | NEEDS YOU |
+| `ready` | the agent is at the prompt, waiting for an order | IDLE |
+| `shell` | no agent in the foreground (a shell console, or the agent has exited) | IDLE, or RUNNING + the command name when a command is running |
+| `exited` | the session process ended | DONE |
+| `reconnecting` | the SSH link dropped | RECONNECTING |
+| `error` | failed to start / the command does not exist | ERROR |
 
-**`active` dan `job`** (ada di sesi dan frame status). `active` berarti console benar-benar sedang memproses, dan itulah yang dihitung penghitung di UI: agen `working`, atau shell dengan perintah di foreground. `needsYou`, `ready`, dan console yang dijeda tidak termasuk. `job` adalah nama perintah itu, kosong saat shell di prompt.
+**`active` and `job`** (in the session and the status frame). `active` means the console is really processing, and that is what the counter in the UI counts: an agent that is `working`, or a shell with a command in the foreground. `needsYou`, `ready` and paused consoles are not included. `job` is the name of that command, empty when the shell is at the prompt.
 
-| Console | Sumber | Jeda cek |
+| Console | Source | Check interval |
 |---|---|---|
-| Lokal | foreground group terminal (`TIOCGPGRP`) | 2 dtk |
-| SSH dengan tmux | `ps -o tpgid` atas pid pane tmux, read-only | 3 dtk selama ada output atau input, selain itu 30 dtk |
-| SSH tanpa tmux | hub tidak punya pid-nya, jadi memakai `busy` (output 2 dtk terakhir) | tanpa request |
+| Local | the terminal's foreground group (`TIOCGPGRP`) | 2 s |
+| SSH with tmux | `ps -o tpgid` on the tmux pane's pid, read-only | 3 s while there is output or input, otherwise 30 s |
+| SSH without tmux | the hub does not have its pid, so it uses `busy` (output in the last 2 s) | no request |
 
-Yang tidak terhitung: perintah latar belakang (`npm run dev &`, `nohup`), karena shell sudah kembali ke prompt. Sebaliknya program interaktif yang menunggu (`vim`, `less`) terhitung aktif, karena memang proses di foreground.
+What does not count: background commands (`npm run dev &`, `nohup`), because the shell has already returned to the prompt. Conversely, an interactive program that is waiting (`vim`, `less`) counts as active, because it really is the foreground process.
 
-Field pendamping: `stateSource` (`hooks|notify|screen|activity|process|wrapper`; T14 dilaporkan `activity`), `stateSince`, `activity` (≤ 120 karakter, mis. `Bash: npm test`, `Permission: Write(nb.txt)`; hanya terisi saat `working`/`needsYou`), `needsYouSince` (null bila tidak needsYou).
+Companion fields: `stateSource` (`hooks|notify|screen|activity|process|wrapper`; T14 is reported as `activity`), `stateSince`, `activity` (≤ 120 characters, e.g. `Bash: npm test`, `Permission: Write(nb.txt)`; only filled while `working`/`needsYou`), `needsYouSince` (null when not needsYou).
 
-### 6.2 Prioritas sumber
+### 6.2 Source priority
 
-1. Status proses menang: `error` > `reconnecting` > `exited` > `starting` (dari `status`).
-2. `kind:"shell"` atau `foreground:"shell"` → `shell`.
-3. Bila `liveStatus:"hooks"` (sudah menerima ≥ 1 marker `hook` di run ini) → hanya event hook yang mengubah state; layar hanya mengisi `promptOnScreen`.
-4. Codex (`notify`): `ready` dari notify; `working`/`needsYou` dari layar dan input.
-5. Selain itu: aturan layar CLI; tanpa aturan → aktivitas output.
+1. Process status wins: `error` > `reconnecting` > `exited` > `starting` (from `status`).
+2. `kind:"shell"` or `foreground:"shell"` → `shell`.
+3. When `liveStatus:"hooks"` (has received ≥ 1 `hook` marker in this run) → only hook events change the state; the screen only fills `promptOnScreen`.
+4. Codex (`notify`): `ready` from notify; `working`/`needsYou` from the screen and input.
+5. Otherwise: the CLI's screen rules; without rules → output activity.
 
-### 6.3 Tabel transisi
+### 6.3 Transition table
 
-| # | Pemicu | Sumber | Dari | Ke | activity |
+| # | Trigger | Source | From | To | activity |
 |---|---|---|---|---|---|
-| T1 | marker `agent-start` | wrapper | apa pun | `starting` | — |
+| T1 | marker `agent-start` | wrapper | any | `starting` | — |
 | T2 | hook `SessionStart` | hooks | `starting` | `ready` | — |
 | T3 | hook `UserPromptSubmit` | hooks | `ready`, `needsYou`, `starting` | `working` | `Thinking` |
-| T4 | hook `PreToolUse` (tool selain di T5) | hooks | apa pun kecuali `shell` | `working` | `<tool>: <ringkasan input ≤ 80>` |
-| T5 | hook `PreToolUse` tool `AskUserQuestion` / `ExitPlanMode` | hooks | apa pun | `needsYou` | `Question` / `Plan approval` |
+| T4 | hook `PreToolUse` (a tool other than those in T5) | hooks | any except `shell` | `working` | `<tool>: <input summary ≤ 80>` |
+| T5 | hook `PreToolUse` tool `AskUserQuestion` / `ExitPlanMode` | hooks | any | `needsYou` | `Question` / `Plan approval` |
 | T6 | hook `PostToolUse` | hooks | `needsYou`, `working` | `working` | — |
-| T7 | hook `Notification` jenis izin (`notification_type` permission / pesan "needs your permission") | hooks | apa pun | `needsYou` | `Permission: <message>` |
-| T8 | hook `Notification` jenis idle | hooks | `working` → `ready`; state lain tetap | — | — |
-| T9 | hook `Stop` | hooks | apa pun | `ready` | — (`lastTurn` ditutup, balasan dibaca §8) |
-| T10 | hook `SubagentStop` | hooks | — | tetap | `Subagent finished` |
-| T11 | hook `SessionEnd` | hooks | apa pun | tetap (menunggu `agent-exit`) | — |
-| T12 | marker `agent-exit` | wrapper | apa pun | `shell` | `agentExitCode` = rc |
+| T7 | hook `Notification` of the permission kind (`notification_type` permission / message "needs your permission") | hooks | any | `needsYou` | `Permission: <message>` |
+| T8 | hook `Notification` of the idle kind | hooks | `working` → `ready`; other states unchanged | — | — |
+| T9 | hook `Stop` | hooks | any | `ready` | — (`lastTurn` closed, reply read §8) |
+| T10 | hook `SubagentStop` | hooks | — | unchanged | `Subagent finished` |
+| T11 | hook `SessionEnd` | hooks | any | unchanged (waits for `agent-exit`) | — |
+| T12 | marker `agent-exit` | wrapper | any | `shell` | `agentExitCode` = rc |
 | T13 | notify `agent-turn-complete` | notify | `working`, `needsYou` | `ready` | — |
-| T14 | `\r` dari klien/delivery saat `ready`, sumber bukan hooks | input | `ready` | `working` | — |
-| T15 | pola needsYou cocok, stabil 300 ms | screen | `working`, `ready` | `needsYou` | baris yang cocok |
-| T16 | pola needsYou hilang | screen | `needsYou` | `working` | — |
-| T17 | pola ready cocok dan output diam ≥ 1,5 dtk | screen | `working`, `starting` | `ready` | — |
-| T18 | output tercetak dalam 2 dtk terakhir, atau layar memuat petunjuk kerja / diam ≥ 3 dtk di prompt input, ≥ 15 dtk di layar lain, dan proses CLI tidak sedang membaca stream (lihat di bawah) | activity | — | `working` / `ready` | — |
-| T19 | `starting` > 60 dtk tanpa sinyal ready | timer | `starting` | `ready` (`stateSource:"activity"`) | — |
+| T14 | `\r` from a client/delivery while `ready`, source not hooks | input | `ready` | `working` | — |
+| T15 | a needsYou pattern matches, stable for 300 ms | screen | `working`, `ready` | `needsYou` | the matching line |
+| T16 | the needsYou pattern disappears | screen | `needsYou` | `working` | — |
+| T17 | a ready pattern matches and output is quiet ≥ 1.5 s | screen | `working`, `starting` | `ready` | — |
+| T18 | output printed in the last 2 s, or the screen holds a working hint / quiet ≥ 3 s at the input prompt, ≥ 15 s on other screens, and the CLI process is not reading a stream (see below) | activity | — | `working` / `ready` | — |
+| T19 | `starting` > 60 s without a ready signal | timer | `starting` | `ready` (`stateSource:"activity"`) | — |
 
-Bila hooks aktif tapi `Stop` terlewat, T8 menyelamatkan state. `session_id` dan `transcript_path` dari payload hook memperbarui `agentSessionId`/`transcriptPath` (sumber otoritatif, termasuk setelah resume yang membuat id baru).
+When hooks are on but `Stop` is missed, T8 rescues the state. `session_id` and `transcript_path` from the hook payload update `agentSessionId`/`transcriptPath` (the authoritative source, including after a resume that makes a new id).
 
-**Penyesuaian setelah verifikasi (§20):**
+**Adjustments after verification (§20):**
 
-- T7: Claude 2.1.312 hanya mengirim `message:"Claude needs your permission"`; `activity` = `Permission: <Tool>(<ringkasan>)` dari `PreToolUse` terakhir (path file → nama file), mis. `Permission: Write(nb.txt)`.
-- **T15h** (hooks aktif): pola needsYou layar stabil 300 ms saat `working` → `needsYou` (`stateSource:"screen"`), karena Notification izin baru datang ±6 dtk setelah dialog tampil. Hook berikutnya mengambil alih.
-- **T17h** (hooks aktif): `needsYou`, atau `working` yang di-set layar, + prompt kosong (pola ready) + output diam ≥ 1,5 dtk → `ready` (`screen`), karena izin yang ditolak dengan Esc tidak memicu hook apa pun (tanpa `PostToolUse`/`Stop`).
-- Pola **working** layar (tidak ada di tabel awal): stabil 300 ms saat `ready`/`starting` → `working` (`screen`); di mode notify hanya bila notify belum pernah datang atau `working` di-set layar. Penanda working stale sesaat setelah notify tidak membuka giliran lagi (penghitung stabil di-reset tiap transisi).
-- T15 juga berlaku dari `starting` (dialog trust/update saat start adalah needsYou).
-- **T18 dan bacaan proses:** agent tanpa aturan layar berjalan di This PC. Selama `working`, hub membaca `rchar` dari `/proc/<pid>/io` grup proses foreground PTY (CLI dan anak-anaknya, ≤ 64 proses) tiap 1 dtk. Bacaan ≥ 1 KB/dtk dianggap stream model, misalnya model yang berpikir tanpa menulis apa pun ke layar, dan menahan `working` agar tidak jatuh ke `ready`. Penahanan paling lama 5 menit sesudah output atau Return terakhir. Sinyal ini tidak pernah memulai `working`, jadi cek update saat `ready` tidak membuka giliran. Claude Code yang diam membaca sekitar 40 B/dtk. `rchar` hanya menghitung `read()` (socket Node, Go, dan Bun ikut), jadi sejak 2026-11-11 hub juga menjumlahkan `bytes_received` dari `tcp_info` setiap socket TCP proses itu (inode dari `/proc/<pid>/fd`, satu dump `NETLINK_SOCK_DIAG` seperti `ss -ti` untuk semua console, disimpan 0,8 dtk; sekitar 5 ms untuk 400 socket; tanpa root). Itu menutup `recv()` (Python, Rust std): tes dengan pembaca Python mendapat 1 MB lewat socket dan `rchar`-nya tidak bergerak. Di macOS tidak ada `/proc`, jadi perilakunya seperti sebelumnya.
-- T13: notify dari thread internal Codex (judul: `last-assistant-message` berupa objek JSON `{"title":…}`) dan notify dengan `thread-id` lain dari percakapan yang sudah dikenal (rollout ditemukan) **diabaikan**.
+- T7: Claude 2.1.312 only sends `message:"Claude needs your permission"`; `activity` = `Permission: <Tool>(<summary>)` from the last `PreToolUse` (file path → file name), e.g. `Permission: Write(nb.txt)`.
+- **T15h** (hooks on): a needsYou screen pattern stable for 300 ms while `working` → `needsYou` (`stateSource:"screen"`), because the permission Notification only arrives about 6 s after the dialog shows. The next hook takes over.
+- **T17h** (hooks on): `needsYou`, or a `working` set by the screen, + an empty prompt (ready pattern) + output quiet ≥ 1.5 s → `ready` (`screen`), because a permission denied with Esc triggers no hook at all (no `PostToolUse`/`Stop`).
+- The screen **working** pattern (not in the original table): stable for 300 ms while `ready`/`starting` → `working` (`screen`); in notify mode only when notify has never arrived or `working` was set by the screen. A stale working marker right after a notify does not open a turn again (the stability counter is reset on each transition).
+- T15 also applies from `starting` (a trust/update dialog at start is needsYou).
+- **T18 and process reads:** an agent without screen rules running on This PC. While `working`, the hub reads `rchar` from `/proc/<pid>/io` of the PTY's foreground process group (the CLI and its children, ≤ 64 processes) every 1 s. Reads ≥ 1 KB/s are taken as a model stream, for example a model thinking without writing anything to the screen, and hold `working` so it does not drop to `ready`. The hold lasts at most 5 minutes after the last output or Return. This signal never starts `working`, so an update check while `ready` does not open a turn. An idle Claude Code reads about 40 B/s. `rchar` only counts `read()` (Node, Go and Bun sockets included), so since 2026-11-11 the hub also sums `bytes_received` from the `tcp_info` of every TCP socket of that process (inodes from `/proc/<pid>/fd`, one `NETLINK_SOCK_DIAG` dump like `ss -ti` for all consoles, kept for 0.8 s; about 5 ms for 400 sockets; no root). That covers `recv()` (Python, Rust std): a test with a Python reader got 1 MB over a socket and its `rchar` did not move. macOS has no `/proc`, so the behavior there is as before.
+- T13: a notify from a Codex internal thread (title: `last-assistant-message` is a JSON object `{"title":…}`) and a notify with a `thread-id` other than the already known conversation (rollout found) are **ignored**.
 
-### 6.4 Aturan layar per CLI
+### 6.4 Per-CLI screen rules
 
-Data di binary (bukan file user), per id `screenRules`:
+Data in the binary (not a user file), per `screenRules` id:
 
 ```jsonc
-{ "id": "claude", "scanLines": 14,                       // baris non-kosong terbawah layar terlihat
+{ "id": "claude", "scanLines": 14,                       // the bottom non-empty lines of the visible screen
   "needsYou": [{ "re": "Do you want to (proceed|make this edit|create|run)" }, { "re": "❯\\s*1\\.\\s*Yes" }],
   "working":  [{ "re": "esc to interrupt" }],
   "ready":    [{ "re": "^\\s*[>❯]\\s", "where": "cursorLine" }] }
 ```
 
-Pola di atas hanya ilustrasi. Pola nyata ada di `internal/agent/rules.go`, diuji terhadap dump layar versi terpasang di `internal/agent/testdata/screens/<cli>-<versi>-<state>[-ket].txt` (baris pertama `cursor=x,y alt=…`; path disanitasi). RE2, dievaluasi ≤ 2×/dtk atau 150 ms setelah output diam; NO-BREAK SPACE dinormalisasi ke spasi sebelum evaluasi (Claude menggambar `❯`+U+00A0). Agen katalog/custom memakai pembacaan generik (`agent.GenericEvaluate`), diuji terhadap dump Claude dan Codex yang sama:
+The patterns above are only an illustration. The real patterns are in `internal/agent/rules.go`, tested against screen dumps of the installed version in `internal/agent/testdata/screens/<cli>-<version>-<state>[-note].txt` (first line `cursor=x,y alt=…`; paths sanitized). RE2, evaluated ≤ 2×/s or 150 ms after output goes quiet; NO-BREAK SPACE is normalized to a space before evaluation (Claude draws `❯`+U+00A0). Catalog/custom agents use the generic reading (`agent.GenericEvaluate`), tested against the same Claude and Codex dumps:
 
-- **needsYou:** penanda dialog TUI di mana saja, `(y/n)` dan sejenisnya hanya di baris kursor, dan pertanyaan seperti `Do you want…` hanya bila kursor tidak di prompt input. Penanda harus diam ≥ 1,5 dtk, supaya prosa balasan yang sedang mengalir tidak memicunya. `\r` dianggap menjawab: teks yang sama tidak dibaca sebagai pertanyaan baru sampai layar berubah.
-- **working:** `esc to interrupt`, `esc to cancel`, `ctrl+c to stop` dan sejenisnya di 6 baris terbawah.
-- **ready:** diam ≥ 3 dtk bila kursor di prompt input. Di layar lain ≥ 15 dtk, karena agen mungkin berpikir tanpa mencetak apa pun dan `ready` palsu mengakhiri order lebih awal. Hitungan diam juga mulai dari `\r` terakhir.
+- **needsYou:** a TUI dialog marker anywhere, `(y/n)` and the like only on the cursor line, and a question such as `Do you want…` only when the cursor is not at the input prompt. The marker must be still for ≥ 1.5 s, so reply prose that is still streaming does not trigger it. `\r` counts as an answer: the same text is not read as a new question until the screen changes.
+- **working:** `esc to interrupt`, `esc to cancel`, `ctrl+c to stop` and the like in the bottom 6 lines.
+- **ready:** quiet ≥ 3 s when the cursor is at the input prompt. On other screens ≥ 15 s, because the agent may be thinking without printing anything and a false `ready` ends an order early. The quiet count also starts from the last `\r`.
 
-OpenCode tidak punya aturan state, hanya bentuk prompt input (`┃  …` di baris kursor) dari dump 1.17.15. Saat diam, status 1.17.15 di This PC menjadi `ready` sekitar 7 dtk sesudah start (tanpa provider, tanpa prompt). Giliran sungguhan belum pernah diamati.
+OpenCode has no state rules, only the input prompt shape (`┃  …` on the cursor line) from the 1.17.15 dump. When idle, the status of 1.17.15 on This PC becomes `ready` about 7 s after start (no provider, no prompt). A real turn has not been observed yet.
 
-| CLI | needsYou | working | ready (baris kursor) |
+| CLI | needsYou | working | ready (cursor line) |
 |---|---|---|---|
-| claude 2.1.312 | `Do you want to (proceed\|make this edit\|create\|run\|allow\|use)`, `Do you trust the files…`, `Is this a project you created or one you trust`, `❯ 1. (Yes\|Allow)`, `Enter to confirm · Esc to (cancel\|exit)` | `esc to interrupt`, `^[·✢✳✶✻✽*] <kata>…` (mis. `✽ Elucidating…`; selesai = `✻ Cogitated for 2s · done`) | `^[>❯](\s\|$)` |
-| codex 0.163.0 | `Would you like to (run\|make\|apply\|allow)`, `Allow (command\|Codex)`, `Do you trust the contents of this directory`, `› 1. Yes`, `Press enter to confirm or esc to cancel`, `Update available`, `enter continue · esc skip` | `esc to interrupt`, `Working (Ns` (belum tertangkap di dump) | `^›\s`, `^▌\s` |
-| gemini | **belum diverifikasi** (tidak terpasang): `Allow execution`, `Apply this change?`, `Do you want to proceed`, `Waiting for user confirmation` | `esc to cancel` | `^│?\s*>\s`, `Type your message` |
+| claude 2.1.312 | `Do you want to (proceed\|make this edit\|create\|run\|allow\|use)`, `Do you trust the files…`, `Is this a project you created or one you trust`, `❯ 1. (Yes\|Allow)`, `Enter to confirm · Esc to (cancel\|exit)` | `esc to interrupt`, `^[·✢✳✶✻✽*] <word>…` (e.g. `✽ Elucidating…`; done = `✻ Cogitated for 2s · done`) | `^[>❯](\s\|$)` |
+| codex 0.163.0 | `Would you like to (run\|make\|apply\|allow)`, `Allow (command\|Codex)`, `Do you trust the contents of this directory`, `› 1. Yes`, `Press enter to confirm or esc to cancel`, `Update available`, `enter continue · esc skip` | `esc to interrupt`, `Working (Ns` (not yet caught in a dump) | `^›\s`, `^▌\s` |
+| gemini | **not yet verified** (not installed): `Allow execution`, `Apply this change?`, `Do you want to proceed`, `Waiting for user confirmation` | `esc to cancel` | `^│?\s*>\s`, `Type your message` |
 
-### 6.5 Agen di foreground
+### 6.5 Agent in the foreground
 
-`foreground`: `agent` | `shell` | `unknown`. Sumber utama marker (`agent-start` → agent, `agent-exit` / mode shell → shell). Cek proses dipakai sebelum §3.3, sebelum setiap delivery (Fase 6), dan tiap 10 dtk saat `shell` di lokal:
+`foreground`: `agent` | `shell` | `unknown`. The main source is the markers (`agent-start` → agent, `agent-exit` / shell mode → shell). The process check is used before §3.3, before every delivery (Phase 6), and every 10 s while `shell` locally:
 
-| Machine | Cek |
+| Machine | Check |
 |---|---|
-| Lokal | `TIOCGPGRP` pada master PTY → pgid foreground; `== wrapperPid` dan marker terakhir `agent-exit` → shell idle; pgid lain → ada job (`/proc/<pgid>/comm`, macOS `ps -o comm=`) |
-| SSH | exec read-only `ps -o tpgid= -p <wrapperPid>` lalu `ps -o comm= -p <tpgid>`; hasil di-cache 3 dtk |
+| Local | `TIOCGPGRP` on the PTY master → foreground pgid; `== wrapperPid` and the last marker `agent-exit` → idle shell; another pgid → a job is running (`/proc/<pgid>/comm`, macOS `ps -o comm=`) |
+| SSH | read-only exec `ps -o tpgid= -p <wrapperPid>` then `ps -o comm= -p <tpgid>`; the result is cached for 3 s |
 
-Job di foreground yang nama perintahnya cocok dengan `detect` katalog → `foreground:"agent"`, `manualAgent:true` (agen yang diketik user sendiri; status hanya dari layar/aktivitas, tanpa resume presisi).
+A foreground job whose command name matches a catalog `detect` → `foreground:"agent"`, `manualAgent:true` (an agent the user typed themselves; status only from the screen/activity, without precise resume).
 
-## 7. Perubahan Session API
+## 7. Session API changes
 
-Field baru di `Session` (Info). `status`/`busy` tidak berubah maknanya, jadi klien lama tetap jalan.
+New fields in `Session` (Info). `status`/`busy` do not change meaning, so old clients keep working.
 
 ```jsonc
 {
-  "handle": "Ash", "agent": "claude",            // agent = id katalog (sama dengan "preset")
+  "handle": "Ash", "agent": "claude",            // agent = catalog id (same as "preset")
   "agentKind": "agent",
   "agentState": "working", "stateSource": "hooks", "stateSince": "…",
   "activity": "Bash: npm test", "needsYouSince": null,
@@ -404,33 +404,33 @@ Field baru di `Session` (Info). `status`/`busy` tidak berubah maknanya, jadi kli
   "yolo": false, "profileId": "",
   "resumeOffer": false,
   "lastTurn": { "startedAt": "…", "endedAt": "…", "durationMs": 81234 },
-  "reply": { "at": "…", "chars": 1840, "paragraphs": 4 }   // null bila belum ada; dasar tombol "See output"
+  "reply": { "at": "…", "chars": 1840, "paragraphs": 4 }   // null when there is none yet; the basis of the "See output" button
 }
 ```
 
 | Method | Path | Request | Response / error |
 |---|---|---|---|
-| POST | `/api/sessions` | tambahan: `agent` (alias `preset`), `handle?`, `yolo?` (default `settings.agents.yoloDefault`; diabaikan bila agen tanpa yolo), `profileId?` (default `settings.agents.profiles[machine][agent]`), `launch?: {"mode","agentSessionId"?}` (default `fresh`) | `201 Session`. `400 bad_handle`, `409 handle_taken`, `404 profile_not_found`, `400 profile_mismatch` |
+| POST | `/api/sessions` | added: `agent` (alias `preset`), `handle?`, `yolo?` (default `settings.agents.yoloDefault`; ignored when the agent has no yolo), `profileId?` (default `settings.agents.profiles[machine][agent]`), `launch?: {"mode","agentSessionId"?}` (default `fresh`) | `201 Session`. `400 bad_handle`, `409 handle_taken`, `404 profile_not_found`, `400 profile_mismatch` |
 | PATCH | `/api/sessions/{id}` | `{"name"?, "handle"?}` | `Session` |
 | POST | `/api/sessions/{id}/restart` | §3.3 | `Session` |
 | POST | `/api/sessions/{id}/agent` | §3.3 | `Session` |
 | GET | `/api/sessions/{id}/reply` | — | `Reply` (§8). `404 no_reply` |
-| POST | `/api/sessions/{id}/reply/save` | `{"dir"?: "outputs"}` | `Stat` (tulis `<project>/outputs/<YYYY-MM-DD-HHMM>-<handle>.md` via fs/write `unique:true`; baris pertama komentar HTML berisi tanggal + handle; folder `dir` dibuat bila belum ada — lokal `mkdir`, SSH lewat SFTP — sebagai bagian aksi eksplisit ini; `dir` relatif, tanpa `..`) |
+| POST | `/api/sessions/{id}/reply/save` | `{"dir"?: "outputs"}` | `Stat` (writes `<project>/outputs/<YYYY-MM-DD-HHMM>-<handle>.md` via fs/write `unique:true`; the first line is an HTML comment with the date + handle; the `dir` folder is created when it does not exist — locally `mkdir`, over SSH through SFTP — as part of this explicit action; `dir` is relative, without `..`) |
 | GET | `/api/sessions/{id}/transcript?last=20` | `last` 1–200 | `{"agentSessionId","messages":[TranscriptMessage…],"truncated":bool}` |
 | GET | `/api/sessions/{id}/tokens?since=` | — | `{"items":[TokenUsage…]}` |
 
-Frame status WS terminal diperluas (field lama tetap): `{"t":"status","status":"running","exitCode":0,"busy":true,"agentState":"needsYou","activity":"Permission: Bash(rm -rf dist)","needsYouSince":"…","foreground":"agent"}`. Dikirim saat `agentState`/`foreground` berubah; perubahan `activity` saja dibatasi 1×/dtk.
+The terminal WS status frame is extended (the old fields stay): `{"t":"status","status":"running","exitCode":0,"busy":true,"agentState":"needsYou","activity":"Permission: Bash(rm -rf dist)","needsYouSince":"…","foreground":"agent"}`. Sent when `agentState`/`foreground` changes; a change of `activity` alone is limited to 1×/s.
 
-## 8. Transcript (P5) dan output viewer (C5)
+## 8. Transcript (P5) and output viewer (C5)
 
-Read-only lewat file API Fase 4 (lokal langsung, SSH via SFTP, fallback exec). File API ditambah parameter **`offset`** (byte ≥ 0) dan **`tail`** (N byte terakhir) pada `GET /api/machines/{id}/fs/read`; tanpa keduanya perilaku lama. Dengan salah satunya respons menambah `"offset"` (byte pertama yang dikembalikan; digeser maju bila jatuh di tengah karakter UTF-8), `truncated` = masih ada byte setelahnya; keduanya sekaligus → `400`.
+Read-only through the Phase 4 file API (locally direct, over SSH via SFTP, exec fallback). The file API gets the parameters **`offset`** (bytes ≥ 0) and **`tail`** (the last N bytes) on `GET /api/machines/{id}/fs/read`; without either, the old behavior. With one of them the response adds `"offset"` (the first byte returned; moved forward when it falls in the middle of a UTF-8 character), `truncated` = there are still bytes after it; both at once → `400`.
 
-### 8.1 Lokasi
+### 8.1 Location
 
-| Agen | Path | Penemuan |
+| Agent | Path | Discovery |
 |---|---|---|
-| Claude | `<cfg>/projects/<slug>/<agentSessionId>.jsonl`, `<cfg>` = `$CLAUDE_CONFIG_DIR` profil atau `~/.claude`; `<slug>` = cwd dengan tiap karakter non `[A-Za-z0-9]` diganti `-` (mis. `/home/alice/apps/nextboard` → `-home-alice-apps-nextboard`) | `transcript_path` dari hook bila ada; slug; terakhir glob `<cfg>/projects/*/<id>.jsonl` |
-| Codex | `<home>/sessions/YYYY/MM/DD/rollout-*.jsonl`, `<home>` = `$CODEX_HOME` atau `~/.codex` | `agentSessionId` dari notify (`thread-id`) bila cocok; atau dalam 60 dtk setelah `agent-start`: file di folder hari ini (dan kemarin) dengan mtime ≥ start−5 dtk, baris pertama `session_meta.cwd == cwd`, belum diklaim sesi lain. Ambigu → kosong sampai notify |
+| Claude | `<cfg>/projects/<slug>/<agentSessionId>.jsonl`, `<cfg>` = the profile's `$CLAUDE_CONFIG_DIR` or `~/.claude`; `<slug>` = the cwd with every character other than `[A-Za-z0-9]` replaced by `-` (e.g. `/home/alice/apps/nextboard` → `-home-alice-apps-nextboard`) | `transcript_path` from the hook when present; the slug; finally the glob `<cfg>/projects/*/<id>.jsonl` |
+| Codex | `<home>/sessions/YYYY/MM/DD/rollout-*.jsonl`, `<home>` = `$CODEX_HOME` or `~/.codex` | `agentSessionId` from notify (`thread-id`) when it matches; or within 60 s after `agent-start`: a file in today's (and yesterday's) folder with mtime ≥ start−5 s, first line `session_meta.cwd == cwd`, not yet claimed by another session. Ambiguous → empty until a notify |
 
 ### 8.2 Model
 
@@ -440,35 +440,35 @@ Read-only lewat file API Fase 4 (lokal langsung, SSH via SFTP, fallback exec). F
   "text": "## Done\n…", "at": "…", "chars": 1840, "truncated": false, "messageId": "msg_…" }
 // TranscriptMessage
 { "id": "…", "role": "user"|"assistant"|"tool", "at": "…", "text": "…", "tool"?: "Bash", "sidechain": false }
-// TokenUsage (satu per pesan asisten)
+// TokenUsage (one per assistant message)
 { "messageId": "…", "at": "…", "model": "…", "input": 1200, "output": 340, "cacheRead": 50000, "cacheWrite": 900 }
-// Conversation (pemilih resume)
+// Conversation (resume picker)
 { "agentSessionId": "…", "title": "Fix the login redirect…", "startedAt": "…", "updatedAt": "…",
   "messages": 42, "sizeBytes": 183422, "path": "/home/alice/.claude/projects/…/….jsonl", "attachedTo": "s_…"|null }
 ```
 
-- **Balasan terakhir Claude:** gabungan blok `text` pesan `assistant` (bukan sidechain) yang datang **setelah** `tool_result` terakhir pada giliran terakhir (setelah prompt user terakhir yang berisi teks). Baca `tail` 2 MiB; tidak ketemu → perbesar sampai 8 MiB.
-- **Codex:** `response_item` `message` `role:"assistant"` terakhir (`output_text`); token dari `event_msg` `token_count` (`last_token_usage`).
-- Token Claude: `message.usage`, **dedupe per `message.id`** (beberapa baris JSONL berbagi id dan usage yang sama).
-- Agen tanpa transcript: balasan dari layar = teks 200 baris terakhir scrollback (ANSI dibuang) sejak giliran dimulai; `source:"screen"`.
-- Hub menyimpan cache `Reply` terakhir per sesi di memori; diperbarui pada `Stop`/notify/`ready`, lalu `session` event membawa `reply.chars`.
+- **Claude's last reply:** the joined `text` blocks of `assistant` messages (not sidechain) that come **after** the last `tool_result` in the last turn (after the last user prompt that holds text). Read a `tail` of 2 MiB; not found → widen up to 8 MiB.
+- **Codex:** the last `response_item` `message` `role:"assistant"` (`output_text`); tokens from `event_msg` `token_count` (`last_token_usage`).
+- Claude tokens: `message.usage`, **deduped per `message.id`** (several JSONL lines share the same id and usage).
+- Agents without a transcript: the reply from the screen = the text of the last 200 scrollback lines (ANSI dropped) since the turn started; `source:"screen"`.
+- The hub caches the last `Reply` per session in memory; updated on `Stop`/notify/`ready`, then a `session` event carries `reply.chars`.
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/machines/{id}/conversations?agent=claude&cwd=&profileId=&limit=50` | `limit` ≤ 200 | `{"items":[Conversation…],"scanned":N,"truncated":bool}` (urut `updatedAt` desc; Claude: file di folder slug; Codex: maks 500 file rollout terbaru, filter cwd). `400 no_transcript` untuk agen tanpa transcript. `Conversation.attachedHandle` (tambahan) = handle console yang memegang percakapan (`null` bila tidak ada), di samping `attachedTo`. `messages` dihitung dari 64 KiB pertama file (batas bawah untuk file besar) |
+| GET | `/api/machines/{id}/conversations?agent=claude&cwd=&profileId=&limit=50` | `limit` ≤ 200 | `{"items":[Conversation…],"scanned":N,"truncated":bool}` (ordered by `updatedAt` desc; Claude: the files in the slug folder; Codex: at most the 500 newest rollout files, filtered by cwd). `400 no_transcript` for agents without a transcript. `Conversation.attachedHandle` (added) = the handle of the console holding the conversation (`null` when none), next to `attachedTo`. `messages` is counted from the first 64 KiB of the file (a lower bound for large files) |
 
-**Output viewer:** tombol "See output" di header muncul bila `reply.chars ≥ 80` atau `reply.paragraphs ≥ 3` dan state bukan `working`. Isi: render Markdown, Copy, "Save .md" (`reply/save`), dan kolom "Reply to @Ash". Dibuka dari console, kolom itu memakai delivery Fase 6 (`POST /api/sessions/{id}/deliveries`); sebelum Fase 6 tersedia, kolom itu nonaktif. Dibuka dari laporan di thread (command bar, kartu orchestrator, panel agent Code card), kolom itu mengirim order thread tersebut (`replyTo` = laporan itu, lewat `ThreadActions.answer` milik tempatnya), jadi hasil agent berikutnya kembali ke thread, lalu jendelanya menutup. Delivery biasa tidak membawa order, jadi hasilnya dulu tidak pernah dilaporkan.
+**Output viewer:** the "See output" button in the header appears when `reply.chars ≥ 80` or `reply.paragraphs ≥ 3` and the state is not `working`. Contents: rendered Markdown, Copy, "Save .md" (`reply/save`), and a "Reply to @Ash" field. Opened from a console, that field uses Phase 6 delivery (`POST /api/sessions/{id}/deliveries`); before Phase 6 is available, the field is disabled. Opened from a report in a thread (command bar, orchestrator card, agent panel of the Code card), the field sends that thread's order (`replyTo` = that report, through its place's `ThreadActions.answer`), so the agent's next result comes back to the thread, and then the window closes. A plain delivery carries no order, so its result used to never be reported.
 
 ## 9. Yolo (C8)
 
-- `yolo` tersimpan di Spec; hanya berpengaruh bila agen punya `yoloArgs`/`yoloEnv` (UI menyembunyikan toggle bila tidak). Berlaku saat launch; mengubahnya = restart.
-- Default dari `settings.agents.yoloDefault` (default `false`). Runner tersembunyi (Fase 7) **tidak pernah** memakai yolo.
-- Badge `YOLO` (warna warning) di header, chip di Android.
-- Teks konfirmasi (UI berbahasa Inggris), wajib sebelum mengaktifkan per spawn atau default:
-  > **Run without permission prompts?** @Ash (Claude Code) on devbox will edit and delete files and run any command without asking you first. This applies from the next launch. — tombol `Run with Yolo` / `Cancel`.
-  Untuk default: "…every new console of an agent that supports it…". Untuk machine SSH ditambah nama host.
+- `yolo` is stored in the Spec; it only has an effect when the agent has `yoloArgs`/`yoloEnv` (the UI hides the toggle otherwise). Applies at launch; changing it = a restart.
+- Default from `settings.agents.yoloDefault` (default `false`). Hidden runners (Phase 7) **never** use yolo.
+- A `YOLO` badge (warning color) in the header, a chip on Android.
+- Confirmation text (the UI is in English), required before turning it on per spawn or as the default:
+  > **Run without permission prompts?** @Ash (Claude Code) on devbox will edit and delete files and run any command without asking you first. This applies from the next launch. — buttons `Run with Yolo` / `Cancel`.
+  For the default: "…every new console of an agent that supports it…". For an SSH machine the host name is added.
 
-## 10. Profil login CLI (keputusan #4)
+## 10. CLI login profiles (decision #4)
 
 ```jsonc
 // Profile
@@ -478,79 +478,79 @@ Read-only lewat file API Fase 4 (lokal langsung, SSH via SFTP, fallback exec). F
 
 | Method | Path | Request | Response / error |
 |---|---|---|---|
-| GET | `/api/profiles?machineId=` | — | `Profile[]` (`exists` dicek via fs/stat) |
-| POST | `/api/profiles` | `{machineId, agent, name, dir?, create?: bool}` | `201 Profile`. Remote: `dir` wajib dan harus sudah ada (fs/stat) → `400 profile_dir_missing`; `create:true` di remote → `403 remote_create_forbidden`. Lokal `create:true` → hub membuat `<data>/profiles/<id>/` (0700). `400 profile_unsupported` bila agen tanpa `profileEnv` |
+| GET | `/api/profiles?machineId=` | — | `Profile[]` (`exists` checked via fs/stat) |
+| POST | `/api/profiles` | `{machineId, agent, name, dir?, create?: bool}` | `201 Profile`. Remote: `dir` is required and must already exist (fs/stat) → `400 profile_dir_missing`; `create:true` on a remote → `403 remote_create_forbidden`. Local `create:true` → the hub creates `<data>/profiles/<id>/` (0700). `400 profile_unsupported` when the agent has no `profileEnv` |
 | PATCH | `/api/profiles/{id}` | `{name?}` | `Profile` |
-| DELETE | `/api/profiles/{id}` | — | `{"ok":true}`; hanya menghapus referensi. Folder buatan hub di lokal dihapus hanya bila `?purge=1`. Folder remote tidak pernah disentuh |
-| POST | `/api/profiles/{id}/signin` | — | `201 Session`: CLI profil itu di console tanpa tile (`panel:true`), nama `Sign in · <nama>`, cwd `<data>/agents/signin`, di workspace bawaan. Folder itu ditandai trusted di config Claude buatan hub, jadi yang tersisa hanya login CLI-nya sendiri. `404 profile_not_found`; `400 profile_remote` (agent hanya jalan di This PC); `400 profile_unsupported` |
+| DELETE | `/api/profiles/{id}` | — | `{"ok":true}`; only removes the reference. A hub-made folder on local is deleted only with `?purge=1`. A remote folder is never touched |
+| POST | `/api/profiles/{id}/signin` | — | `201 Session`: that profile's CLI in a console without a tile (`panel:true`), named `Sign in · <name>`, cwd `<data>/agents/signin`, in the built-in workspace. That folder is marked trusted in the hub-made Claude config, so all that is left is the CLI's own login. `404 profile_not_found`; `400 profile_remote` (agents only run on This PC); `400 profile_unsupported` |
 
-**Folder state NextBoard (keputusan #10):** hub membuat satu profil `"home": true` per agen bawaan yang punya `profileEnv` di `<data>/agents/<agent>` (0700) dan menjadikannya default **sekali**; default yang dimatikan user tetap mati setelah restart. Console, planner, dan runner lain di This PC memakai profil default ini, jadi login dan memory-nya satu, sedangkan `~/.claude` dan CLI yang dijalankan user sendiri tidak terpengaruh. Folder baru belum login: sign-in dilakukan sekali di console. `DELETE` profil home → `409 profile_home`. Agen custom ber-`base` mengikuti default agen dasarnya.
+**NextBoard state folder (decision #10):** the hub creates one `"home": true` profile per built-in agent that has a `profileEnv`, in `<data>/agents/<agent>` (0700), and makes it the default **once**; a default the user turned off stays off after a restart. Consoles, the planner and other runners on This PC use this default profile, so there is one login and one memory for it, while `~/.claude` and the CLI the user runs themselves are not affected. A new folder is not logged in yet: sign-in is done once in a console. `DELETE` of the home profile → `409 profile_home`. A custom agent with a `base` follows its base agent's default.
 
-Ganti agent di console (`restart` dengan `agent`, dialog Switch agent, handoff in-place) juga memakai default agen barunya. `profileId: ""` di `restart` berarti default, kecuali saat kembali ke percakapan lama (`agentSessionId`), yang tetap memakai login tempat percakapan itu dibuat. Login CLI sendiri (`~/.claude`) hanya dipakai bila default-nya dimatikan. Semua pilihan akun di UI menampilkan default-nya sebagai `NextBoard (default)`.
+Switching agent in a console (`restart` with `agent`, the Switch agent dialog, in-place handoff) also uses the new agent's default. `profileId: ""` in `restart` means the default, except when going back to an old conversation (`agentSessionId`), which keeps using the login the conversation was made under. The CLI's own login (`~/.claude`) is only used when its default is turned off. Every account choice in the UI shows its default as `NextBoard (default)`.
 
-Sesi dengan `profileId` mendapat env `<profileEnv>=<dir>`. "Connect new account" (lokal) = buat profil `create:true` lalu spawn console agen itu dengan profil tersebut; CLI menjalankan login-nya sendiri.
+A session with a `profileId` gets the env `<profileEnv>=<dir>`. "Connect new account" (local) = create a profile with `create:true`, then spawn a console of that agent with that profile; the CLI runs its own login.
 
-**Sign in dari Settings** (2026-11-11): dialog Add profile untuk This PC langsung lanjut ke langkah Sign in: `POST …/signin`, terminal console itu di dialog, status "Signed in" begitu CLI mencapai prompt (`agentState` `ready`/`working`). Menutup dialog menghapus console itu; login tetap tersimpan di folder profil. Baris profil This PC punya tombol Sign in untuk login lagi. Profil di server tidak punya langkah ini. Badge header menampilkan inisial nama profil.
+**Sign in from Settings** (2026-11-11): the Add profile dialog for This PC goes straight on to a Sign in step: `POST …/signin`, that console's terminal in the dialog, and the status "Signed in" as soon as the CLI reaches its prompt (`agentState` `ready`/`working`). Closing the dialog deletes that console; the login stays saved in the profile folder. A This PC profile row has a Sign in button to log in again. Profiles on a server do not have this step. The header badge shows the initials of the profile name.
 
 ### 10.2 API providers (2026-11-11)
 
-Console Claude Code, Codex, atau OpenCode bisa jalan pada **endpoint Anthropic- atau OpenAI-compatible** (GLM, Kimi, DeepSeek, OpenRouter, Ollama lokal, …) dengan key-nya sendiri, sebagai ganti login langganan. Paket `internal/providers`, server `internal/server/providers.go`, peluncuran `internal/agent/provider.go`.
+A Claude Code, Codex or OpenCode console can run on an **Anthropic- or OpenAI-compatible endpoint** (GLM, Kimi, DeepSeek, OpenRouter, local Ollama, …) with its own key, instead of a subscription login. Package `internal/providers`, server `internal/server/providers.go`, launch `internal/agent/provider.go`.
 
-**Kecocokan** (dicoba dengan CLI sungguhan pada server API palsu di loopback, folder home kosong, tanpa akun):
+**Compatibility** (tried with the real CLIs against a fake API server on loopback, an empty home folder, no account):
 
 | Endpoint | Claude Code 2.1 | Codex 0.165 | OpenCode 1.17 |
 |---|---|---|---|
-| Anthropic `/v1/messages` | ya, Bearer lewat `ANTHROPIC_AUTH_TOKEN` atau `x-api-key` | – | ya (`@ai-sdk/anthropic`) |
-| OpenAI Chat Completions | – | **tidak**: 0.165 menolak `wire_api="chat"` | ya (`@ai-sdk/openai-compatible`) |
-| OpenAI Responses | – | ya | ya |
+| Anthropic `/v1/messages` | yes, Bearer through `ANTHROPIC_AUTH_TOKEN` or `x-api-key` | – | yes (`@ai-sdk/anthropic`) |
+| OpenAI Chat Completions | – | **no**: 0.165 rejects `wire_api="chat"` | yes (`@ai-sdk/openai-compatible`) |
+| OpenAI Responses | – | yes | yes |
 
 ```jsonc
-// Provider (GET tanpa key; "hasKey" saja)
+// Provider (GET without the key; only "hasKey")
 { "id": "ap_…", "name": "GLM", "kind": "anthropic"|"openai", "baseUrl": "https://api.z.ai/api/anthropic",
   "api"?: "chat"|"responses",          // openai
   "auth"?: "bearer"|"x-api-key",       // anthropic
   "model": "glm-4.6", "fastModel"?: "glm-4.5-air", "models"?: ["…"],
-  "prices"?: { "glm-4.6": { "input": 0.6, "output": 2.2, "cacheRead"?: 0.11, "cacheWrite"?: 0 } },  // USD per 1 juta token
-  "budget"?: 20,                        // USD per bulan kalender; 0 = tanpa batas
+  "prices"?: { "glm-4.6": { "input": 0.6, "output": 2.2, "cacheRead"?: 0.11, "cacheWrite"?: 0 } },  // USD per 1 million tokens
+  "budget"?: 20,                        // USD per calendar month; 0 = no limit
   "hasKey": true, "createdAt": "…", "updatedAt": "…",
-  "monthCost": 3.14, "inUse": 2 }       // hanya di daftar
+  "monthCost": 3.14, "inUse": 2 }       // only in the list
 ```
 
 | Method | Path | Request | Response / error |
 |---|---|---|---|
 | GET | `/api/providers` | — | `{"items":[Provider…]}` |
-| POST | `/api/providers` | `{name, kind, baseUrl, api?, auth?, model, fastModel?, models?, prices?, budget?, apiKey}` | `201 Provider`; `400 bad_provider` (alamat bukan http/https atau memuat kutip/spasi, model bukan nama model, nama kembar, tanpa key untuk layanan yang bukan di mesin ini) |
-| PATCH | `/api/providers/{id}` | field yang berubah; `apiKey:""` menyimpan key lama | `Provider` |
-| DELETE | `/api/providers/{id}[?purge=1]` | — | `{ok}`; `409 provider_in_use` selama ada console berjalan; mengosongkan `runner.provider`, `lead.runner` dan `lead.providers` yang menunjuknya; `purge` menghapus folder config-nya |
-| POST | `/api/providers/test` | draf form, atau `{id}` (key tersimpan dipakai bila `apiKey` kosong) | `{ok, models?, checked: "models"\|"message", status?, error?}`: `GET …/models` dulu; tanpa daftar, satu pesan `max_tokens: 1`. Key tidak pernah ada di jawaban. Pada `{id}`, model yang ditemukan disimpan |
+| POST | `/api/providers` | `{name, kind, baseUrl, api?, auth?, model, fastModel?, models?, prices?, budget?, apiKey}` | `201 Provider`; `400 bad_provider` (the address is not http/https or holds quotes/spaces, the model is not a model name, a duplicate name, no key for a service that is not on this machine) |
+| PATCH | `/api/providers/{id}` | the changed fields; `apiKey:""` keeps the old key | `Provider` |
+| DELETE | `/api/providers/{id}[?purge=1]` | — | `{ok}`; `409 provider_in_use` while a console is running on it; clears `runner.provider`, `lead.runner` and `lead.providers` that point to it; `purge` deletes its config folder |
+| POST | `/api/providers/test` | a form draft, or `{id}` (the stored key is used when `apiKey` is empty) | `{ok, models?, checked: "models"\|"message", status?, error?}`: `GET …/models` first; without a list, one message with `max_tokens: 1`. The key is never in the answer. With `{id}`, the models found are saved |
 | GET | `/api/providers/{id}/spend?month=YYYY-MM` | — | `{month, cost, budget?, tokens, byModel:[{model, input, output, cacheRead, cacheWrite, cost, priced}], unpriced?}` |
-| GET | `/api/sessions/{id}/cost` | — | sama, untuk seluruh percakapan console itu; `409 not_on_provider` |
+| GET | `/api/sessions/{id}/cost` | — | the same, for that console's whole conversation; `409 not_on_provider` |
 
-Event `{"type":"provider","provider":…}` dan `{"type":"providerRemoved","id"}`.
+Events `{"type":"provider","provider":…}` and `{"type":"providerRemoved","id"}`.
 
-**Key.** Disegel dengan kunci master hub (`internal/secret`, seperti kredensial SSH) di `providers.json`. Tidak pernah ke klien, dokumen settings, command line, atau log; hanya ke environment proses yang memakainya, sesudah cek panjang command line (jalur yang sama dengan nilai rahasia server MCP). Agent di console itu bisa membaca env-nya sendiri, sama seperti key API mana pun yang dipakai CLI. Ini bukan vault zero-knowledge: hub harus bisa membukanya.
+**Key.** Sealed with the hub's master key (`internal/secret`, like SSH credentials) in `providers.json`. Never goes to a client, the settings document, a command line or a log; only to the environment of the process that uses it, after the command line length check (the same path as MCP server secret values). The agent in that console can read its own env, just like any API key a CLI uses. This is not a zero-knowledge vault: the hub has to be able to open it.
 
-**Console.** `providerId` di `POST /api/sessions`, `restart`, slot spawn, lane Layouts, dan handoff (`ProviderID` di `Spec`, ikut di JSON sesi). Pilihannya ada di select "Login profile" yang sama (grup "API providers", nilai `ap_…`). Profil diabaikan; model kosong = model provider; model login yang tidak ada di provider dibuang klien.
-- Claude Code: `CLAUDE_CONFIG_DIR=<data>/providers/<id>/claude` (login langganan tidak dipakai dan tidak tertimpa; `.claude.json` diisi `hasCompletedOnboarding`, dan untuk `x-api-key` key-nya disetujui lewat 20 karakter terakhir), `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` (atau `ANTHROPIC_API_KEY`, yang lain dikosongkan), `ANTHROPIC_MODEL` dan `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`/`ANTHROPIC_SMALL_FAST_MODEL` (alias CLI menunjuk model provider), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, `DISABLE_TELEMETRY=1`. `baseUrl` disimpan tanpa `/v1`.
-- Codex: `CODEX_HOME=<data>/providers/<id>/codex`, `-c model_provider="nextboard"` dan `-c "$NB_CODEX_PROVIDER"` (`model_providers.nextboard={name, base_url, env_key="NB_PROVIDER_KEY", wire_api="responses"}`), key di `NB_PROVIDER_KEY`.
-- OpenCode: blok `provider.nextboard` (+ `model`, `small_model`) digabung ke `OPENCODE_CONFIG_CONTENT`, key lewat `{env:NB_PROVIDER_KEY}`; model `nextboard/<model>`.
-- Server di mesin ini tanpa key (Ollama) mendapat key pengganti `nextboard-local`, karena CLI-nya meminta satu.
-- **Key tidak sampai ke perintah agent** (diukur 2026-11-11 dengan router asli, Claude Code 2.1.322, Codex 0.165). Codex: TUI-nya menulis env shell ke `shell_snapshots/*.sh`, key ikut, dan perintahnya mewarisi seluruh env; console dan run tersembunyi mendapat `-c features.shell_snapshot=false -c features.shell_snapshot_v2=false -c 'shell_environment_policy.exclude=["NB_PROVIDER_KEY","NB_CODEX_PROVIDER"]'`. Claude Code: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` bila `bwrap` ada di This PC (fitur itu memerlukan bubblewrap); tanpa bwrap, perintah Bash agent masih melihat `ANTHROPIC_AUTH_TOKEN`. OpenCode: perintahnya masih melihat `NB_PROVIDER_KEY` (belum ada cara mengecualikannya).
-- **Mode izin Claude Code.** Bawaan 2.1.322 adalah auto mode, yang memeriksa tiap aksi di server Anthropic; lewat gateway pemeriksaan itu tidak sampai dan setiap tool berhenti di "Auto mode can't check actions". Console provider non-yolo dijalankan dengan `--permission-mode acceptEdits` (edit langsung, perintah bertanya), saran dialog itu sendiri. Console yolo tetap `--dangerously-skip-permissions`.
-- **Model.** Console provider tanpa model pilihan tidak mengambil nama model dari jawabannya (router `cx/gpt-x` menjawab sebagai `gpt-x`), hanya pilihan `/model`. Harga dicocokkan tanpa awalan provider (`cx/`, `nextboard/`) dan tanpa akhiran `[1m]`.
-- **Trust.** Folder yang sudah dipercaya di login Claude Code di This PC (profil login bawaan dan `~/.claude.json`) ikut tercatat di `.claude.json` provider setiap kali console dimulai, hanya tanda `hasTrustDialogAccepted`, tanpa data lain. Folder baru tetap ditanyakan sekali per provider.
-- **Peringatan anggaran.** Hub mengecek setiap 5 menit dan sesudah tiap run tersembunyi: di 80% muncul attention `providerBudget`, saat habis `providerSpent` (toast, notifikasi browser, "Show" membuka Settings › API providers). Masing-masing sekali per bulan per provider (`provider-budget-notes.json`), juga lewat restart.
-- **OpenCode** (diuji 2026-11-11 dengan router sungguhan, Anthropic Messages dan Chat Completions): menjawab di keduanya. Dua perbaikan: sesudah satu giliran kotak input OpenCode tinggal bar `┃` tanpa placeholder, dan order berikutnya ditolak `prompt_unrecognized`; bentuk itu kini dikenali (bar kosong, baris padding, lalu footer `┃  Build · model`). Jawabannya dibaca dari layar yang sudah dirender (`agent.ScreenAnswer`: di antara kotak pesan terakhir dan baris `▣ … · 3.0s`), bukan dari aliran redraw yang terbaca sebagai teks acak. Masih: biaya percakapan OpenCode tidak dihitung, jawaban yang lebih panjang dari layar terpotong, dan perintahnya melihat `NB_PROVIDER_KEY`.
-- Restart: provider tetap, kecuali diganti (`providerId`), dilepas (`""`), atau agent baru tidak cocok / provider dihapus (kembali ke login default). Anggaran habis menolak restart (`409 provider_budget`), tidak pernah diam-diam pindah ke langganan.
-- Badge "API" di header tile, dengan biaya percakapan itu (diperbarui tiap menit).
+**Console.** `providerId` in `POST /api/sessions`, `restart`, spawn slots, Layouts lanes and handoff (`ProviderID` in the `Spec`, carried in the session JSON). The choice is in the same "Login profile" select (group "API providers", values `ap_…`). The profile is ignored; an empty model = the provider's model; a login model that the provider does not have is dropped by the client.
+- Claude Code: `CLAUDE_CONFIG_DIR=<data>/providers/<id>/claude` (the subscription login is neither used nor overwritten; `.claude.json` is filled with `hasCompletedOnboarding`, and for `x-api-key` the key is approved through its last 20 characters), `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` (or `ANTHROPIC_API_KEY`, the other one cleared), `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`/`ANTHROPIC_SMALL_FAST_MODEL` (the CLI aliases point to the provider's model), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, `DISABLE_TELEMETRY=1`. `baseUrl` is stored without `/v1`.
+- Codex: `CODEX_HOME=<data>/providers/<id>/codex`, `-c model_provider="nextboard"` and `-c "$NB_CODEX_PROVIDER"` (`model_providers.nextboard={name, base_url, env_key="NB_PROVIDER_KEY", wire_api="responses"}`), the key in `NB_PROVIDER_KEY`.
+- OpenCode: a `provider.nextboard` block (+ `model`, `small_model`) merged into `OPENCODE_CONFIG_CONTENT`, the key through `{env:NB_PROVIDER_KEY}`; model `nextboard/<model>`.
+- A server on this machine without a key (Ollama) gets the stand-in key `nextboard-local`, because its CLI asks for one.
+- **The key does not reach the agent's commands** (measured 2026-11-11 with a real router, Claude Code 2.1.322, Codex 0.165). Codex: its TUI writes the shell env to `shell_snapshots/*.sh`, key included, and its commands inherit the whole env; consoles and hidden runs get `-c features.shell_snapshot=false -c features.shell_snapshot_v2=false -c 'shell_environment_policy.exclude=["NB_PROVIDER_KEY","NB_CODEX_PROVIDER"]'`. Claude Code: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` when `bwrap` is on This PC (that feature needs bubblewrap); without bwrap, the agent's Bash commands still see `ANTHROPIC_AUTH_TOKEN`. OpenCode: its commands still see `NB_PROVIDER_KEY` (there is no way to exclude it yet).
+- **Claude Code permission mode.** The 2.1.322 default is auto mode, which checks each action on Anthropic's servers; through a gateway that check does not get there and every tool stops at "Auto mode can't check actions". Non-yolo provider consoles are run with `--permission-mode acceptEdits` (edits go straight through, commands ask), the dialog's own suggestion. Yolo consoles stay on `--dangerously-skip-permissions`.
+- **Model.** A provider console without a chosen model does not take the model name from its answers (the router `cx/gpt-x` answers as `gpt-x`), only from a `/model` choice. Prices are matched without the provider prefix (`cx/`, `nextboard/`) and without the `[1m]` suffix.
+- **Trust.** Folders already trusted in the Claude Code login on This PC (the built-in login profile and `~/.claude.json`) are also recorded in the provider's `.claude.json` every time a console starts, only the `hasTrustDialogAccepted` flag, with no other data. A new folder is still asked about once per provider.
+- **Budget warnings.** The hub checks every 5 minutes and after each hidden run: at 80% the attention `providerBudget` appears, when spent `providerSpent` (toast, browser notification, "Show" opens Settings › API providers). Each once per month per provider (`provider-budget-notes.json`), also across restarts.
+- **OpenCode** (tested 2026-11-11 with a real router, Anthropic Messages and Chat Completions): answers on both. Two fixes: after one turn OpenCode's input box is left as just the `┃` bar without a placeholder, and the next order was rejected with `prompt_unrecognized`; that shape is now recognized (an empty bar, a padding line, then the footer `┃  Build · model`). Its answer is read from the rendered screen (`agent.ScreenAnswer`: between the last message box and the `▣ … · 3.0s` line), not from the redraw stream, which read as random text. Still open: the cost of OpenCode conversations is not counted, answers longer than the screen are cut, and its commands see `NB_PROVIDER_KEY`.
+- Restart: the provider stays, unless it is changed (`providerId`), removed (`""`), or the new agent does not match / the provider was deleted (back to the default login). A spent budget refuses the restart (`409 provider_budget`), and never quietly moves to the subscription.
+- An "API" badge in the tile header, with the cost of that conversation (updated every minute).
 
-**Run tersembunyi** (`settings.runner.provider`, Settings › Previews & studios › Run through): setiap job runner yang CLI-nya cocok berjalan lewat provider itu: lead/planner dan ringkasan thread (Claude Code, jadi provider Anthropic-compatible, kecuali `lead.runner` memilih runner lead sendiri, API-orchestration.md §3.9), dokumen, diagram, memory, pesan commit (CLI bawaan). `RunnerRequest.Provider` menimpa setting per job: `login` = login CLI, `ap_…` = provider itu, dan provider yang tidak bisa menjalankan CLI-nya menjadi error, bukan login. Claude: env provider; alias `haiku`/`sonnet`/`opus` dipertahankan, nama model Anthropic lain diganti model provider. Codex: `-c` provider di command line (tanpa rahasia) dan key di env. CLI yang tidak cocok tetap pada login. Anggaran habis menolak job.
+**Hidden runs** (`settings.runner.provider`, Settings › Previews & studios › Run through): every runner job whose CLI matches runs through that provider: the lead/planner and thread summaries (Claude Code, so an Anthropic-compatible provider, unless `lead.runner` picks the lead's own runner, API-orchestration.md §3.9), documents, diagrams, memory, commit messages (the built-in CLI). `RunnerRequest.Provider` overrides the setting per job: `login` = the CLI login, `ap_…` = that provider, and a provider that cannot run its CLI becomes an error, not the login. Claude: the provider env; the aliases `haiku`/`sonnet`/`opus` are kept, other Anthropic model names are replaced by the provider's model. Codex: the provider `-c` on the command line (no secret) and the key in the env. A CLI that does not match stays on the login. A spent budget refuses the job.
 
-**Biaya dan anggaran.** Token dibaca utuh (`usage.FileTurns`, parser yang sama dengan indeks token) dari transcript Claude Code dan Codex di folder provider, plus `ledger.jsonl` berisi pemakaian run tersembunyi (yang tidak menyimpan transcript; `Job.usage` dari `result.usage`/`modelUsage` Claude dan `turn.completed` Codex). Biaya = token × harga model (USD per 1 juta; OpenCode menamai `nextboard/<model>`, harga dicari juga tanpa awalan). Model tanpa harga dihitung tokennya dan disebut di `unpriced`. Bulan = bulan kalender waktu hub. Begitu `cost ≥ budget`: console baru, restart, dan run tersembunyi pada provider itu ditolak; console yang berjalan diteruskan. Batasan: percakapan OpenCode tidak dihitung (catatannya di database OpenCode sendiri).
+**Cost and budget.** Tokens are read in full (`usage.FileTurns`, the same parser as the token index) from the Claude Code and Codex transcripts in the provider folder, plus `ledger.jsonl` holding the usage of hidden runs (which do not keep a transcript; `Job.usage` from Claude's `result.usage`/`modelUsage` and Codex's `turn.completed`). Cost = tokens × model price (USD per 1 million; OpenCode names it `nextboard/<model>`, so the price is also looked up without the prefix). A model without a price has its tokens counted and is named in `unpriced`. Month = the calendar month in hub time. Once `cost ≥ budget`: new consoles, restarts and hidden runs on that provider are refused; running consoles carry on. Limit: OpenCode conversations are not counted (their records are in OpenCode's own database).
 
 ## 11. Settings store
 
-`GET /api/settings` → dokumen lengkap (default terisi). `PATCH /api/settings` → JSON Merge Patch (RFC 7386): objek di-merge, `null` = kembali ke default. Key top-level tak dikenal → `400 bad_setting`. Respons = dokumen lengkap, lalu event `settings`. Body ≤ 64 KB.
+`GET /api/settings` → the full document (defaults filled in). `PATCH /api/settings` → JSON Merge Patch (RFC 7386): objects are merged, `null` = back to the default. An unknown top-level key → `400 bad_setting`. Response = the full document, then a `settings` event. Body ≤ 64 KB.
 
 ```jsonc
 {
@@ -558,428 +558,428 @@ Event `{"type":"provider","provider":…}` dan `{"type":"providerRemoved","id"}`
   "agents": {
     "defaults": { "local": "claude" },          // machineId → agentId
     "paths": { "local": { "claude": "/opt/claude/bin/claude" } },
-    "profiles": { "local": { "claude": "pf_ab12cd" } },   // profil default console baru
+    "profiles": { "local": { "claude": "pf_ab12cd" } },   // default profile for new consoles
     "roleAgents": { "frontend": "claude", "backend": "codex", "testers": "gemini", "reviewers": "claude",
-                    "design": "claude", "docs": "claude", "security": "codex", "general": "" },  // Fase 6
-    "models": { "codex": { "model": "gpt-6.1-sol", "effort": "high" } },  // default console baru, §25
-    "roleModels": { "testers": { "model": "gpt-6-astra" } },              // untuk agent role itu, §25
+                    "design": "claude", "docs": "claude", "security": "codex", "general": "" },  // Phase 6
+    "models": { "codex": { "model": "gpt-6.1-sol", "effort": "high" } },  // default for new consoles, §25
+    "roleModels": { "testers": { "model": "gpt-6-astra" } },              // for agents with that role, §25
     "yoloDefault": false, "liveStatus": true, "hookChannel": "auto", "resumeOnRestart": "auto"
   },
   "notifications": { "needsYou": true, "finished": true, "error": true, "finishedMinSec": 30 },
   "shortcuts": { "select": "v", "hand": "h", "spawn": "t", "pen": "p", "eraser": "e", "git": "g", "memory": "m",
                  "skills": "s", "loops": "l", "markdown": "d", "needsYou": "n" }
-  // "delivery", "commands", "memory": Fase 6 (API-orchestration.md) · "previews", "usage", "runner", "git", "editor": Fase 7 (API-studio.md)
-  // Pengaturan suara per klien (localStorage), tidak di hub
+  // "delivery", "commands", "memory": Phase 6 (API-orchestration.md) · "previews", "usage", "runner", "git", "editor": Phase 7 (API-studio.md)
+  // Voice settings are per client (localStorage), not on the hub
 }
 ```
 
-- Shortcut: satu karakter tercetak (huruf kecil, angka, tanda baca), unik antar aksi, bukan `x` (Mission Map, tetap) dan bukan spasi (push-to-talk) → `400 bad_shortcut`.
-- Preferensi per klien (tema, ukuran teks, agen armed, viewport) **tidak** di sini; tetap localStorage.
-- `liveStatus:false` → tidak ada `--settings`/`-c notify`; state dari layar saja.
+- Shortcut: one printable character (lowercase letter, digit, punctuation), unique across actions, not `x` (Mission Map, fixed) and not space (push-to-talk) → `400 bad_shortcut`.
+- Per-client preferences (theme, text size, armed agent, viewport) are **not** here; they stay in localStorage.
+- `liveStatus:false` → no `--settings`/`-c notify`; state from the screen only.
 
-## 12. Notifikasi (P13)
+## 12. Notifications (P13)
 
 ```jsonc
 { "type": "attention", "attention": {
-  "id": "at_…", "seq": 1042, "kind": "needsYou",            // "needsYou" | "finished" | "error" (Fase 6 menambah "loopHeld" | "loopEnded"; uptime menambah "uptimeDown" | "uptimeUp" | "certExpiring", dengan "monitorId" dan tanpa sessionId, API-uptime.md; "credential" saat agent meminta perintah dengan credential, API-vault.md)
+  "id": "at_…", "seq": 1042, "kind": "needsYou",            // "needsYou" | "finished" | "error" (Phase 6 adds "loopHeld" | "loopEnded"; uptime adds "uptimeDown" | "uptimeUp" | "certExpiring", with "monitorId" and without sessionId, API-uptime.md; "credential" when an agent asks for a command with a credential, API-vault.md)
   "sessionId": "s_…", "handle": "Ash", "agent": "claude", "machineName": "devbox",
   "projectId": "p_…", "workspaceId": "w_…",
   "title": "Ash needs you", "body": "Permission: Bash(npm install)", "at": "…" } }
 ```
 
-| kind | Kapan | Dedupe |
+| kind | When | Dedupe |
 |---|---|---|
-| `needsYou` | masuk `needsYou` | tidak diulang untuk sesi yang sama selama belum keluar dari `needsYou` |
-| `finished` | `working` → `ready` dengan `lastTurn.durationMs ≥ finishedMinSec` | satu per giliran |
-| `error` | masuk `error`, atau `agent-exit` dengan rc ≠ 0 yang bukan akibat kill/restart user | satu per kejadian |
+| `needsYou` | enters `needsYou` | not repeated for the same session until it leaves `needsYou` |
+| `finished` | `working` → `ready` with `lastTurn.durationMs ≥ finishedMinSec` | one per turn |
+| `error` | enters `error`, or `agent-exit` with rc ≠ 0 that is not caused by a user kill/restart | one per occurrence |
 
-Filter `settings.notifications` diterapkan di hub (event tidak dikirim bila jenisnya mati).
+The `settings.notifications` filter is applied on the hub (the event is not sent when its kind is off).
 
 | Method | Path | Response |
 |---|---|---|
-| GET | `/api/attention?since=<seq>&limit=50` | `{"bootId":"b_…","seq":1042,"items":[Attention…],"needsYou":[{"sessionId","handle","since"}]}`. Ring 200 di memori; `bootId` berubah saat hub restart (klien membuang `since` lama) |
+| GET | `/api/attention?since=<seq>&limit=50` | `{"bootId":"b_…","seq":1042,"items":[Attention…],"needsYou":[{"sessionId","handle","since"}]}`. A ring of 200 in memory; `bootId` changes when the hub restarts (the client drops the old `since`) |
 
-`/api/events` menerima `?topics=attention,session,…` (daftar `type` yang diinginkan; snapshot ikut difilter) supaya service Android hemat data.
+`/api/events` accepts `?topics=attention,session,…` (a list of the wanted `type`s; the snapshot is filtered too) so the Android service saves data.
 
-- **Android:** opt-in "Notify me when an agent needs me" → foreground service (notifikasi permanen "Watching N agents") yang memegang WS `/api/events?topics=attention,session`, reconnect backoff 1–30 dtk, saat tersambung lagi memanggil `/api/attention?since=`. Notifikasi lokal per sesi (tag = sessionId, diganti saat state berubah, dihapus saat keluar `needsYou`); ketuk → buka terminal sesi itu. Minta pengecualian optimasi baterai secara opt-in. Tanpa FCM / push cloud.
-- **Web:** Notification API hanya selama tab terbuka dan `document.hidden`; izin diminta dari tombol di Settings (bukan otomatis). Chip "needs you" + jumlah di chrome atas; tombol `N` (bisa di-rebind) melompat ke sesi `needsYouSince` tertua, lalu berikutnya.
-- **Desktop (Tauri):** sama dengan web, memakai notifikasi native Tauri; badge jumlah needs-you di ikon bila didukung OS.
+- **Android:** opt-in "Notify me when an agent needs me" → a foreground service (a permanent "Watching N agents" notification) that holds the WS `/api/events?topics=attention,session`, reconnect backoff 1–30 s, and on reconnecting calls `/api/attention?since=`. A local notification per session (tag = sessionId, replaced when the state changes, removed when it leaves `needsYou`); tap → opens that session's terminal. Asks for the battery optimization exemption as an opt-in. No FCM / cloud push.
+- **Web:** the Notification API only while the tab is open and `document.hidden`; permission is asked from a button in Settings (not automatically). A "needs you" chip + count in the top chrome; the `N` key (can be rebound) jumps to the session with the oldest `needsYouSince`, then the next.
+- **Desktop (Tauri):** the same as web, using Tauri native notifications; a needs-you count badge on the icon when the OS supports it.
 
-## 13. Ringkasan event `/api/events`
+## 13. `/api/events` event summary
 
 ```jsonc
-{ "type": "session", "session": Session }               // kini termasuk field §7
+{ "type": "session", "session": Session }               // now includes the §7 fields
 { "type": "attention", "attention": Attention }
 { "type": "settings", "settings": Settings }
-{ "type": "agents" }                                    // katalog berubah → GET /api/agents
+{ "type": "agents" }                                    // catalog changed → GET /api/agents
 { "type": "profile", "profile": Profile }
 { "type": "profileRemoved", "id": "pf_…" }
 ```
 
-## 14. Persistensi
+## 14. Persistence
 
-| File | Isi |
+| File | Contents |
 |---|---|
-| `presets.json` | `Agent[]` custom (format diperluas; entri lama tanpa field baru tetap valid: `kind` = `agent` kecuali command `$SHELL`, `resume.kind` = `continue` bila `resumeArgs` ada) |
-| `settings.json` | §11 (0600, tulis atomik) |
+| `presets.json` | custom `Agent[]` (extended format; old entries without the new fields stay valid: `kind` = `agent` except the `$SHELL` command, `resume.kind` = `continue` when `resumeArgs` is present) |
+| `settings.json` | §11 (0600, atomic write) |
 | `profiles.json` | `Profile[]` |
-| `profiles/<id>/` | folder profil lokal buatan hub (0700) |
+| `profiles/<id>/` | hub-made local profile folders (0700) |
 | `sessions.json` | Spec + `handle`, `agent`, `agentKind`, `yolo`, `profileId`, `agentSessionId`, `transcriptPath`, `hookToken`, `lastForeground` |
 
-State engine, cache balasan, dan ring attention hanya di memori.
+Engine state, the reply cache and the attention ring are in memory only.
 
-## 15. Batas dan timeout
+## 15. Limits and timeouts
 
-| Hal | Nilai |
+| Item | Value |
 |---|---|
-| Marker | ≤ 16 KiB; ≤ 50/dtk/sesi; raw hook ≤ 3072 byte |
-| `activity` | ≤ 120 karakter |
-| Baris perintah launch | ≤ 12 KiB |
-| Tunggu `agent-start` setelah §3.3 | 10 dtk |
-| `starting` tanpa sinyal | 60 dtk (T19) |
-| Cek proses SSH | timeout 3 dtk, cache 3 dtk |
-| Baca transcript | tail 2 MiB (maks 8 MiB); `Reply.text` ≤ 200 KB (`truncated`) |
-| Pemindaian percakapan | ≤ 500 file, ≤ 10 dtk, header 64 KiB per file |
-| Hook | `timeout: 5` dtk di config; `curl -m 2` |
-| Ring attention | 200 item |
+| Marker | ≤ 16 KiB; ≤ 50/s/session; raw hook ≤ 3072 bytes |
+| `activity` | ≤ 120 characters |
+| Launch command line | ≤ 12 KiB |
+| Wait for `agent-start` after §3.3 | 10 s |
+| `starting` without a signal | 60 s (T19) |
+| SSH process check | timeout 3 s, cache 3 s |
+| Transcript read | tail 2 MiB (max 8 MiB); `Reply.text` ≤ 200 KB (`truncated`) |
+| Conversation scan | ≤ 500 files, ≤ 10 s, 64 KiB header per file |
+| Hook | `timeout: 5` s in the config; `curl -m 2` |
+| Attention ring | 200 items |
 
-## 16. Keamanan
+## 16. Security
 
-- Tidak ada penulisan ke `~/.claude/settings.json`, `~/.codex/config.toml`/`hooks.json`, atau file config apa pun, di machine mana pun. Satu-satunya tulisan di remote akibat fase ini: `reply/save` (aksi eksplisit, ke repo) dan opsi tmux per window.
-- `hookToken` tidak pernah keluar dari hub ke klien (tidak ada di Info/JSON API, tidak di log). Di remote token sempat terlihat di argumen proses shell launch (`ps`) sesaat; risiko diterima (lihat Open issues).
-- Marker hanya mengubah state tampilan; `pid` dari marker hanya dipakai setelah divalidasi (PID ada, satu sesi terminal dengan proses sesi; Fase 6 pause).
-- Listener HTTP cadangan: hanya loopback, wajib token, body ≤ 16 KiB, tidak melayani `/api`.
-- Profil remote hanya referensi; hub tidak `mkdir` di remote (tes audit exec).
-- Yolo hanya per launch dengan konfirmasi; tidak pernah untuk runner tersembunyi.
+- No writes to `~/.claude/settings.json`, `~/.codex/config.toml`/`hooks.json`, or any config file, on any machine. The only writes on a remote caused by this phase: `reply/save` (an explicit action, into the repo) and the per-window tmux option.
+- `hookToken` never leaves the hub for a client (not in Info/JSON API, not in logs). On a remote the token is briefly visible in the launch shell's process arguments (`ps`); risk accepted (see Open issues).
+- Markers only change display state; the `pid` from a marker is only used after validation (the PID exists, in one terminal session with the session process; Phase 6 pause).
+- Fallback HTTP listener: loopback only, token required, body ≤ 16 KiB, does not serve `/api`.
+- Remote profiles are references only; the hub does not `mkdir` on a remote (exec audit test).
+- Yolo only per launch with confirmation; never for hidden runners.
 
-## 17. UX per klien (yang wajib ada)
+## 17. UX per client (required)
 
-- **Web:** header node dengan handle (double-click rename), badge agen/profil, badge YOLO, pill state (+ tooltip `activity`), "See output"; menu agen di header ("Switch agent", "Restart agent", "Resume…", "New conversation"); saat `shell`: bar tipis "Agent exited (code N) — Restart · Resume · Pick conversation"; pemilih percakapan (list `conversations`, tanda "open in @Bo" bila `attachedTo`); flyout spawn (armed agent, ≤ 3 custom, built-in terpasang, Shell, "All agents" dengan grup Detected / Your agents / Not installed); Settings › Agents (default per machine, path override, custom CRUD, yolo default dengan konfirmasi, live status, resume on restart), Settings › Notifications, Settings › Shortcuts (rebind, Esc batal, Delete = default); chip live & needs-you.
-- **Android:** daftar sesi dengan pill state, needs-you di atas; chip ringkas di header; output viewer (Markdown, Copy); aksi Restart agent / Resume; toggle notifikasi + foreground service; spawn memilih agen dan profil.
-- **Desktop (Tauri):** sama dengan web + notifikasi native.
+- **Web:** node header with the handle (double-click to rename), agent/profile badge, YOLO badge, state pill (+ `activity` tooltip), "See output"; agent menu in the header ("Switch agent", "Restart agent", "Resume…", "New conversation"); while `shell`: a thin bar "Agent exited (code N) — Restart · Resume · Pick conversation"; conversation picker (the `conversations` list, an "open in @Bo" mark when `attachedTo`); spawn flyout (armed agent, ≤ 3 custom, installed built-ins, Shell, "All agents" with the groups Detected / Your agents / Not installed); Settings › Agents (default per machine, path override, custom CRUD, yolo default with confirmation, live status, resume on restart), Settings › Notifications, Settings › Shortcuts (rebind, Esc cancels, Delete = default); live & needs-you chips.
+- **Android:** session list with state pills, needs-you on top; compact chips in the header; output viewer (Markdown, Copy); Restart agent / Resume actions; notification toggle + foreground service; spawn picks the agent and profile.
+- **Desktop (Tauri):** the same as web + native notifications.
 
-## 18. Skenario tes wajib
+## 18. Required test scenarios
 
-1. Stripper: marker dipotong di setiap offset byte antar-`Read` tetap terdeteksi; marker tidak pernah ada di ring, `scrollback/`, atau frame WS; token salah dibuang tanpa efek; prefiks tanpa terminator dilepas setelah 16 KiB / 2 dtk; OSC lain lolos utuh.
-2. Wrapper lokal & SSH (direct dan tmux): `/exit` di Claude → `agentState:"shell"`, prompt shell tampil, `status:"running"`; Ctrl-C di agen tidak membunuh wrapper; `exit` di shell → `exited`.
-3. §3.3: berhasil saat shell idle; `409 shell_busy` saat `vim` berjalan; `409 agent_running` saat agen hidup; Claude `fresh` memakai UUID baru, `resume` memakai id lama.
-4. Hooks Claude: SessionStart → ready, prompt → working, izin → needsYou dengan activity, Stop → ready + `reply` terisi; checksum `~/.claude/settings.json` sebelum = sesudah (lokal & remote).
-5. tmux ≥ 3.3: marker sampai; `tmux show -gv allow-passthrough` tidak berubah; tmux 3.2: perintah tidak gagal.
-6. Kanal HTTP: hook dijalankan tanpa controlling TTY (mis. dibungkus `setsid`) → event tetap tiba lewat `NB_HOOK_URL`; token salah → 204 tanpa efek.
-7. Codex: notify → ready; `agentSessionId` ditemukan; dua sesi Codex di cwd sama tidak saling klaim; resume picker hanya cwd itu.
-8. Fallback layar: Gemini menampilkan konfirmasi → needsYou; selesai → ready; fixture layar per CLI lulus.
-9. Hub restart lokal: `auto` → resume presisi; `ask` → shell + `resumeOffer`; `never` → shell.
-10. Handle: auto-assign unik lintas machine, sufiks setelah 24, rename bentrok case-insensitive `409`, kata cadangan `400`.
-11. Yolo: flag hanya untuk agen dengan `yoloArgs`; custom tanpa yolo tidak pernah dapat flag; badge tampil.
-12. Profil: POST remote dengan folder tidak ada → `400` dan log exec tidak berisi `mkdir`.
-13. Settings: merge patch, `null` reset, shortcut duplikat `400`, event `settings` ke semua klien.
-14. Attention: dedupe needsYou, `finishedMinSec`, catch-up `since`, `bootId` berganti setelah restart; `topics` memfilter.
-15. Transcript: fixture JSONL Claude dengan teks–tool_use–teks → balasan = teks akhir; dedupe token per `message.id`; Codex rollout terpotong di tengah baris tidak membuat parser gagal.
-16. Kompatibilitas: klien Fase 4 (hanya `status`/`busy`, `/api/presets`) tetap berfungsi.
+1. Stripper: a marker cut at every byte offset between `Read`s is still detected; markers are never in the ring, `scrollback/` or WS frames; a wrong token is dropped with no effect; a prefix without a terminator is released after 16 KiB / 2 s; other OSCs pass through whole.
+2. Local & SSH wrapper (direct and tmux): `/exit` in Claude → `agentState:"shell"`, the shell prompt shows, `status:"running"`; Ctrl-C in the agent does not kill the wrapper; `exit` in the shell → `exited`.
+3. §3.3: succeeds when the shell is idle; `409 shell_busy` while `vim` is running; `409 agent_running` while the agent is alive; Claude `fresh` uses a new UUID, `resume` uses the old id.
+4. Claude hooks: SessionStart → ready, prompt → working, permission → needsYou with activity, Stop → ready + `reply` filled; checksum of `~/.claude/settings.json` before = after (local & remote).
+5. tmux ≥ 3.3: markers arrive; `tmux show -gv allow-passthrough` does not change; tmux 3.2: the command does not fail.
+6. HTTP channel: a hook run without a controlling TTY (e.g. wrapped in `setsid`) → the event still arrives through `NB_HOOK_URL`; wrong token → 204 with no effect.
+7. Codex: notify → ready; `agentSessionId` found; two Codex sessions in the same cwd do not claim each other's; the resume picker shows only that cwd.
+8. Screen fallback: Gemini shows a confirmation → needsYou; done → ready; the per-CLI screen fixtures pass.
+9. Local hub restart: `auto` → precise resume; `ask` → shell + `resumeOffer`; `never` → shell.
+10. Handles: auto-assign unique across machines, suffix after 24, a case-insensitive rename clash `409`, reserved words `400`.
+11. Yolo: the flag only for agents with `yoloArgs`; a custom without yolo never gets the flag; the badge shows.
+12. Profiles: a remote POST with a folder that does not exist → `400` and the exec log holds no `mkdir`.
+13. Settings: merge patch, `null` reset, duplicate shortcut `400`, a `settings` event to all clients.
+14. Attention: needsYou dedupe, `finishedMinSec`, `since` catch-up, `bootId` changes after a restart; `topics` filters.
+15. Transcript: a Claude JSONL fixture with text–tool_use–text → reply = the final text; token dedupe per `message.id`; a Codex rollout cut in the middle of a line does not make the parser fail.
+16. Compatibility: Phase 4 clients (only `status`/`busy`, `/api/presets`) keep working.
 
-## 19. Open issues / untuk diverifikasi
+## 19. Open issues / to verify
 
-Status per butir setelah verifikasi ada di §20; butir 1, 2, 3, 4, 5, 11 terjawab.
+The status of each item after verification is in §20; items 1, 2, 3, 4, 5, 11 are answered.
 
-1. **Hooks dari `--settings` di mode interaktif** (Claude 2.1.312): pastikan terpanggil, digabung (bukan menggantikan) dengan hooks user, dan tidak terblokir kebijakan `disableAllHooks`/managed settings.
-2. **`/dev/tty` dari proses hook** (Claude dan notify Codex): bila hook dijalankan tanpa controlling TTY (setsid/detached), kanal primer pindah ke HTTP. Tentukan primer setelah uji ini.
-3. **Codex `-c notify=[…]`**: nama key, bentuk payload (`type`, `thread-id` = id untuk `codex resume`?), apakah ada jenis notify untuk approval. Notify milik user tertimpa; opsi: hub membaca `config.toml` (read-only) dan merangkai argv notify user setelah marker.
-4. **Pemetaan `Notification` idle** (T8): keputusan lead memetakan idle → needsYou. Dokumen ini membatasinya (idle hanya menutup giliran yang `Stop`-nya terlewat), karena notifikasi idle muncul setiap kali agen menunggu di prompt dan akan membuat semua console READY menjadi NEEDS YOU. Bila lead tetap ingin literal, ubah baris T8.
-5. **tmux passthrough:** perilaku tmux < 3.3 (passthrough selalu aktif?) dan apakah `-wq` cukup bila user menimpa opsi itu di config; marker yang menyela escape milik TUI di dalam tmux.
-6. **Reverse forward:** `AllowTcpForwarding` di remote, `curl` mungkin tidak ada, port loopback terlihat user lokal lain (karena itu token wajib), port berganti setelah reconnect.
-7. **Token terlihat di `ps`** di remote selama launch (env inline). Mitigasi opsional: kirim lewat `LC_*` (sering ada di `AcceptEnv`) — perlu diuji.
-8. **Ctrl-Z** di agen tidak menghentikannya: wrapper memimpin sesi terminal, jadi grup prosesnya yatim dan kernel mengabaikan SIGTSTP (`TestCtrlZDoesNotStopAnAgent`). Program yang menghentikan diri dengan SIGSTOP sungguhan tetap berhenti; pemulihannya `POST …/resume`. Di console shell, job control milik shell dan Ctrl-Z berjalan seperti biasa.
-9. **Mengetik ke shell** (§3.3): `NB_WRAP` bisa di-`unset` user, shell non-POSIX untuk `exec`; fallback = restart penuh. Key binding yang mengubah ketikan berakhir dengan `412 wrap_missing`, bukan baris yang termutasi jalan.
-10. **Pustaka VT:** stabilitas API `charmbracelet/x/vt`, performa replay 256 KiB, memori per sesi; fallback `hinshun/vt10x` (perlu fork untuk mode 2004).
-11. **Slug Claude** untuk karakter titik/garis bawah/non-ASCII dan cwd yang sangat panjang; perilaku `--resume <id>` (id sama atau baru).
-12. **`base64` / `head -c`** di target (busybox/macOS) dan format output `base64` macOS (baris panjang).
-13. **Flag katalog bertanda †** dan perintah `detect` setiap entri katalog.
-14. **Notification API** di browser untuk origin dengan sertifikat self-signed; jenis foreground service Android 14+ (`specialUse` vs `remoteMessaging`) untuk app sideload.
+1. **Hooks from `--settings` in interactive mode** (Claude 2.1.312): make sure they are called, merged with (not replacing) the user's hooks, and not blocked by a `disableAllHooks`/managed settings policy.
+2. **`/dev/tty` from the hook process** (Claude and Codex notify): when a hook runs without a controlling TTY (setsid/detached), the primary channel moves to HTTP. Decide the primary after this test.
+3. **Codex `-c notify=[…]`**: the key name, the payload shape (`type`, `thread-id` = the id for `codex resume`?), whether there is a notify kind for approval. The user's own notify is overridden; option: the hub reads `config.toml` (read-only) and chains the user's notify argv after the marker.
+4. **Mapping the idle `Notification`** (T8): the lead's decision maps idle → needsYou. This document limits it (idle only closes a turn whose `Stop` was missed), because the idle notification appears every time the agent waits at the prompt and would turn every READY console into NEEDS YOU. If the lead still wants it literal, change the T8 row.
+5. **tmux passthrough:** the behavior of tmux < 3.3 (passthrough always on?) and whether `-wq` is enough when the user overrides that option in the config; markers interrupting a TUI's escape inside tmux.
+6. **Reverse forward:** `AllowTcpForwarding` on the remote, `curl` may be missing, the loopback port is visible to other local users (hence the required token), the port changes after a reconnect.
+7. **Token visible in `ps`** on the remote during launch (inline env). Optional mitigation: send it through `LC_*` (often in `AcceptEnv`) — needs testing.
+8. **Ctrl-Z** in an agent does not stop it: the wrapper leads the terminal session, so its process group is orphaned and the kernel ignores SIGTSTP (`TestCtrlZDoesNotStopAnAgent`). A program that stops itself with a real SIGSTOP still stops; the recovery is `POST …/resume`. In a shell console, job control belongs to the shell and Ctrl-Z works as usual.
+9. **Typing into the shell** (§3.3): the user can `unset` `NB_WRAP`, non-POSIX shells for `exec`; fallback = a full restart. A key binding that changes the typing ends with `412 wrap_missing`, not with a mutated line running.
+10. **VT library:** API stability of `charmbracelet/x/vt`, 256 KiB replay performance, memory per session; fallback `hinshun/vt10x` (needs a fork for mode 2004).
+11. **Claude slug** for dot/underscore/non-ASCII characters and very long cwds; the behavior of `--resume <id>` (same id or a new one).
+12. **`base64` / `head -c`** on the target (busybox/macOS) and the macOS `base64` output format (long lines).
+13. **Catalog flags marked †** and the `detect` command of every catalog entry.
+14. **Notification API** in the browser for an origin with a self-signed certificate; the Android 14+ foreground service type (`specialUse` vs `remoteMessaging`) for a sideloaded app.
 
-## 20. Hasil verifikasi (This PC, 2026-10-28)
+## 20. Verification results (This PC, 2026-10-28)
 
-Claude Code **2.1.312**, Codex **0.163.0** (lihat catatan update di bawah), tmux 3.4 dan 3.2a (container Alpine sekali pakai, port 127.0.0.1 saja, dihapus setelahnya). Uji CLI nyata ada di `internal/server/realcli_test.go` (gerbang `NEXTBOARD_REAL_CLI_TEST=1`) dan `internal/jobs` `TestRealCLIRunner`; total 6 prompt kecil ("Reply with the single word OK." dan sejenisnya), Claude dengan `--model haiku`, tanpa yolo/skip-permissions. Folder kerja di scratchpad. Checksum `~/.claude/settings.json` sama sebelum/sesudah setiap run.
+Claude Code **2.1.312**, Codex **0.163.0** (see the update note below), tmux 3.4 and 3.2a (a throwaway Alpine container, port on 127.0.0.1 only, deleted afterwards). The real CLI tests are in `internal/server/realcli_test.go` (gate `NEXTBOARD_REAL_CLI_TEST=1`) and `internal/jobs` `TestRealCLIRunner`; 6 small prompts in total ("Reply with the single word OK." and the like), Claude with `--model haiku`, without yolo/skip-permissions. Working folder in a scratchpad. The checksum of `~/.claude/settings.json` was the same before/after every run.
 
-| # | Butir | Hasil | Bukti |
+| # | Item | Result | Evidence |
 |---|---|---|---|
-| 1 | Hooks dari `--settings` inline JSON di mode interaktif | **Terkonfirmasi.** Semua event terpakai datang: `SessionStart` (`source` `startup`/`resume`), `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SubagentStop`, `SessionEnd`. Digabung dengan hooks lain: hook proyek di `.claude/settings.local.json` folder uji dan hooks plugin user (warp, caveman) tetap jalan bersamaan | debug log Claude: `Hooks: SessionStart:startup [set -- hook SessionStart; eval "$NB_HOOK_SH"] finished with status 0`; marker diterima hub |
-| 1a | Folder belum di-trust | Dialog trust 2.1.312 **default "No, exit"** (Enter = keluar rc 1); setelah "Yes, I trust" sesi jalan. Dialog terdeteksi needsYou dari layar | fixture `claude-2.1.312-needsYou-trust.txt` |
-| 2 | `/dev/tty` dari proses hook | **Ditolak untuk Claude.** Hook berjalan di sesi baru (`sid` = pid sendiri, `tty` = `?`): `cannot create /dev/tty: No such device or address`. Proses induk (`claude`) punya `pts/N`. **Solusi:** kanal kedua ke terminal induk (`/proc/$PPID/fd/0`, cadangan `ps -o tty=`) → marker sampai tanpa jaringan (diuji dengan `hookChannel:"tty"`, hooks → `ready/working/ready` + balasan). Notify Codex juga sampai lewat kanal terminal (`hookChannel:"tty"`). HTTP loopback lokal juga terbukti dengan Claude nyata (`hookChannel:"auto"`, sebelum kanal induk ada) | hook diagnostik di folder uji; `TestHookScriptTTYAndHTTPFallback` (setsid + tty induk + HTTP) |
-| 3 | Codex `-c notify=[…]` | **Terkonfirmasi**, key `notify`, argv terakhir = JSON: `{"type":"agent-turn-complete","thread-id","turn-id","cwd","client":"codex-tui","input-messages":[…],"last-assistant-message"}`. `thread-id` = id `codex resume <id>` = UUID di nama `rollout-…-<id>.jsonl` = `session_meta.id`. Tidak ada jenis notify untuk approval (approval hanya dari layar). **Codex juga mengirim notify untuk thread judul internal** (`thread-id` lain, `input-messages` "Generate a concise, single-line task title…", balasan `{"title":"…"}`) — hub mengabaikannya (§6.3) | log marker run Codex |
-| 4 | `Notification` idle (T8) | Keputusan lead dipertahankan (idle ≠ needsYou). Terverifikasi: Notification idle datang ±60 dtk setelah `Stop` dan state tetap `ready` | log marker (14:50:23 Stop → 14:51:23 Notification) |
-| 4a | `Notification` izin (T7) | `notification_type:"permission_prompt"`, `message:"Claude needs your permission"` (tanpa nama tool), datang ±6 dtk setelah `PreToolUse`. Izin ditolak dengan Esc: **tidak ada hook** (tanpa `PostToolUse`/`Stop`) → penyesuaian T15h/T17h | fixture `claude-2.1.312-needsYou-permission.txt`, `…-ready-after-deny.txt` |
-| 5 | tmux passthrough | **Terkonfirmasi.** tmux 3.4: `set-option -wq allow-passthrough on` di window sesi → marker (DCS `tmux;` dibuka tmux) sampai sebagai OSC polos; `tmux show -gv allow-passthrough` tetap `off`; re-attach tidak memutar ulang marker. tmux 3.2a: perintah tidak gagal (`-q`) dan marker tetap sampai (passthrough selalu aktif sebelum 3.3) | `TestSSHTmuxAgentPassthrough` (gerbang `NEXTBOARD_TMUX_SSH`) |
-| 6 | Reverse forward | `tcpip-forward` 127.0.0.1:0 dari koneksi hub bekerja (sshd OpenSSH lokal); hook tanpa TTY (setsid) di remote sampai lewat `curl` → forward → hub. `AllowTcpForwarding no` → `hookForward.error`, `NB_HOOK_URL` kosong. `curl` tidak ada di image Alpine uji → `probe.commands.curl` kosong (karena itu kanal terminal induk penting) | `TestSSHWrapperMarkersForwardAndForeground`, `TestSSHForwardRefused` |
-| 11 | `--session-id` + path transcript; resume by id | **Terkonfirmasi.** `--session-id <uuid>` dipakai apa adanya; `transcript_path` dari hook = `<cfg>/projects/<slug(cwd)>/<uuid>.jsonl` dengan slug = tiap karakter non `[A-Za-z0-9]` → `-` (cwd di `/tmp/claude-1000/-home-…` → `-tmp-claude-1000--home-…`). `claude --resume <uuid>` **mempertahankan id yang sama** (`SessionStart source:"resume"`, `session_id` sama). Resume id yang belum punya percakapan → rc 1. `codex resume <thread-id>` membuka percakapan yang sama (id sama) | log run nyata; `computed slug path … match=true` |
-| 12 | `base64`/`head -c` | GNU coreutils (This PC) dan busybox (Alpine 3.15/3.20) lulus; macOS tidak diuji di sini | uji tmux/SSH |
-| — | `/exit` → shell, Ctrl-C tidak membunuh wrapper, §3.3 | `/exit` Claude dan `/quit` Codex → `agent-exit rc 0` → shell di tempat (`status:"running"`); §3.3 resume/fresh dari shell bekerja; `409 shell_busy` saat job di foreground (TIOCGPGRP lokal, `ps` remote) | `TestAgentConsoleHooksEndToEnd`, `TestWrapperSurvivesCtrlC`, run nyata |
-| — | Pola layar | Diambil dari dump nyata (tabel §6.4). Claude 2.1.312 memakai alt-screen, prompt `❯`+NBSP, indikator kerja `✽ <Kata>…` (tanpa "esc to interrupt"). Codex 0.163.0: prompt `› Ask Codex to do anything`. Gemini: **tidak dapat diuji** (tidak terpasang) | `TestScreenFixtures` (9 fixture) |
-| 13 | Flag katalog † | **Tidak dapat diuji** (CLI tidak terpasang, kecuali `opencode` yang tidak diuji flag-nya); tetap dikirim tanpa yolo/resume | — |
-| 8, 9 | Ctrl-Z, mengetik ke shell | Diuji 2026-11-05, lihat butir 8 dan 9 di atas dan §3.3 | — |
-| 7, 10, 14 | Token di `ps`, stabilitas pustaka VT, Notification API browser | Tidak diuji (di luar lingkup backend / tidak tersedia). Pustaka VT dipin ke `github.com/charmbracelet/x/vt v0.1.0` (tag rilis, bukan pseudo-version); `Emulator.Close` punya data race dengan `Read` → hub menutup pipe input langsung. Replay 256 KiB < 3 dtk (uji) | `internal/screen` |
+| 1 | Hooks from inline JSON `--settings` in interactive mode | **Confirmed.** Every event used arrives: `SessionStart` (`source` `startup`/`resume`), `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SubagentStop`, `SessionEnd`. Merged with other hooks: a project hook in the test folder's `.claude/settings.local.json` and the user's plugin hooks (warp, caveman) still run alongside | Claude debug log: `Hooks: SessionStart:startup [set -- hook SessionStart; eval "$NB_HOOK_SH"] finished with status 0`; markers received by the hub |
+| 1a | Folder not trusted yet | The 2.1.312 trust dialog **defaults to "No, exit"** (Enter = exit rc 1); after "Yes, I trust" the session runs. The dialog is detected as needsYou from the screen | fixture `claude-2.1.312-needsYou-trust.txt` |
+| 2 | `/dev/tty` from the hook process | **Refuted for Claude.** The hook runs in a new session (`sid` = its own pid, `tty` = `?`): `cannot create /dev/tty: No such device or address`. The parent process (`claude`) has a `pts/N`. **Solution:** a second channel to the parent terminal (`/proc/$PPID/fd/0`, fallback `ps -o tty=`) → markers arrive without a network (tested with `hookChannel:"tty"`, hooks → `ready/working/ready` + reply). Codex notify also arrives through the terminal channel (`hookChannel:"tty"`). Local loopback HTTP was also proven with a real Claude (`hookChannel:"auto"`, before the parent channel existed) | a diagnostic hook in the test folder; `TestHookScriptTTYAndHTTPFallback` (setsid + parent tty + HTTP) |
+| 3 | Codex `-c notify=[…]` | **Confirmed**, key `notify`, last argv = JSON: `{"type":"agent-turn-complete","thread-id","turn-id","cwd","client":"codex-tui","input-messages":[…],"last-assistant-message"}`. `thread-id` = the id of `codex resume <id>` = the UUID in the name `rollout-…-<id>.jsonl` = `session_meta.id`. There is no notify kind for approval (approval only from the screen). **Codex also sends a notify for an internal title thread** (another `thread-id`, `input-messages` "Generate a concise, single-line task title…", reply `{"title":"…"}`) — the hub ignores it (§6.3) | marker log of a Codex run |
+| 4 | Idle `Notification` (T8) | The lead's decision is kept (idle ≠ needsYou). Verified: the idle Notification arrives about 60 s after `Stop` and the state stays `ready` | marker log (14:50:23 Stop → 14:51:23 Notification) |
+| 4a | Permission `Notification` (T7) | `notification_type:"permission_prompt"`, `message:"Claude needs your permission"` (no tool name), arrives about 6 s after `PreToolUse`. Permission denied with Esc: **no hook** (no `PostToolUse`/`Stop`) → adjustments T15h/T17h | fixture `claude-2.1.312-needsYou-permission.txt`, `…-ready-after-deny.txt` |
+| 5 | tmux passthrough | **Confirmed.** tmux 3.4: `set-option -wq allow-passthrough on` on the session window → the marker (DCS `tmux;` unwrapped by tmux) arrives as a plain OSC; `tmux show -gv allow-passthrough` stays `off`; re-attach does not replay markers. tmux 3.2a: the command does not fail (`-q`) and markers still arrive (passthrough is always on before 3.3) | `TestSSHTmuxAgentPassthrough` (gate `NEXTBOARD_TMUX_SSH`) |
+| 6 | Reverse forward | `tcpip-forward` 127.0.0.1:0 from the hub's connection works (local OpenSSH sshd); a hook without a TTY (setsid) on the remote arrives through `curl` → forward → hub. `AllowTcpForwarding no` → `hookForward.error`, `NB_HOOK_URL` empty. `curl` is missing from the test Alpine image → `probe.commands.curl` empty (which is why the parent-terminal channel matters) | `TestSSHWrapperMarkersForwardAndForeground`, `TestSSHForwardRefused` |
+| 11 | `--session-id` + transcript path; resume by id | **Confirmed.** `--session-id <uuid>` is used as is; `transcript_path` from the hook = `<cfg>/projects/<slug(cwd)>/<uuid>.jsonl` with slug = every character other than `[A-Za-z0-9]` → `-` (a cwd in `/tmp/claude-1000/-home-…` → `-tmp-claude-1000--home-…`). `claude --resume <uuid>` **keeps the same id** (`SessionStart source:"resume"`, the same `session_id`). Resuming an id that has no conversation yet → rc 1. `codex resume <thread-id>` opens the same conversation (same id) | real run log; `computed slug path … match=true` |
+| 12 | `base64`/`head -c` | GNU coreutils (This PC) and busybox (Alpine 3.15/3.20) pass; macOS not tested here | tmux/SSH tests |
+| — | `/exit` → shell, Ctrl-C does not kill the wrapper, §3.3 | Claude `/exit` and Codex `/quit` → `agent-exit rc 0` → shell in place (`status:"running"`); §3.3 resume/fresh from the shell works; `409 shell_busy` while a job is in the foreground (TIOCGPGRP locally, `ps` remotely) | `TestAgentConsoleHooksEndToEnd`, `TestWrapperSurvivesCtrlC`, real runs |
+| — | Screen patterns | Taken from real dumps (table §6.4). Claude 2.1.312 uses the alt screen, the prompt `❯`+NBSP, the working indicator `✽ <Word>…` (without "esc to interrupt"). Codex 0.163.0: the prompt `› Ask Codex to do anything`. Gemini: **could not be tested** (not installed) | `TestScreenFixtures` (9 fixtures) |
+| 13 | Catalog flags † | **Could not be tested** (CLIs not installed, except `opencode`, whose flags were not tested); still sent without yolo/resume | — |
+| 8, 9 | Ctrl-Z, typing into the shell | Tested 2026-11-05, see items 8 and 9 above and §3.3 | — |
+| 7, 10, 14 | Token in `ps`, VT library stability, browser Notification API | Not tested (outside the backend scope / not available). The VT library is pinned to `github.com/charmbracelet/x/vt v0.1.0` (a release tag, not a pseudo-version); `Emulator.Close` has a data race with `Read` → the hub closes the input pipe directly. 256 KiB replay < 3 s (tested) | `internal/screen` |
 
-**Temuan samping yang perlu diketahui pemilik:**
+**Side findings the owner should know about:**
 
-- **Codex menulis `~/.codex/config.toml` sendiri** saat pertama kali jalan lewat hub: menambah `[tui] animations = false` dan `screen_reader_detection_done = true` (deteksi screen reader; kemungkinan karena query terminal tidak dijawab saat tidak ada klien xterm.js tersambung). Hub tidak menulis file itu; blok tersebut dihapus lagi setelah uji. Trust folder Codex diberikan per-launch dengan `-c 'projects."<cwd>".trust_level="trusted"'` (tanpa menulis config).
-- **Dialog update Codex** ("Update available · 0.163.0 → 0.165.0 · 1. Update now") muncul saat start; Enter memilih *Update now*. Dalam uji, input yang dikirim ke console menjalankan updater sehingga Codex di This PC kini **0.165.0** (paket 0.163.0 masih ada di `~/.codex/packages/standalone/releases/`). Karena itu dialog ini kini needsYou di aturan layar, dan delivery Fase 6 wajib menghormati needsYou/`promptOnScreen` sebelum mengetik.
-- Claude menyimpan trust folder di `~/.claude.json` (bukan `settings.json`) saat user menyetujui dialog trust.
-- Di folder config buatan hub, `.claude.json` diberi `lspRecommendationDisabled: true`. Begitu language server ada di PATH, CLI menawarkan plugin LSP-nya lewat dialog yang menelan ketikan berikutnya: order yang diketik NextBoard ke console terpotong, dan angka di dalamnya bisa memasang plugin. `~/.claude.json` milik user tidak disentuh.
+- **Codex writes `~/.codex/config.toml` itself** the first time it runs through the hub: it adds `[tui] animations = false` and `screen_reader_detection_done = true` (screen reader detection; probably because terminal queries are not answered while no xterm.js client is connected). The hub does not write that file; the block was removed again after the test. Codex folder trust is given per launch with `-c 'projects."<cwd>".trust_level="trusted"'` (without writing the config).
+- **The Codex update dialog** ("Update available · 0.163.0 → 0.165.0 · 1. Update now") appears at start; Enter picks *Update now*. In testing, input sent to the console ran the updater, so Codex on This PC is now **0.165.0** (the 0.163.0 package is still in `~/.codex/packages/standalone/releases/`). That is why this dialog is now needsYou in the screen rules, and Phase 6 delivery must respect needsYou/`promptOnScreen` before typing.
+- Claude stores folder trust in `~/.claude.json` (not `settings.json`) when the user accepts the trust dialog.
+- In the hub-made config folder, `.claude.json` gets `lspRecommendationDisabled: true`. As soon as a language server is on PATH, the CLI offers its LSP plugin through a dialog that swallows the next keystrokes: an order NextBoard types into the console gets cut, and a number in it can install the plugin. The user's own `~/.claude.json` is not touched.
 
-**Penyimpangan lain dari kontrak (implementasi):**
+**Other deviations from the contract (implementation):**
 
-- `NB_HOOK_SH` diganti (kanal terminal induk + `NB_HOOK_CH`), §4.3/§4.5.
-- Engine: T15h, T17h, pola working, T7 activity, filter notify Codex (§6.3).
-- `Session.activity` hanya terisi saat `working`/`needsYou`.
-- `POST /api/sessions/{id}/restart` menerima `agentSessionId`; `Conversation.attachedHandle` (keduanya atas permintaan klien).
-- `fs/read` dengan `offset`/`tail` menambah field `offset`.
-- `reply/save` membuat folder `dir` bila belum ada.
-- `Host.Mkdir` dan `Host.ReadAt` ditambah ke lapisan machine; `machine.Exec` (API-studio §1.1) dipakai runner.
-- Runner: lihat API-studio.md §2 (flag yang terverifikasi).
+- `NB_HOOK_SH` replaced (parent-terminal channel + `NB_HOOK_CH`), §4.3/§4.5.
+- Engine: T15h, T17h, the working pattern, T7 activity, the Codex notify filter (§6.3).
+- `Session.activity` is only filled while `working`/`needsYou`.
+- `POST /api/sessions/{id}/restart` accepts `agentSessionId`; `Conversation.attachedHandle` (both at a client's request).
+- `fs/read` with `offset`/`tail` adds the `offset` field.
+- `reply/save` creates the `dir` folder when it does not exist.
+- `Host.Mkdir` and `Host.ReadAt` added to the machine layer; `machine.Exec` (API-studio §1.1) is used by the runner.
+- Runner: see API-studio.md §2 (verified flags).
 
-## 21. Agen dan server (keputusan #10, opsi A)
+## 21. Agents and servers (decision #10, option A)
 
-CLI agen selalu berjalan di This PC. Tanpa `settings.agents.remoteTools`, server hanya mendapat shell biasa: `POST /api/sessions` dan `restart {agent}` dengan agen berkind `agent` di machine SSH → `422 agent_this_pc_only`, dan `GET /api/machines/{id}/presets` menandainya tidak tersedia.
+Agent CLIs always run on This PC. Without `settings.agents.remoteTools`, a server only gets a plain shell: `POST /api/sessions` and `restart {agent}` with an agent of kind `agent` on an SSH machine → `422 agent_this_pc_only`, and `GET /api/machines/{id}/presets` marks it as unavailable.
 
-**Status: stabil sejak 2026-11-08 (ROADMAP #44), `settings.agents.remoteTools` default `true`** (Settings › Agents, "Agents on servers"). Hub yang pernah menyimpan `false` tetap mati sampai diubah. Bila aktif, CLI berikut (dan agen custom ber-`base` CLI itu) bisa bekerja di server; yang lain tetap `422`. Sebuah CLI hanya masuk daftar ini setelah terbukti tool lokalnya bisa dimatikan, karena tanpa itu agen akan mengerjakan file This PC.
+**Status: stable since 2026-11-08 (ROADMAP #44), `settings.agents.remoteTools` defaults to `true`** (Settings › Agents, "Agents on servers"). A hub that once stored `false` stays off until it is changed. When on, the following CLIs (and custom agents with that CLI as `base`) can work on a server; the others stay `422`. A CLI only goes on this list after it is proven that its local tools can be turned off, because without that the agent would work on This PC's files.
 
-| CLI | Tool hub | Tool lokal | Yolo di server | Terverifikasi |
+| CLI | Hub tools | Local tools | Yolo on a server | Verified |
 |---|---|---|---|---|
-| Claude Code | `--mcp-config "$NB_MCP" --strict-mcp-config` | `--tools Read,Write,Edit,TodoWrite,Skill`, tanpa Bash | `--allowedTools` tool hub dan `Skill` saja | Console nyata, dengan dan tanpa yolo |
-| Codex | `-c mcp_servers.nextboard.*` | `--disable shell_tool --disable unified_exec --sandbox read-only` | `default_tools_approval_mode="approve"` | Console nyata 0.165.0 tanpa yolo; argumen yolo lewat test |
-| OpenCode | `OPENCODE_CONFIG_CONTENT` (`mcp`) | `permission` semua tool lokal `deny` kecuali `skill`, tool hub `ask` | tidak ada | MCP terhubung dan tool lokal terbukti mati (1.17.15); giliran penuh hanya terhadap model palsu, belum dengan provider sungguhan |
+| Claude Code | `--mcp-config "$NB_MCP" --strict-mcp-config` | `--tools Read,Write,Edit,TodoWrite,Skill`, without Bash | `--allowedTools` the hub tools and `Skill` only | Real console, with and without yolo |
+| Codex | `-c mcp_servers.nextboard.*` | `--disable shell_tool --disable unified_exec --sandbox read-only` | `default_tools_approval_mode="approve"` | Real console 0.165.0 without yolo; yolo arguments through a test |
+| OpenCode | `OPENCODE_CONFIG_CONTENT` (`mcp`) | `permission` for every local tool `deny` except `skill`, hub tools `ask` | none | MCP connected and the local tools proven off (1.17.15); full turns only against a fake model, not yet with a real provider |
 
-Yolo di server tidak pernah memakai flag lewati-semua milik CLI, sehingga tidak membuka akses ke This PC. Memory project tetap satu (API-orchestration §12): Claude Code lewat folder memory lokal, Codex dan OpenCode lewat `memory_read`/`memory_save`; `read-only` Codex dan `deny` OpenCode menutup tulis lokal lainnya. Instruksi project: `CLAUDE.md` lalu `AGENTS.md` untuk Claude Code, `AGENTS.md` lalu `CLAUDE.md` untuk yang lain.
+Yolo on a server never uses the CLI's own skip-everything flag, so it does not open access to This PC. Project memory stays one (API-orchestration §12): Claude Code through the local memory folder, Codex and OpenCode through `memory_read`/`memory_save`; Codex's `read-only` and OpenCode's `deny` close off other local writes. Project instructions: `CLAUDE.md` then `AGENTS.md` for Claude Code, `AGENTS.md` then `CLAUDE.md` for the others.
 
 **Console**
-- Sesi: `machineId:"local"`, `remoteMachineId`, `remoteCwd`, dan `cwd` lokal `<data>/agents/remote/<machine>/<hash folder>` yang kosong dan stabil, sehingga memory agen mengikuti folder di server.
-- Kalau tool tidak bisa disiapkan, peluncuran gagal, bukan jatuh ke tool lokal.
-- Prompt sistem menyebut server dan folder, dan menyertakan instruksi project dari server (≤ 16 KB). Read/Write/Edit lokal Claude Code untuk folder memory; prompt melarangnya untuk file project.
-- Dialog trust Codex dilewati per launch dengan `-c projects={…}` untuk folder lokal itu. Dialog trust Claude Code: `<data>/agents/remote` dicatat sebagai `hasTrustDialogAccepted` di `.claude.json` folder config, hanya bila folder itu buatan hub. CLI mewarisinya ke subfolder. `~/.claude.json` tidak pernah ditulis; dengan login default dialog itu muncul sekali per folder, dan opsi default-nya "No, exit".
-- Handoff dari console seperti ini tetap bekerja di server dan folder yang sama.
+- Session: `machineId:"local"`, `remoteMachineId`, `remoteCwd`, and a local `cwd` `<data>/agents/remote/<machine>/<hash folder>` that is empty and stable, so the agent's memory follows the folder on the server.
+- If the tools cannot be set up, the launch fails, rather than falling back to local tools.
+- The system prompt names the server and folder, and includes the project instructions from the server (≤ 16 KB). Claude Code's local Read/Write/Edit are for the memory folder; the prompt forbids them for project files.
+- The Codex trust dialog is skipped per launch with `-c projects={…}` for that local folder. The Claude Code trust dialog: `<data>/agents/remote` is recorded as `hasTrustDialogAccepted` in the config folder's `.claude.json`, only when that folder is hub-made. The CLI inherits it for subfolders. `~/.claude.json` is never written; with the default login that dialog appears once per folder, and its default option is "No, exit".
+- A handoff from a console like this still works on the same server and folder.
 
-**Job tersembunyi** (`submitRunner`, satu jalur untuk semua job): job untuk project di server berjalan di This PC dengan Claude Code dan login console-nya. Job yang perlu membaca project (`document`, `diagram`, `memory-scan`, `memory-refresh`) memakai `--tools "" --mcp-config … --strict-mcp-config --allowedTools mcp__nextboard__read_file,mcp__nextboard__grep,mcp__nextboard__glob`; yang lain tidak mendapat tool karena semua isinya ada di prompt.
+**Hidden jobs** (`submitRunner`, one path for every job): a job for a project on a server runs on This PC with Claude Code and its console login. Jobs that need to read the project (`document`, `diagram`, `memory-scan`, `memory-refresh`) use `--tools "" --mcp-config … --strict-mcp-config --allowedTools mcp__nextboard__read_file,mcp__nextboard__grep,mcp__nextboard__glob`; the others get no tools because all their content is in the prompt.
 
-**Endpoint** (di listener hook loopback, MCP JSON lewat POST, `GET` → 405, `Authorization: Bearer ${NB_TOKEN}` yang diekspansi CLI sehingga tidak muncul di argv)
-- `POST /nb/mcp/{sid}`: console, token per console. Tool file untuk console yang bekerja di server; `memory_read` dan `memory_save` untuk Codex dan OpenCode, juga di This PC. Claude Code di This PC tidak memakai endpoint ini.
-- `POST /nb/mcp-job`: job, token acak per job yang dicabut saat job selesai, hanya tool baca.
+**Endpoints** (on the loopback hook listener, MCP JSON over POST, `GET` → 405, `Authorization: Bearer ${NB_TOKEN}` which the CLI expands so it does not show in argv)
+- `POST /nb/mcp/{sid}`: consoles, a token per console. File tools for a console working on a server; `memory_read` and `memory_save` for Codex and OpenCode, also on This PC. Claude Code on This PC does not use this endpoint.
+- `POST /nb/mcp-job`: jobs, a random token per job that is revoked when the job finishes, read tools only.
 
-**Tool:** `read_file{path,offset?,limit?}`, `write_file{path,content}`, `edit_file{path,old_string,new_string,replace_all?}` (lewat SFTP, edit gagal bila file berubah di tengah jalan), `grep{pattern,path?,include?,ignore_case?}` dan `glob{pattern,path?}` (`rg` bila ada, selain itu `grep`/`find`; glob ≤ 500), `bash{command,timeout_ms?}` (shell login baru di `remoteCwd`, 2 menit, maks 10 menit; `cd` tidak terbawa antar panggilan). Path relatif dari `remoteCwd`. Jawaban ≤ 30.000 karakter (awal + akhir). Izin mengikuti mode CLI: prompt normal per tool.
+**Tools:** `read_file{path,offset?,limit?}`, `write_file{path,content}`, `edit_file{path,old_string,new_string,replace_all?}` (over SFTP, an edit fails when the file changes midway), `grep{pattern,path?,include?,ignore_case?}` and `glob{pattern,path?}` (`rg` when present, otherwise `grep`/`find`; glob ≤ 500), `bash{command,timeout_ms?}` (a new login shell in `remoteCwd`, 2 minutes, max 10 minutes; `cd` does not carry over between calls). Paths are relative to `remoteCwd`. Answers ≤ 30,000 characters (start + end). Permissions follow the CLI's mode: a normal prompt per tool.
 
-**Hasil uji (Claude Code 2.1.316, Haiku, sshd sementara di host yang sama, 2026-11-03):** order lewat command bar sampai; edit, `pwd`, dan `uname` terjadi di server; `CLAUDE.md` server dipatuhi; memory tertulis lokal tanpa prompt; status hub (`working` dengan nama tool, `needsYou` per izin) dan laporan thread jalan; memory scan membaca file server lewat tool baca.
+**Test results (Claude Code 2.1.316, Haiku, a temporary sshd on the same host, 2026-11-03):** an order through the command bar arrives; edits, `pwd` and `uname` happen on the server; the server's `CLAUDE.md` is followed; memory is written locally without a prompt; hub status (`working` with the tool name, `needsYou` per permission) and thread reports work; the memory scan reads server files through the read tools.
 
-Codex 0.165.0 di server yang sama: order lewat command bar sampai, tiga prompt izin MCP terbaca `needsYou`, edit dan `pwd` terjadi di server, `AGENTS.md` server dipatuhi, folder lokal tetap kosong; percobaan langsung lewat `codex exec` menunjukkan shell lokal tidak tersedia dan `apply_patch` lokal ditolak sandbox. Membuka Codex menaikkan penghitung pemberitahuan model di `config.toml` folder config yang dipakai.
+Codex 0.165.0 on the same server: an order through the command bar arrives, three MCP permission prompts read as `needsYou`, edits and `pwd` happen on the server, the server's `AGENTS.md` is followed, the local folder stays empty; a direct try through `codex exec` shows that the local shell is unavailable and a local `apply_patch` is rejected by the sandbox. Opening Codex increments the model notice counter in the `config.toml` of the config folder in use.
 
-**Skill, commands, dan instruksi subfolder (2026-11-08).** Saat diluncurkan, hub mencari di folder project di server, dengan satu perintah dan batas 20 detik:
-- `CLAUDE.md`/`AGENTS.md` di subfolder (kedalaman ≤ 6, tanpa `node_modules`, `vendor`, `.git`, `storage`, `dist`, `build`, `.next`, `target`, `.venv`; ≤ 40 folder, nama milik CLI itu didahulukan). Daftarnya masuk prompt sistem, dengan perintah membacanya lewat `read_file` sebelum bekerja di folder itu.
-- Skill dan command project, dari folder mana pun yang dipakai project: skill di `.claude/skills`, `.agents/skills`, `.opencode/skills`, `.opencode/skill`, `.codex/skills`; command di `.claude/commands`, `.opencode/commands`, `.opencode/command`. Formatnya sama, dan Skills manager NextBoard menulis ke `.claude`, jadi skill itu sampai ke Codex juga. Kalau namanya sama, folder milik CLI itu menang. Hanya file utama yang disalin lewat SFTP (≤ 300 file, masing-masing ≤ 256 KB, total ≤ 4 MB, teks saja, symlink tidak diikuti), menggantikan salinan peluncuran sebelumnya, juga milik CLI lain di tile yang sama. File lain milik skill dan skripnya tetap di server, dan bagian atas salinan menyebut foldernya.
+**Skills, commands and subfolder instructions (2026-11-08).** At launch, the hub searches the project folder on the server, with one command and a 20 second limit:
+- `CLAUDE.md`/`AGENTS.md` in subfolders (depth ≤ 6, without `node_modules`, `vendor`, `.git`, `storage`, `dist`, `build`, `.next`, `target`, `.venv`; ≤ 40 folders, the names belonging to that CLI first). The list goes into the system prompt, with an instruction to read them through `read_file` before working in that folder.
+- Project skills and commands, from whichever folder the project uses: skills in `.claude/skills`, `.agents/skills`, `.opencode/skills`, `.opencode/skill`, `.codex/skills`; commands in `.claude/commands`, `.opencode/commands`, `.opencode/command`. The format is the same, and NextBoard's Skills manager writes to `.claude`, so those skills reach Codex too. When names are the same, the folder belonging to that CLI wins. Only the main file is copied over SFTP (≤ 300 files, each ≤ 256 KB, total ≤ 4 MB, text only, symlinks not followed), replacing the copy from the previous launch, including another CLI's in the same tile. The skill's other files and its scripts stay on the server, and the top of the copy names their folder.
 
-| CLI | Skill | Command | Cara model memakai skill |
+| CLI | Skills | Commands | How the model uses a skill |
 |---|---|---|---|
-| Claude Code | `.claude/skills` | `.claude/commands` | `/nama`, atau tool `Skill` (ditambahkan ke `--tools`) |
-| Codex | `.agents/skills` | Jadi skill bernama sama (`team/ship.md` → `team-ship`), karena Codex tidak punya command project | `$nama` menyuntikkan isinya. Tanpa disebut, model hanya melihat daftar dan tidak punya tool lokal untuk membaca, jadi prompt menyebut path tiap skill di server untuk `read_file` (≤ 40) |
-| OpenCode | `.agents/skills` | Lewat `command` di `OPENCODE_CONFIG_CONTENT` (≤ 64 KB), karena folder `.opencode` membuatnya memasang 63 MB paket di tiap console | `/nama`, atau tool `skill` (`permission.skill: allow`) |
+| Claude Code | `.claude/skills` | `.claude/commands` | `/name`, or the `Skill` tool (added to `--tools`) |
+| Codex | `.agents/skills` | Become skills of the same name (`team/ship.md` → `team-ship`), because Codex has no project commands | `$name` injects its contents. Without being named, the model only sees the list and has no local tool to read with, so the prompt gives each skill's path on the server for `read_file` (≤ 40) |
+| OpenCode | `.agents/skills` | Through `command` in `OPENCODE_CONFIG_CONTENT` (≤ 64 KB), because a `.opencode` folder makes it install 63 MB of packages in every console | `/name`, or the `skill` tool (`permission.skill: allow`) |
 
-**Isi file itu dari komputer lain, tapi CLI-nya bertindak di This PC.** Tanpa perlakuan khusus: OpenCode 1.17.15 menjalankan ``!`cmd` `` di This PC walau `bash: deny`, dan Claude Code 2.1.319 membaca `@/path` milik This PC ke prompt tanpa bertanya (shell-nya sendiri ditolak karena tidak ada Bash, yang menggagalkan seluruh skill). Jadi yang disalin dilucuti (`disarm`, `internal/server/remotemirror.go`): blok ``!`cmd` `` dan ` ```! ` menjadi teks dengan perintah menjalankannya lewat `bash`; `!` sebelum placeholder ikut dibuang karena OpenCode mengisi placeholder lebih dulu; `@` yang bisa keluar dari folder CLI dibuang (awalan `/ ~ . $`, kutip, atau berisi `..`), sedangkan `@types/node` dan `@src/app.php` tetap. Frontmatter ditulis ulang dari daftar izin (`name`, `description`, `when_to_use`, `argument-hint`, `disable-model-invocation`, `user-invocable`), jadi `hooks`, `allowed-tools`, `model`, dan kunci baru apa pun tidak ikut. `.claude/settings.json`, plugin dan tool `.opencode`, `opencode.json`, serta `.codex/config.toml` tidak pernah disalin. Skill tanpa `description` memakai baris pertamanya, karena Codex menolak skill tanpa itu dan OpenCode tidak memberitahukannya ke model.
+**Those files come from another computer, but the CLI acts on This PC.** Without special handling: OpenCode 1.17.15 runs ``!`cmd` `` on This PC even with `bash: deny`, and Claude Code 2.1.319 reads This PC's `@/path` into the prompt without asking (its own shell is refused because there is no Bash, which makes the whole skill fail). So what is copied is disarmed (`disarm`, `internal/server/remotemirror.go`): ``!`cmd` `` and ` ```! ` blocks become text with an instruction to run them through `bash`; a `!` before a placeholder is dropped too, because OpenCode fills placeholders first; an `@` that could leave the CLI's folder is dropped (prefix `/ ~ . $`, quotes, or containing `..`), while `@types/node` and `@src/app.php` stay. The frontmatter is rewritten from an allowlist (`name`, `description`, `when_to_use`, `argument-hint`, `disable-model-invocation`, `user-invocable`), so `hooks`, `allowed-tools`, `model` and any new key do not come along. `.claude/settings.json`, `.opencode` plugins and tools, `opencode.json` and `.codex/config.toml` are never copied. A skill without a `description` uses its first line, because Codex rejects a skill without one and OpenCode does not tell the model about it.
 
-Diuji dengan CLI sungguhan terhadap model palsu di loopback, HOME kosong, tanpa akun: `NEXTBOARD_REAL_SKILLS_TEST=1 go test ./internal/server -run TestRealCLIsTakeServerSkills`. Tiap CLI punya kontrol memakai file aslinya, yang harus tetap berbahaya, supaya tesnya terbukti bisa mendeteksi. `FuzzDisarm` menjaga sisanya. Batas: model sungguhan belum diuji memilih dan mengikuti skill-nya sendiri.
+Tested with the real CLIs against a fake model on loopback, an empty HOME, no account: `NEXTBOARD_REAL_SKILLS_TEST=1 go test ./internal/server -run TestRealCLIsTakeServerSkills`. Each CLI has a control that uses the original files, which must stay dangerous, so the test is proven able to detect. `FuzzDisarm` guards the rest. Limit: a real model has not yet been tested choosing and following its own skill.
 
-**Perintah panjang (2026-11-08).** `bash{command, run_in_background:true}` langsung menjawab dengan id `bg_…`. Perintahnya jalan sampai 1 jam di server (stdout dan stderr digabung). `bash_output{id, wait_ms?}` memberi keluaran sejak panggilan terakhir (≤ 30.000 karakter, menunggu sampai 30 detik bila belum ada yang baru) dan statusnya: masih jalan, exit code, atau alasan berhenti. `bash_kill{id}` menghentikannya. Paling banyak 4 perintah latar per console; keluaran yang belum dibaca disimpan ≤ 1 MB, dan bagian terlama dibuang dengan catatan. Yang selesai dilupakan 30 menit kemudian. Daftar perintah terblokir berlaku sama seperti `bash` biasa.
+**Long commands (2026-11-08).** `bash{command, run_in_background:true}` answers right away with an id `bg_…`. The command runs for up to 1 hour on the server (stdout and stderr merged). `bash_output{id, wait_ms?}` gives the output since the last call (≤ 30,000 characters, waiting up to 30 seconds when there is nothing new yet) and its status: still running, the exit code, or the reason it stopped. `bash_kill{id}` stops it. At most 4 background commands per console; unread output is kept up to ≤ 1 MB, and the oldest part is dropped with a note. Finished ones are forgotten 30 minutes later. The blocked commands list applies just as for a plain `bash`.
 
-**Batas yang diketahui:** git di server memakai kredensial server; OpenCode belum pernah diamati menjawab dengan provider sungguhan, dan login-nya masih di folder OpenCode sendiri karena config-nya tersebar di beberapa variabel XDG. Agen katalog lain belum didukung karena belum terpasang di mesin uji.
+**Known limits:** git on a server uses the server's credentials; OpenCode has never been observed answering with a real provider, and its login is still in OpenCode's own folder because its config is spread over several XDG variables. Other catalog agents are not supported yet because they are not installed on the test machine.
 
-### 21.1 Part project (ROADMAP #49)
+### 21.1 Project parts (ROADMAP #49)
 
-Project yang mencakup beberapa part (API-board §1) memberi tiap console satu **part sendiri**: folder tempat ia bekerja (`partId` sesi). Agent menjangkau part lain lewat tool hub yang sama, dengan argumen `part` (nama atau id part, huruf besar kecil tidak dibedakan):
+A project that spans several parts (API-board §1) gives each console one **own part**: the folder it works in (the session's `partId`). An agent reaches other parts through the same hub tools, with a `part` argument (the part's name or id, case-insensitive):
 
-- `read_file`, `grep`, `glob`: selalu boleh di part lain.
-- `write_file`, `edit_file`, `bash` (juga di latar): di part lain pada machine yang sama dengan part sendiri selalu boleh; di part pada machine lain hanya bila project `partAccess: "full"`. Part read-only tidak pernah. Kalau tidak boleh, jawabannya menyebut part itu read only untuk agent ini. Prompt agent menandai tiap part: "yours, where you work", "you may change it too", atau "read only for you".
-- `bash_output`, `bash_kill`: milik console, tanpa `part`.
-- Tanpa `part` = part sendiri. Console di This PC tetap memakai tool lokalnya untuk part sendiri; tool hub hanya untuk part lain. Part yang tidak ada dijawab dengan daftar part yang ada.
-- Daftar tool hanya memuat tool tulis bila ada tempat yang boleh ditulis, dan `part` hanya muncul bila project punya lebih dari satu part.
+- `read_file`, `grep`, `glob`: always allowed in other parts.
+- `write_file`, `edit_file`, `bash` (also in the background): in another part on the same machine as its own part, always allowed; in a part on another machine only when the project has `partAccess: "full"`. A read-only part never. When it is not allowed, the answer says that part is read only for this agent. The agent's prompt marks each part: "yours, where you work", "you may change it too", or "read only for you".
+- `bash_output`, `bash_kill`: belong to the console, without `part`.
+- Without `part` = its own part. A console on This PC keeps using its local tools for its own part; the hub tools are only for other parts. A part that does not exist is answered with the list of existing parts.
+- The tool list only holds write tools when there is a place it may write to, and `part` only appears when the project has more than one part.
 
-**Part read-only.** Agent yang part sendirinya read-only bekerja gaya server, juga di This PC: tool lokal CLI mati (Claude Code `--tools` tanpa Bash, Codex `--sandbox read-only` tanpa shell, OpenCode `deny`), dan hanya tool baca hub yang bekerja di part itu. Part read-only juga hanya baca bagi agent di part lain, apa pun `partAccess`. Di machine yang sama, read-only ini aturan hub, bukan kunci: tool hub menolak, tapi tool lokal CLI agent di part lain masih bisa menjangkau foldernya. Sandbox project menutup sebagian celah ini: Codex hanya bisa menulis di folder kerjanya, dan perintah shell Claude Code juga; Edit/Write milik Claude Code tetap di luar sandbox (lihat batas sandbox di bawah).
+**Read-only part.** An agent whose own part is read-only works server-style, on This PC too: the CLI's local tools are off (Claude Code `--tools` without Bash, Codex `--sandbox read-only` without a shell, OpenCode `deny`), and only the hub's read tools work in that part. A read-only part is also read-only for agents in other parts, whatever the `partAccess`. On the same machine, this read-only is a hub rule, not a lock: the hub tools refuse, but the local tools of an agent CLI in another part can still reach its folder. The project sandbox closes part of this gap: Codex can only write in its working folder, and so can Claude Code's shell commands; Claude Code's own Edit/Write stay outside the sandbox (see the sandbox limits below).
 
-**Prompt.** Prompt sistem menyebut semua part (nama, machine, folder) dan hak agent di tiap part, cara memakai `part`, dan bila part sendiri read-only, bahwa ia hanya membaca dan menyebut apa yang perlu diubah.
+**Prompt.** The system prompt names every part (name, machine, folder) and the agent's rights in each part, how to use `part`, and, when its own part is read-only, that it only reads and says what needs to change.
 
-Diuji: `TestPartsForAgents` (Codex palsu di This PC: baca di part lain, tulis ditolak lalu boleh dengan `full`, `bash` di folder part, part read-only tetap ditolak, agent di part read-only tanpa shell lokal dan hanya membaca).
+Tested: `TestPartsForAgents` (a fake Codex on This PC: reads in another part, a write refused and then allowed with `full`, `bash` in the part's folder, a read-only part still refused, an agent in a read-only part without a local shell and only reading).
 
-## 22. Konteks peluncuran
+## 22. Launch context
 
-Setiap peluncuran agen di This PC yang CLI-nya menerima konteks (`claude`, `codex`, `opencode`, dan turunannya) mendapat dari hub, tanpa menulis config CLI: instruksi sistem di `<data>/agents/prompts/<sid>.md` (dihapus bersama console), memory project (API-orchestration §12), dan untuk kerja di server, tool hub (§21). Kalau konteks gagal disiapkan, console di This PC tetap jalan dengan catatan di log; console di server gagal, karena tanpa tool itu agen akan bertindak di This PC.
+Every agent launch on This PC whose CLI accepts context (`claude`, `codex`, `opencode`, and their derivatives) gets from the hub, without writing the CLI config: system instructions in `<data>/agents/prompts/<sid>.md` (deleted together with the console), project memory (API-orchestration §12), and for work on a server, the hub tools (§21). If the context fails to be prepared, a console on This PC still runs with a note in the log; a console on a server fails, because without those tools the agent would act on This PC.
 
-## 23. MCP server di NextBoard
+## 23. MCP servers in NextBoard
 
-Server MCP diatur sekali di hub (Settings › MCP servers) dan diberikan ke tiap agent saat launch, apa pun CLI-nya, jadi berganti agent tidak mengubah tool yang tersedia. **Tidak ada yang ditulis ke config CLI**, dan server milik pengguna di config CLI tetap ada, kecuali console di server yang memakai `--strict-mcp-config`.
+MCP servers are set up once on the hub (Settings › MCP servers) and given to every agent at launch, whatever its CLI, so switching agents does not change the tools available. **Nothing is written to the CLI config**, and the user's own servers in the CLI config stay, except for a console on a server, which uses `--strict-mcp-config`.
 
-| CLI | Cara menerima | Rahasia |
+| CLI | How it receives them | Secrets |
 |---|---|---|
-| Claude Code | `--mcp-config "$NB_MCP"` | `${NB_MCP_…}` di header dan `env`, diekspansi CLI |
-| Codex | `-c "$NB_CODEX_MCP_n"`: `mcp_servers.<nama>.url` dan `env_http_headers`, atau `command`, `args`, `env_vars` | Codex hanya meneruskan variabel dengan namanya sendiri, jadi `sh` kecil memberi nama aslinya; dua server boleh sama-sama memakai `API_KEY` |
-| OpenCode | `OPENCODE_CONFIG_CONTENT`: `mcp.<nama>`, izin `<nama>_*: ask` | `{env:NB_MCP_…}` |
-| Agen lain | tidak menerima | — |
+| Claude Code | `--mcp-config "$NB_MCP"` | `${NB_MCP_…}` in headers and `env`, expanded by the CLI |
+| Codex | `-c "$NB_CODEX_MCP_n"`: `mcp_servers.<name>.url` and `env_http_headers`, or `command`, `args`, `env_vars` | Codex only passes on variables by their own name, so a small `sh` gives them their real names; two servers may both use `API_KEY` |
+| OpenCode | `OPENCODE_CONFIG_CONTENT`: `mcp.<name>`, permission `<name>_*: ask` | `{env:NB_MCP_…}` |
+| Other agents | do not receive them | — |
 
-**Rahasia.** Nilai header dan environment disegel dengan kunci hub (`secret.Box`) di `<data>/mcp-servers.json`, tidak pernah dikirim balik ke klien (hanya `set: true`), dan keluar dari hub hanya lewat environment proses CLI, tidak pernah lewat argumen. Yang **tidak** dilindungi: agent di This PC yang punya Bash berjalan sebagai user yang sama, jadi bisa membaca environment-nya sendiri dan folder data hub. Ini sama seperti MCP di `~/.claude.json`: jangan beri token yang tidak boleh dilihat agent.
+**Secrets.** Header and environment values are sealed with the hub key (`secret.Box`) in `<data>/mcp-servers.json`, never sent back to a client (only `set: true`), and leave the hub only through the CLI process's environment, never through arguments. What is **not** protected: an agent on This PC that has Bash runs as the same user, so it can read its own environment and the hub's data folder. This is the same as MCP in `~/.claude.json`: do not give it a token the agent must not see.
 
-**Izin pakai tool** mengikuti CLI masing-masing; hub tidak menyetujuinya atas nama pengguna.
+**Tool use permissions** follow each CLI; the hub does not approve them on the user's behalf.
 
-**Login OAuth** tidak dilakukan hub. Bila server menjawab 401 atau 403, Try memberi tahu: pakai token sebagai header kalau server menerimanya, atau login sekali di tiap CLI lewat perintah `/mcp`.
+**OAuth login** is not done by the hub. When a server answers 401 or 403, Try says so: use a token as a header if the server accepts one, or log in once in each CLI through the `/mcp` command.
 
-**Di server (§21).** CLI tetap berjalan di This PC, jadi server berbasis perintah akan bertindak di This PC, bukan di server tujuan. `onServers` default mati untuk perintah dan nyala untuk URL.
+**On a server (§21).** The CLI still runs on This PC, so a command-based server would act on This PC, not on the target server. `onServers` defaults to off for commands and on for URLs.
 
-Agent yang sedang berjalan mendapat perubahan saat restart berikutnya.
+A running agent gets the changes at its next restart.
 
 | Method | Path | Request | Response / error |
 |---|---|---|---|
-| GET | `/api/mcp/servers` | — | `{"items":[Server]}`, nilai disembunyikan |
-| POST | `/api/mcp/servers` (admin) | `Server` | `201 Server`; `400 bad_mcp`; `409 mcp_exists`; `409 too_many_mcp` (maksimal 32) |
-| PUT | `/api/mcp/servers/{id}` (admin) | `Server` | `Server`. Variabel tanpa `value` mempertahankan nilainya; yang tidak dikirim dihapus |
+| GET | `/api/mcp/servers` | — | `{"items":[Server]}`, values hidden |
+| POST | `/api/mcp/servers` (admin) | `Server` | `201 Server`; `400 bad_mcp`; `409 mcp_exists`; `409 too_many_mcp` (at most 32) |
+| PUT | `/api/mcp/servers/{id}` (admin) | `Server` | `Server`. A variable without `value` keeps its value; one not sent is deleted |
 | DELETE | `/api/mcp/servers/{id}` (admin) | — | `{"ok":true}`; `404 mcp_not_found` |
-| POST | `/api/mcp/servers/{id}/test` (admin) | — | `{"ok","tools":["…"],"needsLogin"?,"error"?,"tookMs"}`. Hub berbicara dengan server seperti CLI: `initialize` lalu `tools/list`. Batas 20 detik untuk URL, 45 detik untuk perintah; proses dan anaknya dimatikan setelah selesai |
+| POST | `/api/mcp/servers/{id}/test` (admin) | — | `{"ok","tools":["…"],"needsLogin"?,"error"?,"tookMs"}`. The hub talks to the server like a CLI: `initialize` then `tools/list`. A limit of 20 seconds for URLs, 45 seconds for commands; the process and its children are killed when done |
 
 ```jsonc
 // Server
-{ "id": "tickets",            // ^[a-z][a-z0-9_-]{0,31}$; "nextboard" dicadangkan
+{ "id": "tickets",            // ^[a-z][a-z0-9_-]{0,31}$; "nextboard" is reserved
   "description"?: "…", "transport": "http" | "stdio",
-  "url": "https://…", "headers": [{ "name": "Authorization", "value"?: "tulis saja", "set": true }],
+  "url": "https://…", "headers": [{ "name": "Authorization", "value"?: "write only", "set": true }],
   "command": "npx", "args": ["-y", "…"], "env": [{ "name": "API_KEY", "value"?: "…", "set": true }],
-  "projects": [],             // kosong = semua project
+  "projects": [],             // empty = all projects
   "onServers": true, "enabled": true }
 ```
 
-## 24. Editor sebagai IDE Claude Code
+## 24. The editor as Claude Code's IDE
 
-Extension VS Code Claude Code tidak bisa berjalan di Monaco (kode, webview). Yang dibuat hub adalah sisi lain dari sambungannya: CLI `claude` mencari server MCP bernama `ide`, dan hub menjadi server itu, sehingga console Claude di board memakai card editor sebagai IDE-nya tanpa extension apa pun. Kode: `internal/idelink`, `internal/server/h_ide.go`, `web/src/studio/code/ideLink.ts`, `IdeProposal.tsx`.
+The Claude Code VS Code extension cannot run in Monaco (code, webview). What the hub builds is the other side of its connection: the `claude` CLI looks for an MCP server named `ide`, and the hub becomes that server, so a Claude console on the board uses the editor card as its IDE without any extension. Code: `internal/idelink`, `internal/server/h_ide.go`, `web/src/studio/code/ideLink.ts`, `IdeProposal.tsx`.
 
-**Siapa dapat:** console agent berbasis Claude di This PC dengan project di This PC, pada board, selama `settings.agents.ideLink` (default `true`). Console yang bekerja di server lewat tool hub (§21) belum. Setelan berlaku saat console diluncurkan.
+**Who gets it:** Claude-based agent consoles on This PC with a project on This PC, on a board, while `settings.agents.ideLink` (default `true`). Consoles working on a server through the hub tools (§21) not yet. The setting applies when the console is launched.
 
-**Sambungan:** tiap console punya server sendiri di `127.0.0.1:<port acak>`, jadi hub tahu console mana yang meminta sesuatu. Env peluncuran: `CLAUDE_CODE_SSE_PORT`, `ENABLE_IDE_INTEGRATION=true`, `CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL=1` (tanpa ini CLI mencoba memasang extension-nya ke IDE yang ia temukan). Lock: `<config CLI>/ide/<port>.lock`, mode `0600` di folder `0700`, berisi `pid`, `workspaceFolders`, `ideName: "NextBoard"`, `transport: "ws"`, `authToken` (32 hex). Dihapus saat console dihapus dan saat hub berhenti; sisa hub yang mati dibersihkan pada penulisan lock berikutnya. Koneksi ditolak bila `X-Claude-Code-Ide-Authorization` salah (`401`) atau ada header `Origin` (`403`): CLI tidak mengirimnya, halaman web selalu mengirimnya. Transport `ws://` polos, sama seperti server milik extension: siapa pun yang bisa menyadap loopback juga bisa membaca lock.
+**Connection:** every console has its own server on `127.0.0.1:<random port>`, so the hub knows which console is asking for something. Launch env: `CLAUDE_CODE_SSE_PORT`, `ENABLE_IDE_INTEGRATION=true`, `CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL=1` (without this the CLI tries to install its extension into the IDE it finds). Lock: `<CLI config>/ide/<port>.lock`, mode `0600` in a `0700` folder, holding `pid`, `workspaceFolders`, `ideName: "NextBoard"`, `transport: "ws"`, `authToken` (32 hex). Deleted when the console is deleted and when the hub stops; leftovers of a hub that died are cleaned up on the next lock write. A connection is refused when `X-Claude-Code-Ide-Authorization` is wrong (`401`) or there is an `Origin` header (`403`): the CLI does not send one, a web page always does. The transport is plain `ws://`, the same as the extension's own server: anyone who can sniff loopback can also read the lock.
 
-**Browser:** `GET (WebSocket) /api/workspaces/{id}/ide/ws`, cookie dan origin seperti WebSocket lain, `404` untuk workspace yang tidak ada. Satu pesan JSON per text frame.
+**Browser:** `GET (WebSocket) /api/workspaces/{id}/ide/ws`, cookie and origin as for other WebSockets, `404` for a workspace that does not exist. One JSON message per text frame.
 
-| Arah | Pesan |
+| Direction | Message |
 |---|---|
 | browser → hub | `{"t":"selection","selection":{text,filePath,fileUrl,selection:{start,end,isEmpty}}}`, `{"t":"tabs","tabs":[…]}`, `{"t":"mention","session","mention":{filePath,lineStart?,lineEnd?}}`, `{"t":"reply","id","result"}` |
 | hub → browser | `{"t":"call","id","tool","args","session":{id,name}}`, `{"t":"cancel","id"}`, `{"t":"consoles","items":[{id,name}]}` |
 
-Bila beberapa browser membuka card yang sama, yang terakhir mengirim selection yang menjawab.
+When several browsers open the same card, the one that last sent a selection answers.
 
-**Tool:** `openDiff`, `close_tab`, `closeAllDiffTabs`, `getDiagnostics`, `getCurrentSelection`, `getLatestSelection`, `getOpenEditors`, `getWorkspaceFolders`, `checkDocumentDirty`, `saveDocument`, `openFile`. `executeCode` (Jupyter) tidak ada. Tool selain `openDiff` menunggu browser paling lama 8 detik. Tanpa card editor yang terbuka setiap tool tetap menjawab: `openDiff` dengan error supaya CLI bertanya di terminal, sisanya dengan jawaban kosong.
+**Tools:** `openDiff`, `close_tab`, `closeAllDiffTabs`, `getDiagnostics`, `getCurrentSelection`, `getLatestSelection`, `getOpenEditors`, `getWorkspaceFolders`, `checkDocumentDirty`, `saveDocument`, `openFile`. `executeCode` (Jupyter) is not there. Tools other than `openDiff` wait for the browser for at most 8 seconds. Without an open editor card every tool still answers: `openDiff` with an error so the CLI asks in the terminal, the rest with an empty answer.
 
-**Selection:** ikut ke model pada tiap prompt, oleh CLI. Tidak dikirim bila preferensi editor *Share selected text* mati, bila file diabaikan git, atau bila namanya `.env`, `.env.*`, `*.pem`, `*.key`. Selection dipotong di 256 KB.
+**Selection:** goes to the model with every prompt, sent by the CLI. Not sent when the editor preference *Share selected text* is off, when the file is ignored by git, or when its name is `.env`, `.env.*`, `*.pem`, `*.key`. The selection is cut at 256 KB.
 
-**Usulan perubahan:** `openDiff` membuka tab `ide:<tab_name>`: kiri isi di disk, kanan usulan yang masih bisa diedit, tiap perubahan punya panah batal di tengah. Accept atau Ctrl+S menjawab `FILE_SAVED` dengan teks akhirnya, dan CLI yang menulis file. Reject atau menutup tab menjawab `DIFF_REJECTED`. Menjawab di terminal membuat CLI memanggil `close_tab`, jadi tabnya tertutup sendiri. Diff hanya muncul bila CLI meminta izin: pada permission mode `auto`, `acceptEdits`, dan yolo CLI menulis langsung.
+**Proposed changes:** `openDiff` opens an `ide:<tab_name>` tab: the content on disk on the left, the proposal on the right, still editable, and every change has an undo arrow in the middle. Accept or Ctrl+S answers `FILE_SAVED` with its final text, and the CLI writes the file. Reject or closing the tab answers `DIFF_REJECTED`. Answering in the terminal makes the CLI call `close_tab`, so the tab closes by itself. A diff only appears when the CLI asks for permission: in permission mode `auto`, `acceptEdits` and yolo the CLI writes directly.
 
-**Mention:** Alt+K, menu editor, atau palette menaruh `@file#Lx-y` di prompt console; bila ada beberapa console, editor bertanya yang mana.
+**Mention:** Alt+K, the editor menu or the palette puts `@file#Lx-y` into the console prompt; when there are several consoles, the editor asks which one.
 
-**Sumber protokol:** halaman *The built-in IDE MCP server* di dokumentasi Claude Code (lock, token, nama tool model), `PROTOCOL.md` claudecode.nvim (bentuk tool internal), dan pengamatan CLI 2.1.317. Bagian internal tidak dijanjikan stabil oleh Anthropic: bila CLI berubah, console tetap jalan dan hanya kehilangan sambungan editornya.
+**Protocol sources:** the page *The built-in IDE MCP server* in the Claude Code documentation (lock, token, model tool names), claudecode.nvim's `PROTOCOL.md` (the shape of internal tools), and observation of CLI 2.1.317. Anthropic does not promise the internal part is stable: when the CLI changes, the console keeps running and only loses its editor connection.
 
-**Verifikasi (This PC, 2026-11-03):** `go test -race ./internal/idelink` (CLI dan browser palsu). CLI asli 2.1.317 lawan server model palsu di hub tes terisolasi, tanpa token: selection sampai ke model, `.env` tidak, Accept, editan tangan lalu Ctrl+S, Reject, jawab di terminal, file baru, `mcp__ide__getDiagnostics` membawa error dari Monaco, Alt+K menjadi `@src/app.ts#L1-2`, card tertutup jatuh ke prompt terminal, lock hilang bersama console. Belum diuji: Claude yang login dengan model sungguhan.
+**Verification (This PC, 2026-11-03):** `go test -race ./internal/idelink` (fake CLI and browser). The real CLI 2.1.317 against a fake model server in an isolated test hub, without a token: the selection reaches the model, `.env` does not, Accept, a hand edit then Ctrl+S, Reject, answering in the terminal, a new file, `mcp__ide__getDiagnostics` carries the errors from Monaco, Alt+K becomes `@src/app.ts#L1-2`, a closed card falls back to the terminal prompt, the lock disappears with the console. Not tested yet: a logged-in Claude with a real model.
 
-## 25. Model dan effort per console
+## 25. Model and effort per console
 
-**Daftar model.** `GET /api/machines/{id}/agents/{agent}/models?profileId=` → `{"models":[{"id","name","description"?,"efforts"?,"defaultEffort"?}],"efforts":[…],"current"?,"currentEffort"?,"source"}`. Agent selalu jalan di This PC, jadi daftarnya dibaca di sana, dari folder config login yang dipakai. `current` dan `currentEffort` adalah yang dipakai CLI bila tidak diberi tahu apa-apa.
+**Model list.** `GET /api/machines/{id}/agents/{agent}/models?profileId=` → `{"models":[{"id","name","description"?,"efforts"?,"defaultEffort"?}],"efforts":[…],"current"?,"currentEffort"?,"source"}`. Agents always run on This PC, so the list is read there, from the config folder of the login in use. `current` and `currentEffort` are what the CLI uses when it is told nothing.
 
-| Agent | Sumber (`source`) | Isi |
+| Agent | Source (`source`) | Contents |
 |---|---|---|
-| Codex | `cache`: `models_cache.json` di `CODEX_HOME`; kalau belum ada, `command`: `codex debug models` | Model dengan `visibility: list`, urut `priority`, efforts per model. `current` dari `config.toml` |
-| Claude Code | `known`: alias `opus`, `sonnet`, `haiku`, plus `additionalModelOptionsCache` di `.claude.json` | CLI ini tidak punya perintah daftar model. Alias mengikuti model terbaru. Efforts sesuai `claude --help`. `current` dari `settings.json` |
-| OpenCode | `command`: `opencode models` (≤ 400 baris) | Tanpa effort |
-| Gemini CLI | `none` | Nama model diketik |
-| Agent kustom | Sama dengan `base`-nya | |
-| Lainnya | `none`, `models: false` di katalog | Flag-nya belum diketahui, jadi tidak ada picker |
+| Codex | `cache`: `models_cache.json` in `CODEX_HOME`; if it does not exist yet, `command`: `codex debug models` | Models with `visibility: list`, ordered by `priority`, efforts per model. `current` from `config.toml` |
+| Claude Code | `known`: the aliases `opus`, `sonnet`, `haiku`, plus `additionalModelOptionsCache` in `.claude.json` | This CLI has no model list command. The aliases follow the newest model. Efforts as in `claude --help`. `current` from `settings.json` |
+| OpenCode | `command`: `opencode models` (≤ 400 lines) | No effort |
+| Gemini CLI | `none` | The model name is typed |
+| Custom agent | The same as its `base` | |
+| Others | `none`, `models: false` in the catalog | Their flags are not known yet, so there is no picker |
 
-Field katalog `models` dan `efforts` menyatakan apakah peluncuran bisa menyebutnya. Picker selalu punya "Other…" untuk nama yang tidak terdaftar. Nama divalidasi (`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,127}$`, effort `^[a-z][a-z0-9_-]{0,23}$`); yang lain `400`.
+The catalog fields `models` and `efforts` state whether a launch can name them. The picker always has "Other…" for a name that is not listed. Names are validated (`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,127}$`, effort `^[a-z][a-z0-9_-]{0,23}$`); anything else is `400`.
 
-**Flag.** Claude `--model X --effort Y`, Codex `-m X -c model_reasoning_effort=Y`, Gemini dan OpenCode `-m X`. Nilainya masuk per peluncuran lewat `$NB_MODEL` dan `$NB_EFFORT` di depan baris wrapper (§3.2), sehingga agent yang distart ulang dari shell (§3.3) juga membawanya. Tidak ada config CLI yang ditulis.
+**Flags.** Claude `--model X --effort Y`, Codex `-m X -c model_reasoning_effort=Y`, Gemini and OpenCode `-m X`. The values go in per launch through `$NB_MODEL` and `$NB_EFFORT` in front of the wrapper line (§3.2), so an agent restarted from the shell (§3.3) carries them too. No CLI config is written.
 
-**Default.** `settings.agents.models[agentId]` dan `settings.agents.roleModels[role]`, masing-masing `{"model"?,"effort"?}`, dihapus dengan `null`. Console baru memakai pilihan role bila agent slot-nya adalah `roleAgents[role]`, lalu pilihan agent, per field. Di `POST /api/sessions`, slot `spawn` dan `deploy`, handoff, dan `restart`: `model`/`effort` tidak dikirim berarti default (di `restart`: yang sedang dipakai console), `""` berarti pilihan CLI sendiri. Form spawn menampilkan default itu sebagai nilai awal dan mengirim pilihannya; opsi "Default" di form berarti pilihan CLI, sedangkan di Settings berarti tidak ada default.
+**Defaults.** `settings.agents.models[agentId]` and `settings.agents.roleModels[role]`, each `{"model"?,"effort"?}`, removed with `null`. A new console uses the role's choice when its slot's agent is `roleAgents[role]`, then the agent's choice, per field. In `POST /api/sessions`, the `spawn` and `deploy` slots, handoff and `restart`: `model`/`effort` not sent means the default (in `restart`: what the console is using now), `""` means the CLI's own choice. The spawn form shows that default as the initial value and sends its choice; the "Default" option in the form means the CLI's choice, while in Settings it means no default.
 
-**Bertahan saat restart.** `/model` dan `/effort` di Claude Code menulis default ke `settings.json` folder config, yang dipakai bersama semua console login itu: console A jadi mengikuti pilihan terakhir console B. Maka `Spec.Model` dan `Spec.Effort` milik console, dikirim sebagai flag di setiap peluncuran, termasuk resume, restart hub, dan start dari shell.
+**Surviving a restart.** `/model` and `/effort` in Claude Code write the default to the config folder's `settings.json`, which is shared by every console on that login: console A would end up following console B's last choice. So `Spec.Model` and `Spec.Effort` belong to the console, and are sent as flags at every launch, including resume, hub restart and start from the shell.
 
-Pilihan di dalam CLI diambil dari transcript sebelum setiap peluncuran dan di akhir setiap giliran:
+Choices made inside the CLI are taken from the transcript before every launch and at the end of every turn:
 
-- Claude Code: pasangan `<command-name>/model</command-name>` + `<local-command-stdout>Set model to …`. Argumen perintah dipakai bila ada; kalau dari picker, nama tampilan diubah (`Sonnet 5.5` → `claude-sonnet-5-5`, `Default (…)` → kosong). Nama yang tidak terbaca menunggu `message.model` balasan berikutnya. `/effort` sama, dari `Set effort level to …`.
-- Codex: `turn_context` terakhir (`model`, `effort` atau `collaboration_mode.settings.reasoning_effort`).
-- Console yang tidak memilih apa pun di-pin ke model balasan terakhirnya, jadi tidak ikut berubah saat default bersama berubah. Fallback otomatis CLI saat limit tidak mengubah model console yang sudah punya pilihan.
+- Claude Code: the pair `<command-name>/model</command-name>` + `<local-command-stdout>Set model to …`. The command's argument is used when present; when it came from the picker, the display name is converted (`Sonnet 5.5` → `claude-sonnet-5-5`, `Default (…)` → empty). A name that cannot be read waits for the `message.model` of the next reply. `/effort` is the same, from `Set effort level to …`.
+- Codex: the last `turn_context` (`model`, `effort` or `collaboration_mode.settings.reasoning_effort`).
+- A console that chose nothing is pinned to the model of its last reply, so it does not change along with the shared default. The CLI's automatic fallback at a limit does not change the model of a console that already has a choice.
 
-Isi transcript sebelum `ModelAt` (kapan hub terakhir diberi tahu pilihan, tersimpan di `sessions.json`, tidak dikirim ke klien) diabaikan, sehingga pilihan lewat dialog tidak ditimpa `/model` lama. Ganti agent mengambil default agent itu; kembali ke percakapan lama mengambil model yang tersimpan di `PastRun`.
+Transcript content before `ModelAt` (when the hub was last told about a choice, stored in `sessions.json`, not sent to clients) is ignored, so a choice made through the dialog is not overwritten by an old `/model`. Switching agent takes that agent's default; going back to an old conversation takes the model stored in `PastRun`.
 
-**UI.** Rail Spawn (flyout tetap terbuka untuk memilih model, klik board menaruh), ring Spawn agent, form New console, Compose group (satu baris per agent di slot), dan **Agent and model…** di menu console. Bila agent dan login sama, dialog itu me-restart console dengan percakapan yang sama. Header console menampilkan model dan effort-nya. Settings › Agents › **Default models** mengatur default per agent dan per role.
+**UI.** The Spawn rail (the flyout stays open for picking a model, a click on the board places it), the Spawn agent ring, the New console form, Compose group (one row per agent in the slot), and **Agent and model…** in the console menu. When the agent and login are the same, that dialog restarts the console with the same conversation. The console header shows its model and effort. Settings › Agents › **Default models** sets the defaults per agent and per role.
 
-## 26. Agen tidak menandatangani commit (keputusan #33)
+## 26. Agents do not sign commits (decision #33)
 
-Default `settings.agents.coAuthor: false`: commit dari console agen tidak membawa baris `Co-authored-by` atau "Generated with" untuk tool AI, di semua project dan semua CLI. Berlaku untuk console yang dimulai setelah setting berubah. Claude Code yang dijalankan langsung di mesin, di luar NextBoard, tidak tersentuh.
+Default `settings.agents.coAuthor: false`: commits from agent consoles carry no `Co-authored-by` or "Generated with" line for AI tools, in every project and every CLI. Applies to consoles started after the setting changes. Claude Code run directly on the machine, outside NextBoard, is not touched.
 
-| Lapis | Berlaku untuk | Cara |
+| Layer | Applies to | How |
 |---|---|---|
-| Setting CLI | Claude Code | `attribution` kosong dan `includeCoAuthoredBy:false` lewat `--settings` per peluncuran, tidak menulis file. Terbukti lewat prompt yang tertangkap: instruksi `End git commit messages with: Co-Authored-By` hilang |
-| Instruksi | CLI yang menerima konteks (Claude Code, Codex, OpenCode) | `NoCoAuthorRule` di system prompt. Mencakup pull request, tapi hanya instruksi |
-| Hook git | semua agen di This PC | env `GIT_CONFIG_*` mengarahkan `core.hooksPath` ke `<data>/agents/git-hooks` |
+| CLI setting | Claude Code | an empty `attribution` and `includeCoAuthoredBy:false` through `--settings` per launch, no file written. Proven through a captured prompt: the instruction `End git commit messages with: Co-Authored-By` is gone |
+| Instruction | CLIs that accept context (Claude Code, Codex, OpenCode) | `NoCoAuthorRule` in the system prompt. Covers pull requests, but is only an instruction |
+| Git hook | every agent on This PC | the `GIT_CONFIG_*` env points `core.hooksPath` to `<data>/agents/git-hooks` |
 
-- **Kenapa perlu hook:** Codex 0.165 mengatur atribusinya lewat flag akun/workspace (`commit_attribution_enabled`), dan `commit_attribution` di config tidak terbaca di versi ini. CLI lain di katalog punya caranya sendiri. Hook adalah satu-satunya lapis yang tidak bergantung pada CLI.
-- **Hook meneruskan semua hook** ke milik repo (`.git/hooks` atau `core.hooksPath` repo, misalnya husky), dengan argumen, stdin, dan kode keluarnya. `commit-msg` milik repo jalan dulu, baru baris agen dibuang. Hook tidak pernah memanggil dirinya sendiri.
-- **Yang dibuang:** `Co-authored-by` dengan alamat vendor, atau nama agen dengan alamat bot; dan baris "Generated with/by <agen>". Nama saja tidak cukup: `Claude Dupont <claude.dupont@acme.com>` tetap ada.
-- **Bukan kunci:** `git commit --no-verify`, commit lewat GitHub API, dan console shell biasa melewati hook. Agen yang bekerja di server lewat tool hub hanya kena setting dan instruksi, karena tidak ada yang dipasang di server. Pull request hanya kena setting dan instruksi. Riwayat commit lama tidak diubah.
-- Generator commit NextBoard sendiri sudah membuang baris ini (`gitsvc/suggest.go`).
+- **Why a hook is needed:** Codex 0.165 sets its attribution through an account/workspace flag (`commit_attribution_enabled`), and `commit_attribution` in the config is not read in this version. Other CLIs in the catalog have their own ways. The hook is the only layer that does not depend on the CLI.
+- **The hook passes every hook on** to the repo's own (`.git/hooks` or the repo's `core.hooksPath`, for example husky), with its arguments, stdin and exit code. The repo's `commit-msg` runs first, then the agent lines are dropped. The hook never calls itself.
+- **What is dropped:** `Co-authored-by` with a vendor address, or an agent name with a bot address; and the line "Generated with/by <agent>". A name alone is not enough: `Claude Dupont <claude.dupont@acme.com>` stays.
+- **Not a lock:** `git commit --no-verify`, commits through the GitHub API, and plain shell consoles bypass the hook. An agent working on a server through the hub tools only gets the setting and the instruction, because nothing is installed on the server. Pull requests only get the setting and the instruction. Old commit history is not changed.
+- NextBoard's own commit generator already drops these lines (`gitsvc/suggest.go`).
 
-## 27. Sandbox agen (2026-11-11)
+## 27. Agent sandbox (2026-11-11)
 
-Kunci, bukan instruksi: `project.sandbox` membatasi perintah yang dijalankan agen di project itu. Diatur di catatan kritis project (Memory › Critical notes › Sandbox) atau `PATCH /api/projects/{id} {"sandbox": "" | "workspace" | "offline"}` (`400 bad_sandbox` untuk nilai lain). Berlaku sejak console berikutnya dimulai.
+A lock, not an instruction: `project.sandbox` restricts the commands agents run in that project. Set in the project's critical notes (Memory › Critical notes › Sandbox) or with `PATCH /api/projects/{id} {"sandbox": "" | "workspace" | "offline"}` (`400 bad_sandbox` for any other value). Applies from the next console started.
 
-| Nilai | Perintah agen boleh menulis | Jaringan |
+| Value | Agent commands may write | Network |
 |---|---|---|
-| `""` | apa yang dibolehkan CLI-nya sendiri | apa yang dibolehkan CLI-nya |
-| `workspace` | folder project, folder temp, dan cache paket yang ada (`~/.cache`, `~/.npm`, `~/go/pkg/mod`, `~/.cargo/registry`, `~/.cargo/git`, `~/.bun/install/cache`, `~/.local/share/pnpm`, `~/.m2/repository`, `~/.gradle/caches`, `~/.composer/cache`, `~/.pub-cache`, `$GOMODCACHE`) | ya |
-| `offline` | sama | tidak |
+| `""` | whatever its own CLI allows | whatever its CLI allows |
+| `workspace` | the project folder, the temp folder, and the package caches that exist (`~/.cache`, `~/.npm`, `~/go/pkg/mod`, `~/.cargo/registry`, `~/.cargo/git`, `~/.bun/install/cache`, `~/.local/share/pnpm`, `~/.m2/repository`, `~/.gradle/caches`, `~/.composer/cache`, `~/.pub-cache`, `$GOMODCACHE`) | yes |
+| `offline` | the same | no |
 
-- **Codex**: `--sandbox workspace-write -c sandbox_workspace_write.network_access=… -c sandbox_workspace_write.writable_roots=[…]` (Landlock). Console yolo mendapat `--ask-for-approval never`, bukan `--dangerously-bypass-approvals-and-sandbox` yang akan melepas sandbox juga. Diuji 2026-11-11 dengan Codex 0.165 sungguhan lewat API provider: tulis di project jalan, tulis di luar "Read-only file system", jaringan mati, juga dengan yolo. Codex juga mengizinkan `$TMPDIR`; bila itu folder di bawah home, folder itu ikut bisa ditulis.
-- **Claude Code**: `sandbox` di `--settings` (`enabled`, `failIfUnavailable`, `allowUnsandboxedCommands: false`, `autoAllowBashIfSandboxed`, `filesystem.allowWrite`, dan untuk `workspace` `network.allowedDomains: ["*"]`). Sandbox-nya bubblewrap yang di dalamnya membuat user namespace lagi; Ubuntu dengan `kernel.apparmor_restrict_unprivileged_userns=1` menolaknya (`apply-seccomp: write /proc/self/setgroups … Permission denied`). Di mesin seperti itu setiap perintah Claude gagal: tidak ada yang jalan di luar sandbox, tapi juga tidak ada yang jalan. Perbaikannya langkah AppArmor di dokumentasi sandbox Claude Code (butuh root); hub tidak menjalankannya. `GET /api/agents/sandbox` → `{"claude":{"ready","reason"},"codex":{"ready"}}` (probe bwrap + `unshare --user` di dalamnya, disimpan 1 menit) dan UI memperingatkan. Belum pernah diuji di mesin dengan sandbox Claude yang berfungsi, termasuk `allowedDomains: ["*"]` yang belum didokumentasikan.
-- **CLI lain** (OpenCode, Gemini, …) tidak punya sandbox: perintahnya tidak dibatasi; UI mengatakannya.
-- Agen diberi tahu di prompt peluncuran ("Your shell commands run in a sandbox…") supaya tidak mencoba jalan lain.
-- Batas: alat CLI di luar shell (Edit/Write milik Claude Code, MCP, hook) tidak berada di sandbox ini; cache paket bisa ditulis, jadi perintah bisa meninggalkan sesuatu yang dipakai build di luar sandbox nanti. Project di server lewat SSH tidak memakai sandbox ini (agennya bekerja lewat tool hub).
+- **Codex**: `--sandbox workspace-write -c sandbox_workspace_write.network_access=… -c sandbox_workspace_write.writable_roots=[…]` (Landlock). A yolo console gets `--ask-for-approval never`, not `--dangerously-bypass-approvals-and-sandbox`, which would drop the sandbox too. Tested 2026-11-11 with a real Codex 0.165 through an API provider: writing in the project works, writing outside gives "Read-only file system", the network is off, also with yolo. Codex also allows `$TMPDIR`; when that is a folder under home, that folder becomes writable too.
+- **Claude Code**: `sandbox` in `--settings` (`enabled`, `failIfUnavailable`, `allowUnsandboxedCommands: false`, `autoAllowBashIfSandboxed`, `filesystem.allowWrite`, and for `workspace` `network.allowedDomains: ["*"]`). Its sandbox is bubblewrap, which creates another user namespace inside; Ubuntu with `kernel.apparmor_restrict_unprivileged_userns=1` refuses it (`apply-seccomp: write /proc/self/setgroups … Permission denied`). On such a machine every Claude command fails: nothing runs outside the sandbox, but nothing runs at all either. The fix is the AppArmor step in the Claude Code sandbox documentation (needs root); the hub does not run it. `GET /api/agents/sandbox` → `{"claude":{"ready","reason"},"codex":{"ready"}}` (a probe of bwrap + `unshare --user` inside it, kept for 1 minute) and the UI warns. Never tested yet on a machine with a working Claude sandbox, including `allowedDomains: ["*"]`, which is not documented yet.
+- **Other CLIs** (OpenCode, Gemini, …) have no sandbox: their commands are not restricted; the UI says so.
+- The agent is told in the launch prompt ("Your shell commands run in a sandbox…") so it does not try another way.
+- Limits: CLI tools outside the shell (Claude Code's own Edit/Write, MCP, hooks) are not in this sandbox; package caches are writable, so a command can leave something behind that a build outside the sandbox uses later. A project on a server over SSH does not use this sandbox (its agent works through the hub tools).
 
-## 28. Agen tidur (ROADMAP #50, 2026-11-13)
+## 28. Sleeping agents (ROADMAP #50, 2026-11-13)
 
-Tiap CLI agen memakai 120–250 MB walau diam di prompt-nya. Diukur di PC pemilik: 25 agen idle ≈ 3,96 GB, 20 di antaranya milik project yang tidak dibuka lebih dari sehari. Setelah hub restart, semuanya hidup sekaligus dan memenuhi swap. Pause (§ API-orchestration 8, SIGSTOP) tidak membebaskan memori.
+Each agent CLI uses 120–250 MB even while idle at its prompt. Measured on the owner's PC: 25 idle agents ≈ 3.96 GB, 20 of them belonging to projects not opened for more than a day. After a hub restart, they all came alive at once and filled the swap. Pause (§ API-orchestration 8, SIGSTOP) does not free memory.
 
-**Tidur.** Hub mengakhiri proses agen (HUP ke grup prosesnya, KILL setelah 3 s) dan menyimpan id percakapan, scrollback, dan teks di prompt yang belum dikirim. Console lalu `status: "asleep"`, `agentState: "asleep"`, `asleep: true`, `asleepAt`, dan terminalnya mendapat baris "── asleep to free memory · wakes when you open it or type ──". Event selama proses berhenti (agent-exit dan sejenisnya) tidak diteruskan, jadi lead dan notifikasi tidak melihatnya sebagai agen yang keluar.
+**Sleep.** The hub ends the agent process (HUP to its process group, KILL after 3 s) and keeps the conversation id, the scrollback and the unsent text at the prompt. The console then has `status: "asleep"`, `agentState: "asleep"`, `asleep: true`, `asleepAt`, and its terminal gets the line "── asleep to free memory · wakes when you open it or type ──". Events while the process stops (agent-exit and the like) are not passed on, so the lead and notifications do not see it as an agent that exited.
 
-**Tidur otomatis** (`settings.agents.sleepAfterMin`, bawaan 30, `0` = tidak pernah, maks 1440; dicek tiap 30 s). Semua harus benar:
-- console agen yang dijalankan hub (bukan agen yang diketik sendiri di shell), prosesnya di This PC (termasuk agen gaya server, §21);
-- berjalan, `agentState: ready`, tidak di-pause, tidak `keepAwake`;
-- tidak ada terminal yang terbuka (WebSocket terminal), dan tidak ada input, output, atau perubahan state selama waktu idle;
-- tidak ada delivery aktif, order yang belum selesai, atau handoff dari/ke console ini;
-- id percakapannya diketahui: Codex yang hanya bisa `resume --last` tetap bangun, karena bisa melanjutkan percakapan lain;
-- tidak menjalankan perintah: tidak ada shell di bawah proses agen (`ps`), misalnya perintah Bash yang masih jalan atau dev server yang dijalankan dari sana;
-- teks di prompt diketahui persis (Draft di bawah).
+**Automatic sleep** (`settings.agents.sleepAfterMin`, default 30, `0` = never, max 1440; checked every 30 s). All of these must hold:
+- an agent console the hub started (not an agent typed by hand in a shell), with its process on This PC (including server-style agents, §21);
+- running, `agentState: ready`, not paused, not `keepAwake`;
+- no open terminal (terminal WebSocket), and no input, output or state change during the idle time;
+- no active delivery, unfinished order, or handoff from/to this console;
+- its conversation id is known: a Codex that can only `resume --last` stays awake, because it could continue a different conversation;
+- not running a command: no shell under the agent process (`ps`), for example a Bash command still running or a dev server started from there;
+- the text at the prompt is known exactly (Draft below).
 
-**Tidur sekarang.** `POST /api/sessions/{id}/sleep` → `Session`. Mengabaikan terminal yang terbuka, waktu idle, dan output 2 detik terakhir; syarat lain tetap. `409 cannot_sleep` dengan `reason`: `not_agent`, `remote`, `not_running`, `keep_awake`, `paused`, `busy`, `watched`, `recent`, `queued`, `held`, `no_conversation`, `draft_unsure`, `command_running`.
+**Sleep now.** `POST /api/sessions/{id}/sleep` → `Session`. Ignores an open terminal, the idle time and output in the last 2 seconds; the other requirements stay. `409 cannot_sleep` with a `reason`: `not_agent`, `remote`, `not_running`, `keep_awake`, `paused`, `busy`, `watched`, `recent`, `queued`, `held`, `no_conversation`, `draft_unsure`, `command_running`.
 
-**Bangun.** Resume percakapannya, atau mulai baru bila percakapannya belum pernah tersimpan:
-- terminalnya dibuka (board dibuka);
-- diketik (WebSocket atau `POST …/input`): tombolnya disimpan dan diketik setelah draft;
-- teks untuknya (order lead, loop, handoff, kirim dari UI atau API): delivery engine membangunkannya dan menunggu dengan alasan `starting`;
-- grup ketik bersama: peer yang tidur ikut bangun;
+**Waking.** Resumes its conversation, or starts a new one when the conversation was never saved:
+- its terminal is opened (the board is opened);
+- typed into (WebSocket or `POST …/input`): the keys are kept and typed after the draft;
+- text for it (a lead order, a loop, a handoff, a send from the UI or API): the delivery engine wakes it and waits with the reason `starting`;
+- a shared typing group: sleeping peers wake too;
 - `POST /api/sessions/{id}/wake` → `Session` (`409 not_asleep`).
 
-Kill pada console yang tidur → `exited`, dan ia tidak bangun sendiri. Restart menjalankan proses baru seperti biasa.
+Kill on a sleeping console → `exited`, and it does not wake by itself. Restart runs a new process as usual.
 
-**Draft.** Hub mengikuti input ke prompt sejak Enter terakhir: ketikan, backspace, dan paste berbingkai (`ESC[200~ … ESC[201~`). Tombol yang tidak bisa diikuti persis (panah, riwayat, Tab, Ctrl-U, Escape, Alt+tombol) membuatnya tidak pasti sampai Enter berikutnya, dan console itu tidak ditidurkan. Tombol saat agen menampilkan dialog (`needsYou`) bukan untuk prompt dan tidak dihitung. Sebelum tidur, layar harus menunjukkan akhir draft, atau "[Pasted text …]" untuk paste panjang yang dilipat Claude.
+**Draft.** The hub follows input to the prompt since the last Enter: typing, backspace and bracketed paste (`ESC[200~ … ESC[201~`). Keys that cannot be followed exactly (arrows, history, Tab, Ctrl-U, Escape, Alt+key) make it uncertain until the next Enter, and that console is not put to sleep. Keys while the agent shows a dialog (`needsYou`) are not for the prompt and are not counted. Before sleeping, the screen must show the end of the draft, or "[Pasted text …]" for a long paste that Claude folds.
 
-Saat bangun, hub menunggu `ready` dan layar yang menunjukkan prompt input (pemeriksaan yang sama dengan delivery, jadi tidak pernah ke dialog update atau trust), lalu mem-paste draft dalam bracketed paste tanpa Enter dan memeriksa bahwa ia muncul. Kalau gagal, tidak ada yang diketik: draft, ditambah tombol yang diketik selama bangun, tersedia di `unsentDraft`, dan tile menampilkan bar dengan Copy dan Dismiss. `DELETE /api/sessions/{id}/draft` → `Session` membuangnya. Draft disimpan di `sessions.json` (data hub) dan tidak ada di API kecuali sebagai `unsentDraft`.
+On waking, the hub waits for `ready` and a screen that shows the input prompt (the same check as delivery, so never into an update or trust dialog), then pastes the draft in a bracketed paste without Enter and checks that it appears. If that fails, nothing is typed: the draft, plus the keys typed while waking, is available in `unsentDraft`, and the tile shows a bar with Copy and Dismiss. `DELETE /api/sessions/{id}/draft` → `Session` discards it. The draft is stored in `sessions.json` (hub data) and is not in the API except as `unsentDraft`.
 
-**Mulai saat dibutuhkan** (`settings.agents.lazyStart`, bawaan `true`). Setelah hub restart, console agen di This PC yang akan di-resume (`resumeOnRestart: "auto"`, id percakapan diketahui, tidak `keepAwake`) dibiarkan tidur, dengan baris "── asleep since the hub restarted · wakes when you open it or type ──". Yang tidur sebelum restart tetap tidur. `ask` dan `never` tidak berubah.
+**Start when needed** (`settings.agents.lazyStart`, default `true`). After a hub restart, agent consoles on This PC that would be resumed (`resumeOnRestart: "auto"`, conversation id known, not `keepAwake`) are left asleep, with the line "── asleep since the hub restarted · wakes when you open it or type ──". Those asleep before the restart stay asleep. `ask` and `never` do not change.
 
-**Keep awake.** `PATCH /api/sessions/{id}` `{"keepAwake": true}`: console ini tidak pernah ditidurkan.
+**Keep awake.** `PATCH /api/sessions/{id}` `{"keepAwake": true}`: this console is never put to sleep.
 
-**Project terbaru tetap bangun** (`settings.agents.keepRecentProjects`, bawaan 2, 0–10). Agen dari project yang paling akhir dibuka (yang dibuka dalam 24 jam terakhir) tidak ditidurkan saat idle, dan setelah hub restart langsung dijalankan di latar. Kembali ke salah satunya instan. Sleep now tetap bisa menidurkannya (`409 cannot_sleep` dengan `reason: "recent_project"` hanya untuk tidur otomatis).
+**Recent projects stay awake** (`settings.agents.keepRecentProjects`, default 2, 0–10). Agents of the most recently opened projects (those opened in the last 24 hours) are not put to sleep when idle, and after a hub restart they are started right away in the background. Going back to one of them is instant. Sleep now can still put them to sleep (`409 cannot_sleep` with `reason: "recent_project"` is for automatic sleep only).
 
-**Bangun lebih awal.** Agen butuh sekitar 3 detik untuk siap setelah bangun (diukur 2026-11-14: Claude Code 2.1.323 resume 2,7–3,2 dtk untuk percakapan 0,2–18 MB; hub sendiri 67 ms; CLI tidak memutar ulang riwayatnya, hanya 2–6 KB output). Jadi hub diberi tahu sebelum terminal tersambung: `POST /api/projects/{id}/wake` `{"workspaceId"?}` → `{"woken": n}` membangunkan agen yang tidur di project itu (atau satu board-nya), hanya yang tidur. Web memanggilnya saat halaman project dibuka, dan saat ada niat membuka: mouse diam 150 ms di kartu project di Home, tekan, atau fokus keyboard yang bertahan 300 ms; paling sering sekali per 20 dtk per project. Diukur pada board 6 agen dengan agen palsu yang butuh 3 dtk untuk mulai: semua siap 0,6 dtk bila sudah bangun, 3,6 → 3,5 dtk lewat tautan, 2,8 dtk setelah klik bila mouse diam 0,5 dtk di kartu dulu. Browser tidak menjadi lebih berat (long task 65–140 ms di kedua kasus).
+**Waking early.** An agent needs about 3 seconds to be ready after waking (measured 2026-11-14: Claude Code 2.1.323 resumes in 2.7–3.2 s for conversations of 0.2–18 MB; the hub itself 67 ms; the CLI does not replay its history, only 2–6 KB of output). So the hub is told before the terminal connects: `POST /api/projects/{id}/wake` `{"workspaceId"?}` → `{"woken": n}` wakes the sleeping agents in that project (or one of its boards), only those asleep. The web calls it when the project page is opened, and when there is an intent to open: the mouse resting 150 ms on a project card on Home, a press, or keyboard focus that stays 300 ms; at most once per 20 s per project. Measured on a board of 6 agents with fake agents that need 3 s to start: all ready in 0.6 s when already awake, 3.6 → 3.5 s through a link, 2.8 s after the click when the mouse first rested 0.5 s on the card. The browser does not get heavier (long tasks of 65–140 ms in both cases).
 
-**Lead dan delivery.** `asleep` dihitung seperti `ready` untuk memilih console yang bebas, pemicu loop `agentIdle`, handoff, dan kirim ke banyak console; teks untuknya membangunkannya. Mission Map menghitungnya sebagai `idle`, dan juga di `counts.asleep`. Order dan handoff yang sedang berjalan menahan console tetap bangun.
+**Lead and delivery.** `asleep` counts like `ready` for picking a free console, the `agentIdle` loop trigger, handoff, and sending to many consoles; text for it wakes it. Mission Map counts it as `idle`, and also in `counts.asleep`. Running orders and handoffs keep a console awake.
 
-**UI.** Pill "Asleep" (abu-abu); menu console: Sleep now atau Wake now, dan Keep awake; header: "· N asleep"; Settings › Agents: "Start agents when they are needed", "Idle agents sleep after" (Never, 15 min, 30 min, 1 h, 4 h) dan "Keep recent projects awake" (None, Last 1, Last 2, Last 3).
+**UI.** An "Asleep" pill (gray); the console menu: Sleep now or Wake now, and Keep awake; the header: "· N asleep"; Settings › Agents: "Start agents when they are needed", "Idle agents sleep after" (Never, 15 min, 30 min, 1 h, 4 h) and "Keep recent projects awake" (None, Last 1, Last 2, Last 3).
 
-**Diuji dengan CLI sungguhan** (`NEXTBOARD_REAL_SLEEP_TEST=1 go test ./internal/server -run TestRealSleepWake`; Claude Code 2.1.323 dan Codex 0.165.0, lewat API provider ke model palsu di loopback, HOME kosong, tanpa akun): satu giliran, draft di prompt, tidur (prosesnya hilang), bangun karena diketik, percakapan yang sama, draft kembali sebelum tombol baru, dan Return mengirim keduanya bersama giliran pertama. Uji ini menemukan masalah string kontrol di §5. Tes menekan Return di dialog hanya bila pilihan "Yes, I trust this folder" (Claude, bawaannya "No, exit") atau "Yes, allow" (Codex) sudah ditandai.
+**Tested with the real CLIs** (`NEXTBOARD_REAL_SLEEP_TEST=1 go test ./internal/server -run TestRealSleepWake`; Claude Code 2.1.323 and Codex 0.165.0, through an API provider to a fake model on loopback, an empty HOME, no account): one turn, a draft at the prompt, sleep (the process is gone), wake by typing, the same conversation, the draft back before the new keys, and Return sends both with the first turn. This test found the control string problem in §5. The test presses Return in a dialog only when the choice "Yes, I trust this folder" (Claude, whose default is "No, exit") or "Yes, allow" (Codex) is already highlighted.
 
-**Juga diuji**: unit (pelacak draft, cek layar, deteksi perintah), server dengan agen palsu bergaya Claude (tidur saat idle, terminal terbuka, keep awake, draft tidak pasti, draft kembali bersama tombol yang diketik saat bangun, bangun lewat terminal, API, dan delivery, kill saat tidur, lazy start pada hub kedua dari data yang sama, bangun ke dialog update tanpa mengetik apa pun), dan e2e (menu, pill, header, bangun saat diketik, setting). **Belum**: CLI sungguhan dengan login (bukan provider), dan bangun lewat membuka board di browser dengan CLI sungguhan. MCP server yang dijalankan lewat shell (`command: "sh"`) terlihat seperti perintah yang jalan, jadi agen itu tidak tidur.
+**Also tested**: unit (draft tracker, screen check, command detection), the server with a fake Claude-style agent (sleep when idle, open terminal, keep awake, uncertain draft, the draft back together with keys typed while waking, waking through the terminal, the API and delivery, kill while asleep, lazy start on a second hub from the same data, waking into an update dialog without typing anything), and e2e (menu, pill, header, wake on typing, settings). **Not yet**: a real CLI with a login (not a provider), and waking by opening the board in a browser with a real CLI. An MCP server started through a shell (`command: "sh"`) looks like a running command, so that agent does not sleep.

@@ -1,4 +1,4 @@
-// Node kinds of board v2 (docs/API-board.md §2 "Kind dan data"): typed views of
+// Node kinds of board v2 (docs/API-board.md §2 "Kind and data"): typed views of
 // `node.data`, defensive readers (data may come from other / newer clients) and the
 // defaults used when a tile is created.
 

@@ -11,7 +11,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// What a connection needs that only a person can give (docs/API.md "Password dan
+// What a connection needs that only a person can give (docs/API.md "Password and
 // passphrase"). A connection that needs it stops there and says what it needs, instead
 // of trying again: a wrong password tried in a loop ends in a ban from the server.
 

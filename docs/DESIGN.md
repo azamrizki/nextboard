@@ -1,63 +1,63 @@
 # NextBoard — design system
 
-**Intent (satu kalimat):** sistem netral monokrom dengan tema terang dan gelap: warna utama adalah tintanya sendiri, border hairline, font Geist, chrome kaca tipis yang mengambang, dan konten kerja (terminal, form, data) di permukaan padat berkontras tinggi supaya cepat dibaca.
+**Intent (one sentence):** a neutral monochrome system with light and dark themes: the primary color is the ink itself, hairline borders, the Geist font, thin floating glass chrome, and work content (terminal, forms, data) on solid high-contrast surfaces so it reads fast.
 
-Berlaku untuk web (`nextboard/web`, juga dipakai app desktop lewat proxy). Layar Hubs desktop (`nextboard-desktop/src`) dan Android (`nextboard-android`, Compose) masih memakai palet biru lama dan hanya gelap: belum dipindah karena fokus sekarang di hub (lihat keputusan 27 di ROADMAP). `web/src/styles/tokens.css` adalah sumber kebenaran untuk nilainya; tabel di bawah hanya yang paling sering dipakai. Nilai mentah di luar token **tidak boleh** dipakai di komponen.
+Applies to the web (`nextboard/web`, also used by the desktop app through a proxy). The desktop Hubs screen (`nextboard-desktop/src`) and Android (`nextboard-android`, Compose) still use the old blue palette and are dark only: not moved yet because the focus is now on the hub (see decision 27 in ROADMAP). `web/src/styles/tokens.css` is the source of truth for the values; the tables below list only the most used ones. Raw values outside the tokens **must not** be used in components.
 
-## 1. Konteks dan tujuan
+## 1. Context and goals
 
-- **Dua tema, satu komponen.** Komponen hanya memakai token, tema hanya mengganti nilainya. `tokens.css` punya tiga blok: `:root` (ukuran, tipografi, motion), `:root, [data-theme='dark']`, dan `[data-theme='light']`. Token warna baru wajib ada di kedua blok warna.
-- **Pilihan per browser:** System (bawaan), Light, Dark di Settings › Appearance; tombol matahari/bulan di header untuk pindah cepat. `data-theme` dipasang di `<html>` sebelum paint pertama oleh `public/theme-boot.js` (berkas terpisah karena CSP hub melarang script inline), lalu diteruskan `lib/theme.ts`.
-- **`data-theme` berlaku di elemen mana pun:** subtree bisa tetap gelap di halaman terang. Dipakai langit Memory (selalu gelap) dan console dengan pilihan "Always dark".
-- **Warna hanya untuk makna:** status, agent, kode, dan yang digambar orang. Sisanya abu-abu.
-- **Satu metafora saja: kaca.** Tidak dicampur neumorphism, skeuomorphism, atau flat-outline. Kedalaman = blur + transparansi + border cahaya, bukan bayangan tebal.
-- **Kaca untuk chrome, padat untuk konten.** Header, toolbar/dock, kartu, modal, menu, toast = kaca. Isi terminal, area teks panjang, dan input = permukaan padat/hampir padat.
-- **Kepadatan nyaman** (comfortable): kontrol 40 px, celah antar-field 16 px, padding kartu 20 px.
-- **Bento**: halaman daftar (Machines, Devices, langkah Setup) memakai grid kartu dengan ukuran berbeda sesuai bobot informasi.
+- **Two themes, one component.** Components use only tokens; a theme only changes their values. `tokens.css` has three blocks: `:root` (sizes, typography, motion), `:root, [data-theme='dark']`, and `[data-theme='light']`. A new color token must be in both color blocks.
+- **Choice per browser:** System (the default), Light, Dark in Settings › Appearance; a sun/moon button in the header to switch fast. `data-theme` is set on `<html>` before the first paint by `public/theme-boot.js` (a separate file because the hub's CSP forbids inline scripts), then carried on by `lib/theme.ts`.
+- **`data-theme` works on any element:** a subtree can stay dark on a light page. Used by the Memory sky (always dark) and consoles with the "Always dark" choice.
+- **Color only for meaning:** status, agents, code, and what people draw. Everything else is grey.
+- **One metaphor only: glass.** Not mixed with neumorphism, skeuomorphism, or flat-outline. Depth = blur + transparency + light border, not heavy shadows.
+- **Glass for chrome, solid for content.** Header, toolbar/dock, cards, modals, menus, toasts = glass. Terminal content, long text areas, and inputs = solid or near-solid surfaces.
+- **Comfortable density**: 40 px controls, 16 px gap between fields, 20 px card padding.
+- **Bento**: list pages (Machines, Devices, Setup steps) use a card grid with sizes that differ by the weight of the information.
 
-## 2. Token dan fondasi
+## 2. Tokens and foundations
 
-### 2.1 Warna dasar
+### 2.1 Base colors
 
-Warna utama adalah tinta: tombol utama, pilihan aktif, dan ring fokus putih di tema gelap, hitam di tema terang.
+The primary color is ink: the primary button, the active choice, and the focus ring are white in the dark theme, black in the light theme.
 
-| Token | Gelap | Terang | Pakai untuk |
+| Token | Dark | Light | Used for |
 |---|---|---|---|
-| `--c-primary` | `#F5F5F5` | `#0D0D0D` | isi tombol utama, pilihan aktif (segmented, tool rail) |
-| `--c-primary-300` | `#E5E5E5` | `#262626` | garis, titik, dan teks penanda yang aktif |
-| `--c-primary-600` | `#D4D4D4` | `#2E2E2E` | hover tombol utama |
-| `--c-success` | `#22C55E` | `#15803D` | status running/idle/busy |
-| `--c-warning` | `#F59E0B` | `#B45309` | reconnecting/starting, peringatan |
-| `--c-danger` | `#EF4444` | `#DC2626` | aksen error, border error |
-| `--c-danger-300` | `#F87171` | `#B91C1C` | teks error kecil (≥ 4.5:1) |
-| `--c-danger-600` | `#D13030` | `#C52020` | isi tombol destruktif |
-| `--c-info` | `#A3A3A3` | `#6B6B6B` | info netral: tidak ada biru |
-| `--c-grey` | `#8C8C8C` | `#737373` | status exited (kode 0) |
+| `--c-primary` | `#F5F5F5` | `#0D0D0D` | primary button fill, active choice (segmented, tool rail) |
+| `--c-primary-300` | `#E5E5E5` | `#262626` | active lines, dots, and marker text |
+| `--c-primary-600` | `#D4D4D4` | `#2E2E2E` | primary button hover |
+| `--c-success` | `#22C55E` | `#15803D` | running/idle/busy status |
+| `--c-warning` | `#F59E0B` | `#B45309` | reconnecting/starting, warnings |
+| `--c-danger` | `#EF4444` | `#DC2626` | error accent, error border |
+| `--c-danger-300` | `#F87171` | `#B91C1C` | small error text (≥ 4.5:1) |
+| `--c-danger-600` | `#D13030` | `#C52020` | destructive button fill |
+| `--c-info` | `#A3A3A3` | `#6B6B6B` | neutral info: no blue |
+| `--c-grey` | `#8C8C8C` | `#737373` | exited status (code 0) |
 
-### 2.2 Teks
+### 2.2 Text
 
-| Token | Gelap | Terang | Peran |
+| Token | Dark | Light | Role |
 |---|---|---|---|
-| `--text` | `#F5F5F5` | `#0D0D0D` | judul, isi |
-| `--text-2` | `#A8A8A8` | `#525252` | label, teks sekunder |
-| `--text-3` | `#8C8C8C` | `#6B6B6B` | hint, placeholder, metadata |
-| `--text-on-primary` | `#0A0A0A` | `#FFFFFF` | di atas `--c-primary` saja |
-| `--text-on-danger` | `#FFFFFF` | `#FFFFFF` | di atas isi danger |
-| `--text-on-color` | `#FFFFFF` | `#FFFFFF` | di atas warna agent atau project |
-| `--text-on-warning` | `#1C1204` | `#FFFFFF` | di atas `--c-warning` |
+| `--text` | `#F5F5F5` | `#0D0D0D` | titles, body |
+| `--text-2` | `#A8A8A8` | `#525252` | labels, secondary text |
+| `--text-3` | `#8C8C8C` | `#6B6B6B` | hints, placeholders, metadata |
+| `--text-on-primary` | `#0A0A0A` | `#FFFFFF` | on `--c-primary` only |
+| `--text-on-danger` | `#FFFFFF` | `#FFFFFF` | on danger fill |
+| `--text-on-color` | `#FFFFFF` | `#FFFFFF` | on an agent or project color |
+| `--text-on-warning` | `#1C1204` | `#FFFFFF` | on `--c-warning` |
 
-`--text-3` adalah batas bawah untuk teks. Tidak boleh ada teks yang lebih redup dari itu (contoh salah: placeholder `rgba(255,255,255,.3)`).
+`--text-3` is the lower limit for text. No text may be dimmer than that (wrong example: placeholder `rgba(255,255,255,.3)`).
 
-### 2.3 Latar dan lapisan kaca
+### 2.3 Background and glass layers
 
-| Token | Gelap | Terang |
+| Token | Dark | Light |
 |---|---|---|
 | `--bg` | `#0A0A0A` | `#FAFAFA` |
-| `--bg-ambient` | sorot netral lembut di atas | sama, lebih tipis |
-| `--page-grid` | grid 64 px samar di belakang halaman, memudar ke bawah; tidak di board (sudah ada titik) dan Memory | sama |
+| `--bg-ambient` | soft neutral glow at the top | same, thinner |
+| `--page-grid` | faint 64 px grid behind the page, fading toward the bottom; not on the board (it already has dots) or Memory | same |
 | `--glass-1` | `rgba(17,17,17,.66)` chrome (header, dock, toolbar) | `rgba(255,255,255,.72)` |
-| `--glass-2` | `rgba(19,19,19,.86)` kartu, modal | `rgba(255,255,255,.94)` |
-| `--glass-3` | `rgba(23,23,23,.9)` menu, popover, toast | `rgba(255,255,255,.96)` |
+| `--glass-2` | `rgba(19,19,19,.86)` cards, modals | `rgba(255,255,255,.94)` |
+| `--glass-3` | `rgba(23,23,23,.9)` menus, popovers, toasts | `rgba(255,255,255,.96)` |
 | `--glass-border` | `rgba(255,255,255,.09)` | `rgba(0,0,0,.09)` |
 | `--glass-border-strong` | `rgba(255,255,255,.17)` | `rgba(0,0,0,.17)` |
 | `--surface-solid` | `#0F0F0F` | `#FFFFFF` |
@@ -68,348 +68,348 @@ Warna utama adalah tinta: tombol utama, pilihan aktif, dan ring fokus putih di t
 
 Blur: `--glass-blur-1` `blur(18px) saturate(140%)`, `-2` `blur(24px) saturate(150%)`, `-3` `blur(14px) saturate(130%)`.
 
-Fallback wajib: `@supports not (backdrop-filter: blur(1px))` dan `@media (prefers-reduced-transparency: reduce)` → semua `--glass-*` diganti `--solid-1/2/3` tema itu.
+Required fallback: `@supports not (backdrop-filter: blur(1px))` and `@media (prefers-reduced-transparency: reduce)` → every `--glass-*` is replaced by that theme's `--solid-1/2/3`.
 
-**Warna yang disimpan di board** (`#E6EAF2` "Chalk" dan tujuh swatch lain) tetap hex di data, karena board dibagi antar klien yang temanya bisa beda. Saat digambar `inkColor()` (`board/palette.ts`) memetakannya ke `--ink-*`, jadi Chalk jadi tinta gelap di kanvas putih. Warna lain tampil apa adanya. Kertas sticky note sama di kedua tema.
+**Colors stored on the board** (`#E6EAF2` "Chalk" and seven other swatches) stay hex in the data, because a board is shared between clients whose themes can differ. When drawing, `inkColor()` (`board/palette.ts`) maps them to `--ink-*`, so Chalk becomes dark ink on a white canvas. Other colors show as they are. Sticky note paper is the same in both themes.
 
-**Chart:** `--viz-1..4` dipilih terpisah per tema, bukan dibalik, dan lolos validator dataviz di atas `--tile-bg` masing-masing.
+**Charts:** `--viz-1..4` are picked separately per theme, not inverted, and pass the dataviz validator on each theme's `--tile-bg`.
 
-### 2.4 Tipografi
+### 2.4 Typography
 
-- Font: **Geist** (UI & display), **Geist Mono** (path, fingerprint, kode di kartu), **JetBrains Mono** (hanya console dan Monaco, karena cakupan glyph-nya lebih luas untuk TUI). Fitur `ss01` dan `cv11` aktif seperti referensi. Dibundel lokal (web: `@fontsource-variable/*`), tidak dari CDN — CSP hub hanya mengizinkan `font-src 'self' data:`.
-- Skala (mobile-first, compact): `--fs-xs 12px` · `--fs-sm 13px` · `--fs-md 14px` (isi) · `--fs-lg 16px` · `--fs-xl 18px` · `--fs-2xl 22px` · `--fs-3xl 28px`.
-- Bobot: 400 isi, 500 label/tombol, 600 judul kartu dan halaman, 800 brand. Line-height 1.5 isi, 1.25 judul. Tracking rapat di judul: `--tracking-title -0.025em` (h1), `--tracking-snug -0.012em` (judul kecil).
-- Angka tabular (`font-variant-numeric: tabular-nums`) untuk waktu, port, ukuran.
+- Fonts: **Geist** (UI & display), **Geist Mono** (paths, fingerprints, code on cards), **JetBrains Mono** (only the console and Monaco, because its glyph coverage is wider for TUIs). Features `ss01` and `cv11` are on, as in the reference. Bundled locally (web: `@fontsource-variable/*`), not from a CDN — the hub's CSP only allows `font-src 'self' data:`.
+- Scale (mobile-first, compact): `--fs-xs 12px` · `--fs-sm 13px` · `--fs-md 14px` (body) · `--fs-lg 16px` · `--fs-xl 18px` · `--fs-2xl 22px` · `--fs-3xl 28px`.
+- Weights: 400 body, 500 labels/buttons, 600 card and page titles, 800 brand. Line-height 1.5 body, 1.25 titles. Tight tracking on titles: `--tracking-title -0.025em` (h1), `--tracking-snug -0.012em` (small titles).
+- Tabular numbers (`font-variant-numeric: tabular-nums`) for times, ports, sizes.
 
-### 2.5 Spasi, radius, elevasi, motion
+### 2.5 Spacing, radius, elevation, motion
 
-- Spasi basis 4: `--s-1 4` `--s-2 8` `--s-3 12` `--s-4 16` `--s-5 20` `--s-6 24` `--s-8 32` `--s-10 40` `--s-12 48` (px). Tidak ada nilai di luar skala ini.
-- Radius: `--r-sm 8px` (chip kecil, ikon) · `--r-md 10px` (input, tombol) · `--r-lg 14px` (node terminal, menu) · `--r-xl 20px` (kartu, modal) · `--r-pill 999px`.
-- Elevasi `--e-1/2/3`: gelap bayangan pekat dan rapat, terang tipis dan lebar (lihat `tokens.css`); selalu dipasangkan dengan `--glass-highlight`.
-- Motion: `--t-fast 120ms` (hover, warna) · `--t-base 180ms` (modal, menu) · easing `cubic-bezier(.2,.8,.2,1)`. Hanya untuk umpan balik state; tidak ada animasi dekoratif. Satu-satunya animasi berulang: pulse titik **busy** (1.6 s). `prefers-reduced-motion: reduce` → transisi 0 ms, pulse diganti titik padat dengan ring statis.
+- Base-4 spacing: `--s-1 4` `--s-2 8` `--s-3 12` `--s-4 16` `--s-5 20` `--s-6 24` `--s-8 32` `--s-10 40` `--s-12 48` (px). No values outside this scale.
+- Radius: `--r-sm 8px` (small chips, icons) · `--r-md 10px` (inputs, buttons) · `--r-lg 14px` (terminal nodes, menus) · `--r-xl 20px` (cards, modals) · `--r-pill 999px`.
+- Elevation `--e-1/2/3`: dark has dense, tight shadows, light thin and wide ones (see `tokens.css`); always paired with `--glass-highlight`.
+- Motion: `--t-fast 120ms` (hover, color) · `--t-base 180ms` (modals, menus) · easing `cubic-bezier(.2,.8,.2,1)`. Only for state feedback; no decorative animation. The only repeating animation: the **busy** dot pulse (1.6 s). `prefers-reduced-motion: reduce` → 0 ms transitions, the pulse is replaced by a solid dot with a static ring.
 
-## 3. Komponen
+## 3. Components
 
-Semua komponen interaktif wajib punya state: **default, hover, focus-visible, active, disabled**, plus **loading** dan **error** bila relevan.
+Every interactive component must have the states **default, hover, focus-visible, active, disabled**, plus **loading** and **error** where relevant.
 
-### 3.0 Layout: HP, tablet, desktop
+### 3.0 Layout: phone, tablet, desktop
 
-Satu tempat memutuskan (`web/src/lib/layout.ts`, dan `public/theme-boot.js` sebelum paint pertama dengan aturan yang sama): `<html data-layout="phone|tablet|desktop" data-input="touch|mouse">`, plus `data-keyboard` selama keyboard layar terbuka. CSS dan kode membaca jawaban yang sama; jangan menambah breakpoint lebar baru untuk memilih layout.
+One place decides (`web/src/lib/layout.ts`, and `public/theme-boot.js` before the first paint with the same rules): `<html data-layout="phone|tablet|desktop" data-input="touch|mouse">`, plus `data-keyboard` while the on-screen keyboard is open. CSS and code read the same answer; do not add new width breakpoints to pick a layout.
 
-| Layout | Kapan |
+| Layout | When |
 |---|---|
-| phone | jendela < 600 px, atau layar sentuh yang sisi pendek layarnya < 600 px (tetap HP saat diputar dan saat keyboard terbuka) |
-| tablet | jendela < 1200 px, atau layar sentuh lain (Xiaomi Pad 6, Galaxy Tab S9 di kedua arah) |
-| desktop | ≥ 1200 px dengan mouse |
+| phone | window < 600 px, or a touch screen whose short side is < 600 px (stays phone when rotated and when the keyboard is open) |
+| tablet | window < 1200 px, or any other touch screen (Xiaomi Pad 6, Galaxy Tab S9 in both orientations) |
+| desktop | ≥ 1200 px with a mouse |
 
-- Settings › Appearance › Layout bisa mematok satu layout per browser (Auto, Phone, Tablet, Desktop), misalnya tablet dengan keyboard dan trackpad.
-- **Ruang shell:** `--shell-top` dan `--shell-bottom` adalah yang diambil bar aplikasi dari layar (header, tab bar, safe area). Yang menempel ke layar memakai keduanya, bukan menjumlah tinggi header sendiri.
-- **Safe area:** `viewport-fit=cover`; header, tab bar, sheet, dan toast memakai `--safe-*`.
-- **Keyboard layar:** `interactive-widget=resizes-content`, jadi di Android bar bawah dan sheet naik di atas keyboard; tab bar HP sembunyi selama `data-keyboard`.
-- **Sentuh:** `data-input="touch"` menaikkan kontrol ke 40/44 px dan item menu ke 44 px. Isi board tetap ukuran lama sampai board mendapat gilirannya; menu dan dialog yang dibuka dari board sudah ukuran sentuh. Dialog tidak memfokuskan field teks sendiri, supaya keyboard tidak menutupnya.
-- Uji: proyek Playwright `phone` (393×873), `tablet-portrait` (800×1280), `tablet-landscape` (1280×800), semuanya sentuh, ditambah desktop terang dan gelap. `e2e/layout.spec.ts` memeriksa tiap halaman: tidak scroll ke samping, header satu baris, kontrol header tidak bertumpuk dan tidak keluar, judul tidak tertutup, target sentuh ≥ 40. `e2e/sweep.spec.ts` memeriksa semua halaman, tiap pane Settings, dialog, dan tiap jenis kartu dalam focus mode: tidak ada elemen atau baris teks yang keluar dari tepi layar atau terpotong kotak yang tidak bisa digulir. Potongan dengan ellipsis dan kotak yang memang menggulir ke samping (tab strip, kolom kanban) boleh. `SWEEP_SHOTS=<folder>` menyimpan screenshot semuanya. `e2e/console-gl.spec.ts` memeriksa console yang digambar GPU pada pixel ratio 1, 2, dan 2,75 (§3.9).
-- **Ukur dengan lebar layar, bukan `window.innerWidth`.** Chrome di HP melebarkan halaman yang terlalu lebar lalu menampilkannya lebih kecil, sehingga `innerWidth` ikut membesar dan halaman yang kelebaran terlihat pas di uji.
+- Settings › Appearance › Layout can pin one layout per browser (Auto, Phone, Tablet, Desktop), for example a tablet with a keyboard and trackpad.
+- **Shell space:** `--shell-top` and `--shell-bottom` are what the app bars take from the screen (header, tab bar, safe area). Whatever sticks to the screen uses both, rather than adding up the header height itself.
+- **Safe area:** `viewport-fit=cover`; the header, tab bar, sheets, and toasts use `--safe-*`.
+- **On-screen keyboard:** `interactive-widget=resizes-content`, so on Android the bottom bar and sheets rise above the keyboard; the phone tab bar hides during `data-keyboard`.
+- **Touch:** `data-input="touch"` raises controls to 40/44 px and menu items to 44 px. Board content keeps the old size until the board gets its turn; menus and dialogs opened from the board are already touch-sized. Dialogs do not focus a text field by themselves, so the keyboard does not cover them.
+- Tests: Playwright projects `phone` (393×873), `tablet-portrait` (800×1280), `tablet-landscape` (1280×800), all touch, plus desktop light and dark. `e2e/layout.spec.ts` checks each page: no sideways scroll, a one-line header, header controls do not overlap and do not overflow, titles are not covered, touch targets ≥ 40. `e2e/sweep.spec.ts` checks every page, each Settings pane, dialogs, and each card type in focus mode: no element or line of text runs past the screen edge or is cut off by a box that cannot scroll. Ellipsis truncation and boxes that are meant to scroll sideways (tab strip, kanban columns) are fine. `SWEEP_SHOTS=<folder>` saves screenshots of all of them. `e2e/console-gl.spec.ts` checks the GPU-drawn console at pixel ratios 1, 2, and 2.75 (§3.9).
+- **Measure with the screen width, not `window.innerWidth`.** Chrome on a phone widens a page that is too wide and then shows it smaller, so `innerWidth` grows too and an overly wide page looks right in tests.
 
-### 3.1 Tombol
+### 3.1 Buttons
 
-| Varian | Default | Hover | Active | Disabled |
+| Variant | Default | Hover | Active | Disabled |
 |---|---|---|---|---|
-| `primary` | isi `--c-primary`, teks putih, highlight atas `inset 0 1px 0 rgba(255,255,255,.18)` | `--c-primary-600` | turun 1px, highlight hilang | opacity .45, cursor not-allowed |
-| `secondary` (kaca) | `--surface-input` + border `--glass-border` | `--surface-hover`, border `--glass-border-strong` | `--surface-active` | sama |
-| `ghost` | transparan, teks `--text-2` | `--surface-hover`, teks `--text` | `--surface-active` | sama |
-| `danger` | isi `--c-danger-600`, teks putih | lebih gelap 8% | turun 1px | sama |
-| `danger-ghost` | teks `--c-danger-300` | bg `rgba(234,33,67,.12)` | bg `.18` | sama |
+| `primary` | `--c-primary` fill, white text, top highlight `inset 0 1px 0 rgba(255,255,255,.18)` | `--c-primary-600` | down 1px, highlight gone | opacity .45, cursor not-allowed |
+| `secondary` (glass) | `--surface-input` + `--glass-border` border | `--surface-hover`, `--glass-border-strong` border | `--surface-active` | same |
+| `ghost` | transparent, `--text-2` text | `--surface-hover`, `--text` text | `--surface-active` | same |
+| `danger` | `--c-danger-600` fill, white text | 8% darker | down 1px | same |
+| `danger-ghost` | `--c-danger-300` text | bg `rgba(234,33,67,.12)` | bg `.18` | same |
 
-- Ukuran: `md` tinggi 40, padding-x 16, `--fs-md` 500 · `sm` tinggi 32, padding-x 12, `--fs-sm` · `icon` 36×36 (sm 32×32), ikon 16–18 px, **wajib** `aria-label`.
-- Loading: spinner 14 px menggantikan ikon awal, label tetap, `aria-busy="true"`, tidak bisa diklik.
-- Label tombol = kata kerja + objek: "Add machine", "Pair device", "Open board". Contoh salah: "OK", "Submit", "Go".
-- Focus-visible (semua elemen interaktif): `outline: 2px solid var(--c-primary-300); outline-offset: 2px`. Tidak boleh `outline: none` tanpa pengganti.
+- Sizes: `md` height 40, padding-x 16, `--fs-md` 500 · `sm` height 32, padding-x 12, `--fs-sm` · `icon` 36×36 (sm 32×32), 16–18 px icon, `aria-label` **required**.
+- Loading: a 14 px spinner replaces the leading icon, the label stays, `aria-busy="true"`, not clickable.
+- Button label = verb + object: "Add machine", "Pair device", "Open board". Wrong examples: "OK", "Submit", "Go".
+- Focus-visible (every interactive element): `outline: 2px solid var(--c-primary-300); outline-offset: 2px`. No `outline: none` without a replacement.
 
-### 3.2 Field form
+### 3.2 Form fields
 
-Anatomi tetap, dari atas ke bawah:
+Fixed anatomy, from top to bottom:
 
-1. **Label** — `--fs-sm` 500 `--text-2`, jarak 6 px ke kontrol. Penanda opsional ditulis "(optional)" di label, bukan di placeholder. Field wajib tidak diberi tanda.
-2. **Kontrol** — tinggi 40, radius `--r-md`, bg `--surface-input`, border 1px `--glass-border`, padding-x 12, teks `--fs-md` `--text`.
+1. **Label** — `--fs-sm` 500 `--text-2`, 6 px gap to the control. An optional field is marked "(optional)" in the label, not in the placeholder. Required fields get no mark.
+2. **Control** — height 40, radius `--r-md`, bg `--surface-input`, 1px `--glass-border` border, padding-x 12, text `--fs-md` `--text`.
    - hover: border `--glass-border-strong`
    - focus-visible: border `--c-primary`, ring `0 0 0 3px rgba(24,86,255,.30)`, bg `rgba(255,255,255,.06)`
-   - error: border `--c-danger`, ring `rgba(234,33,67,.25)` saat fokus, `aria-invalid="true"`
+   - error: border `--c-danger`, ring `rgba(234,33,67,.25)` on focus, `aria-invalid="true"`
    - disabled: opacity .5
-   - placeholder `--text-3`; placeholder hanya contoh nilai, bukan pengganti label.
-3. **Hint** (opsional) — `--fs-xs` `--text-3`, jarak 6 px.
-4. **Error** — menggantikan hint, `--fs-xs` `--c-danger-300` dengan ikon 12 px, dihubungkan via `aria-describedby`.
+   - placeholder `--text-3`; a placeholder is only an example value, not a replacement for the label.
+3. **Hint** (optional) — `--fs-xs` `--text-3`, 6 px gap.
+4. **Error** — replaces the hint, `--fs-xs` `--c-danger-300` with a 12 px icon, linked via `aria-describedby`.
 
-Aturan tata letak:
-- Celah vertikal antar-field 16 px; antar-kelompok (section) 24 px dengan judul section `--fs-xs` 600 uppercase tracking .06em `--text-3`.
-- Field berdampingan memakai grid 12 kolom (contoh: Host 9 / Port 3). Di bawah 560 px semua field satu kolom.
-- **Select** kustom: `appearance: none` + chevron SVG 16 px di kanan (padding-right 36).
-- **Textarea** (private key): `--surface-solid`, font mono `--fs-sm`, min-height 120, resize vertikal saja.
-- **File input**: input asli disembunyikan (tetap fokusable lewat label), tampil sebagai tombol `secondary sm` "Load from file" + nama file `--text-3`.
-- **Input group**: ikon depan 16 px (`--text-3`) atau addon belakang (tombol "Browse" menempel, radius kanan saja).
-- **Pilihan 2–4 opsi** (metode auth, mode persist, tab sumber host) memakai **segmented control** atau **radio card**, bukan `<select>`. Radio card: kartu kaca 1px border, judul 500 + deskripsi `--fs-xs`; terpilih = border `--c-primary` + bg `rgba(24,86,255,.10)` + titik radio terisi. Keyboard: panah kiri/kanan/atas/bawah memindah pilihan (`role="radiogroup"`).
-- Checkbox/switch kustom 18 px / 36×20, fokus mengikuti aturan fokus.
-- Footer form (di modal): tombol kanan, urutan `secondary` (Cancel) lalu `primary`; teks bantuan kiri `--fs-xs` `--text-3`. Tombol utama menampilkan loading saat submit dan form dikunci.
+Layout rules:
+- Vertical gap between fields 16 px; between groups (sections) 24 px, with a section title `--fs-xs` 600 uppercase tracking .06em `--text-3`.
+- Side-by-side fields use a 12-column grid (example: Host 9 / Port 3). Below 560 px every field is one column.
+- Custom **select**: `appearance: none` + a 16 px SVG chevron on the right (padding-right 36).
+- **Textarea** (private key): `--surface-solid`, mono font `--fs-sm`, min-height 120, vertical resize only.
+- **File input**: the native input is hidden (still focusable through the label), shown as a `secondary sm` button "Load from file" + the file name in `--text-3`.
+- **Input group**: a 16 px leading icon (`--text-3`) or a trailing addon (an attached "Browse" button, right radius only).
+- **A choice of 2–4 options** (auth method, persist mode, host source tab) uses a **segmented control** or **radio cards**, not a `<select>`. Radio card: a glass card with a 1px border, a 500 title + an `--fs-xs` description; selected = `--c-primary` border + bg `rgba(24,86,255,.10)` + a filled radio dot. Keyboard: the left/right/up/down arrows move the choice (`role="radiogroup"`).
+- Custom checkbox/switch 18 px / 36×20, focus follows the focus rules.
+- Form footer (in a modal): buttons on the right, in the order `secondary` (Cancel) then `primary`; help text on the left in `--fs-xs` `--text-3`. The primary button shows loading on submit and the form is locked.
 
-### 3.3 Kartu (bento)
+### 3.3 Cards (bento)
 
-- Kaca `--glass-2` + `--glass-blur-2`, border `--glass-border`, radius `--r-xl`, padding 20, `--e-2` + highlight.
-- Grid: `repeat(auto-fill, minmax(320px, 1fr))`, gap 16. Kartu penting boleh `grid-column: span 2` (≥ 960 px), contoh: kartu "Pair new device" di Devices.
-- Anatomi: header (ikon/status + judul 600 `--fs-lg` + meta `--text-3`) → isi (daftar key-value dua kolom: key `--fs-xs` `--text-3`, value `--fs-sm` `--text`) → footer aksi (tombol `sm`, rata kiri, aksi destruktif paling kanan dipisah spacer).
-- Hover kartu non-interaktif: tidak berubah. Kartu yang bisa diklik: border `--glass-border-strong` + naik 1px.
-- Teks panjang (hostname, path): `text-overflow: ellipsis` + `title` berisi nilai penuh. Fingerprint: mono, dipecah per 4 karakter, boleh wrap.
+- Glass `--glass-2` + `--glass-blur-2`, `--glass-border` border, radius `--r-xl`, padding 20, `--e-2` + highlight.
+- Grid: `repeat(auto-fill, minmax(320px, 1fr))`, gap 16. An important card may use `grid-column: span 2` (≥ 960 px), for example the "Pair new device" card in Devices.
+- Anatomy: header (icon/status + 600 `--fs-lg` title + `--text-3` meta) → body (two-column key-value list: key `--fs-xs` `--text-3`, value `--fs-sm` `--text`) → action footer (`sm` buttons, left-aligned, the destructive action at the far right, separated by a spacer).
+- Hover on a non-interactive card: no change. A clickable card: `--glass-border-strong` border + rises 1px.
+- Long text (hostname, path): `text-overflow: ellipsis` + a `title` holding the full value. Fingerprint: mono, broken into groups of 4 characters, may wrap.
 
-### 3.4 Header aplikasi & navigasi
+### 3.4 App header & navigation
 
-- Header mengambang: margin 12 px dari tepi, tinggi 56, radius `--r-xl`, `--glass-1` + blur-1, border + highlight.
-- **Ukuran seragam:** semua kontrol di header tinggi 32 (`--h-control-sm`), ikon 16 (`--size-icon`), teks `--fs-sm`; jarak ke tepi header 12 di semua sisi. Tab strip dan segmented juga 32 di luar (item 26, padding 2, border 1). Jarak: 12 antar blok (brand, navigasi, kanan), 8 antar kontrol, 4 antar tombol ikon dan antara tab strip dengan tombol tambah. Tombol ikon bisa diklik penuh 32×32. Chip nama hub adalah label, bukan kontrol, jadi tetap 22.
-- Grup dengan input tertaut: tombol "Input linked" di header frame dan border frame `--tint-warning-*`; tiap console anggota menampilkan ikon link di header-nya, karena Ctrl+C pun ikut ke semua.
-- Kiri: brand mark (logo 32 px, terbalik seperti tombol utama) + "NextBoard" 800 + chip nama hub.
-- Tengah/kiri: navigasi = segmented control kaca (Board · Machines · Devices); item aktif bg `--surface-active` + teks `--text` + `aria-current="page"`.
-- Kanan: indikator koneksi events (titik + "Live"/"Reconnecting…"), tombol kunci Credentials (titik kecil warna teks selama vault terbuka; membuka jendela vault, §3.16), tombol ikon Settings, tema (matahari/bulan), About, Log out (ghost).
-- **Tablet:** tetap satu baris. Settings, tema, About, dan Log out (di dalam project juga Projects, Memory, Machines, Devices) pindah ke menu `…`; nama hub hilang; di bawah 1024 px nama NextBoard hilang di luar project, dan di bawah 900 px label navigasi menjadi ikon saja.
-- **HP:** bar menempel di tepi atas (56 px + safe area, tanpa sudut membulat) dengan mark, lalu chip usage, needs-you, live, kunci vault, dan `…`; titik koneksi hanya tampil saat tidak live. Di dalam project satu tombol untuk project dan workspace-nya (nama project di atas, workspace di bawah); menunya berisi workspace (pindah, New workspace, Rename, Close) lalu daftar project. Di luar project ada **tab bar** di tepi bawah: Projects, Memory, Machines, Devices, Settings, ikon dalam pil `--surface-active` untuk yang aktif.
-- **Tab workspace:** klik kanan (long-press di layar sentuh) membuka Rename, Move left, Move right, Close, jadi tidak ada yang hanya bisa lewat dobel klik atau shortcut.
+- Floating header: 12 px margin from the edges, height 56, radius `--r-xl`, `--glass-1` + blur-1, border + highlight.
+- **Uniform sizes:** every control in the header is 32 high (`--h-control-sm`), icons 16 (`--size-icon`), text `--fs-sm`; 12 to the header edge on all sides. The tab strip and segmented controls are also 32 outside (item 26, padding 2, border 1). Gaps: 12 between blocks (brand, navigation, right side), 8 between controls, 4 between icon buttons and between the tab strip and the add button. Icon buttons are clickable across the full 32×32. The hub name chip is a label, not a control, so it stays 22.
+- Group with linked input: an "Input linked" button in the frame header and a `--tint-warning-*` frame border; each member console shows a link icon in its header, because even Ctrl+C goes to all of them.
+- Left: brand mark (32 px logo, inverted like the primary button) + "NextBoard" 800 + the hub name chip.
+- Center/left: navigation = a glass segmented control (Board · Machines · Devices); the active item has bg `--surface-active` + `--text` text + `aria-current="page"`.
+- Right: events connection indicator (dot + "Live"/"Reconnecting…"), the Credentials lock button (a small dot in the text color while the vault is open; opens the vault window, §3.16), the Settings icon button, theme (sun/moon), About, Log out (ghost).
+- **Tablet:** stays one row. Settings, theme, About, and Log out (inside a project also Projects, Memory, Machines, Devices) move into the `…` menu; the hub name disappears; below 1024 px the NextBoard name disappears outside a project, and below 900 px the navigation labels become icons only.
+- **Phone:** the bar sticks to the top edge (56 px + safe area, no rounded corners) with the mark, then the usage chip, needs-you, live, the vault lock, and `…`; the connection dot only shows when not live. Inside a project, one button for the project and its workspace (project name on top, workspace below); its menu holds the workspaces (switch, New workspace, Rename, Close) and then the project list. Outside a project there is a **tab bar** at the bottom edge: Projects, Memory, Machines, Devices, Settings, with the icon in a `--surface-active` pill for the active one.
+- **Workspace tabs:** right-click (long-press on a touch screen) opens Rename, Move left, Move right, Close, so nothing is reachable only by double-click or a shortcut.
 
 ### 3.5 Board
 
-- **Panah relasi antar tile:** lurus bila dua tile berhadapan, satu siku dengan sudut membulat bila tidak, dan memutar bila ada tile di jalurnya; garis tidak pernah lewat di bawah tile. Coretan di kanvas (shape, garis, tinta, teks) tidak dianggap penghalang. Tiap garis punya titik port di sumber dan panah di target, tebalnya sama di semua zoom. Warna per jenis: wire violet, forward jingga putus-putus, preview sian. Rutenya dihitung `board/wireRoute.ts`.
-- **Kabel orchestrator yang sedang bekerja:** selama console di ujungnya `working` atau punya antrean, kabelnya lebih terang (`--wire-flow`) dan dialiri aliran halus serta tiga percikan cahaya searah kerja, memudar di kedua ujung. `prefers-reduced-motion`: tanpa gerak, hanya kabel terang. Kabel kartu memory dan kabel forward tidak ikut.
-- Kanvas memakai `--bg-ambient` + pola titik React Flow `rgba(255,255,255,.06)`, gap 24.
-- **Menggeser board:** tool Hand (`H`, atau tahan `Space` selama push-to-talk mati) membuat seluruh isi board tembus pointer, jadi drag dan swipe menggeser board dari mana pun, termasuk di atas terminal dan iframe. Tanpa Hand, scroll dan pinch milik board kecuali pointer ada di tile yang sedang fokus: satu-satunya tile yang terpilih, atau tile tempat keyboard berada. Di atas tile lain, scroll ke arah mana pun menggeser board dan pinch men-zoom board, isi tile tidak ikut bergerak. Klik tile untuk memberinya scroll, klik board kosong untuk mengambilnya kembali. Tile di dalam pilihan banyak tile tidak dianggap fokus. Swipe yang menggeser board tetap menggeser walau tile fokus lewat di bawah pointer yang diam, sampai pointer bergerak lebih dari 4 px atau menekan. Klik pertama pada web tile atau app tile hanya memberi fokus; isinya menerima klik berikutnya.
-- **Rail kanan:** hanya yang dipakai untuk mengerjakan project: Code editor, Studios, lalu Memory, Git, Loops, Mission Map, lalu Auto arrange (menata ulang board, aktif mulai dua card). Yang ditaruh di board ada di ring klik kanan. Layar sempit tidak punya rail kanan dan tidak punya klik kanan, jadi semuanya tetap ada di flyout `+` rail kiri.
-- **Focus mode:** satu kartu mengisi layar, hanya di perangkat ini. Board bersama tidak ditulis: kartu mendapat ukuran area di bawah bar Focus pada zoom 1 (`board/focus.ts`), kartu lain, garis, rail, command bar, zoom, dan minimap disembunyikan. Kartu ada di URL (`?card=<id>`): Back di Android dan Esc (selama tidak ada field yang memegang keyboard) kembali ke board dan viewport sebelumnya; reload mempertahankannya, dan link pendek `/p/<project>?card=<id>` membawanya ke workspace. Bar Focus (kaca `--glass-1`, tinggi kontrol + 8) berisi ‹ Board, nama kartu, nomor urut, dan kartu sebelum/sesudah dalam urutan baca (baris dari atas, lalu kiri ke kanan). Masuk lewat tombol focus di header kartu (di samping tombol display; hover atau terpilih dengan mouse, selalu di layar sentuh) atau Focus di menu kartu. Console mengikuti ukuran yang ditampilkan (resize terakhir menang). Di layar sentuh isi kartu yang di-focus memakai ukuran sentuh dan header 48. Selama di-focus, tombol focus dan display di header kartu disembunyikan (bar Focus sudah memberi jalan keluar, ukuran display tidak berlaku), jadi judul mendapat ruang. Kartu di dekat tepi board (±20000) yang dibesarkan seukuran layar digeser kembali ke dalam board, dan view focus mengikutinya.
-- **Layar sentuh** (`data-input="touch"`):
-  - tombol Insert di rail kiri selalu ada dan membuka grid berlabel semua jenis kartu (tanpa tooltip, jadi nama tertulis), plus Select several; item rail kanan ikut hanya saat rail kanan tersembunyi;
-  - long-press (500 ms, geser < 10 px) = klik kanan di board dan di elemen `data-longpress` (`lib/longpress.ts`); `contextmenu` bawaan Android Chrome yang datang kedua diabaikan, dan angkatan jari sesudahnya bukan tap;
-  - dua jari menggeser dan men-zoom board di atas kartu mana pun, termasuk console dan editor; satu jari di dalam kartu tetap milik kartu; halaman board tidak di-zoom browser;
-  - tap garis membuka menunya; Select several membuat tap menambah atau membuang kartu dari pilihan, dengan banner jumlah, All, dan Done;
-  - kontrol board 40–44 px, handle resize dan knob garis 22 (satuan board), minimap disembunyikan; isi kartu di kanvas tetap ukuran desktop karena ikut di-zoom;
-  - **isi kartu:** yang di desktop butuh hover, dobel klik, atau drag and drop punya jalan dengan jari:
-    - Kanban: jari men-scroll kolom dan daftar kartu (kolom ber-snap ke samping); kartu dipindah lewat grip ⋮⋮ di kirinya (sebuah `button`, supaya touch targeting Chrome tidak memindahkan sentuhan ke tombol kartu); memegang kartu di tepi men-scroll kolom (juga dengan mouse); `…` kartu selalu tampil; long-press kartu membuka menu kartu itu (klik kanan juga, di semua layout); tap judul kolom = rename;
-    - Checklist: tap teks item = edit, × selalu tampil, daftar di-scroll jari dan kartu dipindah lewat header-nya;
-    - Memory tile: brick dipindah dengan drag pointer (mouse di mana saja, jari lewat grip), bukan drag and drop HTML yang tidak ada di layar sentuh;
-    - grafik (response time, heartbeat, token): tap atau geser jari menampilkan nilainya, dan nilai itu tetap sampai tap berikutnya;
-    - Mission Map menulis petunjuk tap, bukan dobel klik dan Ctrl+G.
-- **Board di HP** (`board/PhoneBoard.tsx`): tab bar bawah **Board · Cards · Lead** (Lead memakai nama lead, mis. Aruna); tab yang terakhir dipakai diingat per perangkat, bawaannya Cards.
-  - Board: kanvas dengan rail pendek di kiri atas (Select, Hand, Spawn, Insert, Undo, Fit). Bentuk, catatan, teks, pen, eraser, gambar, Redo, dan New console ada di grid Insert, yang berhenti di atas tab bar. Command bar dan zoom tidak tampil: perintah di tab Lead, zoom dengan pinch.
-  - Cards: daftar kartu dalam urutan baca, satu baris 64 px kaca (ikon, nama, agent dan status console, titik status, "Needs you"). Tap membuka Focus mode dengan tombol kembali "Cards"; swipe ke samping di bar Focus atau header kartu pindah ke kartu sebelum/sesudah; Back kembali ke daftar. Di atas daftar: New console dan Add a card (sheet berisi grid jenis kartu). Badge di tab Cards menghitung console yang butuh kamu.
-  - Lead: thread lead mengisi layar di atas command bar, tanpa tombol tutup.
-  - Kanvas tetap ter-render di bawah Cards dan Lead (opacity 0), jadi console tetap pada ukurannya dan Focus mode bisa langsung tampil. Console yang baru dibuat atau yang dilompati lewat needs-you langsung dibuka dengan Focus mode, tanpa membuka keyboard sendiri.
-- **Command bar dan panel bawah:** tinggi bar diukur (`--cmdbar-h`, dipakai `--h-cmdbar`); di bawah 1380 px zoom, Git pill, dan minimap naik di atas bar (aturannya di `board.css`, karena file itu bisa dimuat sesudah `orch.css`).
-- **Ring klik kanan:** klik kanan di board kosong membuka tujuh tombol bulat kaca (`--glass-3`) mengelilingi More, searah jarum jam dari atas: Auto arrange (aktif mulai dua card), Spawn agent, Insert image, Web page, Paste, Shapes and notes, Compose group. Ring berpusat di pointer dan tetap di dalam jendela. Satu caption di bawah ring menyebut nama tombol yang sedang di-hover atau difokus, jadi nama tidak tersebar di sekeliling ring. Panah memindah fokus, Esc menutup. Tombol berpanel menggantikan ring dengan panel kaca berisi tombol kembali, dan Esc di panel kembali ke ring. More adalah ring kedua yang lebih lebar: 12 tombol (Checklist, Kanban, Calendar, Uptime monitor, File from project, Branches card, Memory card, Orchestrator card, Desktop app, Layouts, Snapshots, Select all) mengelilingi Back, dan Esc kembali ke ring pertama. Yang sudah punya tombol sendiri tidak diulang di More: Code editor di rail kanan, Fit di rail kiri, zoom di kiri bawah. Klik kanan pada card dan garis tetap memakai menu biasa.
-- **Spawn agent di ring:** tile agent memilih, select Login profile (untuk agen yang punya profil) lalu model dan effort di bawahnya, tombol Spawn menaruh; klik dua kali pada tile langsung menaruh. Profil selalu mulai dari default (NextBoard, kecuali Settings berkata lain) setiap ring dibuka atau agen berganti, apa pun pilihan form lain.
-- **Compose group:** bentuk yang sama di panel ring dan di dialog chip Group: titik warna + nama, chip role, slot 4 kolom berwarna agent, baris Fill all, satu baris model dan effort per agent yang dipakai slot, stepper + Spawn N. Klik slot mengganti agent, klik kanan membuka katalog. Dari ring, tim mendarat di titik yang diklik. Tanda agent (`AgentBadge`): logo asli (`agents/logos/`, dari `@lobehub/icons-static-svg` berlisensi MIT, mereknya tetap milik pemiliknya) di atas warna agent itu; yang bentuknya satu warna dicat warna agent lewat mask. Agent tanpa logo mendapat dua huruf nama di atas gradien warnanya, shell mendapat ikon terminal. Usage pill memakai logo yang sama.
-- **Code card menurut lebarnya** (`studio/code/CodeStudio.tsx`), bukan menurut layar, jadi kartu kecil di desktop ikut: di bawah 1000 px side bar agent menutupi editor sebagai laci dari kanan (selebar kartu, paling lebar 460), dengan scrim yang menutupnya bila disentuh; di bawah 640 px (HP) side bar kiri juga menjadi laci di atas editor (paling lebar 360), tertutup sendiri begitu ia membuka file, dan hanya grup editor yang aktif tampil; di antara 640 dan 1000 side bar kiri paling lebar 40 %. Panel bawah tidak pernah lebih dari 60 % tinggi editor; di HP tab panelnya bergulir ke samping dan daftar terminal menjadi baris di atas terminal. Title bar sempit menampilkan Go to file sebagai ikon; status bar sempit hanya branch, problems, posisi kursor, dan bahasa. Tombol Fill disembunyikan di focus mode. Di layar sentuh tombol tutup tab selalu tampil dan sash lebih lebar untuk jari.
-- **Header card:** satu susunan untuk semua card (`TileHead`, dan `NodeHeader` untuk console, ukuran sama): mark 20 px, judul, meta, spacer, aksi `sm` ghost, tombol display, `…`, tinggi `--h-node-header`, padding kiri 12, kanan 4. Header yang lebih sempit dari 440 px (HP, atau kartu kecil) menampilkan tombol aksinya sebagai ikon saja, dan meta mengalah sebelum judul. Kartu yang judulnya bisa diganti punya **Rename** di menunya (dan di long-press / klik kanan); dobel klik pada judul tetap jalan dengan mouse. Garis atau panah yang bengkok punya **Straighten** di menunya. **Calendar** menghitung event per hari dari tinggi sel yang tampil (focus mode menampilkan lebih banyak), "+N more" membuka daftar event hari itu (tap = edit, plus New event), dan kalender yang lebih sempit dari 520 px menaruh kontrol bulan di baris sendiri dengan nama bulan pendek. Jenis card hanya menentukan warna aksen (`--tile-accent`: garis atas dan ikon): biru default, violet orchestrator dan memory, sian web. Menu `…` berisi aksi card itu lalu aksi yang sama dengan klik kanan. Bingkai group tetap 32 px karena hub menghitung geometrinya dengan angka itu (API-orchestration §1).
-- **Ukuran card:** tombol display di header membuka Fit tile, Displays (24 in 1920×1080, 27 in 2560×1440, 32 in 4K 3840×2160), dan Phones (iPhone SE 375×667, iPhone 14 Pro 393×852, iPhone 14 Pro Max 430×932, Pixel 7 412×915, Galaxy S8+ 360×740). Web tile selalu menampilkan tombol ini; card lain saat hover atau terpilih, atau selama memakai salah satu ukuran itu. Memilihnya mengubah ukuran card dari sudut kiri atas, bisa di-undo, dan view bergeser bila card tidak muat. Fit tile mengembalikan ukuran awal jenis card itu. Web tile dev server: ukuran itu menjadi viewport halamannya dan card membungkusnya. Gambar tetap menjaga proporsinya. Opsi yang lebih sempit dari batas card dinonaktifkan (editor 560, kanban dan kalender 420). Card tanpa header, atau beberapa card sekaligus, memiliki daftar ini di menu klik kanan. Group, teks, shape, garis, dan tinta tidak punya daftar ini.
-- **Layouts:** popup di atas board, sama seperti pemilih aplikasi desktop: daftar layout di kiri, lane dan simpan layout di kanan, masing-masing bergulir sendiri, tombol Deploy di footer supaya selalu terlihat. Deploy yang berhasil menutup popup; yang gagal membiarkannya terbuka dengan pilihan lane tetap utuh.
-- **Lead agent:** wajah lead adalah huruf pertama namanya dalam lingkaran gradasi `--wire`→`--c-primary`, satu-satunya wajah di thread. Pesannya bertanda wajah dan nama, rencananya kartu `proposal` tanpa hitung mundur karena tidak mendesak. Aksi pesan (`.msg-act`) muncul saat disorot, selalu terlihat di layar sentuh; balasan memakai garis `--wire` di kiri, di atas kotak (`.orch-reply`) maupun di atas gelembung (`.msg-quote`).
-- **Orchestrator:** kartu dan tab editor memakai bahan yang sama. Tim tampil sebagai chip per grup supaya thread mendapat ruang; titiknya menunjukkan status, klik menyisipkan `@handle` atau `@Grup` ke kotak perintah tanpa mengirim, klik kanan membuka aksi agent itu. Chevron membuka daftar lengkap (diingat per browser), dengan aksi baris yang muncul saat kursor di atasnya dan selalu tampil di layar sentuh. Header kartu menampilkan jumlah agent dan status terpenting, tooltip menghitung semuanya, dan Pause all berubah menjadi Resume all bila semua agent sudah berhenti; console yang sedang di shell tidak ikut dihitung. Perintah panjang di thread ringkas terlipat dengan Show all.
-- **Dock "New terminal"**: kaca `--glass-1` mengambang di **tengah bawah** (bottom 16), radius `--r-xl`, padding 8, berisi kontrol `sm` (tinggi 32): machine select (dengan titik status), preset select (titik warna preset), cwd input group (ikon folder + tombol Browse), nama (optional), tombol primary "New terminal". < 900 px: dock jadi tombol bulat "+" yang membuka sheet/modal form yang sama.
-- Kontrol zoom kiri bawah & minimap kanan bawah: kaca `--glass-1`, radius `--r-lg`.
-- **Node terminal**:
-  - Bingkai radius `--r-lg`, border `--glass-border`, `--e-3`.
-  - Header 38 px kaca `--glass-1` (tanpa backdrop-filter per node demi performa pan/zoom — pakai bg `rgba(16,21,36,.92)`), garis aksen 2 px di tepi atas dengan warna preset (`session.color`) memudar ke transparan.
-  - Isi header: titik status → judul 600 `--fs-sm` → "@ machine" `--text-3` → spacer → badge machine (bila remote) → kode exit (bila ≠ 0, chip danger) → tombol ikon menu `sm`.
-  - Body padat `--surface-solid`, padding 8, font JetBrains Mono 13 px; warna xterm dari token `--term-*` (lihat 3.9).
-  - Terpilih: ring `0 0 0 1px var(--c-primary-300), 0 0 0 4px rgba(24,86,255,.25)`.
-  - Handle resize hanya tampil saat hover/terpilih, 10 px, warna `--c-primary-300`.
-- Empty state board: kartu kaca kecil di tengah, ikon, "No terminals yet", satu kalimat, panah/teks yang menunjuk dock.
+- **Relation arrows between tiles:** straight when two tiles face each other, one bend with a rounded corner when they do not, and routed around when a tile is in the way; a line never passes under a tile. Marks on the canvas (shapes, lines, ink, text) do not count as obstacles. Each line has a port dot at the source and an arrow at the target, the same thickness at every zoom. Color per kind: wire violet, forward orange dashed, preview cyan. The route is computed by `board/wireRoute.ts`.
+- **An orchestrator wire at work:** while the console at its end is `working` or has a queue, the wire is brighter (`--wire-flow`) with a soft flow and three sparks of light running in the direction of the work, fading at both ends. `prefers-reduced-motion`: no motion, only the bright wire. Memory card wires and forward wires do not take part.
+- The canvas uses `--bg-ambient` + the React Flow dot pattern `rgba(255,255,255,.06)`, gap 24.
+- **Panning the board:** the Hand tool (`H`, or hold `Space` while push-to-talk is off) makes the whole board content pointer-transparent, so drag and swipe pan the board from anywhere, including over terminals and iframes. Without Hand, scroll and pinch belong to the board unless the pointer is on the focused tile: the only selected tile, or the tile that holds the keyboard. Over any other tile, scrolling in any direction pans the board and pinch zooms the board; the tile content does not move. Click a tile to give it scroll, click empty board to take it back. A tile inside a multi-tile selection does not count as focused. A swipe that pans the board keeps panning even when a focused tile passes under the still pointer, until the pointer moves more than 4 px or presses. The first click on a web tile or app tile only gives focus; its content gets the next click.
+- **Right rail:** only what is used to work on the project: Code editor, Studios, then Memory, Git, Loops, Mission Map, then Auto arrange (rearranges the board, active from two cards). What gets placed on the board is in the right-click ring. Narrow screens have no right rail and no right-click, so everything stays in the left rail's `+` flyout.
+- **Focus mode:** one card fills the screen, on this device only. The shared board is not written: the card gets the size of the area below the Focus bar at zoom 1 (`board/focus.ts`); other cards, lines, rails, the command bar, zoom, and the minimap are hidden. The card is in the URL (`?card=<id>`): Back on Android and Esc (as long as no field holds the keyboard) return to the board and the previous viewport; a reload keeps it, and the short link `/p/<project>?card=<id>` takes it to the workspace. The Focus bar (glass `--glass-1`, control height + 8) holds ‹ Board, the card name, its position number, and the previous/next card in reading order (rows from the top, then left to right). Enter through the focus button in the card header (next to the display button; on hover or when selected with a mouse, always on touch screens) or Focus in the card menu. A console follows the shown size (the last resize wins). On touch screens the focused card's content uses touch sizes and a 48 header. While focused, the focus and display buttons in the card header are hidden (the Focus bar already gives a way out, display sizes do not apply), so the title gets the room. A card near the board edge (±20000) that is enlarged to screen size is moved back inside the board, and the focus view follows it.
+- **Touch screens** (`data-input="touch"`):
+  - the Insert button on the left rail is always there and opens a labeled grid of every card type (no tooltips, so the names are written), plus Select several; the right rail's items come along only when the right rail is hidden;
+  - long-press (500 ms, moving < 10 px) = right-click on the board and on `data-longpress` elements (`lib/longpress.ts`); Android Chrome's own `contextmenu` that arrives second is ignored, and the finger lift after it is not a tap;
+  - two fingers pan and zoom the board over any card, including consoles and the editor; one finger inside a card still belongs to the card; the board page is not zoomed by the browser;
+  - tapping a line opens its menu; Select several makes a tap add or remove a card from the selection, with a banner showing the count, All, and Done;
+  - board controls 40–44 px, resize handles and line knobs 22 (board units), the minimap hidden; card content on the canvas stays at desktop size because it is zoomed along;
+  - **card content:** whatever needs hover, double-click, or drag and drop on desktop has a way to do it with a finger:
+    - Kanban: a finger scrolls the columns and the card list (columns snap sideways); a card is moved by the ⋮⋮ grip on its left (a `button`, so Chrome's touch targeting does not move the touch to the card's button); holding a card at the edge scrolls the column (with a mouse too); a card's `…` always shows; long-press on a card opens that card's menu (right-click too, in every layout); tap a column title = rename;
+    - Checklist: tap an item's text = edit, × always shows, the list scrolls with a finger and the card is moved by its header;
+    - Memory tile: bricks are moved by pointer drag (a mouse anywhere, a finger by the grip), not HTML drag and drop, which does not exist on touch screens;
+    - charts (response time, heartbeat, tokens): a tap or a finger slide shows the value, and the value stays until the next tap;
+    - Mission Map writes tap hints, not double-click and Ctrl+G.
+- **Board on a phone** (`board/PhoneBoard.tsx`): a bottom tab bar **Board · Cards · Lead** (Lead uses the lead's name, e.g. Aruna); the last used tab is remembered per device, the default is Cards.
+  - Board: the canvas with a short rail at the top left (Select, Hand, Spawn, Insert, Undo, Fit). Shapes, notes, text, pen, eraser, images, Redo, and New console are in the Insert grid, which stops above the tab bar. The command bar and zoom do not show: commands are in the Lead tab, zoom is by pinch.
+  - Cards: a list of cards in reading order, one 64 px glass row each (icon, name, the console's agent and status, status dot, "Needs you"). A tap opens Focus mode with a "Cards" back button; a sideways swipe on the Focus bar or the card header moves to the previous/next card; Back returns to the list. Above the list: New console and Add a card (a sheet with a grid of card types). The badge on the Cards tab counts the consoles that need you.
+  - Lead: the lead thread fills the screen above the command bar, with no close button.
+  - The canvas stays rendered under Cards and Lead (opacity 0), so consoles keep their size and Focus mode can show right away. A newly made console, or one jumped to through needs-you, opens straight in Focus mode, without opening the keyboard by itself.
+- **Command bar and bottom panels:** the bar height is measured (`--cmdbar-h`, used by `--h-cmdbar`); below 1380 px the zoom, the Git pill, and the minimap move up above the bar (the rules are in `board.css`, because that file can load after `orch.css`).
+- **Right-click ring:** right-click on empty board opens seven round glass buttons (`--glass-3`) around More, clockwise from the top: Auto arrange (active from two cards), Spawn agent, Insert image, Web page, Paste, Shapes and notes, Compose group. The ring is centered on the pointer and stays inside the window. A single caption below the ring names the button being hovered or focused, so the names are not scattered around the ring. Arrows move the focus, Esc closes. A button with a panel replaces the ring with a glass panel that holds a back button, and Esc in the panel returns to the ring. More is a second, wider ring: 12 buttons (Checklist, Kanban, Calendar, Uptime monitor, File from project, Branches card, Memory card, Orchestrator card, Desktop app, Layouts, Snapshots, Select all) around Back, and Esc returns to the first ring. What already has its own button is not repeated in More: Code editor on the right rail, Fit on the left rail, zoom at the bottom left. Right-click on cards and lines still uses the normal menu.
+- **Spawn agent in the ring:** an agent tile selects, the Login profile select (for agents that have profiles) then model and effort below it, the Spawn button places; a double-click on a tile places right away. The profile always starts from the default (NextBoard, unless Settings says otherwise) every time the ring opens or the agent changes, whatever other forms chose.
+- **Compose group:** the same form in the ring panel and in the Group chip dialog: color dot + name, role chips, 4-column slots in agent colors, a Fill all row, one model and effort row per agent used by the slots, stepper + Spawn N. Clicking a slot changes the agent, right-click opens the catalog. From the ring, the team lands at the clicked point. The agent mark (`AgentBadge`): the real logo (`agents/logos/`, from `@lobehub/icons-static-svg` under the MIT license; the trademarks stay with their owners) on that agent's color; one-color shapes are painted in the agent color through a mask. An agent without a logo gets two letters of its name on its color gradient, a shell gets a terminal icon. The usage pill uses the same logos.
+- **Code card by its width** (`studio/code/CodeStudio.tsx`), not by the screen, so a small card on desktop follows too: below 1000 px the agent side bar covers the editor as a drawer from the right (card-wide, at most 460), with a scrim that closes it when touched; below 640 px (phone) the left side bar also becomes a drawer over the editor (at most 360), closes by itself as soon as it opens a file, and only the active editor group shows; between 640 and 1000 the left side bar is at most 40 % wide. The bottom panel is never more than 60 % of the editor height; on a phone its panel tabs scroll sideways and the terminal list becomes a row above the terminal. A narrow title bar shows Go to file as an icon; a narrow status bar shows only the branch, problems, cursor position, and language. The Fill button is hidden in focus mode. On touch screens the tab close button always shows and sashes are wider for fingers.
+- **Card header:** one arrangement for every card (`TileHead`, and `NodeHeader` for consoles, same size): 20 px mark, title, meta, spacer, `sm` ghost actions, display button, `…`, height `--h-node-header`, left padding 12, right 4. A header narrower than 440 px (phone, or a small card) shows its action buttons as icons only, and the meta gives way before the title. A card whose title can be changed has **Rename** in its menu (and on long-press / right-click); double-click on the title still works with a mouse. A bent line or arrow has **Straighten** in its menu. **Calendar** counts events per day from the height of the cell shown (focus mode shows more), "+N more" opens the list of that day's events (tap = edit, plus New event), and a calendar narrower than 520 px puts the month controls on a row of their own with short month names. The card type only sets the accent color (`--tile-accent`: top line and icon): blue by default, violet for orchestrator and memory, cyan for web. The `…` menu holds that card's actions and then the same actions as right-click. The group frame stays 32 px because the hub computes its geometry with that number (API-orchestration §1).
+- **Card size:** the display button in the header opens Fit tile, Displays (24 in 1920×1080, 27 in 2560×1440, 32 in 4K 3840×2160), and Phones (iPhone SE 375×667, iPhone 14 Pro 393×852, iPhone 14 Pro Max 430×932, Pixel 7 412×915, Galaxy S8+ 360×740). A web tile always shows this button; other cards on hover or when selected, or while using one of those sizes. Picking one resizes the card from its top left corner, can be undone, and the view shifts when the card does not fit. Fit tile returns the card type's initial size. A dev server web tile: the size becomes the page's viewport and the card wraps around it. Images keep their proportions. Options narrower than the card's limit are disabled (editor 560, kanban and calendar 420). A card without a header, or several cards at once, has this list in the right-click menu. Groups, text, shapes, lines, and ink do not have this list.
+- **Layouts:** a popup above the board, the same as the desktop app picker: the layout list on the left, lanes and save layout on the right, each scrolling on its own, the Deploy button in the footer so it is always visible. A successful deploy closes the popup; a failed one leaves it open with the lane choices intact.
+- **Lead agent:** the lead's face is the first letter of its name in a `--wire`→`--c-primary` gradient circle, the only face in the thread. Its messages carry the face and name; its plans are `proposal` cards without a countdown, because they are not urgent. Message actions (`.msg-act`) appear on hover, always visible on touch screens; a reply uses a `--wire` line on the left, both above the box (`.orch-reply`) and above the bubble (`.msg-quote`).
+- **Orchestrator:** the card and the editor tab use the same material. The team shows as chips per group so the thread gets room; the dot shows the status, a click inserts `@handle` or `@Group` into the command box without sending, right-click opens that agent's actions. The chevron opens the full list (remembered per browser), with row actions that appear when the cursor is over them and always show on touch screens. The card header shows the agent count and the most important status, the tooltip counts them all, and Pause all turns into Resume all once every agent has stopped; consoles that are at a shell are not counted. Long commands in the compact thread are folded with Show all.
+- **"New terminal" dock**: glass `--glass-1` floating at the **bottom center** (bottom 16), radius `--r-xl`, padding 8, holding `sm` controls (height 32): machine select (with a status dot), preset select (preset color dot), cwd input group (folder icon + Browse button), name (optional), the primary button "New terminal". < 900 px: the dock becomes a round "+" button that opens a sheet/modal with the same form.
+- Zoom controls at the bottom left & minimap at the bottom right: glass `--glass-1`, radius `--r-lg`.
+- **Terminal node**:
+  - Frame radius `--r-lg`, `--glass-border` border, `--e-3`.
+  - 38 px header in glass `--glass-1` (no backdrop-filter per node, for pan/zoom performance — use bg `rgba(16,21,36,.92)`), a 2 px accent line at the top edge in the preset color (`session.color`) fading to transparent.
+  - Header content: status dot → 600 `--fs-sm` title → "@ machine" `--text-3` → spacer → machine badge (when remote) → exit code (when ≠ 0, a danger chip) → `sm` menu icon button.
+  - Solid body `--surface-solid`, padding 8, JetBrains Mono 13 px; xterm colors from the `--term-*` tokens (see 3.9).
+  - Selected: ring `0 0 0 1px var(--c-primary-300), 0 0 0 4px rgba(24,86,255,.25)`.
+  - The resize handle shows only on hover/selected, 10 px, color `--c-primary-300`.
+- Board empty state: a small glass card in the center, an icon, "No terminals yet", one sentence, an arrow/text pointing at the dock.
 
-**Lapisan kartu.** Kartu yang terakhir disentuh naik ke atas seperti jendela. Ini hanya `zIndex` di klien itu: tidak dikirim ke hub, tidak memindah DOM (iframe dan fokus terminal tidak terganggu), dan reload kembali ke urutan tersimpan. Bring to front dan Send to back tetap mengubah urutan tersimpan dan mengalahkannya. Frame grup, shape, line, dan ink tidak ikut naik, karena mereka latar. 
+**Card layering.** The card touched last rises to the top like a window. This is only `zIndex` on that client: it is not sent to the hub, it does not move the DOM (iframes and terminal focus are not disturbed), and a reload returns to the saved order. Bring to front and Send to back still change the saved order and win over it. Group frames, shapes, lines, and ink do not rise, because they are background. 
 
-**Memberi ruang saat expand.** Editor yang mengisi layar tidak menimpa kartu lain: kartu di kanannya bergeser ke kanan bersama-sama dan kartu di bawahnya bergeser ke bawah, seperti menyisipkan kolom dan baris, jadi susunan antar-kartu tetap dan tidak ada tumpang tindih baru. Geserannya sejauh yang dibutuhkan kartu terdekat. Kartu di kiri dan di atas diam. Kartu yang sudah menimpa editor pindah ke tempat kosong terdekat. Grup pindah bersama frame-nya. Kartu yang di-lock tetap diam (editor berada di atasnya), juga shape atau garis yang mengelilingi editor; coretan pena ikut bergeser tapi tidak pernah mendorong. Collapse mengembalikan semuanya dengan jarak yang sama, jadi kartu yang dipindah manual selama itu tetap di tempat barunya. `data.fill` menyimpan ukuran asal dan daftar geserannya, jadi ini tetap bisa dikembalikan setelah reload.
+**Making room on expand.** An editor that fills the screen does not cover other cards: the cards to its right shift right together and the cards below it shift down, like inserting columns and rows, so the arrangement between cards stays and no new overlap appears. The shift is as far as the nearest card needs. Cards to the left and above stay still. A card that already covered the editor moves to the nearest empty spot. A group moves with its frame. A locked card stays still (the editor sits on top of it), as does a shape or line that surrounds the editor; pen strokes shift along but never push. Collapse returns everything by the same distance, so a card moved by hand in the meantime stays in its new place. `data.fill` stores the original size and the list of shifts, so this can still be undone after a reload.
 
 ### 3.6 Modal, menu, popover, toast
 
-- Modal: `--glass-2` + blur-2, radius `--r-xl`, `--e-3`; lebar `sm 440` / `md 560` / `lg 720`; max-height `calc(100dvh - 48px)`, body scroll, header & footer sticky dengan pemisah `--glass-border`. Masuk: fade + scale .98→1 dalam `--t-base`. Fokus terkunci di dalam; Esc menutup; fokus kembali ke pemicu.
-- Menu/popover: `--glass-3` + blur-3, radius `--r-lg`, padding 6, item 34 px radius `--r-sm`, item danger `--c-danger-300`, navigasi panah atas/bawah.
-- Toast: kanan bawah (di atas minimap, bottom 16 + tinggi minimap), `--glass-3`, garis kiri 3 px warna jenis (success/danger/info), auto hilang 4 s (error 7 s), `role="status"` / `role="alert"` untuk error.
-- **Studio** (Documents, Markdown, Skills): daftar dan isinya berdampingan, bertumpuk di bawah 900 px, dan di HP satu per satu: memilih dari daftar menampilkan isinya dengan tombol kembali bernama daftar itu (‹ Library, ‹ Notes, ‹ Skills) di atasnya (`studio/StudioPane.tsx`). Studio yang dibuka untuk satu item (catatan dari file card) langsung menampilkan item itu. Menu di HP tidak menampilkan shortcut keyboard.
-- **HP:** modal adalah sheet dari tepi bawah selebar layar dengan pegangan 36×4 di kepalanya; menyeret kepala turun lebih dari 96 px menutupnya. Tombol footer selebar sheet. Menu ditutup oleh `pointerdown` di luar, jadi tap di layar sentuh juga menutupnya. Esc di menu yang dibuka dari modal hanya menutup menunya. Toast di atas tab bar, selebar layar.
+- Modal: `--glass-2` + blur-2, radius `--r-xl`, `--e-3`; width `sm 440` / `md 560` / `lg 720`; max-height `calc(100dvh - 48px)`, the body scrolls, sticky header & footer with a `--glass-border` divider. Enter: fade + scale .98→1 in `--t-base`. Focus is trapped inside; Esc closes; focus returns to the trigger.
+- Menu/popover: `--glass-3` + blur-3, radius `--r-lg`, padding 6, 34 px items with radius `--r-sm`, danger items `--c-danger-300`, up/down arrow navigation.
+- Toast: bottom right (above the minimap, bottom 16 + the minimap height), `--glass-3`, a 3 px left line in the kind's color (success/danger/info), disappears by itself after 4 s (error 7 s), `role="status"` / `role="alert"` for errors.
+- **Studio** (Documents, Markdown, Skills): the list and its content side by side, stacked below 900 px, and one at a time on a phone: picking from the list shows its content with a back button named after that list (‹ Library, ‹ Notes, ‹ Skills) above it (`studio/StudioPane.tsx`). A studio opened for one item (a note from a file card) shows that item right away. Menus on a phone do not show keyboard shortcuts.
+- **Phone:** a modal is a full-width sheet from the bottom edge with a 36×4 handle at its head; dragging the head down more than 96 px closes it. Footer buttons are sheet-wide. Menus close on `pointerdown` outside, so a tap on a touch screen closes them too. Esc in a menu opened from a modal closes only the menu. Toasts sit above the tab bar, full-width.
 
-### 3.7 Status & badge
+### 3.7 Status & badges
 
-| Status sesi | Titik | Label |
+| Session status | Dot | Label |
 |---|---|---|
-| agen dalam giliran | `--c-success` + ring pulse | "Working" |
-| shell menjalankan perintah | `--c-success` + ring pulse | "Running" + nama perintah |
-| agen di prompt, shell tanpa perintah | `--c-grey` | "Idle" |
+| agent in a turn | `--c-success` + pulse ring | "Working" |
+| shell running a command | `--c-success` + pulse ring | "Running" + the command name |
+| agent at its prompt, shell with no command | `--c-grey` | "Idle" |
 | starting / reconnecting | `--c-warning` | "Starting" / "Reconnecting" |
 | exited (0) | `--c-grey` | "Exited" |
 | exited ≠ 0 / error | `--c-danger` | "Exited (N)" / "Error" |
 
-- Titik 8 px; selalu disertai teks/`aria-label` (warna bukan satu-satunya pembeda).
-- **Penghitung header, tab board, dan kartu project** menghitung yang benar-benar memproses (`session.active`), bukan semua proses yang hidup. Yang idle hanya disebut jumlahnya, dan daftarnya baru tampil lewat "Show N idle".
-- Badge/chip: tinggi 22, radius pill, padding-x 8, `--fs-xs` 500, bg warna 14% + teks warna tint (contoh success: bg `rgba(7,202,107,.14)`, teks `#3EE08F`).
+- 8 px dot; always with text/`aria-label` (color is not the only difference).
+- **The header counter, board tabs, and project cards** count what is really processing (`session.active`), not every live process. Idle ones are only given as a number, and their list shows only through "Show N idle".
+- Badge/chip: height 22, pill radius, padding-x 8, `--fs-xs` 500, bg in the color at 14% + text in the tint color (success example: bg `rgba(7,202,107,.14)`, text `#3EE08F`).
 
-### 3.8 Halaman auth (Setup, Login)
+### 3.8 Auth pages (Setup, Login)
 
-- Latar `--bg-ambient` penuh layar; kartu kaca tengah lebar 420 (Setup 520), padding 32, radius `--r-xl`.
-- Brand di atas kartu (logo 40 px + "NextBoard" 800 `--fs-2xl`), subjudul `--text-2`.
-- Setup: indikator langkah (1 Admin · 2 Agents) sebagai stepper horizontal; langkah 2 menampilkan CLI terdeteksi sebagai grid bento kecil (2 kolom) dengan chip "Found"/"Not found".
-- Tombol utama `btn-block` tinggi 44.
+- Full-screen `--bg-ambient` background; a centered glass card 420 wide (Setup 520), padding 32, radius `--r-xl`.
+- Brand above the card (40 px logo + "NextBoard" 800 `--fs-2xl`), subtitle `--text-2`.
+- Setup: a step indicator (1 Admin · 2 Agents) as a horizontal stepper; step 2 shows the detected CLIs as a small bento grid (2 columns) with "Found"/"Not found" chips.
+- Primary button `btn-block` height 44.
 
-### 3.10 Halaman Memory
+### 3.10 Memory page
 
-Referensi visual: graph view Obsidian (node dan link, hover menerangi tetangga dan meredupkan sisanya) di dalam sebuah galaxy. Langit selalu gelap; panel di atasnya memakai glass biasa.
+Visual reference: Obsidian's graph view (nodes and links, hover lights up the neighbors and dims the rest) inside a galaxy. The sky is always dark; panels on top of it use normal glass.
 
-- **Struktur:** memory semua project di inti, tiap project bintang di lengan spiral, sub-memory planet yang mengorbit bintangnya, heading bulan kecil, critical notes di orbit terdekat. Lengan, debu, dan bintang memakai kurva yang sama.
-- **Bentuk dulu, warna kemudian:** bintang berpaku, critical notes berlian merah dengan denyut pelan, sub-memory bola, catatan agent cincin, heading titik. Selalu ada label dan legenda, jadi jenisnya tidak hanya dibedakan warna.
-- **Warna:** per project mengikuti urutan tetap (`PROJECT_HUES`, project terlama dulu) dan tidak berubah saat project lain dibuka. Melewati enam project, warnanya netral. Merah hanya untuk critical notes.
-- **Gerak:** orbit dan rotasi galaxy sangat pelan dan berhenti saat pointer di atas node. `prefers-reduced-motion`: semua diam dan hanya menggambar saat ada perubahan.
-- **Daftar di kiri berisi hal yang sama** dengan kanvas dan bisa dipakai dengan keyboard: `/` mencari, Esc mundur. Kanvas sendiri hanya tambahan visual (`role="img"`).
-- **Layar sempit:** kontrol di bawah dalam jangkauan jempol, panel menjadi sheet.
+- **Structure:** the memory of all projects at the core, each project a star on a spiral arm, sub-memories planets orbiting their star, headings small moons, critical notes in the nearest orbit. Arms, dust, and stars follow the same curve.
+- **Shape first, color second:** stars are spiked, critical notes red diamonds with a slow pulse, sub-memories spheres, agent notes rings, headings dots. There is always a label and a legend, so kinds are not told apart by color alone.
+- **Color:** per project follows a fixed order (`PROJECT_HUES`, oldest project first) and does not change when another project is opened. Past six projects, the color is neutral. Red only for critical notes.
+- **Motion:** the orbits and the galaxy rotation are very slow and stop while the pointer is over a node. `prefers-reduced-motion`: everything is still and only draws when something changes.
+- **The list on the left holds the same things** as the canvas and can be used with the keyboard: `/` searches, Esc goes back. The canvas itself is only a visual extra (`role="img"`).
+- **Narrow screens:** controls at the bottom within thumb reach, panels become sheets.
 
-### 3.11 Daftar project (Home)
+### 3.11 Project list (Home)
 
-- **Dua tampilan, satu markup** (`home/ProjectCard.tsx`): kartu bento, atau baris dalam satu panel kaca (tanpa blur per baris, §6). Di bawah 960 px baris menumpuk seperti kartu ringkas. Pilihan tampilan dan urutan disimpan per browser.
-- **Toolbar** (filter nama/folder/group/tag, susunan Host/Group, urutan Recent/Name, Cards/List) muncul mulai 4 project atau begitu ada group atau tag: di bawah itu semuanya sudah terlihat.
-- **Host atau Group:** Host mengelompokkan per machine, Group mengikuti tree group (referensi pemilik, 2026-11-04). Tiap susunan menyebut di kartu apa yang tidak dikatakan judulnya: machine di Group, group di Host. Selama belum ada pilihan, Group menjadi tampilan begitu ada group. Pilihan disimpan per browser.
-- **Group bertingkat:** judul group adalah tombol buka-tutup, dan yang tertutup diingat per browser. Sub-group menggantung pada garis tipis induknya. Isi group didahulukan, lalu sub-group. Project tanpa group ada di bagian terakhir, **All projects**. Menu ⋯ pada judul: New sub-group, Edit group, Delete group; menghapus group tidak menghapus project, isinya naik satu tingkat. Filter membuka semua group yang cocok dan menyembunyikan sisanya.
-- **Tag** berwarna netral karena hanya pembeda (§2.5). Bar di bawah toolbar menyaring satu tag, begitu juga chip di kartu; aktif = tinta penuh. Kartu menampilkan 3 tag dan `+N`. Menu kartu **Group and tags…** menyimpan group dan tag sekaligus, dan bisa membuat group baru di dalam group terpilih.
-- **Menu project di header** mengikuti tree yang sama: Home, group bertingkat dengan jumlah project (→ buka, ← tutup, tetap terbuka saat diklik), lalu **All projects** untuk yang tanpa group, baris machine di kanan. Group berisi project yang sedang dibuka selalu terbuka, fokus mulai di project itu. Menu menggantung dari tombolnya dan bergulir, jadi tidak pernah naik menutupi tombol.
-- **Anatomi:** monogram + nama + folder → satu baris git → kaki (terminal, board, terakhir dibuka). Kartu dalam satu baris grid sama tinggi, jadi kakinya sejajar. Baris git tidak pernah wrap: branch terpotong, status tetap di kanan.
-- **Monogram:** 1–2 huruf dari nama, warna dari id (`--mono-N-*`) supaya tetap saat di-rename. Warnanya hanya pembeda, jadi tidak memakai hijau, oranye, atau merah status.
-- **Folder** kehilangan bagian tengahnya, bukan ujungnya: bagian terakhirlah yang membedakan project.
-- **Seluruh kartu adalah tombol**, jadi tooltip tombol itu memuat nama, folder penuh, dan branch. Tidak ada area mati di dalam kartu selain menu.
-- **Status git:** folder berisi beberapa repo menulis "3 repositories" dan total perubahannya, bukan "No git repository". Machine yang tidak tersambung menulis "Machine offline" tanpa request yang pasti gagal.
+- **Two views, one markup** (`home/ProjectCard.tsx`): bento cards, or rows in a single glass panel (no blur per row, §6). Below 960 px rows stack like compact cards. The view and sort choices are saved per browser.
+- **Toolbar** (filter by name/folder/group/tag, Host/Group arrangement, Recent/Name sort, Cards/List) shows from 4 projects or as soon as there is a group or tag: below that, everything is already visible.
+- **Host or Group:** Host groups by machine, Group follows the group tree (owner reference, 2026-11-04). Each arrangement states on the card what its heading does not say: the machine under Group, the group under Host. While there is no choice yet, Group becomes the view as soon as there is a group. The choice is saved per browser.
+- **Nested groups:** a group heading is an expand/collapse button, and collapsed ones are remembered per browser. Sub-groups hang on their parent's thin line. A group's own content comes first, then sub-groups. Projects without a group are in the last section, **All projects**. The ⋯ menu on a heading: New sub-group, Edit group, Delete group; deleting a group does not delete projects, its content moves up one level. The filter opens every matching group and hides the rest.
+- **Tags** are neutral in color because they only tell things apart (§2.5). The bar below the toolbar filters by one tag, as do the chips on the cards; active = full ink. A card shows 3 tags and `+N`. The card menu **Group and tags…** saves the group and tags together, and can create a new group inside the selected group.
+- **The project menu in the header** follows the same tree: Home, nested groups with project counts (→ open, ← close, stays open when clicked), then **All projects** for those without a group, the machine row on the right. A group holding the open project is always open, and focus starts at that project. The menu hangs from its button and scrolls, so it never rises to cover the button.
+- **Anatomy:** monogram + name + folder → one git row → footer (terminals, boards, last opened). Cards in one grid row are the same height, so their footers line up. The git row never wraps: the branch is truncated, the status stays on the right.
+- **Monogram:** 1–2 letters from the name, color from the id (`--mono-N-*`) so it stays on rename. Its color only tells projects apart, so it does not use the status green, orange, or red.
+- **The folder** loses its middle, not its end: the last part is what tells projects apart.
+- **The whole card is a button**, so that button's tooltip holds the name, the full folder, and the branch. There is no dead area inside the card other than the menu.
+- **Git status:** a folder holding several repos writes "3 repositories" and their total changes, not "No git repository". A machine that is not connected writes "Machine offline" without a request that is sure to fail.
 
-### 3.12 Command bar dan usage (referensi pemilik, 2026-11-03)
+### 3.12 Command bar and usage (owner reference, 2026-11-03)
 
-Dua pengecualian sadar atas §2.5 dan §6, hanya di sini: outline gradien pada chip command bar, dan animasi berulang saat mendengarkan. Sisa aplikasi tetap mengikuti aturan aslinya.
+Two deliberate exceptions to §2.5 and §6, only here: a gradient outline on the command bar chips, and a repeating animation while listening. The rest of the app keeps its original rules.
 
-- **Panel input** (referensi pemilik, 2026-11-04) adalah satu kotak komposer, dari atas: baris yang dibawa order (target, balasan, lampiran) bila ada, dipisah garis selebar panel; teks selebar penuh tanpa border sendiri; toolbar berisi tombol thread dan pill agent di kiri, mic dan Send di kanan. Fokus ada di kotaknya: border `--c-primary` dan ring input. Tinggi tetap dua baris walau kosong, jadi tidak melompat saat file dipaste, dan toolbar tidak bergeser karena panel tumbuh ke atas.
-- **Chip:** kata saja, tanpa ikon, mengambang di luar panel input. Isi hampir padat tanpa blur (§6: tidak ada blur per elemen di atas board), outline dari `--cmd-ring-*`. Warna hanya pembeda: `Kill all` dan chip yang aktif tetap memakai warna status.
-- **Mendengarkan:** panel input berganti jadi orb, status, waveform, Batal, dan Stop; caption transkrip menggantung di bawah panel. Tombol mic dan Stop satu elemen yang sama, supaya tekan-tahan tetap menerima lepasnya walau baris berubah. `prefers-reduced-motion` membuat orb dan waveform diam.
-- **Level mikrofon** diukur di browser hanya selama mendengarkan, lalu mikrofonnya ditutup; audio tidak ke mana-mana karena ini. Android menyerahkan mikrofon ke speech recognition, jadi di sana gerakannya mengikuti kata yang masuk.
-- **Usage:** satu aksen per CLI (`--usage-claude`, `--usage-codex`) lewat `data-agent`; amber dan merah (§10.1 API-studio) tetap menang saat kuota menipis, dan selalu disertai teks. Window pertama jadi ring, sisanya bar. Heatmap memakai kuartil hari aktif, supaya satu hari besar tidak memudarkan semua hari lain.
+- **The input panel** (owner reference, 2026-11-04) is one composer box, from the top: the rows the order carries (targets, reply, attachments) when present, separated by a panel-wide line; full-width text with no border of its own; a toolbar with the thread button and agent pill on the left, mic and Send on the right. Focus is on the box: a `--c-primary` border and the input ring. The height stays at two rows even when empty, so it does not jump when a file is pasted, and the toolbar does not shift because the panel grows upward.
+- **Chips:** words only, no icons, floating outside the input panel. Near-solid fill with no blur (§6: no per-element blur above the board), outline from `--cmd-ring-*`. Color only tells things apart: `Kill all` and the active chip still use status colors.
+- **Listening:** the input panel turns into an orb, status, waveform, Cancel, and Stop; a transcript caption hangs below the panel. The mic button and Stop are the same element, so a press-and-hold still gets its release even when the row changes. `prefers-reduced-motion` keeps the orb and waveform still.
+- **The microphone level** is measured in the browser only while listening, then the microphone is closed; audio goes nowhere because of this. Android hands the microphone to speech recognition, so there the motion follows the words coming in.
+- **Usage:** one accent per CLI (`--usage-claude`, `--usage-codex`) through `data-agent`; amber and red (§10.1 API-studio) still win when the quota runs low, and always come with text. The first window becomes a ring, the rest bars. The heatmap uses quartiles of active days, so one big day does not fade all the other days.
 
-### 3.13 Paste file
+### 3.13 Pasting files
 
-Kontrak lengkap di API-studio §7.9. Yang terlihat:
+The full contract is in API-studio §7.9. What is visible:
 
-- Console: path muncul di input program seperti diketik; agent CLI mengubah gambar jadi `[Image #n]` sendiri. Tidak ada UI tambahan; toast hanya untuk gagal dan untuk upload di atas 2 MB.
-- Input order (command bar, kartu orchestrator, pane orchestrator di Code): file yang dipaste jadi chip di baris atas kotak, dipisah garis tipis selebar kotak dari teksnya, bukan path di teks: thumbnail 18 px, nama, ukuran gambar atau file. Tombol × menggantikan ukuran di tempat yang sama saat pointer di atas chip atau fokus ada di dalamnya; layar sentuh selalu menampilkan ×. Klik ruang kosong di baris chip menaruh kursor di teks. Selama upload ukuran diganti `Attaching…` dan Send nonaktif; order boleh hanya berisi file. Klik thumbnail membuka gambarnya. Order yang ditolak hub tetap menyimpan teks dan chip.
-- Thread: gambar tampil di atas teks order setinggi 120 px dan membuka ukuran penuh bila diklik, file lain jadi chip, path tidak ditampilkan. Bila file sudah terhapus (7 hari), gambar berubah jadi chip. *Edit and send again* mengembalikan chip-nya.
-- Explorer: baris yang di-cut (dan isinya) meredup (`.wb-row.is-cut`) sampai dipaste atau Esc. Copy tanpa tanda, seperti VS Code.
+- Console: the path appears in the program's input as if typed; the agent CLI turns images into `[Image #n]` itself. No extra UI; toasts only for failures and for uploads above 2 MB.
+- Order input (command bar, orchestrator card, orchestrator pane in Code): a pasted file becomes a chip in the top row of the box, separated from the text by a thin box-wide line, not a path in the text: an 18 px thumbnail, the name, the image or file size. An × button replaces the size in the same place while the pointer is over the chip or focus is inside it; touch screens always show ×. Clicking empty space in the chip row puts the cursor in the text. During upload the size is replaced by `Attaching…` and Send is disabled; an order may hold only files. Clicking a thumbnail opens its image. An order the hub refuses keeps its text and chips.
+- Thread: images show above the order text at 120 px high and open at full size when clicked, other files become chips, paths are not shown. When a file has already been deleted (7 days), the image turns into a chip. *Edit and send again* brings its chips back.
+- Explorer: a cut row (and its content) dims (`.wb-row.is-cut`) until pasted or Esc. Copy has no mark, as in VS Code.
 
-### 3.14 Kartu Uptime
+### 3.14 Uptime card
 
-Kontrak di [API-uptime.md](API-uptime.md). Daftar monitor di kiri, halaman monitor terpilih di kanan; kartu di bawah 620 px menampilkan satu sisi saja, lewat container query, dengan tombol kembali.
+The contract is in [API-uptime.md](API-uptime.md). The monitor list on the left, the selected monitor's page on the right; a card below 620 px shows only one side, through a container query, with a back button.
 
-- **Warna status** hanya `--c-success`, `--c-warning`, `--c-danger`, untuk up, pending, down, dan tidak pernah berdiri sendiri: badge berikon dan berlabel, dan heartbeat yang gagal juga lebih tinggi (60, 80, 100 %), jadi bisa dibedakan tanpa warna.
-- **Heartbeat:** sel tipis dengan gap 2 px di satu garis dasar; terbaru di kanan, slot kosong tetap terlihat. 24 di daftar, 60 di halaman monitor, dengan keterangan cek di bawah pointer.
-- **Grafik respons:** satu seri, jadi tanpa legenda: garis 2 px `--viz-1`, wash 10 %, titik di nilai terbaru, pita merah di langkah yang punya cek gagal, garis putus di waktu tanpa cek. Hover dan panah kiri/kanan membaca titik; tombol tabel menampilkan angka yang sama. Posisi pointer dihitung sebagai bagian dari lebar, karena zoom board mengubah ukuran di layar.
-- Yang paling mendesak di atas daftar: down, pending, waiting, up, paused. Kotak cari mulai 8 monitor.
+- **Status colors** are only `--c-success`, `--c-warning`, `--c-danger`, for up, pending, down, and never stand alone: badges carry an icon and a label, and failed heartbeats are also taller (60, 80, 100 %), so they can be told apart without color.
+- **Heartbeat:** thin cells with a 2 px gap on one baseline; the newest on the right, empty slots stay visible. 24 in the list, 60 on the monitor page, with a description of the check under the pointer.
+- **Response chart:** one series, so no legend: a 2 px `--viz-1` line, a 10 % wash, a dot at the latest value, a red band at steps that have a failed check, a broken line for times with no check. Hover and the left/right arrows read the points; the table button shows the same numbers. The pointer position is computed as a fraction of the width, because board zoom changes the on-screen size.
+- The most urgent at the top of the list: down, pending, waiting, up, paused. A search box from 8 monitors.
 
-### 3.15 Kartu Machines
+### 3.15 Machines card
 
-Kartu sama lebar dan sama tinggi per baris, tanpa `span 2`: yang dibandingkan antar mesin harus sejajar. This PC selalu pertama, sisanya menurut nama, jadi kartu tidak berpindah saat koneksinya berubah.
+Cards are the same width and the same height per row, with no `span 2`: what is compared between machines must line up. This PC is always first, the rest by name, so cards do not move when their connection changes.
 
-- **Warna status** mewarnai kepala kartu (`--tint-*-bg` memudar dalam 96 px) dan tile ikon. Badge tetap menyebutkannya dengan kata, jadi warna bukan satu-satunya pembeda.
-- **Anatomi:** kepala → tiga angka ringkas (Terminals, Agents, Probed, di atas `--surface-input`, bukan kaca di atas kaca) → spesifikasi (label kiri, nilai kanan, garis hairline) → Agent CLIs → Persistence → kaki. Persistence dan kaki menempel di bawah, jadi sejajar antar kartu.
-- **Belum diprobe:** satu panel keterangan, bukan deretan tanda strip.
-- **`curl` bukan agen,** jadi tidak ikut chip Agent CLIs. Server tanpa CLI itu wajar (agent selalu di This PC), dan kartunya mengatakan begitu.
-- **Aksi:** kaki memuat Connect (hanya bila belum tersambung; primary hanya saat terputus atau error) dan Re-probe. Rename, Orphans, Connection log, dan Delete ada di menu More, dengan Delete terpisah di bawah.
+- **The status color** tints the card head (`--tint-*-bg` fading over 96 px) and the icon tile. The badge still names it in words, so color is not the only difference.
+- **Anatomy:** head → three compact numbers (Terminals, Agents, Probed, on `--surface-input`, not glass on glass) → specs (label on the left, value on the right, hairline divider) → Agent CLIs → Persistence → footer. Persistence and the footer stick to the bottom, so they line up between cards.
+- **Not probed yet:** one explanation panel, not a row of dashes.
+- **`curl` is not an agent,** so it is not among the Agent CLIs chips. A server without CLIs is normal (agents are always on This PC), and its card says so.
+- **Actions:** the footer holds Connect (only when not connected; primary only when disconnected or in error) and Re-probe. Rename, Orphans, Connection log, and Delete are in the More menu, with Delete set apart at the bottom.
 
-### 3.16 Kartu Credentials
+### 3.16 Credentials card
 
-Kontrak di [API-vault.md](API-vault.md). Tiga kolom: bagian, daftar, item. Di bawah 820 px bagian menjadi select, dan di bawah 560 px hanya daftar atau item yang tampil, dengan tombol kembali; semuanya lewat container query.
+The contract is in [API-vault.md](API-vault.md). Three columns: sections, list, item. Below 820 px the sections become a select, and below 560 px only the list or the item shows, with a back button; all through container queries.
 
-- **Monokrom.** Warna hanya untuk kekuatan master password (`--c-danger`, `--c-warning`, `--c-success`), selalu bersama bar dan label, dan merah untuk aksi hapus.
-- **Tanpa ikon situs:** kotak ber-hairline dengan ikon tipe, karena mengambil favicon membocorkan domain.
-- **Nilai rahasia:** 12 titik tetap, tidak mengikuti panjang asli, dan tidak ada di DOM sampai Show ditekan. Kunci privat di form kabur sampai difokus.
-- **Baris daftar:** salin username dan password muncul saat hover atau fokus, dan teks memberi ruang, jadi tidak menimpa. Di layar sentuh selalu terlihat.
-- **Kekuatan master password** memberi peringatan, tidak menolak; hanya kurang dari 8 karakter yang ditolak.
-- **PIN** satu field bertopeng dengan jarak antarhuruf lebar, numpad di ponsel, terkirim di digit keenam. Salah: field kosong lagi dan sisa percobaan disebut.
-- **Dialog isi login:** yang cocok dengan situs di atas, sisanya terpisah dengan "saved for …". Login untuk situs lain butuh klik kedua, dan tombolnya merah. Di Chrome This PC ada peringatan tetap bahwa situsnya tidak bisa dipastikan.
-- **Jendela dari header:** modal 960 px, tinggi sampai 760, isi sama dengan kartu (`vault/Panel.tsx`). New, Lock, dan `…` ada di kepala modal sebelum tombol tutup; jumlah item hilang di bawah 560 px. Menutup jendela tidak mengunci vault. Esc di menu `…` hanya menutup menu.
-- **Layar kunci dan buat vault** tanpa bingkai tambahan, di tengah kartu, dan menggulir kalau lebih tinggi dari kartu. Peringatan "tidak bisa dipulihkan" pakai `.alert.warning` dan centang wajib. Di HTTP biasa ada satu baris catatan kecil di bawah kolom password, tidak menghalangi.
+- **Monochrome.** Color only for master password strength (`--c-danger`, `--c-warning`, `--c-success`), always together with a bar and a label, and red for delete actions.
+- **No site icons:** a hairline box with a type icon, because fetching a favicon leaks the domain.
+- **Secret values:** a fixed 12 dots, not following the real length, and not in the DOM until Show is pressed. A private key in a form is blurred until focused.
+- **List rows:** copy username and copy password appear on hover or focus, and the text makes room, so they do not overlap. On touch screens they are always visible.
+- **Master password strength** warns, it does not refuse; only fewer than 8 characters is refused.
+- **PIN:** one masked field with wide letter spacing, a numpad on phones, sent at the sixth digit. Wrong: the field empties again and the remaining attempts are stated.
+- **Fill login dialog:** those that match the site at the top, the rest set apart with "saved for …". A login for another site needs a second click, and its button is red. In This PC's Chrome there is a permanent warning that the site cannot be confirmed.
+- **Window from the header:** a 960 px modal, up to 760 high, with the same content as the card (`vault/Panel.tsx`). New, Lock, and `…` are in the modal head before the close button; the item count disappears below 560 px. Closing the window does not lock the vault. Esc in the `…` menu closes only the menu.
+- **Lock and create-vault screens** have no extra frame, sit in the center of the card, and scroll when taller than the card. The "cannot be recovered" warning uses `.alert.warning` and a required checkbox. On plain HTTP there is one small note line below the password field, which does not block anything.
 
-### 3.17 Pasang sebagai aplikasi (PWA)
+### 3.17 Install as an app (PWA)
 
-NextBoard bisa dipasang ke layar utama dan berjalan di jendela sendiri, tanpa bar browser. Hub tetap wajib: tidak ada yang berjalan offline.
+NextBoard can be installed to the home screen and run in its own window, without the browser bar. The hub is still required: nothing runs offline.
 
-- **Manifest:** `public/manifest.json` (bukan `.webmanifest`, supaya hub menyajikannya sebagai JSON tanpa tabel MIME tambahan). Isinya: `display: standalone`, `start_url` dan `scope` `/`, serta latar dan `theme_color` `#0a0a0a`. Warna bar tetap mengikuti tema lewat `<meta name="theme-color">` (`lib/theme.ts`).
-- **Ikon:** `public/icons/icon.svg` (kotak membulat, sama dengan favicon) dan `maskable.svg` (latar penuh, tanda di dalam lingkaran 80 %). PNG 192, 512, maskable 512, dan apple-touch 180 dibuat dari keduanya dengan `node scripts/icons.mjs`; jangan disunting tangan.
-- **Tanpa service worker.** Chrome tidak lagi memintanya untuk install. Cache offline berisiko menyajikan bundle lama setelah hub diperbarui, dan hub yang mati tetap tidak bisa dipakai.
-- **Settings › Install app** (per perangkat), dengan empat keadaan (`lib/install.ts`):
-  - **Terpasang:** halaman berjalan sebagai aplikasi.
-  - **Siap:** browser menawarkan install (`beforeinstallprompt`), jadi tombol Install membuka dialognya. Selama tawaran itu ada, menu `…` di HP dan tablet juga punya "Install app".
-  - **Lewat menu:** alamatnya aman tetapi browser belum menawarkan, jadi pane menulis langkahnya per browser.
-  - **HTTP biasa:** `.alert.warning` menjelaskan bahwa *Add to Home screen* hanya membuat shortcut yang terbuka di tab browser. Caranya: buka hub lewat HTTPS (nginx atau `tailscale serve`), atau di Chrome perangkat sendiri tambahkan alamat hub ke `chrome://flags` › *Insecure origins treated as secure*. Hub tetap jalan penuh lewat HTTP.
-- Tawaran install dari browser tidak dicegah: Chrome tetap boleh menampilkan ajakannya sendiri.
+- **Manifest:** `public/manifest.json` (not `.webmanifest`, so the hub serves it as JSON without an extra MIME table). Its content: `display: standalone`, `start_url` and `scope` `/`, and background and `theme_color` `#0a0a0a`. The bar color still follows the theme through `<meta name="theme-color">` (`lib/theme.ts`).
+- **Icons:** `public/icons/icon.svg` (rounded square, same as the favicon) and `maskable.svg` (full background, the mark inside an 80 % circle). The PNGs 192, 512, maskable 512, and apple-touch 180 are made from both with `node scripts/icons.mjs`; do not edit them by hand.
+- **No service worker.** Chrome no longer asks for one to install. An offline cache risks serving an old bundle after the hub is updated, and a hub that is down still cannot be used.
+- **Settings › Install app** (per device), with four states (`lib/install.ts`):
+  - **Installed:** the page runs as an app.
+  - **Ready:** the browser offers install (`beforeinstallprompt`), so the Install button opens its dialog. While that offer exists, the `…` menu on phones and tablets also has "Install app".
+  - **Through the menu:** the address is secure but the browser has not offered yet, so the pane writes the steps per browser.
+  - **Plain HTTP:** an `.alert.warning` explains that *Add to Home screen* only makes a shortcut that opens in a browser tab. The way out: open the hub over HTTPS (nginx or `tailscale serve`), or in Chrome on your own device add the hub address to `chrome://flags` › *Insecure origins treated as secure*. The hub still works fully over HTTP.
+- The browser's install offer is not suppressed: Chrome may still show its own prompt.
 
-### 3.9 Palet terminal (xterm)
+### 3.9 Terminal palette (xterm)
 
-Dari token `--term-*` di `tokens.css`, dibaca `useTerminal` dari elemen console, jadi mengikuti `data-theme` di sekitarnya. Ganti tema tidak membuat ulang terminal; isi layar tetap.
+From the `--term-*` tokens in `tokens.css`, read by `useTerminal` from the console element, so it follows the `data-theme` around it. Changing the theme does not recreate the terminal; the screen content stays.
 
 ```
-gelap   background #111111  foreground #E5E5E5  cursor #F5F5F5  selection rgba(255,255,255,.24)
+dark    background #111111  foreground #E5E5E5  cursor #F5F5F5  selection rgba(255,255,255,.24)
         black #262626  red #F87171  green #4ADE80  yellow #FBBF24  blue #60A5FA  magenta #C084FC  cyan #22D3EE  white #D4D4D4
         brightBlack #737373  brightRed #FCA5A5  brightGreen #86EFAC  brightYellow #FDE68A  brightBlue #93C5FD  brightMagenta #D8B4FE  brightCyan #67E8F9  brightWhite #FFFFFF
-terang  background #FFFFFF  foreground #1F1F1F  cursor #0D0D0D  selection rgba(0,0,0,.14)
+light   background #FFFFFF  foreground #1F1F1F  cursor #0D0D0D  selection rgba(0,0,0,.14)
         black #171717  red #B91C1C  green #15803D  yellow #A16207  blue #1D4ED8  magenta #7E22CE  cyan #0E7490  white #525252
         brightBlack #737373  brightRed #DC2626  brightGreen #16A34A  brightYellow #CA8A04  brightBlue #2563EB  brightMagenta #9333EA  brightCyan #0891B2  brightWhite #262626
 ```
 
-**Console di layar sentuh** (`board/KeyBar.tsx`, `board/consoleKeys.ts`): selama console di-Focus, atau selama keyboard ada di console, bar tombol kaca `--glass-3` menempel di atas tab bar (dan di atas keyboard layar, yang menggeser semuanya). Urutan: Esc, ↑, ↓, ⏎, Tab, Ctrl, ^C, ←, →, ⇧Tab, Alt, `/ | ~ -` (bergulir ke samping), lalu terpisah garis: Copy text, Attach, dan keyboard. Tombol 44×40 font mono; menekannya tidak mengambil fokus, jadi keyboard tetap terbuka. Ctrl dan Alt sekali pakai: menyala (`aria-pressed`, putih di atas gelap) sampai tombol berikutnya yang diketik, lalu padam. Panah mengikuti mode kursor program (`ESC O` atau `ESC [`). Copy text membuka sheet berisi layar dan scrollback (2000 baris terakhir) sebagai teks biasa yang bisa dipilih dengan jari, plus Copy all. Attach mengunggah file atau foto ke machine console dan mengetik path-nya, sama seperti paste. Command bar juga punya tombol Attach. Terminal di panel Code card mendapat bar yang sama.
+**Console on touch screens** (`board/KeyBar.tsx`, `board/consoleKeys.ts`): while a console is in Focus, or while the keyboard is in a console, a glass `--glass-3` key bar sticks above the tab bar (and above the on-screen keyboard, which pushes everything up). Order: Esc, ↑, ↓, ⏎, Tab, Ctrl, ^C, ←, →, ⇧Tab, Alt, `/ | ~ -` (scrolling sideways), then, past a divider: Copy text, Attach, and keyboard. Keys are 44×40 in a mono font; pressing one does not take focus, so the keyboard stays open. Ctrl and Alt are one-shot: lit (`aria-pressed`, white on dark) until the next key typed, then off. Arrows follow the program's cursor mode (`ESC O` or `ESC [`). Copy text opens a sheet holding the screen and scrollback (the last 2000 lines) as plain text that can be selected with a finger, plus Copy all. Attach uploads a file or photo to the console's machine and types its path, the same as paste. The command bar also has an Attach button. Terminals in the Code card panel get the same bar.
 
-**Editor kode di layar sentuh** (`studio/code/EditorKeyBar.tsx`): selama keyboard ada di Monaco, bar dengan bentuk yang sama berisi Esc, Tab, ⇧Tab, ←, ↑, ↓, →, Sel, Undo, Redo, Find, `//` (comment), lalu Save, Go to file, dan keyboard. Esc, Tab, dan panah dikirim ke editor sebagai tekanan tombol (dengan `keyCode`, yang dibaca Monaco), jadi melakukan apa yang tombol itu lakukan di sana: menerima saran, menutup widget, mode normal vim. Sel membuat panah memilih teks sampai dimatikan. Undo, Redo, Find, dan comment memanggil perintah editor. Fokus Monaco bisa textarea atau elemen EditContext, tergantung browser; keduanya dihitung.
+**Code editor on touch screens** (`studio/code/EditorKeyBar.tsx`): while the keyboard is in Monaco, a bar of the same shape holds Esc, Tab, ⇧Tab, ←, ↑, ↓, →, Sel, Undo, Redo, Find, `//` (comment), then Save, Go to file, and keyboard. Esc, Tab, and the arrows are sent to the editor as key presses (with `keyCode`, which Monaco reads), so they do what that key does there: accept a suggestion, close a widget, vim normal mode. Sel makes the arrows select text until it is turned off. Undo, Redo, Find, and comment call editor commands. Monaco's focus can be a textarea or an EditContext element, depending on the browser; both count.
 
-**Console di tema terang.** CLI yang disetel untuk terminal gelap mencetak teks sangat terang, kadang truecolor yang tidak lewat palet. `--term-min-contrast: 4.5` (xterm `minimumContrastRatio`) menggelapkan teks seperti itu per sel. Settings › Appearance › Terminals bisa memilih "Always dark" untuk CLI yang tetap kurang enak dibaca.
+**Console in the light theme.** A CLI set up for a dark terminal prints very light text, sometimes truecolor that does not go through the palette. `--term-min-contrast: 4.5` (xterm `minimumContrastRatio`) darkens such text per cell. Settings › Appearance › Terminals can choose "Always dark" for CLIs that are still unpleasant to read.
 
-**Pointer di bawah zoom board.** xterm mengukur pointer dalam piksel layar dan selnya dalam piksel layout, tanpa opsi untuk mengubahnya, jadi di luar zoom 100 % seleksi jatuh di samping pointer. `followBoardZoom` (`board/useTerminal.ts`) membungkus method privatnya: `_mouseService.getCoords` dan `getMouseReportCoords` (seleksi, laporan mouse ke program, link), `_selectionService._getMouseEventScrollAmount` (auto-scroll saat drag), dan `_sliderPointerPosition` (thumb scrollbar). Berlaku juga untuk terminal di Code card. Setelah upgrade xterm, periksa konsol browser: bila nama method berubah muncul peringatan dan zoom meleset lagi. Monaco sudah menghitung skalanya sendiri.
+**Pointer under board zoom.** xterm measures the pointer in screen pixels and its cells in layout pixels, with no option to change that, so outside 100 % zoom the selection lands beside the pointer. `followBoardZoom` (`board/useTerminal.ts`) wraps its private methods: `_mouseService.getCoords` and `getMouseReportCoords` (selection, mouse reports to the program, links), `_selectionService._getMouseEventScrollAmount` (auto-scroll while dragging), and `_sliderPointerPosition` (scrollbar thumb). It applies to terminals in the Code card too. After an xterm upgrade, check the browser console: if a method name changed, a warning appears and zoom is off again. Monaco already computes its own scale.
 
-**Renderer GPU.** Dengan GPU hardware, console digambar WebGL; GPU software (SwiftShader, llvmpipe) memakai renderer DOM karena lebih cepat. Renderer WebGL mengukur canvas-nya dari piksel device yang dilaporkan browser (`devicePixelContentBoxSize`). Di mode device Chrome DevTools dan browser uji, pixel ratio diemulasikan dan yang dilaporkan piksel CSS, jadi canvas hanya separuh ukurannya: teks jatuh di luar canvas dan console tampak kosong. `tryWebgl` mengamati elemen terminal dengan ukuran yang sama; bila tidak cocok dengan `contentRect × devicePixelRatio`, WebGL dilepas dan terminal digambar ulang dengan DOM, termasuk bila mode device dinyalakan setelah halaman terbuka. `e2e/console-gl.spec.ts` memaksa WebGL di browser uji: console board dan agent di tab editor harus menampilkan teks di kelima profil.
+**GPU renderer.** With a hardware GPU, the console is drawn by WebGL; a software GPU (SwiftShader, llvmpipe) uses the DOM renderer because it is faster. The WebGL renderer sizes its canvas from the device pixels the browser reports (`devicePixelContentBoxSize`). In Chrome DevTools device mode and test browsers, the pixel ratio is emulated and CSS pixels are reported, so the canvas is only half its size: text falls outside the canvas and the console looks empty. `tryWebgl` observes the terminal element with the same size; when it does not match `contentRect × devicePixelRatio`, WebGL is dropped and the terminal is redrawn with the DOM, including when device mode is turned on after the page has opened. `e2e/console-gl.spec.ts` forces WebGL in the test browser: the board console and the agent in the editor tab must show text in all five profiles.
 
-**Double click** di dalam isi card (`.nodrag`: console, editor) milik isinya, misalnya memilih kata, dan board tidak bergerak. Frame ke card lewat header.
+**Double click** inside card content (`.nodrag`: console, editor) belongs to the content, for example to select a word, and the board does not move. Framing a card goes through its header.
 
-## 4. Aksesibilitas (kriteria uji)
+## 4. Accessibility (test criteria)
 
-- [ ] Teks isi ≥ 4.5:1, teks besar (≥ 18 px atau ≥ 14 px bold) & komponen UI ≥ 3:1 terhadap latar efektifnya (ukur di atas glow ambient paling terang).
-- [ ] Setiap elemen interaktif terjangkau Tab, urutan logis, dan menampilkan ring fokus 2 px `--c-primary-300`.
-- [ ] Modal mengunci fokus, Esc menutup, fokus kembali ke pemicu. Menu bisa dinavigasi panah.
-- [ ] Segmented control & radio card memakai `role="radiogroup"`/`radio` dengan `aria-checked`, panah memindah pilihan.
-- [ ] Setiap input punya `<label>` terhubung; error memakai `aria-invalid` + `aria-describedby`.
-- [ ] Target sentuh ≥ 40×40 di `data-input="touch"` (dicek `e2e/layout.spec.ts` untuk header dan tab bar; dock board boleh 32 dengan jarak ≥ 8 sampai board mendapat gilirannya).
-- [ ] `prefers-reduced-motion` mematikan transisi & pulse; `prefers-reduced-transparency` / tanpa `backdrop-filter` → permukaan padat.
-- [ ] Status tidak hanya dibedakan warna (ada teks/aria-label).
-- [ ] Zoom browser 200% tidak memotong form atau menyembunyikan tombol aksi.
+- [ ] Body text ≥ 4.5:1, large text (≥ 18 px or ≥ 14 px bold) & UI components ≥ 3:1 against their effective background (measure on the brightest ambient glow).
+- [ ] Every interactive element is reachable by Tab, in a logical order, and shows a 2 px `--c-primary-300` focus ring.
+- [ ] Modals trap focus, Esc closes, focus returns to the trigger. Menus can be navigated with arrows.
+- [ ] Segmented controls & radio cards use `role="radiogroup"`/`radio` with `aria-checked`, arrows move the choice.
+- [ ] Every input has a linked `<label>`; errors use `aria-invalid` + `aria-describedby`.
+- [ ] Touch targets ≥ 40×40 under `data-input="touch"` (checked by `e2e/layout.spec.ts` for the header and tab bar; the board dock may be 32 with a gap ≥ 8 until the board gets its turn).
+- [ ] `prefers-reduced-motion` turns off transitions & the pulse; `prefers-reduced-transparency` / no `backdrop-filter` → solid surfaces.
+- [ ] Status is not told apart by color alone (there is text/aria-label).
+- [ ] 200% browser zoom does not cut off forms or hide action buttons.
 
-## 5. Nada & penulisan
+## 5. Tone & writing
 
-- Ringkas, yakin, ramah, profesional. Kalimat aktif.
-- Label = kata benda jelas ("Host", "Private key"). Tombol = kata kerja + objek ("Add machine").
-- Error = apa yang salah + cara memperbaiki: "Host key changed for devbox:22. Connection refused — verify the server before trusting it." Contoh salah: "Error 409".
-- Empty state = apa ini + satu aksi: "No machines yet. Add one from your ~/.ssh/config."
-- Bahasa UI web saat ini Inggris; jangan mencampur dua bahasa dalam satu layar.
+- Concise, confident, friendly, professional. Active sentences.
+- Label = a clear noun ("Host", "Private key"). Button = verb + object ("Add machine").
+- Error = what went wrong + how to fix it: "Host key changed for devbox:22. Connection refused — verify the server before trusting it." Wrong example: "Error 409".
+- Empty state = what this is + one action: "No machines yet. Add one from your ~/.ssh/config."
+- The web UI language is currently English; do not mix two languages on one screen.
 
-## 6. Anti-pola (dilarang)
+## 6. Anti-patterns (forbidden)
 
-- Kaca di atas kaca di atas kaca (> 2 lapisan blur bertumpuk) — keterbacaan turun dan GPU berat. Contoh: menu kaca di dalam modal kaca boleh; kartu kaca di dalam modal kaca tidak (pakai `--surface-input`).
-- `backdrop-filter` pada setiap node terminal (pan/zoom jadi patah-patah).
-- Teks di bawah `--text-3`, placeholder sebagai label, `outline: none` tanpa pengganti.
-- Warna/spasi/radius mentah di komponen (`#333`, `margin: 7px`, `border-radius: 5px`).
-- Animasi dekoratif (shimmer, floating, parallax), gradien pelangi, glow neon di teks. Pengecualian: §3.12.
-- Bayangan hitam tebal gaya material bercampur kaca.
+- Glass on glass on glass (> 2 stacked blur layers) — readability drops and the GPU works hard. Example: a glass menu inside a glass modal is fine; a glass card inside a glass modal is not (use `--surface-input`).
+- `backdrop-filter` on every terminal node (pan/zoom becomes choppy).
+- Text below `--text-3`, placeholders as labels, `outline: none` without a replacement.
+- Raw colors/spacing/radius in components (`#333`, `margin: 7px`, `border-radius: 5px`).
+- Decorative animation (shimmer, floating, parallax), rainbow gradients, neon glow on text. Exception: §3.12.
+- Heavy black material-style shadows mixed with glass.
 
-## 7. Migrasi dari UI lama
+## 7. Migrating from the old UI
 
-1. Ganti `:root` lama dengan token di atas (`styles/tokens.css`); petakan: `--panel*` → `--glass-*`/`--surface-*`, `--accent` → `--c-primary-300` (teks) / `--c-primary` (isi), `--green/--yellow/--red` → `--c-success/--c-warning/--c-danger`.
-2. Header + toolbar menyatu di satu baris → pisah: header mengambang + dock board di bawah.
-3. `<select>` untuk metode auth / persist / tab sumber → radio card / segmented.
-4. Tabel Devices → daftar kartu bento.
-5. Font sistem → Plus Jakarta Sans + JetBrains Mono lokal.
+1. Replace the old `:root` with the tokens above (`styles/tokens.css`); map: `--panel*` → `--glass-*`/`--surface-*`, `--accent` → `--c-primary-300` (text) / `--c-primary` (fill), `--green/--yellow/--red` → `--c-success/--c-warning/--c-danger`.
+2. Header + toolbar merged in one row → split: a floating header + the board dock at the bottom.
+3. `<select>` for auth method / persist / source tab → radio cards / segmented.
+4. Devices table → a list of bento cards.
+5. System font → local Plus Jakarta Sans + JetBrains Mono.
 
 ## 8. QA checklist (code review)
 
-- [ ] Tidak ada warna/spasi/radius mentah di luar file token (grep `#[0-9a-f]{3,6}` di komponen = 0, kecuali warna preset dari API, warna isi board, dan langit Memory).
-- [ ] Dicek di tema terang dan gelap, pada build produksi: minifier memendekkan nilai token (`#ffffff` jadi `#fff`), jadi kode yang membaca token harus menerima keduanya (Monaco menolak bentuk pendek).
-- [ ] Semua state (hover, focus-visible, active, disabled, loading, error) ada untuk tombol & input.
-- [ ] Screenshot 1440×900 dan 390×844: Setup, Login, Board kosong, Board 2 terminal, menu node, Folder browser, Machines, Add machine (dua tab, auth key), Host key confirm, Host key changed, Devices, Pair, About, toast error.
-- [ ] Halaman, pane, dialog, atau jenis kartu baru masuk daftar `e2e/sweep.spec.ts`. Lihat screenshot kelima profilnya: `SWEEP_SHOTS=<folder> npx playwright test -c e2e/playwright.config.ts sweep`.
-- [ ] Fallback tanpa `backdrop-filter` terlihat rapi (uji dengan menonaktifkan di DevTools / class `no-glass`).
-- [ ] Lighthouse a11y ≥ 95; tidak ada error konsol.
-- [ ] Pan/zoom board dengan 6 terminal tetap halus (tidak ada blur per node).
+- [ ] No raw colors/spacing/radius outside the token file (grep `#[0-9a-f]{3,6}` in components = 0, except preset colors from the API, board content colors, and the Memory sky).
+- [ ] Checked in the light and dark themes, on a production build: the minifier shortens token values (`#ffffff` becomes `#fff`), so code that reads tokens must accept both (Monaco refuses the short form).
+- [ ] Every state (hover, focus-visible, active, disabled, loading, error) exists for buttons & inputs.
+- [ ] Screenshots at 1440×900 and 390×844: Setup, Login, empty Board, Board with 2 terminals, node menu, Folder browser, Machines, Add machine (two tabs, auth key), Host key confirm, Host key changed, Devices, Pair, About, error toast.
+- [ ] A new page, pane, dialog, or card type goes into the `e2e/sweep.spec.ts` list. Look at the screenshots of all five profiles: `SWEEP_SHOTS=<folder> npx playwright test -c e2e/playwright.config.ts sweep`.
+- [ ] The fallback without `backdrop-filter` looks tidy (test by turning it off in DevTools / the `no-glass` class).
+- [ ] Lighthouse a11y ≥ 95; no console errors.
+- [ ] Board pan/zoom with 6 terminals stays smooth (no blur per node).

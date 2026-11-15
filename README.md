@@ -324,8 +324,8 @@ Once a month's budget is spent, new consoles, restarts and hidden runs on that p
 
 - The hub speaks plain HTTP and binds to `127.0.0.1` by default. For remote access, put it behind HTTPS with nginx (`deploy/nginx.conf.example`) or use a private network such as Tailscale. `tailscale serve` only forwards the main port, so web tiles do not work through it.
 - `make dev` binds to `0.0.0.0` by default. On an untrusted network, use `make dev LISTEN=127.0.0.1:12312`.
-- **Agent access.** Agents run as your user and can read everything that user can, including NextBoard's data folder. Critical notes, blocked commands and read-only part settings are not an OS security boundary: a CLI's own local tools may reach other folders on the same machine. Read the [agent access rules](docs/API-agents.md#211-part-project-roadmap-49) before relying on these controls.
-- **Project sandbox.** In Memory › Critical notes › Sandbox, restrict local Codex and Claude Code commands to the working folder, temporary folders and package caches, with or without network. Codex needs no extra tool; Claude Code needs bubblewrap and, on affected Ubuntu systems, an AppArmor configuration step. Other CLIs, SSH work and tools outside the CLI's shell sandbox have different limits; see [sandbox behavior and limitations](docs/API-agents.md#27-sandbox-agen-2026-11-11).
+- **Agent access.** Agents run as your user and can read everything that user can, including NextBoard's data folder. Critical notes, blocked commands and read-only part settings are not an OS security boundary: a CLI's own local tools may reach other folders on the same machine. Read the [agent access rules](docs/API-agents.md#211-project-parts-roadmap-49) before relying on these controls.
+- **Project sandbox.** In Memory › Critical notes › Sandbox, restrict local Codex and Claude Code commands to the working folder, temporary folders and package caches, with or without network. Codex needs no extra tool; Claude Code needs bubblewrap and, on affected Ubuntu systems, an AppArmor configuration step. Other CLIs, SSH work and tools outside the CLI's shell sandbox have different limits; see [sandbox behavior and limitations](docs/API-agents.md#27-agent-sandbox-2026-11-11).
 - The credentials vault encrypts in the browser and the hub stores only ciphertext. If you forget the master password, the contents are gone. Letting agents use a credential guards against accidents, not against an agent set on stealing it. See [docs/API-vault.md](docs/API-vault.md) for what it does not protect against.
 - API provider keys are sealed with the hub's master key and given only to the agent process that uses them, never to a browser, a command line or a log. The commands an agent runs do not get the key with Codex, nor with Claude Code when `bubblewrap` is installed; OpenCode's commands still do. An agent set on finding it can still read it from its own CLI's process.
 - Only the status page may face the internet, on a listener of its own (`--status-listen`). It shows the names you chose for your monitors and their uptime, and never a host, an address or an error message.
@@ -422,7 +422,7 @@ Android and desktop clients exist as separate projects. They are paused while th
 
 ## Documentation
 
-The detailed docs are written in **Indonesian**. Start with [PROJECT.md](docs/PROJECT.md) for an overview; use the API contracts for current endpoint behavior.
+Start with [PROJECT.md](docs/PROJECT.md) for an overview; use the API contracts for current endpoint behavior.
 
 | Document | Contents |
 |---|---|

@@ -1,4 +1,4 @@
-// Agents asking to use a credential (docs/API-vault.md, "Agent memakai credential").
+// Agents asking to use a credential (docs/API-vault.md, "Agents using a credential").
 //
 // The item's own blob says which projects' agents may ask for it, and only that counts. The hub
 // keeps a plain-text catalog of names so that agents can see what to ask for; the dialog that

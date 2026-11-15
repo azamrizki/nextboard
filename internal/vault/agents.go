@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 )
 
-// The agent catalog (docs/API-vault.md, "Agent memakai credential"): what agents may know about
+// The agent catalog (docs/API-vault.md, "Agents using a credential"): what agents may know about
 // the items the owner marked for them. Names only, in plain text, written by the browser that
 // marked them. The values stay in the item's blob, and the browser reads the blob again before it
 // gives a value out, so an entry the browser did not write opens nothing.

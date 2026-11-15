@@ -1,4 +1,4 @@
-// Between the page and the extension (docs/API-vault.md, Passkey situs lain). The page can say
+// Between the page and the extension (docs/API-vault.md, Passkeys of other sites). The page can say
 // anything here, which is why the origin is taken from the browser in background.js.
 window.addEventListener('message', (e) => {
   if (e.source !== window || e.data?.nbPasskey !== 'ask') return;

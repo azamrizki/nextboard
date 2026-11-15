@@ -15,7 +15,7 @@ import (
 )
 
 // TestRealOrchestration verifies phase 6 against the installed Claude Code
-// (docs/API-orchestration.md "Hasil verifikasi"). It spends the owner's
+// (docs/API-orchestration.md "Verification results", §21). It spends the owner's
 // plan (2 tiny prompts: one planner run, one delivered order), so it never
 // runs in a normal `go test`:
 //

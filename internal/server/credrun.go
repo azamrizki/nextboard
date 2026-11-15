@@ -24,7 +24,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/vault"
 )
 
-// Agents using a credential (docs/API-vault.md, "Agent memakai credential"). An agent asks the hub
+// Agents using a credential (docs/API-vault.md, "Agents using a credential"). An agent asks the hub
 // to run one command with values from the vault. The owner approves it in a browser, which opens
 // the item, checks that the owner marked it for this project, and hands the values over. The hub
 // runs the command as a process of its own, not inside the agent, and the agent reads its output

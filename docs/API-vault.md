@@ -1,307 +1,307 @@
 # Credentials (vault)
 
-Referensi: [Bitwarden](https://bitwarden.com). Password manager di board: kartu `credentials` menampilkan satu vault milik hub, dan tombol kunci di header membuka vault yang sama di jendela dari halaman mana pun, tanpa kartu. Paket: `internal/vault`, handler `internal/server/h_vault.go`, klien `web/src/vault/` (jendela header: `Window.tsx`, isi bersama: `Panel.tsx`) dan `web/src/board/tiles/CredentialsTile.tsx`.
+Reference: [Bitwarden](https://bitwarden.com). A password manager on the board: the `credentials` card shows the hub's one vault, and the key button in the header opens the same vault in a window from any page, without a card. Package: `internal/vault`, handler `internal/server/h_vault.go`, client `web/src/vault/` (header window: `Window.tsx`, shared content: `Panel.tsx`) and `web/src/board/tiles/CredentialsTile.tsx`.
 
-## Kenapa enkripsi di browser
+## Why encrypt in the browser
 
-Agent di This PC jalan sebagai user yang sama dengan hub, jadi bisa membaca `<data>` (PROJECT §6). Kalau kuncinya di `secret.key` seperti kredensial SSH, setiap agent bisa membaca setiap password. Karena itu vault mengikuti cara Bitwarden: **master password tidak pernah keluar dari browser**, dan hub hanya menyimpan ciphertext.
+Agents on This PC run as the same user as the hub, so they can read `<data>` (PROJECT §6). If the key were in `secret.key`, like the SSH credentials, every agent could read every password. That is why the vault follows Bitwarden's approach: **the master password never leaves the browser**, and the hub stores only ciphertext.
 
 ```
-master password --Argon2id--> kunci pembungkus --AES-256-GCM--> kunci vault --AES-256-GCM--> item
+master password --Argon2id--> wrapping key --AES-256-GCM--> vault key --AES-256-GCM--> item
 ```
 
-| Bagian | Nilai |
+| Part | Value |
 |---|---|
-| KDF | Argon2id, 64 MiB, 3 pass, paralelisme 4 (bawaan Bitwarden), salt 16 byte, keluaran 32 byte. Password dinormalisasi NFKC dulu. Jalan di worker (`hash-wasm`) |
-| Kunci vault | 32 byte acak, tidak pernah berganti. Setelah dibuka hanya di memori: `CryptoKey` non-extractable di HTTPS dan localhost, byte biasa di HTTP biasa (lihat di bawah) |
-| Bungkus kunci | AES-256-GCM, AAD `nextboard-vault/v1/key`. Bentuk: nonce 12 + ciphertext 32 + tag 16, base64 |
-| Item | AES-256-GCM, AAD `nextboard-vault/v1/item/<id>`, jadi blob tidak bisa dipindah ke id lain. JSON diberi padding spasi sampai kelipatan 512 byte, supaya ukuran blob tidak membocorkan panjang isinya |
+| KDF | Argon2id, 64 MiB, 3 passes, parallelism 4 (Bitwarden's default), 16-byte salt, 32-byte output. The password is NFKC-normalized first. Runs in a worker (`hash-wasm`) |
+| Vault key | 32 random bytes, never changes. Once unlocked, only in memory: a non-extractable `CryptoKey` on HTTPS and localhost, plain bytes on plain HTTP (see below) |
+| Key wrapping | AES-256-GCM, AAD `nextboard-vault/v1/key`. Shape: nonce 12 + ciphertext 32 + tag 16, base64 |
+| Item | AES-256-GCM, AAD `nextboard-vault/v1/item/<id>`, so a blob cannot be moved to another id. The JSON is padded with spaces to a multiple of 512 bytes, so the blob's size does not leak the length of its contents |
 
-Password salah ditandai oleh tag GCM yang gagal: hub tidak menyimpan hash apa pun dan tidak pernah tahu ada percobaan unlock.
+A wrong password shows as a failed GCM tag: the hub stores no hash of any kind and never knows that an unlock was attempted.
 
-Formatnya bisa dibuka tanpa kode NextBoard: `crypto.argon2Sync` Node + AES-GCM sudah cukup, dan itu yang dicek tes end-to-end.
+The format can be opened without NextBoard code: Node's `crypto.argon2Sync` + AES-GCM is enough, and that is what the end-to-end test checks.
 
-## HTTP biasa
+## Plain HTTP
 
-Hub ini local-first dan sering dibuka lewat `http://` di jaringan sendiri, jadi vault jalan di sana juga (keputusan pemilik). Browser menyembunyikan `crypto.subtle` dan `navigator.clipboard` di luar HTTPS dan localhost, sehingga:
+This hub is local-first and is often opened over `http://` on one's own network, so the vault works there too (owner decision). Browsers hide `crypto.subtle` and `navigator.clipboard` outside HTTPS and localhost, so:
 
-| Bagian | HTTPS, localhost | HTTP biasa |
+| Part | HTTPS, localhost | Plain HTTP |
 |---|---|---|
-| Argon2id | `hash-wasm` di worker | Sama |
-| AES-256-GCM | WebCrypto, kunci non-extractable | `@noble/ciphers`, kunci berupa byte di memori, ditimpa nol saat terkunci. Dimuat hanya di sini |
-| Acak | `crypto.getRandomValues` | Sama |
-| TOTP | `@noble/hashes` | Sama |
-| Salin | `navigator.clipboard` | `execCommand`, langsung dari klik |
-| Menghapus clipboard | Tepat waktu | Browser hanya mengizinkannya sekitar 5 detik setelah input, jadi lewat dari itu terjadi pada klik atau tombol berikutnya di halaman ini. Diisi satu spasi. Toast dan dialog pengaturan menyebutnya |
+| Argon2id | `hash-wasm` in a worker | Same |
+| AES-256-GCM | WebCrypto, non-extractable key | `@noble/ciphers`, the key as bytes in memory, overwritten with zeros when locked. Loaded only here |
+| Random | `crypto.getRandomValues` | Same |
+| TOTP | `@noble/hashes` | Same |
+| Copy | `navigator.clipboard` | `execCommand`, straight from the click |
+| Clearing the clipboard | On time | Browsers allow it only about 5 seconds after input, so past that it happens on the next click or key press on this page. Filled with one space. The toast and the settings dialog say so |
 
-Byte hasilnya sama persis, jadi satu vault bisa dibuka dari dua sisi; tes end-to-end menulis di satu sisi dan membuka di sisi lain, ke dua arah. Layar buat vault dan unlock menyebut risikonya di bawah kolom password.
+The resulting bytes are exactly the same, so one vault can be opened from both sides; the end-to-end test writes on one side and opens on the other, in both directions. The create-vault and unlock screens state the risk below the password field.
 
-## Isi blob
+## Blob contents
 
-Tipe mengikuti Bitwarden: `login`, `card`, `identity`, `note`, `ssh`. Field per tipe ada di `TYPE_SCHEMA` (`web/src/vault/model.ts`).
+Types follow Bitwarden: `login`, `card`, `identity`, `note`, `ssh`. The fields per type are in `TYPE_SCHEMA` (`web/src/vault/model.ts`).
 
 ```jsonc
 { "k": "item", "type": "login", "name": "GitHub", "notes": "", "favorite": false, "folderId": "",
   "values": { "username": "", "password": "", "totp": "" }, "uris": [""],
   "fields": [{ "name": "", "value": "", "hidden": true }],
-  "history": [{ "password": "", "at": "…" }],   // ≤ 5, password login sebelumnya
-  "createdAt": "…", "updatedAt": "…", "deletedAt": "…" }   // deletedAt = di trash
+  "history": [{ "password": "", "at": "…" }],   // ≤ 5, the login's previous passwords
+  "createdAt": "…", "updatedAt": "…", "deletedAt": "…" }   // deletedAt = in the trash
 ```
 
-Folder juga record terenkripsi: `{ "k": "folder", "name": "…" }`. Hub tidak bisa membedakan item dari folder, dan tidak tahu nama, tipe, folder, atau status trash.
+Folders are encrypted records too: `{ "k": "folder", "name": "…" }`. The hub cannot tell items from folders, and does not know names, types, folders or trash status.
 
-Trash ada di dalam blob, jadi browser yang menghapus: item yang lebih dari 30 hari di trash dihapus saat unlock berikutnya.
+The trash lives inside the blob, so the browser does the deleting: items more than 30 days in the trash are deleted at the next unlock.
 
-## Passkey situs lain
+## Passkeys of other sites
 
-Situs di tile browser bisa menyimpan passkey-nya di vault. Halaman tidak bisa dijangkau dari luar tanpa extension, jadi hub menyediakan extension yang menggantikan `navigator.credentials` untuk permintaan passkey. Mati sampai dinyalakan di menu vault, **Passkeys for sites…**.
+A site in a browser tile can keep its passkeys in the vault. The page cannot be reached from outside without an extension, so the hub provides an extension that replaces `navigator.credentials` for passkey requests. Off until turned on in the vault menu, **Passkeys for sites…**.
 
 ```
-situs di tile → extension (background.js: asal dari browser) → hub (loopback, token) → dialog di browser pemilik
-                                                                                       ↓ kunci menandatangani di sini
-situs ← hasil ← extension ← hub ←──────────────────────────────────────────────────── hasil tanpa kunci
+site in tile → extension (background.js: origin from the browser) → hub (loopback, token) → dialog in the owner's browser
+                                                                                            ↓ the key signs here
+site ← result ← extension ← hub ←───────────────────────────────────────────────────────── result without the key
 ```
 
-- **Zero-knowledge tetap berlaku:** kunci privat P-256 ada di blob item login (`passkeys[]`) dan menandatangani di browser pemilik dengan `@noble/curves`, karena `crypto.subtle` tidak ada di HTTP biasa. Hub dan extension hanya melihat site, nama akun, tantangan, dan hasil tanda tangan, dan itu hanya di memori selama halaman menunggu.
-- **Tiap pemakaian ditanya.** Dialog terbuka sendiri karena situs sedang menunggu, paling lama 2 menit. **Save in vault** atau **Sign in as**, **Use the browser's own**, atau **Refuse**. Vault yang terkunci meminta dibuka di dialog itu.
-- **Asal situs dari browser**, `sender.origin` di service worker, bukan dari halaman. Hub mengecek aturan WebAuthn: halaman aman (HTTPS atau localhost), rpId adalah host itu atau domain di atasnya, dan bukan public suffix (`golang.org/x/net/publicsuffix`). Frame dari situs lain diserahkan ke browser. Yang gagal dicek juga diserahkan ke browser, yang menolaknya dengan error yang diharapkan halaman.
-- **Yang diserahkan ke browser:** situs yang tidak menerima ES256, autofill (`mediation: "conditional"`), permintaan selagi situs yang sama menunggu, lebih dari 3 permintaan sekaligus, dan tidak ada jawaban. Halaman tidak bisa membanjiri pemilik dengan dialog.
-- **Bentuk:** attestation `none`, AAGUID nol, counter 0, flag UP, UV, BE, BS. UV diklaim karena vault terbuka dan orang menyetujui. Backup-eligible karena blob ikut ekspor.
-- **Ekspor:** `nextboardPasskeys` di samping format Bitwarden. Bitwarden tidak membacanya, jadi passkey hanya pindah antar-NextBoard.
+- **Zero-knowledge still holds:** the P-256 private key is in the login item's blob (`passkeys[]`) and signs in the owner's browser with `@noble/curves`, because `crypto.subtle` does not exist on plain HTTP. The hub and the extension see only the site, the account name, the challenge and the signature result, and only in memory while the page waits.
+- **Every use is asked.** The dialog opens by itself because the site is waiting, for at most 2 minutes. **Save in vault** or **Sign in as**, **Use the browser's own**, or **Refuse**. A locked vault asks to be unlocked in that dialog.
+- **The site's origin comes from the browser**, `sender.origin` in the service worker, not from the page. The hub checks the WebAuthn rules: a secure page (HTTPS or localhost), the rpId is that host or a domain above it, and it is not a public suffix (`golang.org/x/net/publicsuffix`). Frames from another site are handed to the browser. Whatever fails the check is also handed to the browser, which refuses it with the error the page expects.
+- **What is handed to the browser:** sites that do not accept ES256, autofill (`mediation: "conditional"`), a request while the same site is already waiting, more than 3 requests at once, and no answer. A page cannot flood the owner with dialogs.
+- **Shape:** attestation `none`, zero AAGUID, counter 0, flags UP, UV, BE, BS. UV is claimed because the vault is unlocked and a person approves. Backup-eligible because the blob is part of the export.
+- **Export:** `nextboardPasskeys` next to the Bitwarden format. Bitwarden does not read it, so passkeys move only between NextBoards.
 
-**Memasang extension.** File-nya tertanam di binary (`internal/gui/passkeyext`), ditulis ke `<data>/gui/passkey-extension/` bersama `config.json` berisi alamat loopback dan token. Port hook berganti tiap hub start, jadi `config.json` ditulis ulang dan dibaca ulang tiap permintaan.
+**Installing the extension.** Its files are embedded in the binary (`internal/gui/passkeyext`) and written to `<data>/gui/passkey-extension/` together with a `config.json` holding the loopback address and the token. The hook port changes at every hub start, so `config.json` is rewritten at each start and the extension reads it again on every request.
 
-| Browser | Cara | Status |
+| Browser | How | Status |
 |---|---|---|
-| Chromium, Brave, Edge, Vivaldi, Opera | `--load-extension` otomatis saat browser dimulai | Teruji di Chromium |
-| Google Chrome 137 ke atas | **Sekali lewat tangan**: `chrome://extensions`, Developer mode, Load unpacked. Dialog memandu. Hub tidak bisa membuka halaman itu: dari command line, Chrome 156 hanya membuka New Tab | Jalur manual belum dicoba sampai selesai |
-| Firefox | Tidak didukung, butuh XPI bertanda tangan | — |
+| Chromium, Brave, Edge, Vivaldi, Opera | `--load-extension` automatically when the browser starts | Tested on Chromium |
+| Google Chrome 137 and later | **Once, by hand**: `chrome://extensions`, Developer mode, Load unpacked. The dialog guides you. The hub cannot open that page: from the command line, Chrome 156 only opens New Tab | The manual path has not been tried end to end |
+| Firefox | Not supported, needs a signed XPI | — |
 
-Browser dari snap atau flatpak membaca salinan di folder miliknya sendiri, yang ditulis saat browser dimulai, jadi sesudah hub restart browser itu perlu dimulai lagi supaya alamatnya baru. Jalur ini belum dicoba dengan browser sungguhan.
+A browser from snap or flatpak reads a copy in its own folder, written when the browser starts, so after a hub restart that browser needs to be started again to get the new address. This path has not been tried with a real browser.
 
-Kenapa Chrome harus manual, dicoba di Chrome 156: `--load-extension` diabaikan, folder `External Extensions` di profil diabaikan, dan `Extensions.loadUnpacked` lewat pipe debugging tidak bertahan setelah browser ditutup. Pipe yang terus dibuka juga membuat `navigator.webdriver` bernilai `true`, tanda yang membuat situs menolak login, padahal itu alasan browser sungguhan dipakai.
+Why Chrome has to be manual, tried on Chrome 156: `--load-extension` is ignored, the `External Extensions` folder in the profile is ignored, and `Extensions.loadUnpacked` through the debugging pipe does not survive closing the browser. A pipe kept open also makes `navigator.webdriver` `true`, a sign that makes sites refuse logins, while that is the very reason a real browser is used.
 
-| Route | Listener | Isi |
+| Route | Listener | Contents |
 |---|---|---|
-| POST `/nb/passkey` | loopback, `Authorization: Bearer` | `{"kind":"create"\|"get","origin","options"}` → `{"result"}`, `{"fallback":true}`, atau `{"error":{"name","message"}}`. Menunggu paling lama 2 menit |
-| GET `/nb/passkey/hello` | loopback, token | Extension memberi tahu ia jalan |
+| POST `/nb/passkey` | loopback, `Authorization: Bearer` | `{"kind":"create"\|"get","origin","options"}` → `{"result"}`, `{"fallback":true}`, or `{"error":{"name","message"}}`. Waits at most 2 minutes |
+| GET `/nb/passkey/hello` | loopback, token | The extension reports that it is running |
 | GET `/api/vault/passkeys` | login | `{"enabled","active","path"?,"requests":[{id,kind,origin,rpId,options,createdAt}]}` |
-| PUT `/api/vault/passkeys` | login | `{"enabled"}`. Mematikan membuang token, jadi salinan extension di browser berhenti bekerja |
-| POST `/api/vault/passkeys/requests/{id}` | login | `{"result"}`, `{"fallback":true}`, atau `{"refuse":true}`. `404 request_gone` |
+| PUT `/api/vault/passkeys` | login | `{"enabled"}`. Turning it off drops the token, so the extension's copy in the browser stops working |
+| POST `/api/vault/passkeys/requests/{id}` | login | `{"result"}`, `{"fallback":true}`, or `{"refuse":true}`. `404 request_gone` |
 
-Event `passkeyRequest` memberi tahu web untuk memuat ulang.
+The `passkeyRequest` event tells the web to reload.
 
-**Batas kepercayaan.** Token ada di folder data hub, dan program di This PC yang berjalan sebagai user yang sama bisa membacanya, lalu mengirim permintaan atas nama situs apa pun. Pemilik tetap harus menyetujuinya, tetapi nama situs di dialog itu tidak bisa dibuktikan dalam kasus ini, jadi dialog meminta menyetujui hanya yang baru saja dilakukan. Ini sama dengan batas agen yang bisa mengganti binary hub atau file web. Bukti di tes: upacara WebAuthn diverifikasi dengan `node:crypto` seperti relying party, dan end-to-end dengan Chromium sungguhan.
+**Trust boundary.** The token is in the hub's data folder, and a program on This PC running as the same user can read it and then send requests in the name of any site. The owner still has to approve them, but in that case the site name in the dialog cannot be proven, so the dialog asks to approve only what was just done. This is the same limit as with agents, which can replace the hub binary or the web files. Evidence in tests: the WebAuthn ceremony is verified with `node:crypto` the way a relying party does, and end to end with a real Chromium.
 
 ## API
 
-Semua lewat login biasa, ber-header `X-NextBoard: 1` untuk yang mengubah data. Yang bisa mengunci pemilik keluar hanya untuk admin, bukan token device.
+All through the ordinary login, with an `X-NextBoard: 1` header on those that change data. Those that could lock the owner out are admin only, not for device tokens.
 
-| Route | Akses | Isi |
+| Route | Access | Contents |
 |---|---|---|
 | `GET /api/vault` | login | `{"exists","header","items":[{"id","blob","rev","updatedAt"}],"rev"}` |
-| `POST /api/vault` | admin | Buat vault. Body `{"kdf":{"name":"argon2id","m","t","p"},"salt","wrappedKey"}` → 201 header. 409 `vault_exists` |
-| `PUT /api/vault/key` | admin | Ganti master password: body sama + `baseKeyRev`. Item tidak ditulis ulang. 409 `conflict` |
-| `PUT /api/vault/items/{id}` | login | `{"blob","baseRev"}`, `baseRev` 0 untuk item baru. 409 `conflict` bila sudah berubah |
-| `DELETE /api/vault/items/{id}?baseRev=` | login | Hapus permanen. 404 `item_not_found`, 409 `conflict` |
-| `POST /api/vault/batch` | login | `{"items":[{"id","blob"}]}`, untuk import, semua atau tidak sama sekali |
+| `POST /api/vault` | admin | Create the vault. Body `{"kdf":{"name":"argon2id","m","t","p"},"salt","wrappedKey"}` → 201 header. 409 `vault_exists` |
+| `PUT /api/vault/key` | admin | Change the master password: same body + `baseKeyRev`. Items are not rewritten. 409 `conflict` |
+| `PUT /api/vault/items/{id}` | login | `{"blob","baseRev"}`, `baseRev` 0 for a new item. 409 `conflict` when it has changed |
+| `DELETE /api/vault/items/{id}?baseRev=` | login | Delete permanently. 404 `item_not_found`, 409 `conflict` |
+| `POST /api/vault/batch` | login | `{"items":[{"id","blob"}]}`, for import, all or nothing |
 | `POST /api/vault/reset` | admin | `{"confirm":"RESET"}` → `{"ok","kept"}` |
-| `POST /api/vault/pins` | login | `{"proof"}` → 201 `{"id","secret"}` (lihat PIN) |
-| `POST /api/vault/pins/{id}/open` | login | `{"proof"}` → `{"secret"}`. Salah: 403 `wrong_pin` + `left`. Habis: 410 `pin_gone` |
-| `DELETE /api/vault/pins/{id}` | login | Matikan PIN satu browser |
-| `DELETE /api/vault/pins` | admin | Matikan semua PIN, untuk browser yang hilang |
-| `GET /api/vault/pwned/{prefix}` | login | Prefix 5 heksadesimal huruf besar → teks jawaban range API HIBP apa adanya (sufiks:jumlah, berpadding). 400 bila bukan prefix; 502 `pwned_unreachable` / `pwned_failed` |
+| `POST /api/vault/pins` | login | `{"proof"}` → 201 `{"id","secret"}` (see PIN) |
+| `POST /api/vault/pins/{id}/open` | login | `{"proof"}` → `{"secret"}`. Wrong: 403 `wrong_pin` + `left`. Used up: 410 `pin_gone` |
+| `DELETE /api/vault/pins/{id}` | login | Turn off one browser's PIN |
+| `DELETE /api/vault/pins` | admin | Turn off all PINs, for a lost browser |
+| `GET /api/vault/pwned/{prefix}` | login | A 5-character uppercase hexadecimal prefix → the HIBP range API's response text as is (suffix:count, padded). 400 when it is not a prefix; 502 `pwned_unreachable` / `pwned_failed` |
 
-Validasi di hub hanya bentuk: id `^[A-Za-z0-9_-]{8,64}$`, blob base64 ≥ 28 byte, parameter KDF di dalam batas (m 32 MiB–1 GiB, t 2–16, p 1–16). Blob yang bukan ciphertext ditolak sebagai base64, tapi hub tidak bisa memastikan isinya memang terenkripsi: itu tugas klien.
+The hub validates only the shape: id `^[A-Za-z0-9_-]{8,64}$`, blob base64 ≥ 28 bytes, KDF parameters within limits (m 32 MiB–1 GiB, t 2–16, p 1–16). A blob that is not valid base64 of at least 28 bytes is rejected, but the hub cannot make sure its contents are really encrypted: that is the client's job.
 
-Event `/api/events`: `{"type":"vaultChanged","rev","vaultId"}`, tanpa isi. Tab lain mengambil ulang dan membuka yang berubah saja. `vaultId` berganti saat reset, dan tab yang masih memegang kunci lama terkunci.
+Event on `/api/events`: `{"type":"vaultChanged","rev","vaultId"}`, without contents. Other tabs fetch again and open only what changed. `vaultId` changes on reset, and a tab still holding the old key locks.
 
-Kode error lain: `vault_absent` 404, `vault_full` 413, `vault_unreadable` 500.
+Other error codes: `vault_absent` 404, `vault_full` 413, `vault_unreadable` 500.
 
 ## PIN
 
-Unlock dengan 6 digit, per browser. Satu juta kemungkinan tidak boleh melindungi kunci sendirian: kalau hub menyimpan bungkusannya, agent yang membaca `<data>` tinggal mencoba semua; kalau browser saja, siapa pun yang menyalin storage-nya bisa. Jadi butuh keduanya:
+Unlock with 6 digits, per browser. A million possibilities must not protect the key alone: if the hub stored the wrapped key, an agent that reads `<data>` would just try them all; if only the browser did, anyone who copies its storage could. So both are needed:
 
 ```
-browser (localStorage nb.vault.pin):  salt, kunci vault dibungkus secret
-hub (vault.json, pins):               kunci acak per PIN, jumlah salah
-proof  = Argon2id(PIN, salt)          parameter sama dengan master password
-secret = HMAC-SHA256(kunci hub, proof)
+browser (localStorage nb.vault.pin):  salt, vault key wrapped by secret
+hub (vault.json, pins):               random key per PIN, wrong-try count
+proof  = Argon2id(PIN, salt)          same parameters as the master password
+secret = HMAC-SHA256(hub key, proof)
 ```
 
-- Hub menyerahkan `secret` hanya untuk `proof` yang benar, dan menghitung yang salah. **5 kali salah berturut-turut: PIN hangus**, master password tetap bisa. Hitungannya disimpan sebelum dijawab, jadi restart hub tidak mengembalikan jatah.
-- Hub tidak pernah melihat PIN, tidak menyimpan `secret` maupun `proof`, dan tanpa salt dari browser tidak bisa menguji tebakan. Browser tidak punya apa-apa yang bisa diuji tanpa hub.
-- Menyiapkan PIN meminta master password, karena kunci yang sedang terbuka tidak bisa dibaca balik.
-- PIN seperti `123456`, `111111`, `121212` ditolak.
-- **Ganti master password dan reset mematikan semua PIN.** Browser lain tahu saat mencoba berikutnya. "Turn off everywhere" untuk browser yang hilang: bagiannya sendiri tidak membuka apa pun lagi.
+- The hub hands over `secret` only for a correct `proof`, and counts the wrong ones. **5 wrong tries in a row: the PIN is gone**; the master password still works. The count is saved before the answer is sent, so a hub restart does not restore the allowance.
+- The hub never sees the PIN, stores neither `secret` nor `proof`, and without the salt from the browser cannot test guesses. The browser has nothing that can be tested without the hub.
+- Setting up a PIN asks for the master password, because the key that is currently unlocked cannot be read back.
+- PINs such as `123456`, `111111`, `121212` are refused.
+- **Changing the master password and reset turn off all PINs.** Other browsers find out on their next try. "Turn off everywhere" is for a lost browser: its own part no longer opens anything.
 
 ## Passkey
 
-Unlock dengan sidik jari, wajah, atau PIN perangkat, per browser (menu vault → "Passkey unlock…"). Passkey dengan ekstensi **PRF** memberi 32 byte rahasia untuk sebuah salt, hanya untuk situs ini dan hanya setelah orangnya mengonfirmasi. Byte itu membungkus kunci vault (AES-256-GCM, AAD `nextboard-vault/v1/passkey`).
+Unlock with a fingerprint, face or device PIN, per browser (vault menu → "Passkey unlock…"). A passkey with the **PRF** extension gives 32 secret bytes for a salt, only for this site and only after the person confirms. Those bytes wrap the vault key (AES-256-GCM, AAD `nextboard-vault/v1/passkey`).
 
 ```
-browser (localStorage nb.vault.passkey):  id kredensial, salt, kunci vault dibungkus keluaran PRF
-hub:                                      tidak ada
+browser (localStorage nb.vault.passkey):  credential id, salt, vault key wrapped by the PRF output
+hub:                                      nothing
 ```
 
-- Tidak ada separuh di hub, beda dengan PIN: tanpa authenticator, catatannya tidak berguna, dan authenticator sendiri yang menghitung tebakan salah (user verification `required`).
-- Menyiapkannya meminta master password, lalu `navigator.credentials.create` (RP id = hostname halaman) disusul `get` untuk keluaran PRF. Authenticator tanpa PRF ditolak dengan penjelasan. Ponsel, Windows Hello, macOS, dan security key baru punya PRF.
-- **Hanya dengan nama, lewat HTTPS dengan sertifikat valid, atau `localhost`.** Alamat IP (termasuk `127.0.0.1`) dan HTTP biasa tidak bisa, jadi dialognya menjelaskan dan gerbang vault tidak menawarkannya. Hub yang dibuka lewat `http://` tetap memakai master password dan PIN.
-- **Ganti master password dan reset mematikan passkey di browser itu**, sama seperti PIN.
+- No half on the hub, unlike the PIN: without the authenticator the record is useless, and the authenticator itself counts wrong guesses (user verification `required`).
+- Setting it up asks for the master password, then `navigator.credentials.create` (RP id = the page's hostname) followed by `get` for the PRF output. An authenticator without PRF is refused with an explanation. Phones, Windows Hello, macOS and new security keys have PRF.
+- **Only by name, over HTTPS with a valid certificate, or `localhost`.** An IP address (including `127.0.0.1`) and plain HTTP do not work, so the dialog explains this and the vault's gate does not offer it. A hub opened over `http://` keeps using the master password and PIN.
+- **Changing the master password and reset turn off the passkey on that browser**, the same as the PIN.
 
-## Mengisi form
+## Filling forms
 
-Tombol kunci di browser tile ("Fill from Credentials"). **Selalu atas pilihan orangnya**, tidak pernah saat halaman dimuat: halaman yang terisi sendiri bisa mengumpulkan tanpa ada yang melihat. Login, kartu, dan identitas, masing-masing di tabnya sendiri. Tidak pernah submit. Vault terkunci: dialognya meminta PIN atau password di tempat.
+The key button in a browser tile ("Fill from Credentials"). **Always at the person's choice**, never when the page loads: a page that fills itself could collect without anyone seeing. Logins, cards and identities, each in its own tab. Never submits. Locked vault: the dialog asks for the PIN or password in place.
 
-**Web tile (proxy hub).** Pesan `fill` ke bridge ([API-studio §4.5](API-studio.md)), yang mengisi field dengan setter asli lalu mengirim `input` dan `change`, jadi React dan sejenisnya melihatnya seperti ketikan.
+**Web tile (hub proxy).** A `fill` message to the bridge ([API-studio §4.5](API-studio.md)), which fills fields with the native setter and then sends `input` and `change`, so React and the like see it as typing.
 
-- Situsnya dari target preview, bukan dari yang dilaporkan halaman. Login yang disimpan untuk host lain butuh klik kedua, karena begitulah wujud phishing. Cocok berarti host sama atau subdomainnya, dan port sama kalau alamatnya menyebut port. `localhost`, `127.0.0.1`, `::1` dianggap sama.
-- Field yang tidak terlihat tidak diisi: `display:none`, `opacity` nyaris 0, di luar layar, ukuran di bawah 4 px.
-- Login dua langkah, kode TOTP (satu field atau kotak per digit), dan shadow DOM terbuka didukung.
-- **Kartu dan identitas:** pesan `fill` membawa `fields`, nilai per token `autocomplete` HTML (`cc-name`, `cc-number`, `cc-csc`, `cc-exp-month`, `cc-exp-year`, `cc-exp`, `cc-type`; `given-name`, `additional-name`, `family-name`, `name`, `organization`, `email`, `tel`, `address-line1`–`3`, `address-level2` kota, `address-level1` provinsi, `postal-code`, `country-name`, `username`). Bridge mengisi dulu field yang menyebut tokennya di `autocomplete` (`country` juga untuk nama negara), lalu sisanya dari name, id, placeholder, aria-label, dan label. Satu field hanya diisi sekali. `<select>` dipilih lewat value atau teksnya: bulan `7` cocok dengan `07`, tahun `28` dengan `2028`, `ID` dengan `Indonesia`. `cc-exp` hanya dipakai bila tidak ada field bulan dan tahun, `name` hanya bila tidak ada field nama depan dan belakang. Jawabannya hanya berapa field yang terisi. Kartu tidak memeriksa situs, seperti autofill kartu di browser: yang menentukan adalah klik orangnya.
+- The site comes from the preview target, not from what the page reports. A login saved for another host needs a second click, because that is what phishing looks like. A match means the same host or a subdomain of it, and the same port when the address names a port. `localhost`, `127.0.0.1`, `::1` count as the same.
+- Fields that cannot be seen are not filled: `display:none`, `opacity` near 0, off screen, size below 4 px.
+- Two-step logins, TOTP codes (one field or a box per digit) and open shadow DOM are supported.
+- **Cards and identities:** the `fill` message carries `fields`, values per HTML `autocomplete` token (`cc-name`, `cc-number`, `cc-csc`, `cc-exp-month`, `cc-exp-year`, `cc-exp`, `cc-type`; `given-name`, `additional-name`, `family-name`, `name`, `organization`, `email`, `tel`, `address-line1`–`3`, `address-level2` city, `address-level1` province, `postal-code`, `country-name`, `username`). The bridge first fills fields that name their token in `autocomplete` (`country` also for the country name), then the rest from name, id, placeholder, aria-label and label. A field is filled only once. A `<select>` is chosen by its value or its text: month `7` matches `07`, year `28` matches `2028`, `ID` matches `Indonesia`. `cc-exp` is used only when there are no month and year fields, `name` only when there are no first and last name fields. The answer is only how many fields were filled. Cards do not check the site, like card autofill in browsers: what decides is the person's click.
 
-**Chrome di This PC, dan tile aplikasi lain.** Hub tidak bisa melihat ke dalamnya, jadi nilainya masuk ke field yang sedang fokus: username, Tab, password. Kartu dan identitas di sana diisi sepotong demi sepotong: orangnya klik field, lalu tombol Number, Expiry, Code, Name, Email, Address, dan seterusnya. Dialog menyebut judul jendela dan meminta memeriksa address bar, karena dari sini **situsnya tidak bisa dipastikan**; judul hanya dipakai untuk mengurutkan.
+**Chrome on This PC, and other app tiles.** The hub cannot see inside them, so the values go into the focused field: username, Tab, password. Cards and identities there are filled piece by piece: the person clicks a field, then the Number, Expiry, Code, Name, Email, Address button and so on. The dialog names the window title and asks to check the address bar, because from here **the site cannot be confirmed**; the title is used only for sorting.
 
-- Lewat clipboard display itu lalu Ctrl+V, bukan diketik: wayvnc diam-diam membuang karakter yang tidak ada di keymap-nya (`$`, `ä`, `я`), dan password yang kurang satu huruf salah tanpa terlihat. Tempel berhasil utuh atau gagal terlihat. Clipboard display ditimpa setelah sekitar 400 ms, dan tidak kembali ke clipboard browser pengguna.
-- CDP tidak dipakai. `--remote-debugging-port` membuka port lokal yang bisa dipakai user lain di host bersama untuk mengendalikan browser yang sudah login, dan `--remote-debugging-pipe` menutup Chrome saat hub restart. `--load-extension` sudah dicabut dari Chrome bermerek.
+- Through that display's clipboard and then Ctrl+V, not typed: wayvnc silently drops characters that are not in its keymap (`$`, `ä`, `я`), and a password missing one letter is wrong without anyone seeing. A paste either succeeds whole or fails visibly. The display's clipboard is overwritten after about 400 ms, and does not come back to the user's browser clipboard.
+- CDP is not used. `--remote-debugging-port` opens a local port that other users on a shared host could use to control a logged-in browser, and `--remote-debugging-pipe` closes Chrome when the hub restarts. `--load-extension` has been removed from branded Chrome.
 
-## Batas
+## Limits
 
-≤ 5000 record (item + folder), satu blob ≤ 64 KB base64, seluruh vault ≤ 64 MB, batch ≤ 1000 item dan body ≤ 16 MB (klien memecah per 500 item / 8 MB), body item 128 KB. ≤ 32 PIN; lewat dari itu yang paling lama hilang.
+≤ 5000 records (items + folders), one blob ≤ 64 KB base64, the whole vault ≤ 64 MB, a batch ≤ 1000 items and a body ≤ 16 MB (the client splits per 500 items / 8 MB), item body 128 KB. ≤ 32 PINs; past that, the oldest is dropped.
 
-## Penyimpanan
+## Storage
 
-`<data>/vault.json` 0600, ditulis utuh dan atomik di setiap perubahan, disimpan dulu baru berlaku. File sebelumnya tetap sebagai `vault.json.prev`. Terbaca rusak: file rusak dipindah ke `vault.corrupt-<waktu>.json` dan `.prev` dipakai. Dua-duanya rusak: vault menjawab `vault_unreadable` dan **menolak menulis di atasnya**; hub tetap jalan, dan hanya reset yang mengeluarkannya.
+`<data>/vault.json` 0600, written whole and atomically on every change, saved first and only then in effect. The previous file stays as `vault.json.prev`. Read as corrupt: the corrupt file is moved to `vault.corrupt-<time>.json` and `.prev` is used. Both corrupt: the vault answers `vault_unreadable` and **refuses to write over it**; the hub keeps running, and only a reset gets it out.
 
-Reset memindahkan file ke `vault.reset-<waktu>.json`, tidak menghapusnya: kalau password teringat lagi, file itu masih bisa dibuka (taruh kembali sebagai `vault.json`).
+Reset moves the file to `vault.reset-<time>.json` and does not delete it: if the password comes back to you, that file can still be opened (put it back as `vault.json`).
 
-File API sudah menolak `<data>`. Cadangan hub cukup menyalin `vault.json`: isinya aman selama master password aman.
+The file API already refuses `<data>`. A hub backup only needs to copy `vault.json`: its contents are safe as long as the master password is.
 
-## Perilaku di browser
+## Behavior in the browser
 
-- **Kunci hanya di memori tab.** Tidak ada localStorage atau sessionStorage untuk apa pun yang rahasia. Reload, logout, `pagehide`, dan idle mengunci. Tiap tab unlock sendiri. Kunci menolak dipakai setelah terkunci, dan form atau dialog yang terbuka ikut hilang, tidak muncul lagi saat unlock. Import yang sedang jalan berhenti di situ; yang sudah terkirim tetap ada.
-- **Idle:** bawaan 15 menit tanpa menyentuh kartu Credentials atau jendela header (1 menit sampai 4 jam, per browser). Kerja di console tidak dihitung, jadi berjam-jam di terminal tidak membiarkan vault terbuka. Lock lewat tombol mengunci semua tab (`BroadcastChannel`).
-- **Clipboard:** rahasia dihapus dari clipboard 30 detik setelah disalin (bisa diatur, atau "Never"), dan saat vault terkunci. Browser tidak memberi izin membaca clipboard tanpa bertanya, jadi yang disalin dari aplikasi lain dalam waktu itu ikut terhapus; dialog pengaturannya menyebut ini. Username dan alamat tidak dihapus.
-- **Tertutup berarti tidak ada di DOM:** nilai yang dimask tidak dirender sama sekali, dan mask tidak mengikuti panjang aslinya.
-- **Master password** minimal 8 karakter (keputusan pemilik). Skor zxcvbn di bawah 3 hanya diberi peringatan, tidak ditolak, walau yang punya `vault.json` bisa menebak secara offline. Tombol di form mengusulkan 6 kata BIP-39 (66 bit).
-- **Tidak ada permintaan keluar:** tidak ada ikon situs (Bitwarden mengambilnya dari server ikon, yang membocorkan domain). Hanya `http` dan `https` yang menjadi tautan, jadi alamat `javascript:` dari file import tetap teks. Satu-satunya pengecualian adalah cek kebocoran, dan itu hanya bila diminta (di bawah).
-- **Kode Steam Guard:** kunci `steam://KUNCI` (cara Bitwarden) atau `otpauth://…&encoder=steam` (cara KeeWeb) menghasilkan kode 5 karakter dari alfabet Steam `23456789BCDFGHJKMNPQRTVWXY`, per 30 detik. Kode itu ditampilkan utuh, tanpa spasi.
-- **Cek kebocoran password:** tombol "Check for leaks" di halaman login, atau "Check passwords for leaks…" di menu vault untuk semua login. Tidak pernah otomatis. Browser menghitung SHA-1 password (`@noble/hashes`, jadi jalan di HTTP biasa), lalu hanya 5 karakter pertamanya yang dikirim ke `GET /api/vault/pwned/{prefix}`. Hub meneruskannya ke Pwned Passwords milik Have I Been Pwned dengan `Add-Padding: true`, dan semua sufiks yang cocok dibandingkan di browser. Hub tidak pernah melihat password atau hash lengkapnya. Lewat hub supaya CSP halaman tetap `connect-src 'self'`. Password yang sama hanya ditanyakan sekali per pemeriksaan.
+- **The key lives only in the tab's memory.** No localStorage or sessionStorage for anything secret. Reload, logout, `pagehide` and idle lock it. Each tab unlocks on its own. The key refuses to be used once locked, and open forms or dialogs go away with it and do not come back on unlock. An import in progress stops there; what was already sent stays.
+- **Idle:** by default 15 minutes without touching a Credentials card or the header window (1 minute to 4 hours, per browser). Work in a console does not count, so hours in a terminal do not leave the vault open. Locking with the button locks every tab (`BroadcastChannel`).
+- **Clipboard:** secrets are cleared from the clipboard 30 seconds after copying (adjustable, or "Never"), and when the vault locks. Browsers give no permission to read the clipboard without asking, so whatever was copied from another app in that time is cleared too; the settings dialog says so. Usernames and addresses are not cleared.
+- **Hidden means not in the DOM:** a masked value is not rendered at all, and the mask does not follow its real length.
+- **Master password** at least 8 characters (owner decision). A zxcvbn score below 3 only gets a warning and is not refused, even though whoever has `vault.json` can guess offline. A button in the form suggests 6 BIP-39 words (66 bits).
+- **No outgoing requests:** no site icons (Bitwarden fetches them from an icon server, which leaks the domains). Only `http` and `https` become links, so a `javascript:` address from an import file stays text. The only exception is the leak check, and only on request (below).
+- **Steam Guard codes:** a `steam://KEY` key (Bitwarden's way) or `otpauth://…&encoder=steam` (KeeWeb's way) produces a 5-character code from the Steam alphabet `23456789BCDFGHJKMNPQRTVWXY`, every 30 seconds. The code is shown whole, without spaces.
+- **Password leak check:** the "Check for leaks" button on a login's page, or "Check passwords for leaks…" in the vault menu for all logins. Never automatic. The browser computes the password's SHA-1 (`@noble/hashes`, so it works on plain HTTP), then only its first 5 characters are sent to `GET /api/vault/pwned/{prefix}`. The hub forwards them to Have I Been Pwned's Pwned Passwords with `Add-Padding: true`, and all matching suffixes are compared in the browser. The hub never sees the password or its full hash. It goes through the hub so the page's CSP stays `connect-src 'self'`. The same password is asked about only once per check.
 
-## Board dan agent
+## Board and agents
 
-Node `credentials` hanya menyimpan `{"title": "…"}`. Board disinkronkan, di-snapshot, dan bisa dibaca agent, jadi tidak ada satu pun rahasia di sana. Kartu ini sengaja **tidak** ada di `contentTiles` dan `CONTENT_SOURCES` (tidak punya knob kabel), `layoutNodeKinds`, atau `node.add` planner; `internal/orch/credentials_test.go` menjaganya.
+The `credentials` node stores only `{"title": "…"}`. Boards are synced, snapshotted and readable by agents, so not a single secret is there. This card is on purpose **not** in `contentTiles` and `CONTENT_SOURCES` (it has no cable knob), `layoutNodeKinds`, or the planner's `node.add`; `internal/orch/credentials_test.go` guards this.
 
-Menghapus kartu tidak menyentuh vault, dan semua kartu di semua board menampilkan vault yang sama.
+Deleting the card does not touch the vault, and every card on every board shows the same vault.
 
-Agent hanya bisa memakai item lewat satu jalan, yang dijelaskan di bagian berikut.
+Agents can use an item only one way, described in the next section.
 
-## Agent memakai credential
+## Agents using a credential
 
-Keputusan #40. Agent tidak pernah menerima nilai. Ia meminta hub menjalankan **satu perintah** yang mendapat nilai dari vault, pemilik menyetujuinya di browser, dan output yang kembali ke agent sudah disensor.
+Decision #40. The agent never receives a value. It asks the hub to run **one command** that gets the values from the vault, the owner approves it in the browser, and the output that comes back to the agent is already censored.
 
 ```
-agent    credential_run{command, why, secrets}  →  hub: permintaan "waiting", notifikasi
-browser  buka item, cek blob, kirim nilai        →  hub: jalankan perintah itu
-hub      output dengan nilai diganti ••••        →  agent
+agent    credential_run{command, why, secrets}  →  hub: request "waiting", notification
+browser  open item, check blob, send values      →  hub: run that command
+hub      output with values replaced by ••••     →  agent
 ```
 
-### Menandai item
+### Marking an item
 
-- Di form item: **Agents may ask to use it**, lalu pilih project. Pilihan ini tersimpan di blob item (`"agents": {"projects": […]}`), jadi hub tidak bisa mengubahnya.
-- Browser juga menulis **katalog** ke `vault.json`: nama item, tipe, project, dan nama nilainya, tanpa nilai. Item yang tidak ditandai tetap tidak terlihat, termasuk namanya.
-- Nilai yang bisa diberikan: login → `username`, `password`; catatan → `note`; kunci SSH → `privateKey`, `publicKey`; semua tipe → field custom menurut namanya. Field bawaan kartu dan identitas tidak, begitu juga kunci TOTP.
-- Katalog hanya petunjuk untuk agent. Setiap unlock, browser menyamakannya dengan blob, dan entri yang tidak didukung blob dihapus.
+- In the item form: **Agents may ask to use it**, then choose the projects. This choice is stored in the item's blob (`"agents": {"projects": […]}`), so the hub cannot change it.
+- The browser also writes a **catalog** to `vault.json`: the item's name, type, projects and the names of its values, without the values. Unmarked items stay invisible, names included.
+- Values that can be given: login → `username`, `password`; note → `note`; SSH key → `privateKey`, `publicKey`; every type → custom fields by their name. The built-in fields of cards and identities cannot, nor can the TOTP key.
+- The catalog is only a hint for agents. At every unlock, the browser reconciles it with the blobs, and entries the blobs do not back are deleted.
 
-### Tool agent
+### Agent tools
 
-Console di project yang punya item tertanda mendapat tiga tool hub. Project tanpa item tertanda tidak mendapat tool apa pun, jadi definisinya tidak memakan token. CLI membaca daftar tool saat mulai, sehingga console yang sudah jalan sebelum item pertama ditandai perlu dibuka ulang.
+Consoles in a project that has marked items get three hub tools. A project without marked items gets no tools at all, so their definitions cost no tokens. The CLI reads its tool list when it starts, so a console that was already running before the first item was marked needs to be reopened.
 
-| Tool | Isi |
+| Tool | Contents |
 |---|---|
-| `credential_list` | Nama, tipe, id, dan nama nilai item untuk project ini |
-| `credential_run{command, why, secrets[{item, value, env}], stdin?{item, value}, timeout_ms?}` | Membuat permintaan dan menunggu ≤ 45 detik. Selesai: output. Belum: id untuk `credential_result` |
-| `credential_result{id}` | Menunggu lagi ≤ 45 detik. Hanya untuk console yang meminta |
+| `credential_list` | Name, type, id and value names of the items for this project |
+| `credential_run{command, why, secrets[{item, value, env}], stdin?{item, value}, timeout_ms?}` | Creates a request and waits ≤ 45 seconds. Done: the output. Not yet: an id for `credential_result` |
+| `credential_result{id}` | Waits again ≤ 45 seconds. Only for the console that asked |
 
-- Menunggu dibatasi 45 detik karena Codex memutus panggilan MCP setelah 60 detik.
-- Claude Code dan OpenCode tidak meminta izin untuk tiga tool ini (`--allowedTools`, `permission`), karena persetujuan ada di dialog hub. Codex mengikuti aturan izinnya sendiri.
-- Ditolak sebelum sampai ke pemilik: item atau nilai yang tidak ada di katalog project; nama env yang bukan nama variabel atau yang mengubah perilaku shell (`PATH`, `HOME`, `SHELL`, `IFS`, `ENV`, `BASH_ENV`, `LD_*`, `DYLD_*`, `NB_*`, dan sejenisnya); env ganda; tanpa `why`; perintah > 4000 byte; > 8 nilai; dan perintah di daftar blokir (keputusan #38).
-- Paling banyak 3 permintaan menunggu per console, 20 untuk seluruh hub.
+- Waiting is limited to 45 seconds because Codex cuts MCP calls off after 60 seconds.
+- Claude Code and OpenCode do not ask permission for these three tools (`--allowedTools`, `permission`), because the approval is in the hub's dialog. Codex follows its own permission rules.
+- Refused before reaching the owner: an item or value not in the project's catalog; an env name that is not a variable name or that changes shell behavior (`PATH`, `HOME`, `SHELL`, `IFS`, `ENV`, `BASH_ENV`, `LD_*`, `DYLD_*`, `NB_*` and the like); a duplicate env; no `why`; a command > 4000 bytes; > 8 values; and commands on the block list (decision #38).
+- At most 3 waiting requests per console, 20 for the whole hub.
 
-### Persetujuan
+### Approval
 
-- Notifikasi `attention` dengan `kind: "credential"`, dan pill di atas halaman. Dialog menampilkan agent, project, machine dan folder, alasan, batas waktu, perintah persis, dan nilai apa masuk ke env mana.
-- Dialog membuka item **dari blob**, bukan dari katalog. Kalau item tidak ditandai untuk project itu, ada di trash, atau nilainya sudah tidak ada, tombol **Allow once** mati. Entri katalog palsu tidak membuka apa pun.
-- Vault terkunci: dialog meminta PIN atau master password di tempat.
-- Satu persetujuan berlaku untuk perintah itu, sekali. Yang tidak dijawab dalam 10 menit kedaluwarsa.
+- An `attention` notification with `kind: "credential"`, and a pill at the top of the page. The dialog shows the agent, project, machine and folder, the reason, the time limit, the exact command, and which value goes into which env.
+- The dialog opens the item **from the blob**, not from the catalog. If the item is not marked for that project, is in the trash, or the value no longer exists, the **Allow once** button is disabled. A fake catalog entry opens nothing.
+- Locked vault: the dialog asks for the PIN or master password in place.
+- One approval holds for that command, once. Requests not answered within 10 minutes expire.
 
-### Menjalankan
+### Running
 
-- Hub menjalankan perintah sebagai prosesnya sendiri, di machine dan folder console (server untuk console `remoteTools`), dalam login shell baru. Batas waktu bawaan 2 menit, maksimal 10.
-- Nilai untuk env dikirim lewat **stdin** ke skrip pembuka yang mengekspornya: tiap byte ditulis `\0ooo`, lalu dikembalikan dengan `printf %b`. Nilai tidak pernah ada di baris perintah, karena `ps` di server menampilkannya ke semua user. Terbukti utuh di sh, dash, bash, zsh, dan busybox, termasuk kutip, `$`, baris baru, dan unicode.
-- Nilai untuk `stdin` diteruskan apa adanya ke input perintah.
-- Nilai < 4 karakter ditolak, karena tidak bisa disembunyikan tanpa merusak output.
+- The hub runs the command as its own process, on the console's machine and folder (the server for a `remoteTools` console), in a new login shell. Default time limit 2 minutes, at most 10.
+- Values for env are sent through **stdin** to a preamble script that exports them: each byte is written as `\0ooo`, then restored with `printf %b`. Values are never on the command line, because `ps` on a server shows it to every user. Proven intact in sh, dash, bash, zsh and busybox, including quotes, `$`, newlines and unicode.
+- The value for `stdin` is passed as is to the command's input.
+- Values < 4 characters are refused, because they cannot be hidden without breaking the output.
 
-### Sensor
+### Censoring
 
-Sebelum sampai ke agent, stdout dan stderr diganti `••••` di setiap tempat ada:
+Before reaching the agent, stdout and stderr get `••••` in every place that holds:
 
-- nilainya, juga tanpa baris baru di akhir;
-- tiap baris ≥ 8 karakter dari nilai multi-baris;
-- bentuk base64 (empat varian), hex (huruf kecil dan besar), URL-encoded (query dan path), dan isi string JSON.
+- the value, also without a trailing newline;
+- each line ≥ 8 characters of a multi-line value;
+- its base64 forms (four variants), hex (lowercase and uppercase), URL-encoded (query and path), and JSON string contents.
 
-Output disimpan paling banyak 1 MB per aliran. Kalau terpotong, awal nilai yang tertinggal di ujung ikut dibuang. Setelah itu output dipotong ke 30 000 karakter seperti tool `bash` hub.
+Output is kept up to 1 MB per stream. When it is cut off, the start of a value left at the end is dropped too. After that the output is cut to 30 000 characters, like the hub's `bash` tool.
 
-### Yang disimpan
+### What is stored
 
-- Permintaan hanya ada di memori: hilang saat hub restart, dan agent diminta mengulang. Nilai hanya ada di memori hub selama satu run.
-- `<data>/credential-log.jsonl` (0600, diputar ke `.1` di 1 MB): siapa, kapan, perintah, item, nama nilai, env, hasil, exit code, durasi, dan siapa yang menyetujui. Tanpa nilai dan tanpa output.
-- Event `credentialRequest` `{id, state}`, tanpa isi.
+- Requests exist only in memory: they are lost when the hub restarts, and the agent is asked to repeat. Values are in the hub's memory only for the duration of one run.
+- `<data>/credential-log.jsonl` (0600, rotated to `.1` at 1 MB): who, when, command, item, value names, env, result, exit code, duration, and who approved. No values and no output.
+- Event `credentialRequest` `{id, state}`, without contents.
 
 ### API
 
-Semua lewat login biasa. Menghapus item menghapus entrinya, dan reset vault menghapus katalog.
+All through the ordinary login. Deleting an item deletes its entry, and a vault reset deletes the catalog.
 
-| Route | Isi |
+| Route | Contents |
 |---|---|
-| `GET /api/vault/agents` | Katalog |
-| `PUT /api/vault/agents/{id}` | `{name, type, projects, values}`; `projects` kosong menghapus. Item harus ada (404), project harus ada (400) |
-| `GET /api/vault/requests` | Permintaan yang menunggu, sedang jalan, atau selesai < 15 menit lalu |
-| `POST /api/vault/requests/{id}/approve` | `{values}`, urut seperti `uses`. 409 `request_decided`, 404 `request_not_found` |
-| `POST /api/vault/requests/{id}/deny` | `{note?}` ≤ 300 karakter, dibacakan ke agent |
-| `GET /api/vault/agent-log?limit=` | Log, terbaru dulu, ≤ 500 |
+| `GET /api/vault/agents` | The catalog |
+| `PUT /api/vault/agents/{id}` | `{name, type, projects, values}`; empty `projects` deletes it. The item must exist (404), the projects must exist (400) |
+| `GET /api/vault/requests` | Requests that are waiting, running, or finished < 15 minutes ago |
+| `POST /api/vault/requests/{id}/approve` | `{values}`, in the order of `uses`. 409 `request_decided`, 404 `request_not_found` |
+| `POST /api/vault/requests/{id}/deny` | `{note?}` ≤ 300 characters, read out to the agent |
+| `GET /api/vault/agent-log?limit=` | The log, newest first, ≤ 500 |
 
-### Batas
+### Limits
 
-**Ini melindungi dari kecelakaan, bukan dari agent yang sengaja mencuri:**
+**This protects against accidents, not against an agent that deliberately steals:**
 
-- Perintah yang menjalankan script di project (`npm run`, `make`, `./deploy.sh`) menjalankan isi script saat itu, dan agent bisa mengubahnya. Yang disetujui adalah nama perintahnya.
-- Selama perintah jalan, agent dengan Bash sebagai user yang sama bisa membaca env proses itu dari `/proc`.
-- Sensor tidak mengenali nilai yang diubah bentuknya: dibalik, dipotong, atau dienkripsi.
-- Nilai lewat jaringan dari browser ke hub. Di HTTP biasa, siapa pun yang bisa membaca lalu lintas bisa melihatnya.
-- Nama item yang ditandai terlihat oleh agent project itu, dan oleh siapa pun yang membaca `<data>`.
+- A command that runs a script in the project (`npm run`, `make`, `./deploy.sh`) runs that script's contents at that moment, and the agent can change them. What is approved is the command's name.
+- While the command runs, an agent with Bash as the same user can read that process's env from `/proc`.
+- Censoring does not recognize a value whose form was changed: reversed, cut or encrypted.
+- Values travel over the network from the browser to the hub. On plain HTTP, anyone who can read the traffic can see them.
+- The names of marked items are visible to that project's agents, and to anyone who reads `<data>`.
 
-Mengisi form browser untuk agent tidak dibuat. Agent tidak bisa mengendalikan browser tile, jadi mengisi untuknya sama saja dengan tombol kunci yang sudah ada.
+Filling browser forms for agents is not built. Agents cannot control a browser tile, so filling for them would be no different from the key button that already exists.
 
-## Import dan export
+## Import and export
 
-Import: JSON tidak terenkripsi dan CSV dari Bitwarden, CSV dari Chrome dan Firefox. Dibaca dan dienkripsi di browser sebelum dikirim. Export terenkripsi Bitwarden ditolak dengan penjelasan. Passkey tidak ikut.
+Import: unencrypted JSON and CSV from Bitwarden, CSV from Chrome and Firefox. Read and encrypted in the browser before sending. Bitwarden's encrypted export is refused with an explanation. Passkeys are not included.
 
-Export: format JSON Bitwarden tanpa enkripsi, setelah master password dimasukkan lagi. Trash tidak ikut.
+Export: Bitwarden's JSON format without encryption, after the master password is entered again. The trash is not included.
 
-## Yang tidak dilindungi
+## What it does not protect against
 
-- **Lupa master password = semua hilang.** Tidak ada pemulihan.
-- **HTTP biasa.** Siapa pun yang bisa mengubah lalu lintas antara browser dan hub bisa menyuntikkan skrip dan menangkap master password, lalu membuka vault. Password login hub lewat jalur yang sama. Aman di localhost dan di dalam Tailscale atau VPN; berisiko di Wi-Fi bersama dan melalui internet tanpa HTTPS.
-- **Tebakan offline.** Agent atau siapa pun yang membaca `<data>` mendapat `vault.json` dan bisa mencoba menebak. Argon2id memperlambatnya (sekitar 0,3 detik per tebakan per inti), kekuatan password yang menentukan: daftar password umum selesai dalam hitungan menit, dan password 8 karakter yang lemah termasuk di dalamnya.
-- **PIN kalau kedua sisinya jatuh ke tangan yang sama.** Siapa pun yang memegang storage browser dan folder hub bisa mencoba sejuta PIN tanpa batas hitungan hub, sekitar 3–4 hari satu inti dan lebih cepat dengan banyak inti. Ini terjadi kalau browsernya di This PC, karena agent bisa membaca keduanya.
-- **Mengisi form melepas rahasianya.** Halaman yang diisi bisa membaca nilainya, itu sifat semua autofill. Lewat proxy, password yang dikirim situs melewati proses hub. Di Chrome This PC, sesi yang login tersimpan di profilnya, dan agent bisa membacanya. Jangan simpan password di Chrome itu (`--password-store=basic`); dialog mengingatkan.
-- **Kode aplikasinya sendiri.** Agent dengan Bash sebagai user yang sama bisa mengganti binary hub atau file web, lalu menangkap master password pada unlock berikutnya. Enkripsi di browser melindungi dari membaca file, bukan dari orang yang bisa mengganti programnya. Web vault Bitwarden yang di-host sendiri punya batas yang sama. Untuk rahasia yang tidak boleh terjangkau agent yolo, pakai perangkat lain.
-- **Saat vault terbuka,** isinya ada di memori tab, dan di HTTP biasa kuncinya juga bisa dibaca dari sana. XSS di app hub, dengan CSP yang ketat sekalipun, atau ekstensi browser bisa membacanya.
-- **Hub bisa mengembalikan versi lama.** Blob lama tetap sah secara kriptografi, jadi hub yang jahat bisa menyembunyikan perubahan terbaru. Sama seperti Bitwarden.
-- **Metadata yang terlihat hub:** jumlah record, ukuran blob per 512 byte, dan waktu perubahan. Untuk item yang ditandai untuk agent, juga nama, tipe, project, dan nama nilainya.
-- **Agent memakai credential** melindungi dari kecelakaan, bukan dari agent yang sengaja mencuri (lihat batasnya di atas).
+- **Forgotten master password = everything gone.** There is no recovery.
+- **Plain HTTP.** Anyone who can alter the traffic between browser and hub can inject a script and capture the master password, then open the vault. The hub's login password travels the same path. Safe on localhost and inside Tailscale or a VPN; risky on shared Wi-Fi and across the internet without HTTPS.
+- **Offline guessing.** An agent or anyone who reads `<data>` gets `vault.json` and can try to guess. Argon2id slows this down (about 0.3 seconds per guess per core), but the password's strength is what decides: a list of common passwords is done within minutes, and a weak 8-character password is among them.
+- **The PIN, when both of its sides fall into the same hands.** Anyone who holds the browser's storage and the hub's folder can try a million PINs without the hub's count limit, about 3–4 days on one core and faster with many cores. This happens when the browser is on This PC, because an agent can read both.
+- **Filling a form gives the secret away.** The page being filled can read the values; that is true of all autofill. Through the proxy, the password sent to the site passes through the hub's process. In This PC's Chrome, logged-in sessions are stored in its profile, and agents can read it. Do not save passwords in that Chrome (`--password-store=basic`); the dialog reminds you.
+- **The app's own code.** An agent with Bash as the same user can replace the hub binary or the web files, then capture the master password at the next unlock. Encryption in the browser protects against reading files, not against someone who can replace the program. A self-hosted Bitwarden web vault has the same limit. For secrets a yolo agent must not reach, use another device.
+- **While the vault is unlocked,** its contents are in the tab's memory, and on plain HTTP the key can also be read from there. XSS in the hub's app, even with a strict CSP, or a browser extension can read them.
+- **The hub can return an old version.** Old blobs stay cryptographically valid, so a malicious hub can hide the latest changes. The same as Bitwarden.
+- **Metadata the hub sees:** the number of records, blob sizes in steps of 512 bytes, and change times. For items marked for agents, also the name, type, projects and value names.
+- **Agents using a credential** protects against accidents, not against an agent that deliberately steals (see its limits above).
 
-## Belum ada
+## Not yet built
 
-Menyimpan passkey situs lain di vault (butuh extension browser yang menjawab WebAuthn untuk situs itu), dan kartu Credentials di Android dan desktop.
+Storing other sites' passkeys in the vault (needs a browser extension that answers WebAuthn for that site), and the Credentials card on Android and desktop.
