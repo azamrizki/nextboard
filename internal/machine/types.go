@@ -109,6 +109,9 @@ type Config struct {
 	CredRef       string       `json:"credRef,omitempty"`
 	PersistMode   string       `json:"persistMode"` // "auto" | "tmux" | "direct"
 	Probe         *ProbeResult `json:"probe,omitempty"`
+	// ArchivedAt is set while the machine is archived: not connected, not probed, in no picker
+	// (docs/API.md Machines).
+	ArchivedAt *time.Time `json:"archivedAt,omitempty"`
 }
 
 // Status values reported to clients.
@@ -143,6 +146,7 @@ type Info struct {
 	NeedsAuth        *AuthNeed    `json:"needsAuth"`
 	Probe            *ProbeResult `json:"probe"`
 	SessionCount     int          `json:"sessionCount"`
+	ArchivedAt       *time.Time   `json:"archivedAt,omitempty"`
 	// HookForward is the reverse port-forward used as the HTTP fallback
 	// for agent hooks (SSH only; nil when not requested).
 	HookForward *HookForward `json:"hookForward,omitempty"`

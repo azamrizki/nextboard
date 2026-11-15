@@ -145,6 +145,9 @@ type Service struct {
 	Publish func(v any)
 	Alert   func(Alert)
 	Now     func() time.Time // tests
+	// Frozen reports whether a project is archived (docs/API-board.md §1): its monitors are
+	// not checked and take no push until it is restored. nil = none is. Set before Start.
+	Frozen func(projectID string) bool
 
 	st     *store.Store
 	client *http.Client
@@ -229,10 +232,67 @@ func (s *Service) newEntry(m Monitor, now time.Time) (*entry, error) {
 		e.status, e.msg, e.ms, e.lastAt = statusName(b.S), b.M, int(b.Ms), time.UnixMilli(b.T)
 		e.lastPush = e.lastAt
 	}
-	if !m.Active {
+	if !m.Active || s.frozen(m.ProjectID) {
 		e.status = StatusPaused
 	}
 	return e, nil
+}
+
+func (s *Service) frozen(projectID string) bool { return s.Frozen != nil && s.Frozen(projectID) }
+
+// PauseProject stops checking a project's monitors without changing them, while the project is
+// archived; it returns how many were checked. They show as paused.
+func (s *Service) PauseProject(projectID string) int {
+	s.admin.Lock()
+	defer s.admin.Unlock()
+	defer s.dropPublicCache()
+	n := 0
+	for _, e := range s.projectEntries(projectID) {
+		e.mu.Lock()
+		running := e.stop != nil
+		e.mu.Unlock()
+		if running {
+			n++
+		}
+		s.stopLoop(e)
+		e.mu.Lock()
+		e.status = StatusPaused
+		v := s.viewLocked(e, true)
+		e.mu.Unlock()
+		s.Publish(map[string]any{"type": "uptimeMonitor", "monitor": v})
+	}
+	return n
+}
+
+// ResumeProject checks a restored project's active monitors again, right away.
+func (s *Service) ResumeProject(projectID string) int {
+	s.admin.Lock()
+	defer s.admin.Unlock()
+	defer s.dropPublicCache()
+	s.mu.Lock()
+	started := s.started
+	s.mu.Unlock()
+	n := 0
+	now := s.Now()
+	for _, e := range s.projectEntries(projectID) {
+		e.mu.Lock()
+		active := e.m.Active
+		if active {
+			e.status, e.fails, e.started = StatusWaiting, 0, now
+			if e.settled >= 0 {
+				e.status = statusName(e.settled)
+			}
+		}
+		v := s.viewLocked(e, true)
+		running := e.stop != nil
+		e.mu.Unlock()
+		s.Publish(map[string]any{"type": "uptimeMonitor", "monitor": v})
+		if active && started && !running {
+			s.startLoop(e, 0)
+			n++
+		}
+	}
+	return n
 }
 
 // Start begins checking.
@@ -244,6 +304,12 @@ func (s *Service) Start() {
 	}
 	s.started = true
 	for _, e := range s.entries {
+		if s.frozen(e.m.ProjectID) {
+			e.mu.Lock()
+			e.status = StatusPaused // an archived project's: Frozen was set after its entry was made
+			e.mu.Unlock()
+			continue
+		}
 		if e.m.Active {
 			spread := min(time.Duration(e.m.IntervalSec)*time.Second, startSpread)
 			s.startLoop(e, mrand.N(spread))
@@ -666,7 +732,7 @@ func (s *Service) Create(m Monitor) (View, error) {
 	e.mu.Unlock()
 	// Before the first check: whoever hears of its heartbeat must know the monitor by then.
 	s.Publish(map[string]any{"type": "uptimeMonitor", "monitor": v})
-	if started && m.Active {
+	if started && m.Active && !s.frozen(m.ProjectID) {
 		s.startLoop(e, 0)
 	}
 	return v, nil
@@ -699,8 +765,9 @@ func (s *Service) Update(id string, apply func(*Monitor) error) (View, error) {
 	e.m = next
 	e.fails = 0
 	e.started = now
+	frozen := s.frozen(next.ProjectID)
 	switch {
-	case !next.Active:
+	case !next.Active || frozen:
 		e.status = StatusPaused
 	case e.status == StatusPaused:
 		e.status = StatusWaiting
@@ -721,7 +788,7 @@ func (s *Service) Update(id string, apply func(*Monitor) error) (View, error) {
 	s.mu.Unlock()
 	s.saveMonitors()
 	s.Publish(map[string]any{"type": "uptimeMonitor", "monitor": v})
-	if started && next.Active {
+	if started && next.Active && !frozen {
 		s.startLoop(e, 0)
 	}
 	return v, nil
@@ -869,7 +936,7 @@ func (s *Service) Push(token string, down bool, msg string, ms int) bool {
 	now := s.Now()
 	e.mu.Lock()
 	m := e.m
-	if !m.Active {
+	if !m.Active || s.frozen(m.ProjectID) {
 		e.mu.Unlock()
 		return false
 	}

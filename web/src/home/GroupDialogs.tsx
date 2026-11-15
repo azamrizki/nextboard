@@ -12,6 +12,7 @@ import { NAME_MAX } from '../components/ProjectBar';
 import type { Project, ProjectGroup } from '../lib/types';
 import { store, useProjectGroups, useProjects } from '../store';
 import { allTags, flatGroups, groupPath, groupTree } from './groups';
+import { bulkOutcome, nameList } from './remove';
 
 /** Every group as a path, for a select. `except` leaves out a group and what is inside it. */
 function useGroupOptions(except?: string) {
@@ -119,6 +120,44 @@ export function DeleteGroupDialog({ group, onClose }: { group: ProjectGroup; onC
       <p>
         What is inside moves to <strong>{parent || 'All projects'}</strong>. No project, board or file is removed.
       </p>
+    </ConfirmDialog>
+  );
+}
+
+/** Several groups at once, from the select mode of the Groups view (§3.18). */
+export function DeleteGroupsDialog({ groups: chosen, onClose, onDone }: { groups: ProjectGroup[]; onClose: () => void; onDone?: (ids: string[]) => void }) {
+  const groups = useProjectGroups();
+  const projects = useProjects();
+  const ids = new Set(chosen.map((g) => g.id));
+  const moved = projects.filter((p) => p.groupId && ids.has(p.groupId)).length;
+  const subs = groups.filter((g) => g.parentId && ids.has(g.parentId) && !ids.has(g.id)).length;
+  const one = chosen.length === 1 ? chosen[0] : null;
+  return (
+    <ConfirmDialog
+      title={one ? `Delete group “${one.name}”?` : `Delete ${chosen.length} groups?`}
+      confirmLabel={one ? 'Delete group' : 'Delete groups'}
+      danger
+      onClose={onClose}
+      onConfirm={async () => {
+        const list = chosen.map((g) => g.id);
+        const nameOf = (id: string) => chosen.find((g) => g.id === id)?.name ?? id;
+        const out = list.length === 1 ? (await api.deleteProjectGroup(list[0]), { done: list, failed: [] }) : bulkOutcome(await api.bulkProjectGroups(list), list, nameOf);
+        for (const id of out.done) store.removeProjectGroup(id);
+        if (out.done.length) onDone?.(out.done);
+        if (out.failed.length) throw new Error(`Not deleted: ${out.failed.map((f) => `${f.name} (${f.error})`).join(', ')}.`);
+      }}
+    >
+      <p>
+        {one ? 'What is inside it moves' : 'What is inside each moves'} up a level
+        {moved || subs ? (
+          <>
+            {' '}
+            ({[moved ? `${moved} project${moved === 1 ? '' : 's'}` : '', subs ? `${subs} sub-group${subs === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ')})
+          </>
+        ) : null}
+        . No project, board or file is removed.
+      </p>
+      {!one && <p className="text-3 fs-sm">{nameList(chosen.map((g) => g.name), 4)}</p>}
     </ConfirmDialog>
   );
 }

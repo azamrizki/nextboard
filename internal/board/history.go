@@ -57,7 +57,10 @@ type ArchiveMeta struct {
 type archiveFile struct {
 	ArchiveMeta
 	WorkspaceID string `json:"workspaceId"`
-	Board       *Board `json:"board,omitempty"`
+	// ProjectID is the project the board was in, so deleting that project for good finds it
+	// (absent in archives from before it was kept).
+	ProjectID string `json:"projectId,omitempty"`
+	Board     *Board `json:"board,omitempty"`
 	// Raw keeps the bytes of an unreadable board file.
 	Raw []byte `json:"raw,omitempty"`
 }
@@ -239,6 +242,12 @@ func (m *Manager) RestoreSnapshot(wid, sid string) (Board, error) {
 // Archive stores the current board under archive/ (never pruned). Boards
 // without any non-terminal node are not archived (nothing to restore).
 func (m *Manager) Archive(wid, projectName, workspaceName, reason string) (string, error) {
+	return m.ArchiveProject("", wid, projectName, workspaceName, reason)
+}
+
+// ArchiveProject is Archive for a board of project projectID, which may be gone from the
+// project already ("" = ask ProjectOf).
+func (m *Manager) ArchiveProject(projectID, wid, projectName, workspaceName, reason string) (string, error) {
 	d, err := m.doc(wid, false)
 	if err != nil || d == nil {
 		return "", err
@@ -249,18 +258,57 @@ func (m *Manager) Archive(wid, projectName, workspaceName, reason string) (strin
 	if contentCount(b.Nodes) == 0 {
 		return "", nil
 	}
-	return m.writeArchive(b, projectName, workspaceName, reason)
+	return m.writeArchive(b, projectID, projectName, workspaceName, reason)
 }
 
-func (m *Manager) writeArchive(b Board, projectName, workspaceName, reason string) (string, error) {
+func (m *Manager) projectOf(wid string) string {
+	if m.ProjectOf == nil {
+		return ""
+	}
+	return m.ProjectOf(wid)
+}
+
+func (m *Manager) writeArchive(b Board, projectID, projectName, workspaceName, reason string) (string, error) {
+	if projectID == "" {
+		projectID = m.projectOf(b.WorkspaceID)
+	}
 	f := archiveFile{
 		ArchiveMeta: ArchiveMeta{
 			ID: randomID("r_"), ProjectName: projectName, WorkspaceName: workspaceName,
 			ArchivedAt: m.now().UTC(), NodeCount: len(b.Nodes), Reason: reason,
 		},
-		WorkspaceID: b.WorkspaceID, Board: &b,
+		WorkspaceID: b.WorkspaceID, ProjectID: projectID, Board: &b,
 	}
 	return f.ID, m.saveArchive(&f)
+}
+
+// DeleteArchives removes for good the archived boards of a project: those that name it and
+// those of the given workspaces (for archives from before they named their project). It
+// returns how many went.
+func (m *Manager) DeleteArchives(projectID string, workspaces []string) int {
+	ws := map[string]bool{}
+	for _, w := range workspaces {
+		ws[w] = true
+	}
+	ents, _ := os.ReadDir(m.st.Path("archive"))
+	n := 0
+	for _, e := range ents {
+		id, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || !IDRe.MatchString(id) {
+			continue
+		}
+		f, err := m.loadArchive(id)
+		if err != nil || !(projectID != "" && f.ProjectID == projectID || ws[f.WorkspaceID]) {
+			continue
+		}
+		if os.Remove(m.st.Path("archive", e.Name())) == nil {
+			n++
+		}
+		m.metaMu.Lock()
+		delete(m.archMeta, id)
+		m.metaMu.Unlock()
+	}
+	return n
 }
 
 // archiveRaw keeps an unreadable board file.
@@ -268,7 +316,7 @@ func (m *Manager) archiveRaw(wid string, raw []byte) {
 	pn, wn := m.names(wid)
 	f := archiveFile{
 		ArchiveMeta: ArchiveMeta{ID: randomID("r_"), ProjectName: pn, WorkspaceName: wn, ArchivedAt: m.now().UTC(), Reason: ReasonUnreadable},
-		WorkspaceID: wid, Raw: raw,
+		WorkspaceID: wid, ProjectID: m.projectOf(wid), Raw: raw,
 	}
 	if err := m.saveArchive(&f); err != nil {
 		log.Printf("archive of board %s failed: %v", wid, err)

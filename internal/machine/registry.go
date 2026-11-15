@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +27,8 @@ var (
 	ErrNotFound    = errors.New("machine not found")
 	ErrLocal       = errors.New("This PC cannot be changed or deleted")
 	ErrInvalidSpec = errors.New("invalid machine data")
+	ErrArchived    = errors.New("the machine is archived")
+	ErrNotArchived = errors.New("the machine is not archived")
 )
 
 // AddRequest is the body of POST /api/machines.
@@ -118,6 +123,19 @@ func (r *Registry) addSSHLocked(c Config) *SSH {
 	r.ssh[id] = m
 	r.order = append(r.order, id)
 	return m
+}
+
+// hostAddrs are the addresses a machine's host keys are recorded under: its own and those of
+// its jump hosts.
+func hostAddrs(c Config) []string {
+	t := resolveConfig(c)
+	out := []string{t.addr()}
+	if t.proxyJump != "" {
+		for _, hop := range strings.Split(t.proxyJump, ",") {
+			out = append(out, parseJump(strings.TrimSpace(hop)).addr())
+		}
+	}
+	return out
 }
 
 // Start probes This PC and starts connection loops for remote machines.
@@ -258,18 +276,108 @@ func (r *Registry) Info(id string) (Info, bool) {
 	return in, true
 }
 
-// List returns all machines, This PC first.
+// List returns the active machines, This PC first.
 func (r *Registry) List() []Info {
 	r.mu.Lock()
 	ids := append([]string{LocalID}, r.order...)
 	r.mu.Unlock()
 	out := make([]Info, 0, len(ids))
 	for _, id := range ids {
-		if in, ok := r.Info(id); ok {
+		if in, ok := r.Info(id); ok && in.ArchivedAt == nil {
 			out = append(out, in)
 		}
 	}
 	return out
+}
+
+// ListArchived returns the archived machines, most recently archived first.
+func (r *Registry) ListArchived() []Info {
+	r.mu.Lock()
+	ids := slices.Clone(r.order)
+	r.mu.Unlock()
+	out := []Info{}
+	for _, id := range ids {
+		if in, ok := r.Info(id); ok && in.ArchivedAt != nil {
+			out = append(out, in)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].ArchivedAt.After(*out[j].ArchivedAt) })
+	return out
+}
+
+// IsArchived reports whether id is an archived machine.
+func (r *Registry) IsArchived(id string) bool {
+	m, ok := r.SSH(id)
+	return ok && m.Config().ArchivedAt != nil
+}
+
+// Archive disconnects a server and keeps it out of use until Restore; nothing of it is deleted.
+// An archived one stays as it is. This PC cannot be archived.
+func (r *Registry) Archive(id string) (Info, error) {
+	if id == LocalID {
+		return Info{}, ErrLocal
+	}
+	r.mu.Lock()
+	m, ok := r.ssh[id]
+	if !ok {
+		r.mu.Unlock()
+		return Info{}, ErrNotFound
+	}
+	cfg := m.Config()
+	changed := cfg.ArchivedAt == nil
+	if changed {
+		now := time.Now().UTC()
+		cfg.ArchivedAt = &now
+		// the connection ends with the old object; the one in its place never dials
+		r.replaceLocked(id, cfg)
+		r.saveLocked()
+	}
+	r.mu.Unlock()
+	if changed {
+		m.Close()
+	}
+	r.emit(id)
+	in, _ := r.Info(id)
+	return in, nil
+}
+
+// Restore puts an archived server back in use and connects it.
+func (r *Registry) Restore(id string) (Info, error) {
+	if id == LocalID {
+		return Info{}, ErrLocal
+	}
+	r.mu.Lock()
+	m, ok := r.ssh[id]
+	if !ok {
+		r.mu.Unlock()
+		return Info{}, ErrNotFound
+	}
+	cfg := m.Config()
+	if cfg.ArchivedAt == nil {
+		r.mu.Unlock()
+		in, _ := r.Info(id)
+		return in, ErrNotArchived
+	}
+	cfg.ArchivedAt = nil
+	fresh := r.replaceLocked(id, cfg)
+	r.saveLocked()
+	r.mu.Unlock()
+	m.Close()
+	r.emit(id)
+	fresh.EnsureLoop()
+	in, _ := r.Info(id)
+	return in, nil
+}
+
+// replaceLocked puts a new machine object for cfg in the old one's place, in its order.
+func (r *Registry) replaceLocked(id string, cfg Config) *SSH {
+	i := slices.Index(r.order, id)
+	m := r.addSSHLocked(cfg) // appends to order
+	r.order = r.order[:len(r.order)-1]
+	if i >= 0 {
+		r.order[i] = id
+	}
+	return m
 }
 
 // Add validates and registers a new SSH machine (not yet connected).
@@ -383,7 +491,8 @@ func (r *Registry) Update(id string, name, persist *string) (Info, error) {
 	return in, nil
 }
 
-// Remove deletes an SSH machine and its stored credentials.
+// Remove deletes an SSH machine, its stored credentials, and the host keys accepted for it in
+// the hub's own known_hosts when no other machine uses that address (~/.ssh stays untouched).
 func (r *Registry) Remove(id string) error {
 	if id == LocalID {
 		return ErrLocal
@@ -401,10 +510,29 @@ func (r *Registry) Remove(id string) error {
 			break
 		}
 	}
+	others := make([]Config, 0, len(r.ssh))
+	for _, o := range r.ssh {
+		others = append(others, o.Config())
+	}
 	r.saveLocked()
 	r.mu.Unlock()
 	m.Close()
 	_ = os.Remove(r.st.Path("creds", id+".enc"))
+	used := map[string]bool{}
+	for _, c := range others {
+		for _, a := range hostAddrs(c) {
+			used[a] = true
+		}
+	}
+	var drop []string
+	for _, a := range hostAddrs(m.Config()) {
+		if !used[a] {
+			drop = append(drop, a)
+		}
+	}
+	if err := r.hk.forget(drop); err != nil {
+		log.Printf("known_hosts of %s: %v", id, err)
+	}
 	if r.OnRemoved != nil {
 		r.OnRemoved(id)
 	}

@@ -90,6 +90,9 @@ type Config struct {
 	Roots   func(projectID string) []Root
 	Publish func(v any)
 	Now     func() time.Time
+	// Paused reports whether a project takes no snapshots now: an archived one (docs/API-board.md
+	// §1). What it has stays readable. nil = none is.
+	Paused func(projectID string) bool
 }
 
 // Change is one file an agent changed, against the state it found.
@@ -715,6 +718,9 @@ func (p *project) nestedIn(roots []Root, r Root) []string {
 }
 
 func (p *project) snapshot() error {
+	if p.m.cfg.Paused != nil && p.m.cfg.Paused(p.id) {
+		return nil
+	}
 	p.snap.Lock()
 	defer p.snap.Unlock()
 	roots := p.m.cfg.Roots(p.id)

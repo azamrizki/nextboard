@@ -188,6 +188,8 @@ export interface Machine {
   needsAuth?: MachineAuthNeed | null;
   probe: Probe | null;
   sessionCount: number;
+  /** Set while archived (RFC 3339): not connected, not probed, absent from pickers (docs/API.md Machines). */
+  archivedAt?: string;
 }
 
 export interface SSHConfigHost {
@@ -402,6 +404,51 @@ export interface Project {
   tags?: string[];
   /** What its agents' commands may do (docs/API-agents.md §27); absent = what each CLI does. */
   sandbox?: 'workspace' | 'offline';
+  /** Set while archived (RFC 3339): its consoles are stopped, everything else is kept (API-board §1). */
+  archivedAt?: string;
+  /** The poster across the top of its card; absent when none. */
+  cover?: ProjectImage;
+  /** The image next to its name; absent when none (the monogram shows). */
+  icon?: ProjectImage;
+}
+
+/** A project's cover or icon: an image in the asset store (API-board §1, §5). */
+export interface ProjectImage {
+  assetId: string;
+  source: 'upload' | 'ai';
+  at: string;
+}
+
+/** What a bulk request does to each id (API-board §1, docs/API.md Machines). `delete` is permanent. */
+export type BulkAction = 'archive' | 'restore' | 'delete';
+
+/** One id of a bulk request: each is handled on its own. */
+export interface BulkResult {
+  id: string;
+  ok: boolean;
+  /** Why not, in words ("in use by acme-shop"). */
+  error?: string;
+  /** The same as a code: in_use, not_archived, project_not_found, local, … */
+  code?: string;
+}
+
+export interface BulkResponse {
+  results: BulkResult[] | null;
+}
+
+/** GET /api/art/capability: whether "Create with AI" can make an image on This PC. */
+export interface ArtCapability {
+  available: boolean;
+  tool: string;
+  reason?: string;
+}
+
+export type ArtKind = 'cover' | 'icon';
+
+/** 409 in_use: the projects whose parts are on a machine (docs/API.md Machines). */
+export interface MachineUser {
+  id: string;
+  name: string;
 }
 
 /** GET /api/agents/sandbox: whether each CLI can build its sandbox on This PC. */
@@ -823,6 +870,9 @@ export type HubEvent =
   | { type: 'project'; project: Project }
   | { type: 'projectRemoved'; id: string }
   | { type: 'projectGroups'; groups: ProjectGroup[] | null }
+  /** After a bulk request: fetch the lists again. */
+  | { type: 'projects' }
+  | { type: 'machines' }
   | { type: 'boardOps'; workspaceId: string; rev: number; clientId: string; ops: Op[] | null }
   | { type: 'attention'; attention: Attention }
   | { type: 'uptimeBeat'; projectId: string; monitorId: string; beat: Beat; monitor: Monitor }

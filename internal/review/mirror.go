@@ -55,6 +55,10 @@ var (
 	errMirrorOffline = &Error{http.StatusServiceUnavailable, "machine_offline", "the server is not connected"}
 )
 
+// SecretName says a file holds credentials by what it is called: such a file stays on its
+// machine, and its content goes into no prompt.
+func SecretName(name string) bool { return secretName(name) }
+
 // secretName says a file holds credentials by what it is called. It stays on the server.
 func secretName(name string) bool {
 	l := strings.ToLower(name)

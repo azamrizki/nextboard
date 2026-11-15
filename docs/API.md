@@ -98,7 +98,8 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
     "commands": { "claude": "/home/alice/.local/bin/claude", "codex": "" },
     "probedAt": "…"
   },
-  "sessionCount": 2
+  "sessionCount": 2,
+  "archivedAt": "…"              // only while archived
 }
 // SSHConfigHost
 { "host": "devbox", "hostName": "10.0.0.5", "user": "alice", "port": 22, "identityFile": "~/.ssh/id_ed25519", "proxyJump": "" }
@@ -110,7 +111,7 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/machines` | — | `Machine[]` (local always first) |
+| GET | `/api/machines` | — | `Machine[]` of the active machines (local always first). `?archived=1`: the archived ones, most recently archived first |
 | GET | `/api/machines/sshconfig` | — | `SSHConfigHost[]` (no wildcards) |
 | POST | `/api/machines` | `AddMachine` | `201 Machine` (status can be `hostkey` → ask for confirmation, `connected`, or `error`) |
 | POST | `/api/machines/{id}/hostkey` | `{"accept":true,"fingerprint":"SHA256:…"}` | `Machine` (connected + probed). `409` the fingerprint does not match the pending one. |
@@ -118,7 +119,10 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
 | POST | `/api/machines/{id}/connect` | — | `Machine` (tries to reconnect now) |
 | POST | `/api/machines/{id}/probe` | — | `Machine` |
 | PATCH | `/api/machines/{id}` | `{"name"?: "...", "persistMode"?: "auto"\|"tmux"\|"direct"}` | `Machine` |
-| DELETE | `/api/machines/{id}` | — | `{"ok":true}`; `409` if there are still sessions; `400` for `local` |
+| POST | `/api/machines/{id}/archive` | — | `Machine` with `archivedAt`. See "Archive and delete for good" |
+| POST | `/api/machines/{id}/restore` | — | `Machine` without `archivedAt`; it connects again. `409 not_archived` |
+| DELETE | `/api/machines/{id}` | — | Without a query: **archives**, the same answer as `POST …/archive` (the safe default for older clients). With `?permanent=1`: deletes the machine, its sealed credentials (`creds/<id>.enc`) and its host keys in the hub's own `known_hosts` when no other machine uses that address (`~/.ssh` is never changed): `{"ok":true}` and `machineRemoved` |
+| POST | `/api/machines/bulk` | `{"ids": ["m_…", …], "action": "archive"\|"restore"\|"delete"}` (1–200 ids; `delete` = for good) | `{"results": [{"id","ok":true} \| {"id","ok":false,"error":"…","code"?}]}`; each id on its own (`code`: `in_use`, `local`, `machine_not_found`, `not_archived`), then one `{"type":"machines"}` event: clients refetch the list |
 | GET | `/api/machines/{id}/presets` | — | `Preset[]` |
 | GET | `/api/machines/{id}/ls?path=` | empty `path` / `~` = home | `DirListing` |
 | GET | `/api/machines/{id}/orphans` | — | `{"names":["nb-abc123"]}` |
@@ -139,6 +143,12 @@ Base URL: the hub serves plain HTTP on `http://127.0.0.1:12312`; clients use `ht
 ```
 
 `authMethod: "sshconfig"` = try in order: IdentityFile from the config / the default `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`, then ssh-agent. Uploaded credentials are never returned to the client.
+
+**Archive and delete for good.** A server no longer in use can be archived (restorable at any time, nothing of it is deleted) or deleted for good. Nothing on the server itself is touched.
+
+- **This PC** (`local`) can be neither: `400`.
+- **In use:** a machine that a part of any project (an archived project too) or any console uses can be neither archived nor deleted: `409 {"error":"in_use","code":"in_use","projects":[{"id","name"}…],"sessions":n}`. Remove those parts and close those consoles first.
+- **While archived** the machine is not connected (its connection ends when it is archived), not reconnected or probed (`POST …/connect` and `…/probe` → `409 archived`), and in no picker: it is not in `GET /api/machines` nor in the snapshot of `/api/events`. The event `{"type":"machine","machine":…}` carries `archivedAt`: clients drop it from the active list. `machineRemoved` is only for a delete for good.
 
 ## Password and passphrase
 
@@ -239,8 +249,9 @@ Server → client, JSON text frames:
 { "type": "snapshot", "sessions": [Session…], "machines": [Machine…], "devices": [Device…] } // sent once on connect
 { "type": "session",  "session": Session }   // created / changed (status, busy, name)
 { "type": "removed",  "id": "s_…" }           // session deleted
-{ "type": "machine",  "machine": Machine }
-{ "type": "machineRemoved", "id": "m_…" }
+{ "type": "machine",  "machine": Machine }   // also when archived (with archivedAt) or restored
+{ "type": "machineRemoved", "id": "m_…" }      // deleted for good
+{ "type": "machines" }                         // after a bulk action: refetch the list
 { "type": "device",   "device": Device }
 { "type": "deviceRemoved",  "id": "d_…" }
 // + project/board v2 events: see API-board.md §3 (project, projectRemoved, boardOps)

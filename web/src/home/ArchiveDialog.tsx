@@ -1,4 +1,5 @@
-// Archived boards (closed workspaces, removed projects, cleared / unreadable boards).
+// Archived boards (closed workspaces, cleared / unreadable boards): the "Board archive" of Home,
+// apart from archived projects, which have their own view there.
 // Restoring one adds it as a new workspace to a project (without terminal tiles).
 
 import { useEffect, useState } from 'react';
@@ -49,7 +50,7 @@ export function ArchiveDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal
-      title="Archive"
+      title="Board archive"
       icon="archive"
       size="lg"
       onClose={onClose}
@@ -71,7 +72,7 @@ export function ArchiveDialog({ onClose }: { onClose: () => void }) {
           <span className="spinner" aria-hidden="true" /> Loading…
         </div>
       )}
-      {list && list.length === 0 && <div className="list-msg">Nothing archived. Closed workspaces and removed projects land here.</div>}
+      {list && list.length === 0 && <div className="list-msg">Nothing here. Closed workspaces and cleared boards land here.</div>}
       {list && list.length > 0 && (
         <ul className="archive-list">
           {list.map((e) => (

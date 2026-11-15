@@ -1,20 +1,22 @@
-// One machine as a bento card (DESIGN.md §3.3): status, probe info, persistence, actions.
+// One machine as a bento card (DESIGN.md §3.3): status, probe info, persistence, actions. In
+// select mode (§3.18) it has a box to pick it, unless it is in use: then it says by what.
 
-import { useRef, useState, type SyntheticEvent } from 'react';
+import { useRef, useState, type MouseEvent as ReactMouseEvent, type SyntheticEvent } from 'react';
 import { useAgentCatalog } from '../agents/catalog';
 import { useEffectiveSettings } from '../agents/settings';
-import { api, ApiError, errorMessage } from '../api';
+import { api, errorMessage } from '../api';
 import { machineStatus } from '../board/sessionStatus';
 import { Button } from '../components/Button';
-import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SegmentedControl } from '../components/form';
 import { Icon } from '../components/Icon';
 import { Menu, type MenuEntry } from '../components/Menu';
+import { SelectBox, type SelectMode } from '../components/SelectBar';
 import { StatusBadge } from '../components/StatusDot';
 import { toast } from '../components/Toast';
 import { formatDateTime, timeAgo } from '../lib/format';
 import type { Machine, PersistMode } from '../lib/types';
 import { store } from '../store';
+import { DeleteMachinesDialog, machinesAction, machineTarget, reportMachines } from './ArchivedMachines';
 import { ConnectionLogDialog } from './ConnectionLogDialog';
 import { HostKeyMismatchWarning } from './HostKeyDialogs';
 import { OrphansDialog } from './OrphansDialog';
@@ -25,9 +27,13 @@ interface MachineCardProps {
   onVerifyHostKey: (m: Machine) => void;
   /** Open the password / passphrase dialog for this machine. */
   onEnterAuth: (m: Machine) => void;
+  /** Select mode of the list (§3.18). */
+  select?: SelectMode;
+  /** Why it cannot be archived or deleted ("Used by Alpha"), '' when it can. */
+  blocked?: string;
 }
 
-export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth }: MachineCardProps) {
+export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth, select, blocked = '' }: MachineCardProps) {
   const [busy, setBusy] = useState<string>('');
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(m.name);
@@ -82,9 +88,25 @@ export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth }: Machin
 
   const setPersist = (mode: PersistMode) => act('Change persistence', () => api.updateMachine(m.id, { persistMode: mode }));
 
-  const target = m.sshConfigHost
-    ? `ssh config · ${m.sshConfigHost}`
-    : `${m.user ? `${m.user}@` : ''}${m.host}${m.port && m.port !== 22 ? `:${m.port}` : ''}`;
+  const target = machineTarget(m);
+  const selecting = !!select?.on;
+  const selected = !!select?.has(m.id);
+
+  const archive = async () => {
+    setBusy('Archive');
+    const out = await machinesAction([m], 'archive');
+    reportMachines(out, [m], 'archived');
+    setBusy('');
+  };
+
+  // a click on the card picks it in select mode, except on its own controls
+  const onPick = (e: ReactMouseEvent) => {
+    if (!select || blocked || (e.target as HTMLElement).closest('button:not(.machine-pick), input, a, select, .menu, .segmented')) return;
+    if (selecting || ((e.shiftKey || e.ctrlKey || e.metaKey) && (e.target as HTMLElement).closest('.machine-pick'))) {
+      e.preventDefault();
+      select.click(m.id, e);
+    }
+  };
 
   // curl is looked up for the hooks' fallback (API-agents §4.5); it is no agent
   const off = new Set(catalog.agents.filter((a) => settings.agents.disabled?.[a.id]).map((a) => a.detect));
@@ -98,14 +120,33 @@ export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth }: Machin
       ? ([
           { label: 'Orphans', icon: 'broom', disabled: !!busy, onSelect: () => setOrphans(true) },
           { label: 'Connection log', icon: 'history', onSelect: () => setConnLog(true) },
+          ...(select ? [{ label: 'Select', icon: 'selectAll', disabled: !!blocked, title: blocked || undefined, onSelect: () => select.start(m.id) }] : []),
           'sep',
-          { label: 'Delete', icon: 'trash', danger: true, disabled: !!busy, onSelect: () => setConfirmDelete(true) },
+          { label: 'Archive', icon: 'archive', disabled: !!busy || !!blocked, title: blocked || 'Not connected and out of the pickers until restored', onSelect: () => void archive() },
+          { label: 'Delete permanently…', icon: 'trash', danger: true, disabled: !!busy || !!blocked, title: blocked || undefined, onSelect: () => setConfirmDelete(true) },
         ] as MenuEntry[])
       : []),
   ];
 
   return (
-    <article className={`card machine-card tone-${status.color} ${m.hostKeyMismatch ? 'card-danger' : ''}`} aria-label={m.name}>
+    <article
+      className={`card machine-card tone-${status.color} ${m.hostKeyMismatch ? 'card-danger' : ''} ${selecting ? 'is-selecting' : ''} ${selected ? 'is-selected' : ''} ${selecting && blocked ? 'is-blocked' : ''}`}
+      aria-label={m.name}
+      onClick={onPick}
+      onMouseDown={(e) => {
+        if (e.shiftKey && selecting) e.preventDefault();
+      }}
+      {...(blocked ? {} : select?.pressProps(m.id))}
+    >
+      {selecting && (
+        <div className="machine-select">
+          <button type="button" className="machine-pick" role="checkbox" aria-checked={selected} aria-label={`Select ${m.name}`} disabled={!!blocked} title={blocked || undefined}>
+            <SelectBox checked={selected} disabled={!!blocked} />
+            <span>{blocked ? 'Cannot be archived' : selected ? 'Selected' : 'Select'}</span>
+          </button>
+          {blocked && <span className="machine-use">{blocked}</span>}
+        </div>
+      )}
       <header className="card-head">
         <span className="card-icon" aria-hidden="true">
           <Icon name={isSsh ? 'server' : 'monitor'} />
@@ -287,33 +328,7 @@ export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth }: Machin
       {orphans && <OrphansDialog machine={m} onClose={() => setOrphans(false)} />}
       {connLog && <ConnectionLogDialog machine={m} onClose={() => setConnLog(false)} />}
 
-      {confirmDelete && (
-        <ConfirmDialog
-          title={`Delete ${m.name}?`}
-          confirmLabel="Delete machine"
-          danger
-          onClose={() => setConfirmDelete(false)}
-          onConfirm={async () => {
-            try {
-              await api.deleteMachine(m.id);
-            } catch (err) {
-              if (err instanceof ApiError && err.status === 409) {
-                const n = m.sessionCount;
-                throw new Error(
-                  `${m.name} still has ${n > 0 ? `${n} terminal${n === 1 ? '' : 's'}` : 'terminals'}. Close them on the board first, then delete the machine.`,
-                );
-              }
-              throw err;
-            }
-            store.removeMachine(m.id);
-          }}
-        >
-          <p>
-            The connection settings and any uploaded credentials are removed from the hub. Nothing on the server itself
-            changes.
-          </p>
-        </ConfirmDialog>
-      )}
+      {confirmDelete && <DeleteMachinesDialog machines={[m]} onClose={() => setConfirmDelete(false)} />}
     </article>
   );
 }

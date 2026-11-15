@@ -3,7 +3,7 @@
 // Board ops ("boardOps") are not stored here: boards subscribe via onEvent().
 
 import { useMemo, useSyncExternalStore } from 'react';
-import { openEventsSocket, type ReconnectingSocket } from './api';
+import { api, openEventsSocket, type ReconnectingSocket } from './api';
 import type { Device, HubEvent, Machine, Profile, Project, ProjectGroup, Session, SessionStatusFrame, Settings } from './lib/types';
 
 export interface LiveState {
@@ -14,6 +14,11 @@ export interface LiveState {
   projectGroups: Record<string, ProjectGroup>;
   /** Projects have been received at least once (snapshot or REST). */
   projectsReady: boolean;
+  /** Archived projects (API-board §1): kept apart, so that no list or picker of the active ones shows them. */
+  archivedProjects: Record<string, Project>;
+  archivedProjectsReady: boolean;
+  /** Archived machines (docs/API.md Machines), apart from the active ones for the same reason. */
+  archivedMachines: Record<string, Machine>;
   /** A snapshot (or REST seed) has been received. */
   ready: boolean;
   /** The /api/events socket is currently open. */
@@ -33,6 +38,9 @@ const EMPTY: LiveState = {
   projects: {},
   projectGroups: {},
   projectsReady: false,
+  archivedProjects: {},
+  archivedProjectsReady: false,
+  archivedMachines: {},
   ready: false,
   connected: false,
   settings: null,
@@ -61,6 +69,11 @@ function byId<T extends { id: string }>(list: T[] | null | undefined): Record<st
   const out: Record<string, T> = {};
   for (const item of list ?? []) out[item.id] = item;
   return out;
+}
+
+/** The active ones of a list from the hub, by id: an archived one is never among them. */
+function activeById<T extends { id: string; archivedAt?: string }>(list: T[] | null | undefined): Record<string, T> {
+  return byId((list ?? []).filter((x) => !x.archivedAt));
 }
 
 function without<T>(rec: Record<string, T>, id: string): Record<string, T> {
@@ -130,9 +143,9 @@ class LiveStore {
       case 'snapshot':
         this.set({
           sessions: byId(ev.sessions),
-          machines: byId(ev.machines),
+          machines: activeById(ev.machines),
           devices: byId(ev.devices),
-          ...(ev.projects !== undefined ? { projects: byId(ev.projects), projectsReady: true } : {}),
+          ...(ev.projects !== undefined ? { projects: activeById(ev.projects), projectsReady: true } : {}),
           ...(ev.projectGroups !== undefined ? { projectGroups: byId(ev.projectGroups) } : {}),
           ready: true,
         });
@@ -145,6 +158,12 @@ class LiveStore {
         break;
       case 'projectGroups':
         this.set({ projectGroups: byId(ev.groups) });
+        break;
+      case 'projects':
+        void this.refreshProjects();
+        break;
+      case 'machines':
+        void this.refreshMachines();
         break;
       case 'session':
         this.upsertSession(ev.session);
@@ -208,7 +227,7 @@ class LiveStore {
     if (next !== this.state.profiles) this.set({ profiles: next });
   }
   seedMachines(list: Machine[]) {
-    this.set({ machines: byId(list) });
+    this.set({ machines: activeById(list) });
   }
   seedDevices(list: Device[]) {
     this.set({ devices: byId(list) });
@@ -251,22 +270,71 @@ class LiveStore {
     const next = without(this.state.sessions, id);
     if (next !== this.state.sessions) this.set({ sessions: next });
   }
+  /** An archived one moves to the archived list, a restored one back. */
   upsertMachine(m: Machine) {
-    this.set({ machines: { ...this.state.machines, [m.id]: m } });
+    if (m.archivedAt) {
+      this.set({ machines: without(this.state.machines, m.id), archivedMachines: { ...this.state.archivedMachines, [m.id]: m } });
+      return;
+    }
+    this.set({ machines: { ...this.state.machines, [m.id]: m }, archivedMachines: without(this.state.archivedMachines, m.id) });
   }
   removeMachine(id: string) {
-    const next = without(this.state.machines, id);
-    if (next !== this.state.machines) this.set({ machines: next });
+    const machines = without(this.state.machines, id);
+    const archivedMachines = without(this.state.archivedMachines, id);
+    if (machines !== this.state.machines || archivedMachines !== this.state.archivedMachines) this.set({ machines, archivedMachines });
+  }
+  seedArchivedMachines(list: Machine[]) {
+    this.set({ archivedMachines: byId(list.filter((m) => m.archivedAt)) });
   }
   seedProjects(list: Project[]) {
-    this.set({ projects: byId(list), projectsReady: true });
+    this.set({ projects: activeById(list), projectsReady: true });
   }
+  seedArchivedProjects(list: Project[]) {
+    this.set({ archivedProjects: byId(list.filter((p) => p.archivedAt)), archivedProjectsReady: true });
+  }
+  /** An archived one moves to the archived list, a restored one back. */
   upsertProject(p: Project) {
-    this.set({ projects: { ...this.state.projects, [p.id]: p } });
+    if (p.archivedAt) {
+      this.set({ projects: without(this.state.projects, p.id), archivedProjects: { ...this.state.archivedProjects, [p.id]: p } });
+      return;
+    }
+    this.set({ projects: { ...this.state.projects, [p.id]: p }, archivedProjects: without(this.state.archivedProjects, p.id) });
   }
+  /** Gone for good (a permanent delete, a merge): from both lists. */
   removeProject(id: string) {
-    const next = without(this.state.projects, id);
-    if (next !== this.state.projects) this.set({ projects: next });
+    const projects = without(this.state.projects, id);
+    const archivedProjects = without(this.state.archivedProjects, id);
+    if (projects !== this.state.projects || archivedProjects !== this.state.archivedProjects) this.set({ projects, archivedProjects });
+  }
+
+  private refreshing: Partial<Record<'projects' | 'machines', Promise<void>>> = {};
+
+  /** Both project lists again, after a bulk change. Calls that come while one runs share it. */
+  refreshProjects(): Promise<void> {
+    this.refreshing.projects ??= Promise.all([api.projects(), api.archivedProjects()])
+      .then(([active, archived]) => {
+        this.seedProjects(active);
+        this.seedArchivedProjects(archived);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        delete this.refreshing.projects;
+      });
+    return this.refreshing.projects;
+  }
+
+  /** Both machine lists again, after a bulk change. */
+  refreshMachines(): Promise<void> {
+    this.refreshing.machines ??= Promise.all([api.machines(), api.archivedMachines()])
+      .then(([active, archived]) => {
+        this.seedMachines(active);
+        this.seedArchivedMachines(archived);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        delete this.refreshing.machines;
+      });
+    return this.refreshing.machines;
   }
   upsertProjectGroup(g: ProjectGroup) {
     this.set({ projectGroups: { ...this.state.projectGroups, [g.id]: g } });
@@ -362,6 +430,22 @@ export function useProjects(): Project[] {
       ),
     [rec],
   );
+}
+
+/** Archived projects, archived last first. */
+export function useArchivedProjects(): Project[] {
+  const rec = useSlice((s) => s.archivedProjects);
+  return useMemo(() => Object.values(rec).sort((a, b) => (b.archivedAt || '').localeCompare(a.archivedAt || '') || a.name.localeCompare(b.name)), [rec]);
+}
+
+export function useArchivedProjectsReady(): boolean {
+  return useSlice((s) => s.archivedProjectsReady);
+}
+
+/** Archived machines, by name. */
+export function useArchivedMachines(): Machine[] {
+  const rec = useSlice((s) => s.archivedMachines);
+  return useMemo(() => Object.values(rec).sort((a, b) => a.name.localeCompare(b.name)), [rec]);
 }
 
 export function useProjectGroups(): ProjectGroup[] {

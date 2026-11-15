@@ -7,10 +7,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 // hostKeyStore verifies SSH host keys against the service user's
@@ -129,6 +132,64 @@ func (h *hostKeyStore) knownAlgorithms(addr string) []string {
 		}
 	}
 	return algos
+}
+
+// forget removes the hub's own records for these addresses (a machine deleted for good).
+// Lines naming other hosts too keep them. ~/.ssh is never changed.
+func (h *hostKeyStore) forget(addrs []string) error {
+	if len(addrs) == 0 {
+		return nil
+	}
+	drop := map[string]bool{}
+	for _, a := range addrs {
+		drop[knownhosts.Normalize(a)] = true
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	b, err := os.ReadFile(h.nbFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var out []string
+	changed := false
+	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		f := strings.Fields(line)
+		at := 0
+		if len(f) > 0 && strings.HasPrefix(f[0], "@") {
+			at = 1
+		}
+		if len(f) <= at || strings.HasPrefix(f[0], "#") {
+			out = append(out, line)
+			continue
+		}
+		var keep []string
+		for _, host := range strings.Split(f[at], ",") {
+			if !drop[host] {
+				keep = append(keep, host)
+			}
+		}
+		switch {
+		case len(keep) == len(strings.Split(f[at], ",")):
+			out = append(out, line)
+		case len(keep) == 0:
+			changed = true
+		default:
+			f[at] = strings.Join(keep, ",")
+			out = append(out, strings.Join(f, " "))
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	text := strings.Join(out, "\n")
+	if text != "" {
+		text += "\n"
+	}
+	return store.WriteFileAtomic(h.nbFile, []byte(text))
 }
 
 // accept records key for addr in the hub's known_hosts.

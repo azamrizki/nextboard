@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -651,5 +652,29 @@ func TestPruneTimeOutlivesTheHub(t *testing.T) {
 	f.snap()
 	if st, _ := os.Stat(mark); !st.ModTime().After(first) {
 		t.Fatal("not pruned a day later")
+	}
+}
+
+// TestPausedTakesNoSnapshot: an archived project takes no snapshot; what it has stays
+// readable, and snapshots go on once it is restored.
+func TestPausedTakesNoSnapshot(t *testing.T) {
+	f := newFixture(t)
+	var paused atomic.Bool
+	f.m.cfg.Paused = func(pid string) bool { return pid == "p" && paused.Load() }
+	f.write("a.txt", "v1\n")
+	f.snap()
+	paused.Store(true)
+	f.write("a.txt", "v2\n")
+	f.snap()
+	if vs, err := f.m.History("p", "a.txt", 0); err != nil || len(vs) != 1 {
+		t.Fatalf("history while paused %+v %v", vs, err)
+	}
+	paused.Store(false)
+	f.snap()
+	if vs, err := f.m.History("p", "a.txt", 0); err != nil || len(vs) != 2 {
+		t.Fatalf("history after %+v %v", vs, err)
+	}
+	if !SecretName(".env") || !SecretName("prod.pem") || SecretName("README.md") || SecretName(".env.example") {
+		t.Fatal("SecretName")
 	}
 }

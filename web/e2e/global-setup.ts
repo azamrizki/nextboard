@@ -1,5 +1,5 @@
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, openSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, openSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,19 @@ import { PORT, STATE_FILE } from './playwright.config';
 const FAKE_AGENT = fileURLToPath(new URL('./fake-agent.sh', import.meta.url));
 const FAKE_WORKER = fileURLToPath(new URL('./fake-worker.sh', import.meta.url));
 const FAKE_CLAUDE = fileURLToPath(new URL('./fake-claude.sh', import.meta.url));
+const FAKE_CODEX = fileURLToPath(new URL('./fake-codex.sh', import.meta.url));
+
+/**
+ * A folder for the front of the hub's PATH holding the fake Codex: the hub finds `codex` there
+ * before any real one, so "Create with AI" and anything else that runs Codex never reaches an
+ * account (API-board §1).
+ */
+function fakeTools(root: string): string {
+  const dir = join(root, 'tools');
+  mkdirSync(dir, { recursive: true });
+  symlinkSync(FAKE_CODEX, join(dir, 'codex'));
+  return dir;
+}
 
 /** Starts the hub, sets it up, and gives back how to stop it. */
 export default async function globalSetup() {
@@ -19,7 +32,21 @@ export default async function globalSetup() {
   const home = join(root, 'home');
   mkdirSync(data);
   mkdirSync(home);
-  const env = { ...process.env, HOME: home };
+  // Codex's own list of models, as a signed-in Codex keeps one: without it the hub would ask the
+  // agent's command for it, and the fake agents answer nothing for 20 s
+  mkdirSync(join(home, '.codex'));
+  writeFileSync(
+    join(home, '.codex', 'models_cache.json'),
+    JSON.stringify({
+      models: [
+        { slug: 'e2e-large', display_name: 'E2E Large', description: 'Made up for the tests', visibility: 'list', priority: 1, default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'low' }, { effort: 'medium' }, { effort: 'high' }] },
+        { slug: 'e2e-small', display_name: 'E2E Small', description: 'Made up for the tests', visibility: 'list', priority: 2, default_reasoning_level: 'low', supported_reasoning_levels: [{ effort: 'low' }, { effort: 'medium' }] },
+      ],
+    }),
+  );
+  // CODEX_HOME too: one set where the tests run would point the hub, and the fake Codex, at the
+  // real ~/.codex (its images folder, its sessions)
+  const env = { ...process.env, HOME: home, CODEX_HOME: join(home, '.codex'), PATH: `${fakeTools(root)}:${process.env.PATH ?? ''}` };
   const log = openSync(join(root, 'hub.log'), 'a');
   const base = `http://127.0.0.1:${PORT}`;
 

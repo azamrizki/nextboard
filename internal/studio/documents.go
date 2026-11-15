@@ -148,6 +148,16 @@ func (d *Documents) save(pid string, list []Document) error {
 	return d.st.Save(d.indexName(pid), list)
 }
 
+// RemoveProject deletes a project's whole library (a project deleted for good).
+func (d *Documents) RemoveProject(pid string) error {
+	if !idRe.MatchString(pid) {
+		return nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return os.RemoveAll(d.st.Path("documents", pid))
+}
+
 // List returns a project's documents (newest version first in each).
 func (d *Documents) List(pid string) []Document {
 	d.mu.Lock()

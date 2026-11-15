@@ -25,6 +25,7 @@ func (s *Server) setupUptime() error {
 	}
 	u.Host = s.machines.Host
 	u.Publish = s.events.Publish
+	u.Frozen = s.projects.IsArchived
 	u.Alert = func(al uptime.Alert) {
 		a := s.attn.add(Attention{Kind: al.Kind, MonitorID: al.MonitorID, ProjectID: al.ProjectID, Title: al.Title, Body: al.Body})
 		s.events.Publish(map[string]any{"type": "attention", "attention": a})

@@ -51,6 +51,8 @@ type Patch struct {
 	Sandbox *string
 	// PartAccess is what agents may do in the parts on other machines: "" read, "full" all.
 	PartAccess *string
+	// Cover and Icon set or remove an image (the caller checked the asset).
+	Cover, Icon *ImageChange
 }
 
 // openGroups loads the tree. A hub from before groups has no file yet, and that
@@ -207,6 +209,12 @@ func (s *Store) Patch(id string, in Patch) (Project, error) {
 	}
 	if in.PartAccess != nil {
 		p.PartAccess = *in.PartAccess
+	}
+	if in.Cover != nil {
+		p.Cover = cloneImage(in.Cover.Image)
+	}
+	if in.Icon != nil {
+		p.Icon = cloneImage(in.Icon.Image)
 	}
 	return p.clone(), s.saveLocked()
 }

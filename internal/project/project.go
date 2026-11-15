@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"path"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +63,12 @@ type Project struct {
 	PartAccess string `json:"partAccess,omitempty"`
 	// Aliases are the ids of projects merged into this one (ROADMAP #49): an old link still finds it.
 	Aliases []string `json:"aliases,omitempty"`
+	// ArchivedAt is set while the project is archived: out of the active list, its consoles
+	// stopped, nothing of it running (docs/API-board.md §1).
+	ArchivedAt *time.Time `json:"archivedAt,omitempty"`
+	// Cover and Icon are images of the asset store (absent when none).
+	Cover *Image `json:"cover,omitempty"`
+	Icon  *Image `json:"icon,omitempty"`
 }
 
 // Sandbox levels of a project.
@@ -112,6 +117,11 @@ func (p Project) clone() Project {
 	for i := range p.Parts {
 		p.Parts[i].Blocked = slices.Clone(p.Parts[i].Blocked)
 	}
+	if p.ArchivedAt != nil {
+		at := *p.ArchivedAt
+		p.ArchivedAt = &at
+	}
+	p.Cover, p.Icon = cloneImage(p.Cover), cloneImage(p.Icon)
 	return p
 }
 
@@ -177,18 +187,6 @@ func truncName(name string) string {
 		return "Project"
 	}
 	return string(r)
-}
-
-// List returns all projects, most recently opened first.
-func (s *Store) List() []Project {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]Project, 0, len(s.list))
-	for _, p := range s.list {
-		out = append(out, p.clone())
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].LastOpenedAt.After(out[j].LastOpenedAt) })
-	return out
 }
 
 func (s *Store) findLocked(id string) (int, *Project) {
@@ -276,7 +274,7 @@ func (s *Store) Workspace(wid string) (Workspace, Project, bool) {
 	return Workspace{}, Project{}, false
 }
 
-// Default is the first workspace of the most recently opened project.
+// Default is the first workspace of the most recently opened active project.
 func (s *Store) Default() (Project, Workspace, bool) {
 	list := s.List()
 	for _, p := range list {

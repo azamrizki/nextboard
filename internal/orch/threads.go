@@ -546,6 +546,23 @@ func (o *Orders) List(keep func(Order) bool) []Order {
 	return out
 }
 
+// DeleteProject forgets a project's orders (a project deleted for good).
+func (o *Orders) DeleteProject(projectID string, now time.Time) int {
+	o.mu.Lock()
+	n := 0
+	for id, x := range o.all {
+		if x.ProjectID == projectID {
+			delete(o.all, id)
+			n++
+		}
+	}
+	o.mu.Unlock()
+	if n > 0 {
+		o.Save(now)
+	}
+	return n
+}
+
 // Save writes active orders and finished ones younger than 24 h (≤ 200).
 func (o *Orders) Save(now time.Time) {
 	list := o.List(nil)

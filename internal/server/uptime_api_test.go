@@ -223,7 +223,7 @@ func TestUptimeAPI(t *testing.T) {
 		t.Fatalf("monitor: %d %v", st, m)
 	}
 	dir := h.srv.st.Path("uptime", m["id"].(string))
-	if st, _ := h.do("DELETE", "/api/projects/"+npid, nil, nil); st != 200 {
+	if st, _ := h.do("DELETE", "/api/projects/"+npid+"?permanent=1", nil, nil); st != 200 {
 		t.Fatalf("hapus project: %d", st)
 	}
 	if _, err := os.Stat(filepath.Clean(dir)); !os.IsNotExist(err) {

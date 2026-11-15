@@ -167,6 +167,35 @@ test('the dialogs fit the screen', async ({ page, hub }, info) => {
   await page.getByRole('button', { name: `Actions for ${p.name}` }).click();
   await page.getByRole('menuitem', { name: 'Parts…' }).click();
   await check('parts');
+  // now in two parts: the list of them its card opens
+  await page.locator(`.project-card[data-project="${p.id}"] .project-partsline`).click();
+  await expect(page.locator('.parts-pop')).toBeVisible();
+  await page.waitForTimeout(300);
+  for (const e of await offScreen(page, '.parts-pop')) found.push(`parts-popover: ${e}`);
+  await shot(page, info.project.name, 'parts-popover');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.parts-pop')).toHaveCount(0);
+
+  // a cover and an icon, and removing a project with its two choices
+  await page.getByRole('button', { name: `Actions for ${p.name}` }).click();
+  await page.getByRole('menuitem', { name: 'Cover & icon…' }).click();
+  await check('cover-icon');
+  await page.getByRole('button', { name: `Actions for ${p.name}` }).click();
+  await page.getByRole('menuitem', { name: 'Remove project…' }).click();
+  await page.getByRole('dialog').getByRole('radio', { name: /^Delete permanently/ }).click();
+  await check('remove-project');
+
+  // select mode: the bar at the bottom of the screen
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('checkbox', { name: p.name, exact: true }).click();
+  await expect(page.locator('.select-bar')).toContainText('1 selected');
+  await page.waitForTimeout(300);
+  for (const e of await offScreen(page, '.select-bar')) found.push(`select bar: ${e}`);
+  const sb = (await page.locator('.select-bar').boundingBox())!;
+  if (sb.y + sb.height > page.viewportSize()!.height + 1) found.push(`select bar: its bottom is at ${Math.round(sb.y + sb.height)}`);
+  await shot(page, info.project.name, 'select-bar');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.select-bar')).toHaveCount(0);
 
   await page.goto(`/p/${p.id}/w/${p.wid}`);
   await page.getByRole('button', { name: /^Credentials/ }).first().click();

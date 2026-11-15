@@ -163,6 +163,9 @@ type Manager struct {
 	// HandleConflict reports whether a handle equals a group name in the
 	// workspace (phase 6 rename rule, API-agents §2).
 	HandleConflict func(workspaceID, handle string) bool
+	// Frozen reports whether a project is archived (docs/API-board.md §1): its consoles do not
+	// start, relaunch or wake until it is restored. nil = none is. Set before Load.
+	Frozen func(projectID string) bool
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -256,7 +259,8 @@ func (m *Manager) Load() error {
 		if s.priv.HookToken == "" {
 			s.priv.HookToken = newToken()
 		}
-		if sp.MachineID != machine.LocalID || m.startsAsleep(s) {
+		frozen := m.frozen(sp.ProjectID)
+		if sp.MachineID != machine.LocalID || frozen || m.startsAsleep(s) {
 			// Nothing runs in it until its machine connects or it is woken: its scrollback stays
 			// in its file, as a parked one does, and no emulator is made for it. Read back, it is
 			// what it was, followed by the hub-restart line.
@@ -274,7 +278,10 @@ func (m *Manager) Load() error {
 		}
 		if sp.MachineID != machine.LocalID {
 			s.status = StatusReconnecting
-			s.eng.SetProc(StatusReconnecting, time.Now())
+			if frozen {
+				s.status = StatusExited // an archived project's: it waits for nobody
+			}
+			s.eng.SetProc(s.status, time.Now())
 		} else {
 			s.spec.Paused, s.spec.PausedAt = false, nil // the stopped process died with the hub
 		}
@@ -315,7 +322,15 @@ func (m *Manager) restartMode(s *Session) (mode string, offer bool) {
 // Agents that would resume stay asleep instead (settings.agents.lazyStart, ROADMAP #50).
 func (m *Manager) Start() {
 	for _, s := range m.all() {
-		if s.Spec().MachineID == machine.LocalID && !m.startAsleep(s) {
+		sp := s.Spec()
+		if sp.MachineID != machine.LocalID {
+			continue
+		}
+		if m.frozen(sp.ProjectID) {
+			m.restFrozen(s)
+			continue
+		}
+		if !m.startAsleep(s) {
 			go m.relaunch(s)
 		}
 	}
@@ -378,8 +393,9 @@ func (m *Manager) MachineConnected(id string) {
 func (m *Manager) relaunchIfWaiting(s *Session) {
 	s.mu.Lock()
 	waiting := s.status == StatusReconnecting && !s.deleted
+	pid := s.spec.ProjectID
 	s.mu.Unlock()
-	if waiting {
+	if waiting && !m.frozen(pid) {
 		m.relaunch(s)
 	}
 }

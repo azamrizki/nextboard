@@ -155,7 +155,7 @@ type webData struct {
 // previewReferenced reports whether any board has a web node pointing at
 // the preview (the idle reaper keeps those listeners).
 func (s *Server) previewReferenced(id string) bool {
-	for _, pr := range s.projects.List() {
+	for _, pr := range s.projects.ListAll() {
 		for _, ws := range pr.Workspaces {
 			b, err := s.boards.Get(ws.ID)
 			if err != nil {

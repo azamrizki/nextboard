@@ -57,6 +57,7 @@ func (s *Server) setupOrchestration() {
 	s.sessions.QueueLen = d.ActiveCount
 	s.sessions.StayAwake = s.orch.Holds
 	s.sessions.KeepWarm = s.recentProject
+	s.orch.Loops.Paused = s.projects.IsArchived
 	s.sessions.OnOutput = s.orch.OnOutput
 	s.sessions.HandleConflict = func(wid, h string) bool {
 		b, err := s.boards.Get(wid)

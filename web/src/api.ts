@@ -8,6 +8,7 @@
 import { limiter } from './lib/limiter';
 import { packUpload, type Packed } from './lib/pack';
 import { ReconnectingSocket, type ReconnectingSocketOptions } from './lib/socket';
+import type { Job } from './orch/types';
 import type {
   AddMachine,
   Agent,
@@ -22,7 +23,13 @@ import type {
   Reply,
   Settings,
   ArchiveEntry,
+  ArtCapability,
+  ArtKind,
   Asset,
+  BulkAction,
+  BulkResponse,
+  BulkResult,
+  MachineUser,
   Board,
   ConnLogView,
   CreateSession,
@@ -85,6 +92,14 @@ export function errorMessage(err: unknown): string {
 
 export function isStatus(err: unknown, status: number): boolean {
   return err instanceof ApiError && err.status === status;
+}
+
+/** The projects named by a 409 in_use (a machine that is in use cannot be archived or deleted), or null. */
+export function inUseBy(err: unknown): MachineUser[] | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const list = err.body.projects;
+  if (!Array.isArray(list) && err.code !== 'in_use' && err.message !== 'in_use') return null;
+  return (Array.isArray(list) ? list : []).filter((p): p is MachineUser => !!p && typeof p.id === 'string').map((p) => ({ id: p.id, name: typeof p.name === 'string' ? p.name : p.id }));
 }
 
 // ---- 401 handling -----------------------------------------------------------
@@ -241,7 +256,13 @@ export const api = {
   probeMachine: (id: string) => post<Machine>(`/api/machines/${enc(id)}/probe`),
   updateMachine: (id: string, body: { name?: string; persistMode?: PersistMode }) =>
     patch<Machine>(`/api/machines/${enc(id)}`, body),
-  deleteMachine: (id: string) => del<Ok>(`/api/machines/${enc(id)}`),
+  /** Archived machines only, newest first (docs/API.md Machines). */
+  archivedMachines: () => get<Machine[] | null>('/api/machines?archived=1').then((m) => m ?? []),
+  archiveMachine: (id: string) => post<Machine>(`/api/machines/${enc(id)}/archive`),
+  restoreMachine: (id: string) => post<Machine>(`/api/machines/${enc(id)}/restore`),
+  /** Without `permanent` the hub archives it. A machine in use answers 409 in_use with its projects. */
+  deleteMachine: (id: string, permanent = false) => del<Ok>(`/api/machines/${enc(id)}${permanent ? '?permanent=1' : ''}`),
+  bulkMachines: (ids: string[], action: BulkAction) => post<BulkResponse>('/api/machines/bulk', { ids, action }).then(bulkResults),
   machinePresets: (id: string) => get<Preset[] | null>(`/api/machines/${enc(id)}/presets`).then((p) => p ?? []),
   listDir: (id: string, path: string, signal?: AbortSignal) =>
     get<DirListing>(`/api/machines/${enc(id)}/ls?path=${enc(path)}`, { signal }),
@@ -319,7 +340,22 @@ export const api = {
    *  folder carries `part`, its index (0 = the project's own folder). */
   createProject: (body: { machineId: string; path: string; name?: string; partName?: string; parts?: { name: string; machineId: string; path: string }[] }) =>
     post<Project>('/api/projects', body),
-  updateProject: (id: string, body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; sandbox?: string; partAccess?: string }) => patch<Project>(`/api/projects/${enc(id)}`, body),
+  /** Archived projects only, archived last first (API-board §1). */
+  archivedProjects: () => get<Project[] | null>('/api/projects?archived=1').then((p) => p ?? []),
+  updateProject: (
+    id: string,
+    body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; sandbox?: string; partAccess?: string; cover?: { assetId: string } | null; icon?: { assetId: string } | null },
+  ) => patch<Project>(`/api/projects/${enc(id)}`, body),
+  archiveProject: (id: string) => post<Project>(`/api/projects/${enc(id)}/archive`),
+  /** 409 not_archived when it was not. */
+  restoreProject: (id: string) => post<Project>(`/api/projects/${enc(id)}/restore`),
+  bulkProjects: (ids: string[], action: BulkAction) => post<BulkResponse>('/api/projects/bulk', { ids, action }).then(bulkResults),
+  /** Whether "Create with AI" can make an image (Codex on This PC with image generation on). */
+  artCapability: () => get<ArtCapability>('/api/art/capability'),
+  /** 202 with the job; 409 while one runs for that project and kind, 412 no_image_tool. */
+  createArt: (id: string, kind: ArtKind) => post<Job>(`/api/projects/${enc(id)}/art`, { kind }),
+  job: (id: string) => get<Job>(`/api/jobs/${enc(id)}`),
+  cancelJob: (id: string) => post<Job>(`/api/jobs/${enc(id)}/cancel`),
   createPart: (id: string, body: { name: string; machineId: string; path: string }) => post<Project>(`/api/projects/${enc(id)}/parts`, body),
   updatePart: (id: string, part: string, body: { name?: string; readOnly?: boolean; blocked?: string[]; index?: number }) => patch<Project>(`/api/projects/${enc(id)}/parts/${enc(part)}`, body),
   deletePart: (id: string, part: string) => del<Project>(`/api/projects/${enc(id)}/parts/${enc(part)}`),
@@ -329,7 +365,10 @@ export const api = {
   createProjectGroup: (body: { name: string; parentId?: string }) => post<ProjectGroup>('/api/project-groups', body),
   updateProjectGroup: (id: string, body: { name?: string; parentId?: string }) => patch<ProjectGroup>(`/api/project-groups/${enc(id)}`, body),
   deleteProjectGroup: (id: string) => del<{ ok: boolean }>(`/api/project-groups/${enc(id)}`),
-  deleteProject: (id: string) => del<Ok>(`/api/projects/${enc(id)}`),
+  /** What is inside each group moves up a level. */
+  bulkProjectGroups: (ids: string[]) => post<BulkResponse>('/api/project-groups/bulk', { ids, action: 'delete' }).then(bulkResults),
+  /** Without `permanent` the hub archives it (the safe default); folders on disk are never touched. */
+  deleteProject: (id: string, permanent = false) => del<Ok>(`/api/projects/${enc(id)}${permanent ? '?permanent=1' : ''}`),
   projectGit: (id: string, signal?: AbortSignal) => get<GitInfo>(`/api/projects/${enc(id)}/git`, { signal }),
   createWorkspace: (projectId: string, name?: string) =>
     post<Workspace>(`/api/projects/${enc(projectId)}/workspaces`, name ? { name } : {}),
@@ -368,6 +407,8 @@ export const api = {
 
   // assets (API-board §5)
   uploadAsset: (blob: Blob, type: string) => request<Asset>('POST', '/api/assets', blob, { rawType: type }),
+  /** The same, packed by lib/pack.ts (gzip only where it saves something; images go as they are). */
+  uploadAssetPacked: (file: Packed, type: string) => request<Asset>('POST', '/api/assets', file.body, { rawType: type, encoding: file.encoding }),
   /** A file pasted into a console lands on its machine (docs/API-studio.md §7.9). */
   attachToSession: async (id: string, file: File) => {
     const p = await packUpload(file);
@@ -379,6 +420,10 @@ export const api = {
     return request<FsStat>('POST', `/api/projects/${enc(id)}/attach?name=${enc(file.name)}`, p.body, { rawType: file.type || 'application/octet-stream', encoding: p.encoding });
   },
 };
+
+function bulkResults(r: BulkResponse): BulkResult[] {
+  return r.results ?? [];
+}
 
 /** Where an upload goes; confirm echoes the paths of a 428 (§9.2). */
 export interface FsUpload {

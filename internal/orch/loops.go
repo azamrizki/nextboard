@@ -320,6 +320,9 @@ type Loops struct {
 	st  *store.Store
 	env loopEnv
 	Loc *time.Location
+	// Paused reports whether a project's loops wait: an archived project's (docs/API-board.md
+	// §1). They keep their state and fire again once it is restored. nil = none waits.
+	Paused func(projectID string) bool
 
 	mu        sync.Mutex
 	loops     map[string]*loopRT
@@ -392,6 +395,40 @@ func (l *Loops) MoveProject(from, to string) int {
 		l.save()
 	}
 	return n
+}
+
+// Reschedule recomputes when a restored project's running loops fire next, from now: runs
+// missed while it was archived are not repeated.
+func (l *Loops) Reschedule(projectID string, now time.Time) {
+	l.mu.Lock()
+	n := 0
+	for _, rt := range l.loops {
+		if rt.def.ProjectID == projectID && rt.def.State.Status == "running" {
+			rt.def.State.NextRunAt = nextRun(rt.def, now, l.Loc)
+			rt.retryAt, rt.run = time.Time{}, nil
+			n++
+		}
+	}
+	l.mu.Unlock()
+	if n > 0 {
+		l.save()
+	}
+}
+
+// DeleteProject removes a project's loops and their history (a project deleted for good).
+func (l *Loops) DeleteProject(projectID string) int {
+	var ids []string
+	l.mu.Lock()
+	for _, id := range l.order {
+		if l.loops[id].def.ProjectID == projectID {
+			ids = append(ids, id)
+		}
+	}
+	l.mu.Unlock()
+	for _, id := range ids {
+		_ = l.Delete(id)
+	}
+	return len(ids)
 }
 
 // List returns loops of a project ("" = all).
@@ -678,6 +715,11 @@ func (l *Loops) Tick(now time.Time) {
 		if st.Status != "running" {
 			continue
 		}
+		if l.Paused != nil && l.Paused(rt.def.ProjectID) {
+			clear(rt.idlePend)
+			clear(rt.outPend)
+			continue
+		}
 		reason := ""
 		switch {
 		case rt.def.Stop.MaxDurationSec > 0 && st.StartedAt != nil && now.Sub(*st.StartedAt) >= time.Duration(rt.def.Stop.MaxDurationSec)*time.Second:
@@ -816,7 +858,7 @@ func (l *Loops) checkGoal(id string, now time.Time, thenRun bool) {
 func (l *Loops) startRun(id string, now time.Time, kind, only string) {
 	l.mu.Lock()
 	rt, ok := l.loops[id]
-	if !ok || rt.def.State.Status != "running" || rt.run != nil {
+	if !ok || rt.def.State.Status != "running" || rt.run != nil || l.Paused != nil && l.Paused(rt.def.ProjectID) {
 		l.mu.Unlock()
 		return
 	}

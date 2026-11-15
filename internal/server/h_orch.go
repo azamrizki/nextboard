@@ -256,8 +256,11 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request, p *princi
 	if !decode(w, r, &req) {
 		return
 	}
-	if _, ok := s.projects.Get(r.PathValue("id")); !ok {
+	if pr, ok := s.projects.Get(r.PathValue("id")); !ok {
 		writeErrCode(w, http.StatusNotFound, "project_not_found", project.ErrNotFound.Error())
+		return
+	} else if pr.Archived() {
+		writeErrCode(w, http.StatusConflict, "project_archived", "the project is archived; restore it first")
 		return
 	}
 	if !clientIDRe.MatchString(req.ClientID) {

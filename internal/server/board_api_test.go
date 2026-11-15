@@ -262,7 +262,7 @@ func TestProjectCloseAll(t *testing.T) {
 			t.Fatal("app still shown on another project's board was closed")
 		}
 		// Now only that project shows it: removing the project closes it.
-		if st, _ := h.do("DELETE", "/api/projects/"+otherID, nil, nil); st != 200 {
+		if st, _ := h.do("DELETE", "/api/projects/"+otherID+"?permanent=1", nil, nil); st != 200 {
 			t.Fatalf("delete project %d", st)
 		}
 		deadline = time.Now().Add(15 * time.Second)
@@ -386,7 +386,7 @@ func TestProjectsAndWorkspaces(t *testing.T) {
 		}
 	}
 
-	if st, _ := h.do("DELETE", "/api/projects/"+pid, nil, nil); st != 200 {
+	if st, _ := h.do("DELETE", "/api/projects/"+pid+"?permanent=1", nil, nil); st != 200 {
 		t.Fatalf("delete project %d", st)
 	}
 	if st, _ := h.do("PATCH", "/api/projects/"+pid, map[string]any{"opened": true}, nil); st != 404 {

@@ -1,5 +1,6 @@
 // Home: projects by host or by group, as bento cards or a list, filtered and sorted from
-// the toolbar (DESIGN.md §3.11). Arrow keys move between projects, Enter opens, Delete asks
+// the toolbar (DESIGN.md §3.11), with an Archived view and a Groups view. Select mode picks
+// several to act on at once (§3.18). Arrow keys move between projects, Enter opens, Delete asks
 // to remove; Ctrl/⌘+O adds a project.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
@@ -9,21 +10,29 @@ import { AppHeader } from '../components/AppHeader';
 import { Button } from '../components/Button';
 import { SegmentedControl } from '../components/form';
 import { Icon, type IconName } from '../components/Icon';
-import { Menu } from '../components/Menu';
+import { Menu, type MenuEntry } from '../components/Menu';
+import { SelectBar, SelectToggle, useSelectMode } from '../components/SelectBar';
+import { toast } from '../components/Toast';
 import { prefs } from '../lib/format';
 import { takeSearchParam } from '../lib/router';
 import { ArchiveDialog } from '../home/ArchiveDialog';
+import { ArchivedList } from '../home/ArchivedList';
 import { AddProjectDialog } from '../home/AddProjectDialog';
-import { DeleteGroupDialog, GroupDialog } from '../home/GroupDialogs';
-import { allTags, groupPath, groupTree, hasTag, useCollapsedGroups, withProjects, type GroupNode } from '../home/groups';
+import { DeleteGroupDialog, DeleteGroupsDialog, GroupDialog } from '../home/GroupDialogs';
+import { GroupList } from '../home/GroupList';
+import { allTags, flatGroups, groupPath, groupTree, hasTag, useCollapsedGroups, withProjects, type GroupNode } from '../home/groups';
 import { openProject, ProjectCard } from '../home/ProjectCard';
+import { RemoveDialog, restoreProjects } from '../home/RemoveDialog';
+import type { RemoveChoice } from '../home/remove';
 import type { Project, ProjectGroup } from '../lib/types';
 import { isActive } from '../agents/state';
-import { store, useMachines, useProjectGroups, useProjects, useProjectsReady, useRunningSessions } from '../store';
+import { store, useArchivedProjects, useMachines, useProjectGroups, useProjects, useProjectsReady, useRunningSessions } from '../store';
 
 type HomeView = 'grid' | 'list';
 type HomeSort = 'recent' | 'name';
 type HomeBy = 'host' | 'group';
+/** Which list the page shows: the active projects, the archived ones, or the groups. */
+type HomeTab = 'active' | 'archived' | 'groups';
 
 /** Below this the whole list fits on a screen: nothing to filter or sort. */
 const TOOLS_FROM = 4;
@@ -101,6 +110,11 @@ export function HomePage() {
   const [newGroup, setNewGroup] = useState<{ parentId?: string } | null>(null);
   const [editGroup, setEditGroup] = useState<ProjectGroup | null>(null);
   const [deleteGroup, setDeleteGroup] = useState<ProjectGroup | null>(null);
+  const [tab, setTab] = useState<HomeTab>('active');
+  const archived = useArchivedProjects();
+  const [removing, setRemoving] = useState<{ ids: string[]; archived: boolean; choice: RemoveChoice } | null>(null);
+  const [deletingGroups, setDeletingGroups] = useState<string[] | null>(null);
+  const [restoring, setRestoring] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -108,6 +122,10 @@ export function HomePage() {
       .projects()
       .then((list) => store.seedProjects(list))
       .catch((err) => setError(errorMessage(err)));
+    api
+      .archivedProjects()
+      .then((list) => store.seedArchivedProjects(list))
+      .catch(() => undefined);
     api
       .machines()
       .then((list) => store.seedMachines(list))
@@ -156,6 +174,44 @@ export function HomePage() {
     return filtering ? { ...t, roots: withProjects(t.roots) } : t;
   }, [groupList, shown, filtering]);
 
+  const archivedShown = useMemo(
+    () => archived.filter((p) => !needle || [p.name, p.path, groupPath(groupList, p.groupId), ...(p.tags ?? [])].some((s) => s.toLowerCase().includes(needle))),
+    [archived, groupList, needle],
+  );
+  // every group with its count over all active projects; a filter matches the name or the path
+  const groupRows = useMemo(
+    () => flatGroups(groupTree(groupList, projects).roots).filter((n) => !needle || groupPath(groupList, n.group.id).toLowerCase().includes(needle)),
+    [groupList, projects, needle],
+  );
+
+  // What is on screen, top to bottom, for Shift runs and select-all: a folded group hides its
+  // projects. What the view holds, folded or not, is what a selection may keep.
+  const { order, present } = useMemo(() => {
+    if (tab === 'archived') {
+      const ids = archivedShown.map((p) => p.id);
+      return { order: ids, present: ids };
+    }
+    if (tab === 'groups') {
+      const ids = groupRows.map((n) => n.group.id);
+      return { order: ids, present: ids };
+    }
+    const all = shown.map((p) => p.id);
+    if (by === 'host') return { order: hosts.flatMap(([, list]) => list.map((p) => p.id)), present: all };
+    const walk = (n: GroupNode): string[] => (filtering || !collapsed.has(n.group.id) ? [...n.projects.map((p) => p.id), ...n.children.flatMap(walk)] : []);
+    return { order: [...tree.roots.flatMap(walk), ...tree.loose.map((p) => p.id)], present: all };
+  }, [tab, archivedShown, groupRows, shown, by, hosts, tree, filtering, collapsed]);
+  const select = useSelectMode(order, present);
+
+  const changeTab = (t: HomeTab) => {
+    select.stop();
+    setTab(t);
+  };
+  // a view that empties itself (the last archived one restored) gives way to the projects
+  useEffect(() => {
+    if (tab === 'archived' && archived.length === 0 && !select.on) setTab('active');
+    if (tab === 'groups' && groupList.length === 0) setTab('active');
+  }, [tab, archived.length, groupList.length, select.on]);
+
   const mostRecent = projects[0]?.id;
   const activeConsoles = useRunningSessions().filter(isActive).length;
   const machineCount = new Set(projects.map((p) => p.machineId)).size;
@@ -175,6 +231,54 @@ export function HomePage() {
   const clearFilter = () => {
     setQuery('');
     setTag('');
+  };
+
+  const projectById = (id: string) => projects.find((p) => p.id === id) ?? archived.find((p) => p.id === id);
+  const pickedProjects = (ids: string[]) => ids.map(projectById).filter((p): p is Project => !!p);
+
+  const moveTo = async (groupId: string) => {
+    const ids = select.picked;
+    const results = await Promise.allSettled(ids.map((id) => api.updateProject(id, { groupId })));
+    let moved = 0;
+    results.forEach((r) => {
+      if (r.status === 'fulfilled') {
+        store.upsertProject(r.value);
+        moved++;
+      }
+    });
+    const where = groupId ? groupPath(groupList, groupId) : 'All projects';
+    if (moved === ids.length) toast.success(`${plural(moved, 'project')} moved to ${where}.`);
+    else toast.error(`${moved} of ${ids.length} moved to ${where}; the others were refused.`);
+    select.stop();
+  };
+
+  const groupOptions = useMemo(() => flatGroups(groupTree(groupList, []).roots), [groupList]);
+  const moveItems = (): MenuEntry[] => [
+    { label: 'No group (All projects)', icon: 'folder', onSelect: () => void moveTo('') },
+    ...(groupOptions.length ? (['sep'] as MenuEntry[]) : []),
+    ...groupOptions.map((n) => ({ label: n.group.name, icon: 'layers' as const, indent: n.depth, onSelect: () => void moveTo(n.group.id) })),
+  ];
+
+  const restorePicked = async () => {
+    const list = pickedProjects(select.picked);
+    setRestoring(true);
+    try {
+      const out = await restoreProjects(list);
+      if (out.done.length) toast.success(`${out.done.length === 1 ? list.find((p) => p.id === out.done[0])?.name : plural(out.done.length, 'project')} restored.`);
+      if (out.failed.length) toast.error(`Not restored: ${out.failed.map((f) => `${f.name} (${f.error})`).join(', ')}.`);
+      select.stop();
+    } catch (err) {
+      toast.error(`Could not restore: ${errorMessage(err)}`);
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const showGroup = (g: ProjectGroup) => {
+    changeTab('active');
+    changeBy('group');
+    clearFilter();
+    requestAnimationFrame(() => document.getElementById(`grp-${g.id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
   };
 
   // arrow keys between cards (geometric: nearest card in that direction)
@@ -234,13 +338,14 @@ export function HomePage() {
           onTag={(t) => setTag(t.toLowerCase() === activeTag.toLowerCase() ? '' : t)}
           removeRequested={removeId === p.id}
           onRemoveHandled={() => setRemoveId(null)}
+          select={select}
         />
       );
     });
     return view === 'grid' ? (
-      <div className="bento project-grid">{items}</div>
+      <div className={`bento project-grid ${select.on ? 'is-selecting' : ''}`}>{items}</div>
     ) : (
-      <div className="card project-list">
+      <div className={`card project-list ${select.on ? 'is-selecting' : ''}`}>
         <div className="project-list-head" aria-hidden="true">
           <span>Project</span>
           <span>Git</span>
@@ -252,10 +357,18 @@ export function HomePage() {
     );
   };
 
-  const nothingShown = filtering && shown.length === 0;
+  const nothingShown = tab === 'active' && filtering && shown.length === 0;
+  const tabs = [
+    { value: 'active' as const, label: <>Projects <span className="seg-count tabular">{projects.length}</span></>, title: 'The projects in use' },
+    ...(archived.length || tab === 'archived' ? [{ value: 'archived' as const, label: <>Archived <span className="seg-count tabular">{archived.length}</span></>, title: 'Archived projects: Restore brings one back as it was' }] : []),
+    ...(groupList.length ? [{ value: 'groups' as const, label: <>Groups <span className="seg-count tabular">{groupList.length}</span></>, title: 'Every group, to rename or delete several' }] : []),
+  ];
+  const listed = tab === 'active' ? projects.length : tab === 'archived' ? archived.length : groupList.length;
+  const label = tab === 'groups' ? 'groups' : 'projects';
+  const none = select.count === 0;
 
   return (
-    <div className="page">
+    <div className={`page ${select.on ? 'has-select-bar' : ''}`}>
       <AppHeader />
       <main className="content">
         <div className="page-head">
@@ -272,8 +385,8 @@ export function HomePage() {
             )}
           </div>
           <div className="row">
-            <Button icon="archive" onClick={() => setArchive(true)}>
-              Archive
+            <Button icon="archive" onClick={() => setArchive(true)} title="Closed and cleared boards, to restore into a project">
+              Board archive
             </Button>
             <Button icon="layers" onClick={() => setNewGroup({})}>
               New group
@@ -291,19 +404,19 @@ export function HomePage() {
           </div>
         )}
 
-        {!ready && !error && (
+        {tab === 'active' && !ready && !error && (
           <div className="center-msg" role="status">
             <span className="spinner" aria-hidden="true" /> Loading projects…
           </div>
         )}
 
-        {ready && projects.length === 0 && groupList.length === 0 && (
+        {tab === 'active' && ready && projects.length === 0 && groupList.length === 0 && (
           <div className="card home-empty">
             <div className="empty-state">
               <span className="empty-icon">
                 <Icon name="folder" />
               </span>
-              <h2>No projects yet</h2>
+              <h2>{archived.length ? 'No projects in use' : 'No projects yet'}</h2>
               <p>Add a folder from one of your machines to get a board for it.</p>
               <Button variant="primary" icon="plus" onClick={() => setAdding(true)}>
                 Add project
@@ -312,7 +425,48 @@ export function HomePage() {
           </div>
         )}
 
-        {(projects.length >= TOOLS_FROM || groupList.length > 0 || tags.length > 0) && (
+        {(projects.length > 0 || archived.length > 0 || groupList.length > 0) && (
+          <div className="home-views">
+            {tabs.length > 1 && <SegmentedControl<HomeTab> size="sm" label="Show" value={tab} onChange={changeTab} options={tabs} className="home-tabs" />}
+            <span className="spacer" />
+            <SelectToggle mode={select} label={label} disabled={listed === 0} />
+          </div>
+        )}
+
+        {/* the other views filter with the same words: their own box, while there is enough to filter or a filter is on */}
+        {tab !== 'active' && ((tab === 'archived' ? archived.length : groupList.length) >= TOOLS_FROM || !!needle) && (
+          <div className="home-tools">
+            <div className="home-search">
+              <Icon name="search" />
+              <input
+                className="control control-sm"
+                type="search"
+                value={query}
+                placeholder={tab === 'archived' ? 'Filter by name, folder, group or tag' : 'Filter by group'}
+                aria-label={tab === 'archived' ? 'Filter archived projects' : 'Filter groups'}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setQuery('')}
+              />
+            </div>
+          </div>
+        )}
+
+        {tab === 'archived' && <ArchivedList projects={archivedShown} filtering={!!needle} select={select} onDelete={(list) => setRemoving({ ids: list.map((p) => p.id), archived: true, choice: 'delete' })} />}
+
+        {tab === 'groups' && (
+          <GroupList
+            rows={groupRows}
+            filtering={!!needle}
+            select={select}
+            onOpen={showGroup}
+            onSubgroup={(g) => setNewGroup({ parentId: g.id })}
+            onEdit={setEditGroup}
+            onDelete={setDeleteGroup}
+            onNew={() => setNewGroup({})}
+          />
+        )}
+
+        {tab === 'active' && (projects.length >= TOOLS_FROM || groupList.length > 0 || tags.length > 0) && (
           <div className="home-tools">
             <div className="home-search">
               <Icon name="search" />
@@ -362,7 +516,7 @@ export function HomePage() {
           </div>
         )}
 
-        {tags.length > 0 && (
+        {tab === 'active' && tags.length > 0 && (
           <div className="home-tags" role="group" aria-label="Show only a tag">
             {tags.map((t) => {
               const on = t.tag.toLowerCase() === activeTag.toLowerCase();
@@ -385,7 +539,7 @@ export function HomePage() {
           </div>
         )}
 
-        <div ref={gridRef} onKeyDown={onGridKey}>
+        <div ref={gridRef} onKeyDown={onGridKey} hidden={tab !== 'active'}>
           {by === 'host' &&
             hosts.map(([machineId, list]) => {
               const m = machines.find((x) => x.id === machineId);
@@ -451,6 +605,53 @@ export function HomePage() {
       {newGroup && <GroupDialog parentId={newGroup.parentId} onClose={() => setNewGroup(null)} onSaved={() => changeBy('group')} />}
       {editGroup && <GroupDialog group={editGroup} onClose={() => setEditGroup(null)} />}
       {deleteGroup && <DeleteGroupDialog group={deleteGroup} onClose={() => setDeleteGroup(null)} />}
+      {removing && (
+        <RemoveDialog
+          projects={pickedProjects(removing.ids)}
+          archived={removing.archived}
+          initial={removing.choice}
+          onClose={() => setRemoving(null)}
+          onDone={() => select.stop()}
+        />
+      )}
+      {deletingGroups && (
+        <DeleteGroupsDialog groups={groupList.filter((g) => deletingGroups.includes(g.id))} onClose={() => setDeletingGroups(null)} onDone={() => select.stop()} />
+      )}
+
+      <SelectBar mode={select} label={label}>
+        {tab === 'active' && (
+          <>
+            <Button size="sm" icon="archive" disabled={none} onClick={() => setRemoving({ ids: select.picked, archived: false, choice: 'archive' })}>
+              Archive
+            </Button>
+            <Button size="sm" variant="danger-ghost" icon="trash" disabled={none} onClick={() => setRemoving({ ids: select.picked, archived: false, choice: 'delete' })}>
+              Delete permanently
+            </Button>
+            {none ? (
+              <Button size="sm" variant="ghost" icon="layers" disabled>
+                Move to group
+              </Button>
+            ) : (
+              <Menu label="Move to group" icon="layers" triggerLabel="Move to group" items={moveItems} className="select-bar-menu" />
+            )}
+          </>
+        )}
+        {tab === 'archived' && (
+          <>
+            <Button size="sm" icon="restart" disabled={none} loading={restoring} onClick={() => void restorePicked()}>
+              Restore
+            </Button>
+            <Button size="sm" variant="danger-ghost" icon="trash" disabled={none || restoring} onClick={() => setRemoving({ ids: select.picked, archived: true, choice: 'delete' })}>
+              Delete permanently
+            </Button>
+          </>
+        )}
+        {tab === 'groups' && (
+          <Button size="sm" variant="danger-ghost" icon="trash" disabled={none} onClick={() => setDeletingGroups(select.picked)}>
+            Delete groups
+          </Button>
+        )}
+      </SelectBar>
     </div>
   );
 }

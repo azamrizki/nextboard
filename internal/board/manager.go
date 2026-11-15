@@ -31,6 +31,8 @@ type Manager struct {
 	SessionWorkspace func(sessionID string) (workspaceID string, ok bool)
 	// Names returns display names for archive records.
 	Names func(workspaceID string) (project, workspace string)
+	// ProjectOf returns the id of the project a workspace is in, for archive records ("" = none).
+	ProjectOf func(workspaceID string) string
 	// OnOps is called under the board lock after every change; clientID is
 	// "" for hub-originated ops.
 	OnOps func(workspaceID string, rev int64, clientID string, ops []Op)
@@ -290,7 +292,7 @@ func (m *Manager) Apply(wid, clientID string, ops []Op) (int64, error) {
 	// A board emptied in one go goes to the archive first.
 	if before := contentCount(d.nodes); before >= 3 && contentCount(w.nodes) == 0 {
 		pn, wn := m.names(wid)
-		if _, err := m.writeArchive(d.boardLocked(), pn, wn, ReasonCleared); err != nil {
+		if _, err := m.writeArchive(d.boardLocked(), "", pn, wn, ReasonCleared); err != nil {
 			log.Printf("archive of board %s failed: %v", wid, err)
 		}
 	}

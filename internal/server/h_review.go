@@ -43,6 +43,7 @@ func (s *Server) setupReview() {
 		Dir:     s.st.Path("review"),
 		Roots:   func(pid string) []review.Root { return s.reviewRootsOf(rs, pid) },
 		Publish: s.events.Publish,
+		Paused:  s.projectArchived,
 	})
 	onChange := s.sessions.OnChange
 	s.sessions.OnChange = func(in session.Info) {

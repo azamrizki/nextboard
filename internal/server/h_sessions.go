@@ -19,6 +19,8 @@ func (s *Server) sessionErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "code": "cannot_sleep", "reason": sleepy.Reason})
 	case errors.Is(err, session.ErrNotAsleep):
 		writeErrCode(w, http.StatusConflict, "not_asleep", err.Error())
+	case errors.Is(err, session.ErrFrozen):
+		writeErrCode(w, http.StatusConflict, "project_archived", err.Error())
 	case errors.Is(err, session.ErrNotFound), errors.Is(err, machine.ErrNotFound):
 		writeErr(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, session.ErrBadHandle):
@@ -197,8 +199,11 @@ func (s *Server) handleProjectWake(w http.ResponseWriter, r *http.Request, p *pr
 		return
 	}
 	pid := r.PathValue("id")
-	if _, ok := s.projects.Get(pid); !ok {
+	if pr, ok := s.projects.Get(pid); !ok {
 		writeErr(w, http.StatusNotFound, project.ErrNotFound.Error())
+		return
+	} else if pr.Archived() {
+		writeJSON(w, http.StatusOK, map[string]int{"woken": 0}) // restored first
 		return
 	}
 	n := s.sessions.WakeWhere(func(sp session.Spec) bool {

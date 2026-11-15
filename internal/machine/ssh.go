@@ -202,7 +202,7 @@ func (m *SSH) Info() Info {
 		ID: c.ID, Name: c.Name, Kind: c.Kind, Host: c.Host, Port: c.Port, User: c.User,
 		SSHConfigHost: c.SSHConfigHost, AuthMethod: c.AuthMethod, PersistMode: c.PersistMode,
 		EffectivePersist: effectivePersist(c), Status: m.status, Error: m.errMsg,
-		HostKeyMismatch: m.mismatch, Probe: c.Probe,
+		HostKeyMismatch: m.mismatch, Probe: c.Probe, ArchivedAt: c.ArchivedAt,
 	}
 	switch {
 	case m.fwd.port > 0:
@@ -234,6 +234,10 @@ func (m *SSH) setState(status, errMsg string) {
 // Connect dials synchronously. It is a no-op when already connected.
 func (m *SSH) Connect(ctx context.Context) error {
 	m.mu.Lock()
+	if m.cfg.ArchivedAt != nil {
+		m.mu.Unlock()
+		return ErrArchived
+	}
 	if m.closed {
 		m.mu.Unlock()
 		return errors.New("machine deleted")
@@ -369,6 +373,10 @@ var ErrFingerprintMismatch = errors.New("fingerprint does not match the host key
 // EnsureLoop starts the background reconnect loop if it isn't running.
 func (m *SSH) EnsureLoop() {
 	m.mu.Lock()
+	if m.cfg.ArchivedAt != nil {
+		m.mu.Unlock()
+		return
+	}
 	if m.looping || m.closed {
 		m.mu.Unlock()
 		select {

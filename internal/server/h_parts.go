@@ -370,7 +370,7 @@ func (s *Server) allBlocked() []string {
 	if s.orch != nil {
 		out = s.orch.AllBlocked()
 	}
-	for _, pr := range s.projects.List() {
+	for _, pr := range s.projects.ListAll() {
 		for _, pt := range pr.Parts {
 			for _, c := range pt.Blocked {
 				if !slices.Contains(out, c) {

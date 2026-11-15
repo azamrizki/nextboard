@@ -18,7 +18,12 @@ func (s *Server) machineInfo(w http.ResponseWriter, id string) {
 	writeJSON(w, http.StatusOK, in)
 }
 
+// handleMachines lists the active machines (This PC first), or with ?archived=1 the archived ones.
 func (s *Server) handleMachines(w http.ResponseWriter, r *http.Request, p *principal) {
+	if r.URL.Query().Get("archived") == "1" {
+		writeJSON(w, http.StatusOK, s.machines.ListArchived())
+		return
+	}
 	writeJSON(w, http.StatusOK, s.machines.List())
 }
 
@@ -110,6 +115,10 @@ func (s *Server) handleMachineCredentials(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleMachineConnect(w http.ResponseWriter, r *http.Request, p *principal) {
 	id := r.PathValue("id")
+	if s.machines.IsArchived(id) {
+		machineErr(w, machine.ErrArchived)
+		return
+	}
 	if m, ok := s.machines.SSH(id); ok {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
@@ -120,6 +129,10 @@ func (s *Server) handleMachineConnect(w http.ResponseWriter, r *http.Request, p 
 }
 
 func (s *Server) handleMachineProbe(w http.ResponseWriter, r *http.Request, p *principal) {
+	if s.machines.IsArchived(r.PathValue("id")) {
+		machineErr(w, machine.ErrArchived)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	in, err := s.machines.Probe(ctx, r.PathValue("id"))
@@ -150,23 +163,6 @@ func (s *Server) handleMachineUpdate(w http.ResponseWriter, r *http.Request, p *
 	default:
 		writeJSON(w, http.StatusOK, in)
 	}
-}
-
-func (s *Server) handleMachineDelete(w http.ResponseWriter, r *http.Request, p *principal) {
-	id := r.PathValue("id")
-	if id == machine.LocalID {
-		writeErr(w, http.StatusBadRequest, machine.ErrLocal.Error())
-		return
-	}
-	if n := s.sessions.CountByMachine(id); n > 0 {
-		writeErr(w, http.StatusConflict, "the machine still has sessions; close all its terminals first")
-		return
-	}
-	if err := s.machines.Remove(id); err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, okBody)
 }
 
 func (s *Server) handleMachineLs(w http.ResponseWriter, r *http.Request, p *principal) {

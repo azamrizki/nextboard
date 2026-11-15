@@ -1,26 +1,32 @@
 // One project on Home: a bento card, or a row of the list view (same markup, DESIGN.md
-// §3.11). Monogram, name and folder; git state on one line; terminals, boards and last
-// opened at the foot. The whole card opens the project.
+// §3.11). Cover across the top of a card; icon or monogram, name and folder; git state on one
+// line; terminals, boards and last opened at the foot. The whole card opens the project, or in
+// select mode picks it (§3.18).
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useWarmIntent, warmProject } from '../agents/warm';
 import { api, errorMessage } from '../api';
-import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Icon, type IconName } from '../components/Icon';
 import { Menu } from '../components/Menu';
 import { NAME_MAX } from '../components/ProjectBar';
+import { SelectBox, type SelectMode } from '../components/SelectBar';
 import { toast } from '../components/Toast';
 import { formatDateTime, timeAgoShort } from '../lib/format';
 import { boardPath, lastWorkspace, navigate } from '../lib/router';
 import { projectParts } from '../lib/parts';
 import type { GitInfo, Project } from '../lib/types';
 import { isActive } from '../agents/state';
-import { machineReady } from '../board/sessionStatus';
 import { store, useMachines, useRunningSessions } from '../store';
 import { gitApi } from '../studio/api';
+import { ArtDialog } from './ArtDialog';
 import { FolderPath } from './FolderPath';
 import { OrganizeDialog } from './GroupDialogs';
 import { PartsDialog } from './PartsDialog';
+import { PartsGitLine, PartsLine, usePartsGit } from './PartsLine';
+import { ProjectCover, ProjectIcon } from './ProjectArt';
+import { RemoveDialog } from './RemoveDialog';
+
+export { projectMonogram } from './ProjectArt';
 
 /** A folder that is no repository itself but holds some (docs/API-studio.md §3.6). */
 interface NestedRepos {
@@ -51,10 +57,10 @@ async function readGit(id: string, signal: AbortSignal): Promise<GitState> {
 }
 
 /** The machine being offline is its own answer: no request that can only fail. */
-function useGit(id: string, offline: boolean) {
+function useGit(id: string, offline: boolean, skip = false) {
   const [state, setState] = useState(() => gitCache.get(id) ?? null);
   useEffect(() => {
-    if (offline) return;
+    if (offline || skip) return;
     const c = gitCache.get(id);
     if (c && Date.now() - c.at < GIT_TTL) return;
     const ctrl = new AbortController();
@@ -70,7 +76,7 @@ function useGit(id: string, offline: boolean) {
         setState(v);
       });
     return () => ctrl.abort();
-  }, [id, offline]);
+  }, [id, offline, skip]);
   return state;
 }
 
@@ -80,23 +86,6 @@ export function openProject(p: Project) {
   warmProject(p.id, ws?.id); // its agents start while the board loads
   navigate(boardPath(p.id, ws?.id));
 }
-
-/** One or two capitals from the name: "demo-backoffice" → DB, "nextboard" → N. */
-export function projectMonogram(name: string): string {
-  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const first = (w: string | undefined) => (w ? Array.from(w)[0].toUpperCase() : '');
-  return first(words[0]) + first(words[1]) || '?';
-}
-
-const MONOGRAM_TONES = 6;
-
-/** By id, so a project keeps its colour when renamed. */
-function monogramTone(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return h % MONOGRAM_TONES;
-}
-
 
 function ChangedBadge({ changed }: { changed: number }) {
   return <span className={`badge ${changed ? 'badge-warning' : 'badge-success'}`}>{changed ? `${changed} changed` : 'Clean'}</span>;
@@ -155,32 +144,6 @@ function terminalsText(p: Project, active: number, idle: number): string {
   return 'No terminals';
 }
 
-/** A project on several machines: each part with the machine it is on, and whether it is up. */
-function PartChips({ p }: { p: Project }) {
-  const machines = useMachines();
-  const parts = projectParts(p);
-  if (parts.length < 2) return null;
-  return (
-    <ul className="project-parts" aria-label={`Parts of ${p.name}`}>
-      {parts.map((pt) => {
-        const m = machines.find((x) => x.id === pt.machineId);
-        const down = m && !machineReady(m);
-        return (
-          <li
-            key={pt.id}
-            className={`project-part${down ? ' is-down' : ''}`}
-            title={`${pt.name}: ${m?.name ?? pt.machineId} · ${pt.path}${pt.readOnly ? '\nRead-only for agents' : ''}${down ? `\n${m.name} is not connected` : ''}`}
-          >
-            <Icon name={pt.readOnly ? 'lock' : 'server'} />
-            <span className="project-part-name">{pt.name}</span>
-            <span className="project-part-machine truncate">{m?.name ?? pt.machineId}</span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 /** A card shows this many tags, and says how many more there are. */
 const TAGS_SHOWN = 3;
 
@@ -227,10 +190,26 @@ interface ProjectCardProps {
   onTag?: (tag: string) => void;
   removeRequested?: boolean;
   onRemoveHandled?: () => void;
+  /** Select mode of the list (§3.18): a click picks instead of opening. */
+  select?: SelectMode;
 }
 
-export function ProjectCard({ project: p, row, active, offline = false, place, activeTag, onTag, removeRequested, onRemoveHandled }: ProjectCardProps) {
-  const git = useGit(p.id, offline);
+export function ProjectCard({ project: p, row, active, offline = false, place, activeTag, onTag, removeRequested, onRemoveHandled, select }: ProjectCardProps) {
+  // a project in several parts: every part equal, its git added up (§3.11)
+  const multi = projectParts(p).length > 1;
+  const git = useGit(p.id, offline, multi);
+  const partsGit = usePartsGit(p, multi);
+  const machines = useMachines();
+  // under Group the card names where it is: for a project on several machines, how many, never
+  // just the first part's one
+  const machinesPlace: ProjectCardProps['place'] =
+    multi && place && place.icon !== 'layers'
+      ? (() => {
+          const ids = [...new Set(projectParts(p).map((pt) => pt.machineId))];
+          const names = ids.map((id) => machines.find((m) => m.id === id)?.name ?? id);
+          return { icon: 'server', label: `${ids.length} machine${ids.length === 1 ? '' : 's'}`, title: `On ${names.join(', ')}` };
+        })()
+      : undefined;
   const consoles = useRunningSessions().filter((s) => s.projectId === p.id);
   const activeCount = consoles.filter(isActive).length;
   const idleCount = consoles.length - activeCount;
@@ -238,7 +217,10 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
   const [confirm, setConfirm] = useState(false);
   const [organizing, setOrganizing] = useState(false);
   const [partsOpen, setPartsOpen] = useState(false);
+  const [artOpen, setArtOpen] = useState(false);
   const live = useRef(false);
+  const selecting = !!select?.on;
+  const selected = !!select?.has(p.id);
 
   useEffect(() => {
     if (removeRequested) {
@@ -260,24 +242,33 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
     }
   };
 
-  const remove = async () => {
-    await api.deleteProject(p.id);
-    store.removeProject(p.id);
-    toast.success(`${p.name} removed. Its files are untouched.`);
-  };
-
   const wsCount = p.workspaces?.length ?? 0;
-  const branch = git?.info?.isRepo ? git.info.branch : '';
+  const branch = multi ? '' : git?.info?.isRepo ? git.info.branch : '';
   // a hand on its card: its asleep agents start before the click lands (ROADMAP #50)
   const warmIntent = useWarmIntent(p.id, p.workspaces?.find((w) => w.id === lastWorkspace(p.id))?.id ?? p.workspaces?.[0]?.id);
 
+  const onOpen = (e: ReactMouseEvent) => {
+    // Shift, Ctrl or ⌘ start select mode from a card, as in a file manager
+    if (select && (selecting || e.shiftKey || e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      select.click(p.id, e);
+      return;
+    }
+    openProject(p);
+  };
+
   return (
-    <article className={`project-card ${row ? 'project-row' : 'card'} ${active ? 'is-active' : ''}`} data-project={p.id} aria-label={p.name}>
+    <article
+      className={`project-card ${row ? 'project-row' : 'card'} ${active ? 'is-active' : ''} ${selecting ? 'is-selecting' : ''} ${selected ? 'is-selected' : ''}`}
+      data-project={p.id}
+      aria-label={p.name}
+      {...select?.pressProps(p.id)}
+    >
+      {!row && <ProjectCover project={p} />}
+      {selecting && <SelectBox checked={selected} />}
       <header className="project-head">
         <div className="project-id">
-          <span className={`project-mono tone-${monogramTone(p.id)}`} aria-hidden="true">
-            {projectMonogram(p.name)}
-          </span>
+          <ProjectIcon project={p} />
           <div className="project-title">
             {renaming ? (
               <input
@@ -302,21 +293,24 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
                 <button
                   type="button"
                   className="card-link project-open"
-                  {...warmIntent}
-                  onClick={() => openProject(p)}
+                  {...(selecting ? { role: 'checkbox', 'aria-checked': selected } : warmIntent)}
+                  onClick={onOpen}
+                  // a Shift-click picks a run of cards; it must not select their text
+                  onMouseDown={(e) => {
+                    if (e.shiftKey) e.preventDefault();
+                  }}
                   onDoubleClick={(e) => {
                     e.preventDefault();
                   }}
                   // the button covers the card, so this tooltip speaks for everything cut short on it
-                  title={`Open ${p.name}\n${p.path}${branch ? `\nBranch ${branch}` : ''}`}
+                  title={selecting ? `${selected ? 'Clear' : 'Select'} ${p.name}` : `Open ${p.name}\n${multi ? projectParts(p).map((pt) => `${pt.name}: ${pt.path}`).join('\n') : p.path}${branch ? `\nBranch ${branch}` : ''}`}
                 >
                   {p.name}
                 </button>
               </h3>
             )}
-            <FolderPath path={p.path} />
-            <PartChips p={p} />
-            <ProjectMarks p={p} place={place} activeTag={activeTag} onTag={onTag} />
+            {multi ? <PartsLine project={p} git={partsGit} onEdit={() => setPartsOpen(true)} machinesShown={!!machinesPlace} /> : <FolderPath path={p.path} />}
+            <ProjectMarks p={p} place={machinesPlace ?? place} activeTag={activeTag} onTag={onTag} />
           </div>
         </div>
         <Menu
@@ -334,13 +328,15 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
             },
             { label: 'Group and tags…', icon: 'tag', onSelect: () => setOrganizing(true) },
             { label: 'Parts…', icon: 'layers', onSelect: () => setPartsOpen(true) },
+            { label: 'Cover & icon…', icon: 'image', onSelect: () => setArtOpen(true) },
+            ...(select ? [{ label: 'Select', icon: 'selectAll' as const, onSelect: () => select.start(p.id) }] : []),
             'sep',
             { label: 'Remove project…', icon: 'trash', danger: true, onSelect: () => setConfirm(true) },
           ]}
         />
       </header>
 
-      <GitLine git={git} offline={offline} />
+      {multi ? <PartsGitLine git={partsGit} /> : <GitLine git={git} offline={offline} />}
 
       <footer className="project-foot">
         <span className="project-activity">
@@ -362,19 +358,8 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
 
       {organizing && <OrganizeDialog project={p} onClose={() => setOrganizing(false)} />}
       {partsOpen && <PartsDialog project={p} onClose={() => setPartsOpen(false)} />}
-      {confirm && (
-        <ConfirmDialog title={`Remove “${p.name}”?`} confirmLabel="Remove project" danger onClose={() => setConfirm(false)} onConfirm={remove}>
-          <p>
-            {p.sessionCount > 0 ? (
-              <>
-                Its <strong>{p.sessionCount === 1 ? 'terminal' : `${p.sessionCount} terminals`}</strong> will end
-                {p.runningCount ? ` (${p.runningCount} running)` : ''}.{' '}
-              </>
-            ) : null}
-            Boards move to the archive and desktop apps shown only on them close. The folder <code>{p.path}</code> and its files stay on disk.
-          </p>
-        </ConfirmDialog>
-      )}
+      {artOpen && <ArtDialog project={p} onClose={() => setArtOpen(false)} />}
+      {confirm && <RemoveDialog projects={[p]} onClose={() => setConfirm(false)} />}
     </article>
   );
 }

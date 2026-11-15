@@ -79,6 +79,9 @@ var sleepWords = map[string]string{
 // ErrNotAsleep: wake was asked of a console that is not asleep.
 var ErrNotAsleep = errors.New("the console is not asleep")
 
+// ErrFrozen: the console's project is archived; it wakes once the project is restored.
+var ErrFrozen = errors.New("the console's project is archived; restore the project first")
+
 const (
 	asleepNote   = "\r\n\x1b[90m── asleep to free memory · wakes when you open it or type ──\x1b[0m\r\n"
 	restartNote  = "\r\n\x1b[90m── asleep since the hub restarted · wakes when you open it or type ──\x1b[0m\r\n"
@@ -341,6 +344,9 @@ func (s *Session) asleepLocked(note string) {
 // before it slept is typed back once it is ready, then what was typed while it woke. It
 // returns false when s was not asleep.
 func (s *Session) Wake() bool {
+	if s.m.frozen(s.Spec().ProjectID) {
+		return false // its project is archived: restored first
+	}
 	s.mu.Lock()
 	if !s.spec.Asleep || s.waking || s.sleeping || s.deleted {
 		s.mu.Unlock()
@@ -656,6 +662,9 @@ func (m *Manager) Wake(id string) (Info, error) {
 		s.mu.Lock()
 		waking := s.waking
 		s.mu.Unlock()
+		if m.frozen(s.Spec().ProjectID) {
+			return m.SessionInfo(s), ErrFrozen
+		}
 		if !waking {
 			return m.SessionInfo(s), ErrNotAsleep
 		}

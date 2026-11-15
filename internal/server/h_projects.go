@@ -123,12 +123,28 @@ func projectErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusBadRequest, "group_cycle", err.Error())
 	case errors.Is(err, project.ErrBadTag):
 		writeErrCode(w, http.StatusBadRequest, "bad_tag", err.Error())
+	case errors.Is(err, project.ErrNotArchived):
+		writeErrCode(w, http.StatusConflict, "not_archived", err.Error())
+	case errors.Is(err, project.ErrBadImageKind):
+		writeErrCode(w, http.StatusBadRequest, "bad_kind", err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())
 	}
 }
 
+// handleProjects lists the active projects, or with ?archived=1 the archived ones, most
+// recently archived first.
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request, p *principal) {
+	if r.URL.Query().Get("archived") == "1" {
+		bp, bw := s.counts()
+		list := s.projects.Archived()
+		out := make([]project.View, 0, len(list))
+		for _, pr := range list {
+			out = append(out, pr.View(bp, bw))
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	writeJSON(w, http.StatusOK, s.projectViews())
 }
 
@@ -211,40 +227,31 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, p *
 		Sandbox *string   `json:"sandbox"`
 		// PartAccess: what agents may do in the parts on other machines than their own (ROADMAP #49)
 		PartAccess *string `json:"partAccess"`
+		// Cover and Icon: {"assetId"} of an uploaded image, or null to remove it.
+		Cover json.RawMessage `json:"cover"`
+		Icon  json.RawMessage `json:"icon"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	pr, err := s.projects.Patch(r.PathValue("id"), project.Patch{Name: req.Name, Opened: req.Opened, GroupID: req.GroupID, Tags: req.Tags, Sandbox: req.Sandbox, PartAccess: req.PartAccess})
+	cover, err := s.decodeImage(req.Cover)
+	if err != nil {
+		writeErrCode(w, http.StatusBadRequest, "bad_asset", err.Error())
+		return
+	}
+	icon, err := s.decodeImage(req.Icon)
+	if err != nil {
+		writeErrCode(w, http.StatusBadRequest, "bad_asset", err.Error())
+		return
+	}
+	pr, err := s.projects.Patch(r.PathValue("id"), project.Patch{Name: req.Name, Opened: req.Opened, GroupID: req.GroupID, Tags: req.Tags,
+		Sandbox: req.Sandbox, PartAccess: req.PartAccess, Cover: cover, Icon: icon})
 	if err != nil {
 		projectErr(w, err)
 		return
 	}
 	s.emitProject(pr.ID)
 	writeJSON(w, http.StatusOK, s.projectView(pr))
-}
-
-// handleProjectDelete ends every session of the project and archives its
-// boards. Files on disk are not touched.
-func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request, p *principal) {
-	pr, err := s.projects.Delete(r.PathValue("id"))
-	if err != nil {
-		projectErr(w, err)
-		return
-	}
-	inProject := map[string]bool{}
-	for _, ws := range pr.Workspaces {
-		inProject[ws.ID] = true
-	}
-	s.orch.Loops.StopProject(pr.ID, time.Now()) // they would go on firing at consoles that are gone
-	s.closeBoards(pr.Name, pr.Workspaces)
-	s.uptime.RemoveProject(pr.ID)
-	for _, pt := range pr.Parts {
-		s.review.Forget(reviewKey(pr, pt.ID))
-	}
-	s.deleteSessions(func(pl session.Placement) bool { return pl.ProjectID == pr.ID || inProject[pl.WorkspaceID] })
-	s.events.Publish(map[string]any{"type": "projectRemoved", "id": pr.ID})
-	writeJSON(w, http.StatusOK, okBody)
 }
 
 // handleProjectCloseAllPreview says what closing every board would end, for the
@@ -321,7 +328,7 @@ func (s *Server) closeBoards(projectName string, closing []project.Workspace) (a
 		}
 	}
 	for _, ws := range closing {
-		id, err := s.boards.Archive(ws.ID, projectName, ws.Name, board.ReasonClosed)
+		id, err := s.boards.ArchiveProject(ws.ProjectID, ws.ID, projectName, ws.Name, board.ReasonClosed)
 		if err != nil {
 			log.Printf("archiving board %s failed: %v", ws.ID, err)
 		} else if id != "" {
@@ -348,7 +355,7 @@ func (s *Server) appsOnlyOn(closing []project.Workspace) []string {
 			shown[id] = true
 		}
 	}
-	for _, pr := range s.projects.List() {
+	for _, pr := range s.projects.ListAll() {
 		for _, ws := range pr.Workspaces {
 			if skip[ws.ID] {
 				continue

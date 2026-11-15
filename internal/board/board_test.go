@@ -409,6 +409,40 @@ func TestArchiveAndRestore(t *testing.T) {
 	if _, err := f.m.RestoreArchive("r_../../etc", "w_restored02"); !errors.Is(err, ErrArchiveNotFound) {
 		t.Fatalf("bad archive id %v", err)
 	}
+
+	// A project deleted for good takes its archived boards along: those naming it, and those
+	// of its workspaces from before archives named their project; others stay.
+	if _, err := f.m.Apply("w_shopapi01", "", []Op{note("n_ffffff6", 0, `{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.m.ArchiveProject("p_shopapi001", "w_shopapi01", "proj", "Main", ReasonClosed); err != nil {
+		t.Fatal(err)
+	}
+	f.m.ProjectOf = func(w string) string {
+		if w == "w_other0001" {
+			return "p_shopweb001"
+		}
+		return ""
+	}
+	if _, err := f.m.Apply("w_other0001", "", []Op{note("n_gggggg7", 0, `{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.m.Archive("w_other0001", "other", "Main", ReasonClosed); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.m.ListArchive()); n != 4 {
+		t.Fatalf("archives before %d", n)
+	}
+	if n := f.m.DeleteArchives("p_shopapi001", []string{wid}); n != 3 {
+		t.Fatalf("deleted %d archives", n)
+	}
+	left := f.m.ListArchive()
+	if len(left) != 1 || left[0].ProjectName != "other" {
+		t.Fatalf("left %+v", left)
+	}
+	if n := f.m.DeleteArchives("p_shopweb001", nil); n != 1 || len(f.m.ListArchive()) != 0 {
+		t.Fatalf("by ProjectOf: %d", n)
+	}
 }
 
 // TestRestoreKeepsEverySafetyCopy: restores within one second do not share a

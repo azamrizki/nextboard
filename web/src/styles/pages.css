@@ -214,6 +214,50 @@
   border-color: var(--tone-border);
   color: var(--tone-text);
 }
+.machine-card.is-selecting:not(.is-blocked) {
+  cursor: pointer;
+}
+.machine-card.is-selected {
+  border-color: var(--c-primary);
+  box-shadow: var(--e-2), 0 0 0 var(--hairline) var(--c-primary);
+}
+/* select mode: the box, or why there is none */
+.machine-select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-3);
+  min-width: 0;
+  margin: calc(-1 * var(--s-2)) 0 0;
+}
+.machine-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--h-control-sm);
+  padding: 0 var(--s-2);
+  margin-left: calc(-1 * var(--s-2));
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.machine-pick:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.machine-pick:disabled {
+  cursor: not-allowed;
+  color: var(--text-3);
+}
+.machine-use {
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
 .machine-body {
   flex: 1 1 auto;
   display: flex;

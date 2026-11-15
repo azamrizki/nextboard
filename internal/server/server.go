@@ -125,6 +125,8 @@ type Server struct {
 	studio *studioHub
 	// gui runs desktop apps of This PC for board tiles (h_gui.go).
 	gui *gui.Manager
+	// art makes project covers and icons (h_art.go).
+	art *artState
 }
 
 // New loads all state from the data directory.
@@ -175,13 +177,14 @@ func New(opts Options) (*Server, error) {
 	if err != nil {
 		log.Printf("connection log not available: %v", err)
 	}
-	mgr := session.NewManager(st, reg)
-	mgr.Settings, mgr.Profiles = sets.View, profs
-	if err := mgr.Load(); err != nil {
-		return nil, err
-	}
 	projects, err := project.Open(st)
 	if err != nil {
+		return nil, err
+	}
+	mgr := session.NewManager(st, reg)
+	mgr.Settings, mgr.Profiles = sets.View, profs
+	mgr.Frozen = projects.IsArchived // an archived project's consoles stay as they are
+	if err := mgr.Load(); err != nil {
 		return nil, err
 	}
 	s := &Server{
@@ -193,6 +196,7 @@ func New(opts Options) (*Server, error) {
 		statusListen: cfg.StatusListen,
 		limiter:      auth.NewRateLimiter(5, 10*time.Minute),
 		running:      map[string]bool{},
+		art:          newArtState(),
 	}
 	s.passkeys = newPasskeyRelay(s.st.Path("gui", "passkey.json"))
 	if err := s.startHookListener(); err != nil {
@@ -253,6 +257,10 @@ func (s *Server) wire() {
 	s.boards.Names = func(wid string) (string, string) {
 		ws, p, _ := s.projects.Workspace(wid)
 		return p.Name, ws.Name
+	}
+	s.boards.ProjectOf = func(wid string) string {
+		_, p, _ := s.projects.Workspace(wid)
+		return p.ID
 	}
 	s.boards.OnOps = func(wid string, rev int64, clientID string, ops []board.Op) {
 		s.events.Publish(map[string]any{"type": "boardOps", "workspaceId": wid, "rev": rev, "clientId": clientID, "ops": ops})

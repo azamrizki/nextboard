@@ -15,6 +15,7 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/store"
 )
 
 const maxAssetBytes = 20 << 20
@@ -26,6 +27,33 @@ var assetIDRe = regexp.MustCompile(`^a_[a-z0-9]{6,24}$`)
 var assetTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
 
 func (s *Server) assetPath(id string) string { return s.st.Path("assets", id) }
+
+// isImageAsset reports whether id names a stored image.
+func (s *Server) isImageAsset(id string) bool {
+	if !assetIDRe.MatchString(id) {
+		return false
+	}
+	f, err := os.Open(s.assetPath(id))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return false
+	}
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(f, head)
+	return assetTypes[http.DetectContentType(head[:n])]
+}
+
+// storeAsset keeps an image made by the hub (the art job) in the asset store.
+func (s *Server) storeAsset(data []byte) (string, error) {
+	if err := os.MkdirAll(s.st.Path("assets"), 0o700); err != nil {
+		return "", err
+	}
+	id := auth.RandomID("a_")
+	return id, store.WriteFileAtomic(s.assetPath(id), data)
+}
 
 func (s *Server) handleAssetUpload(w http.ResponseWriter, r *http.Request, p *principal) {
 	declared, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))

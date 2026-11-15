@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -388,5 +389,66 @@ func TestDeletingAMonitorPrunesItsWindows(t *testing.T) {
 	r2 := newRig(t, r.st.Path(""))
 	if ws := r2.s.Settings(testProject).Maintenance; len(ws) != 1 {
 		t.Fatalf("after restart: %+v", ws)
+	}
+}
+
+// TestArchivedProjectPaused: the monitors of an archived project are not checked and take no
+// push; restored, they are checked again at once, and nothing about them changed.
+func TestArchivedProjectPaused(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+	var archived atomic.Bool
+	archived.Store(true)
+	r := newRig(t, t.TempDir())
+	r.s.Now = time.Now
+	r.s.Frozen = func(pid string) bool { return pid == "p1" && archived.Load() }
+	site, err := r.s.Create(httpMonitor(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	push, err := r.s.Create(Monitor{ProjectID: "p1", Name: "cron", Type: TypePush, IntervalSec: 60, Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.s.Start()
+	time.Sleep(300 * time.Millisecond)
+	if hits.Load() != 0 {
+		t.Fatal("an archived project's monitor was checked")
+	}
+	if got := r.view(site.ID); got.Status != StatusPaused || !got.Active {
+		t.Fatalf("archived monitor %+v", got)
+	}
+	if r.s.Push(push.PushToken, false, "", -1) {
+		t.Fatal("push taken while archived")
+	}
+
+	archived.Store(false)
+	if n := r.s.ResumeProject("p1"); n != 2 {
+		t.Fatalf("resumed %d", n)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for hits.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if hits.Load() == 0 {
+		t.Fatal("not checked after restore")
+	}
+	if !r.s.Push(push.PushToken, false, "", -1) {
+		t.Fatal("push refused after restore")
+	}
+
+	archived.Store(true)
+	if n := r.s.PauseProject("p1"); n != 2 {
+		t.Fatalf("paused %d", n)
+	}
+	before := hits.Load()
+	r.s.CheckNow(site.ID)
+	time.Sleep(200 * time.Millisecond)
+	if hits.Load() != before {
+		t.Fatal("checked after pause")
+	}
+	if got := r.view(site.ID); got.Status != StatusPaused || !got.Active {
+		t.Fatalf("paused monitor %+v", got)
 	}
 }
