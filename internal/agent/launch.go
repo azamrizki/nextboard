@@ -48,6 +48,7 @@ type Options struct {
 	Model          string // "" = the CLI's own choice
 	Effort         string // "" = the CLI's own choice
 	CoAuthor       bool   // settings.agents.coAuthor: the CLI may sign its commits
+	WorkDir        string // the folder the CLI starts in ("" = not known)
 	// Context is what the hub gives this launch (nil = nothing).
 	Context *LaunchContext
 	// Provider runs the CLI against an API provider instead of its login (provider.go).
@@ -281,8 +282,9 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 }
 
 // claudeSettings is the inline value of --settings: hooks, where this launch keeps
-// its auto memory, and whether it signs commits. Nothing is written to any settings file.
-func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked []string, sandbox *Sandbox) string {
+// its auto memory, whether it signs commits, the commands that ask and the tools allowed
+// by rule. Nothing is written to any settings file.
+func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked, allow []string, sandbox *Sandbox) string {
 	v := map[string]any{}
 	if sb := sandbox; sb != nil {
 		s := map[string]any{"enabled": true,
@@ -294,8 +296,15 @@ func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked []str
 		}
 		v["sandbox"] = s
 	}
-	if len(blocked) > 0 {
-		v["permissions"] = map[string]any{"ask": ClaudeAskRules(blocked)}
+	if len(blocked) > 0 || len(allow) > 0 {
+		perm := map[string]any{}
+		if len(blocked) > 0 {
+			perm["ask"] = ClaudeAskRules(blocked) // ask wins over allow
+		}
+		if len(allow) > 0 {
+			perm["allow"] = allow
+		}
+		v["permissions"] = perm
 	}
 	if hooks {
 		_ = json.Unmarshal([]byte(HooksJSON()), &v)
@@ -640,18 +649,35 @@ func Build(a Agent, o Options) (Plan, error) {
 	if o.Context != nil && !o.Context.Remote && a.CapBase() == "claude" { // on a server its Bash is off, and the hub's tool looks
 		blocked, sandbox = o.Context.Blocked, o.Context.Sandbox
 	}
-	if (memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil) && !claudeHooks {
+	// Claude Code's default, auto mode, checks each action on Anthropic's servers, which a gateway
+	// does not reach: every tool call then stops on "Auto mode can't check actions" (Claude Code
+	// 2.1.322 on a real router). So a provider console runs as acceptEdits (edits go ahead, commands
+	// ask, as that dialog suggests), or by allow rules where the scrub pins the default mode.
+	var allow []string
+	permissionMode := ""
+	if o.Provider != nil && a.CapBase() == "claude" {
+		scrubbed := claudeScrubbed(a, o.Provider)
+		switch {
+		case o.Yolo && a.HasYolo() && scrubbed && (o.Context == nil || !o.Context.Remote):
+			// --dangerously-skip-permissions would be dropped as well (on a server the yolo args
+			// are already allow rules for the hub's tools)
+			a.YoloArgs = claudeScrubYolo(a.YoloArgs, o.Context)
+		case o.Yolo && a.HasYolo():
+		case scrubbed:
+			allow = ClaudeEditRules(o.WorkDir, claudeAddDirs(o.Context, a.TakesContext()))
+		default:
+			permissionMode = "acceptEdits"
+		}
+	}
+	if (memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil || len(allow) > 0) && !claudeHooks {
 		wrapperArgs = append(wrapperArgs, "--settings", "$NB_HOOKS")
 	}
 	model, effort := o.Model, o.Effort
 	if o.Provider != nil {
 		model = ProviderModel(a, o.Provider, model)
 		wrapperArgs = append(wrapperArgs, providerArgs(a, o.Provider)...)
-		if a.CapBase() == "claude" && !(o.Yolo && a.HasYolo()) {
-			// Claude Code's default, auto mode, checks each action on Anthropic's servers, which a
-			// gateway does not reach: every tool call then stops on "Auto mode can't check actions"
-			// (Claude Code 2.1.322 on a real router). Edits go ahead, commands ask, as it suggests.
-			wrapperArgs = append(wrapperArgs, "--permission-mode", "acceptEdits")
+		if permissionMode != "" {
+			wrapperArgs = append(wrapperArgs, "--permission-mode", permissionMode)
 		}
 	} else if !a.HasModels() {
 		model = ""
@@ -677,8 +703,8 @@ func Build(a Agent, o Options) (Plan, error) {
 		"NB_HOOK_SH=" + HookScript,
 		"TERM_PROGRAM=nextboard",
 	}
-	if claudeHooks || memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil {
-		p.Env = append(p.Env, "NB_HOOKS="+claudeSettings(claudeHooks, memoryDir, noCoAuthor, blocked, sandbox))
+	if claudeHooks || memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil || len(allow) > 0 {
+		p.Env = append(p.Env, "NB_HOOKS="+claudeSettings(claudeHooks, memoryDir, noCoAuthor, blocked, allow, sandbox))
 	}
 	if o.HookURL != "" {
 		p.Env = append(p.Env, "NB_HOOK_URL="+o.HookURL)

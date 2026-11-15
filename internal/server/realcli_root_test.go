@@ -24,6 +24,7 @@ type scriptModel struct {
 	mu      sync.Mutex
 	bodies  []string
 	results []string
+	auth    []string // each request's Authorization and x-api-key
 	step    *scriptStep
 }
 
@@ -78,6 +79,7 @@ func newScriptModel(t *testing.T) *scriptModel {
 		lastText, result, tools := scriptTurn(r.URL.Path, body)
 		m.mu.Lock()
 		m.bodies = append(m.bodies, string(raw))
+		m.auth = append(m.auth, r.URL.Path+" "+r.Header.Get("Authorization")+" "+r.Header.Get("X-Api-Key"))
 		// a CLI may send the last turn's tool result with the next prompt, in one user message
 		st := m.step
 		fresh := st != nil && !st.asked && strings.Contains(lastText, st.marker)
@@ -293,18 +295,6 @@ func TestRealRootConsole(t *testing.T) {
 			model := newScriptModel(t)
 			h := newTestHub(t)
 			h.setup()
-			if c.agent == "claude" {
-				// Claude Code 2.1.325 forces its default permission mode, where every edit asks, when
-				// CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set, which a provider console gets when bwrap
-				// is installed. Without it the console runs in acceptEdits, where only a write outside
-				// its folders asks: the case this test is about.
-				shim := filepath.Join(t.TempDir(), "claude-noscrub")
-				real, _ := exec.LookPath("claude")
-				os.WriteFile(shim, []byte("#!/bin/sh\nunset CLAUDE_CODE_SUBPROCESS_ENV_SCRUB\nexec "+real+" \"$@\"\n"), 0o755)
-				if st, b := h.do("PATCH", "/api/settings", map[string]any{"agents": map[string]any{"paths": map[string]any{"local": map[string]any{"claude": shim}}}}, nil); st != 200 {
-					t.Fatalf("settings %d %v", st, b)
-				}
-			}
 			// outside /tmp: Codex's sandbox lets every command write in /tmp
 			web, docs := outsideTmp(t), outsideTmp(t)
 			os.WriteFile(filepath.Join(web, "CLAUDE.md"), []byte("WEB-PART-RULES\n"), 0o644)

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -89,6 +91,117 @@ func TestProviderClaude(t *testing.T) {
 	p, _ = Build(a, Options{Mode: ModeFresh, Model: "glm-4.5", Provider: provider("anthropic", "", "bearer")})
 	if envMap(p.Env)["ANTHROPIC_MODEL"] != "glm-4.5" {
 		t.Fatal("the chosen model is not used")
+	}
+}
+
+// Claude Code 2.1.325 forces its default mode, where every edit asks, whenever
+// CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set: --permission-mode and --dangerously-skip-permissions are
+// dropped, allow rules count. A scrubbed console gets acceptEdits' edits, or yolo, by rule.
+func TestProviderClaudeScrub(t *testing.T) {
+	a, _ := builtinByID("claude")
+	scrub := provider("anthropic", "", "bearer")
+	scrub.Scrub = true
+	ctx := func() *LaunchContext {
+		return &LaunchContext{MCPURL: "http://127.0.0.1:1/nb/mcp/s", AttachDir: "/data/attachments", AddDirs: []string{"/srv/acme-web/"},
+			Blocked: []string{"git push --force"}, MCP: []MCPServer{{Name: "demo-docs", URL: "https://docs.example.com/mcp"}}}
+	}
+	settings := func(p Plan) (perm struct{ Allow, Ask []string }) {
+		t.Helper()
+		var v struct {
+			Permissions struct{ Allow, Ask []string } `json:"permissions"`
+		}
+		if s := envMap(p.Env)["NB_HOOKS"]; s != "" {
+			if err := json.Unmarshal([]byte(s), &v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return v.Permissions
+	}
+	p, err := Build(a, Options{Mode: ModeFresh, CoAuthor: true, WorkDir: "/home/demo/acme-shop", Provider: scrub, Context: ctx()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertKeyOnlyInEnv(t, p)
+	wrap := envMap(p.Env)["NB_WRAP"]
+	if envMap(p.Env)["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] != "1" {
+		t.Fatal("the scrub is off")
+	}
+	if strings.Contains(wrap, "--permission-mode") || strings.Contains(wrap, "acceptEdits") {
+		t.Fatalf("a mode the scrub drops (and warns about): %s", wrap)
+	}
+	if !strings.Contains(wrap, `--settings "$NB_HOOKS"`) {
+		t.Fatalf("the rules are not passed: %s", wrap)
+	}
+	perm := settings(p)
+	want := []string{"Edit(//home/demo/acme-shop/**)", "Edit(//data/attachments/**)", "Edit(//srv/acme-web/**)"}
+	if strings.Join(perm.Allow, " ") != strings.Join(want, " ") {
+		t.Fatalf("allow %v, want %v", perm.Allow, want)
+	}
+	if len(perm.Ask) != 1 || perm.Ask[0] != "Bash(*git push --force*)" {
+		t.Fatalf("the blocked commands no longer ask: %v", perm.Ask)
+	}
+	// without bubblewrap there is no scrub: the mode itself, and no rules
+	p, _ = Build(a, Options{Mode: ModeFresh, WorkDir: "/home/demo/acme-shop", Provider: provider("anthropic", "", "bearer"), Context: ctx()})
+	if !strings.Contains(envMap(p.Env)["NB_WRAP"], "acceptEdits") || len(settings(p).Allow) > 0 {
+		t.Fatalf("no scrub: %s %v", envMap(p.Env)["NB_WRAP"], settings(p))
+	}
+	// the folder it starts in, when not known, by a relative rule
+	p, _ = Build(a, Options{Mode: ModeFresh, Provider: scrub})
+	if got := settings(p).Allow; len(got) != 1 || got[0] != "Edit(./**)" {
+		t.Fatalf("no folder: %v", got)
+	}
+	// yolo: the tools by rule instead of --dangerously-skip-permissions, the blocked commands still ask
+	p, _ = Build(a, Options{Mode: ModeFresh, Yolo: true, WorkDir: "/home/demo/acme-shop", Provider: scrub, Context: ctx()})
+	wrap = envMap(p.Env)["NB_WRAP"]
+	if strings.Contains(wrap, "--dangerously-skip-permissions") || !strings.Contains(wrap, "--allowedTools Bash,Edit,Write,NotebookEdit,Read,WebFetch,WebSearch,Skill,mcp__nextboard,mcp__demo-docs") {
+		t.Fatalf("yolo: %s", wrap)
+	}
+	if !strings.HasSuffix(p.Shell, " 1") || len(settings(p).Ask) != 1 || len(settings(p).Allow) > 0 {
+		t.Fatalf("yolo: %s %v", p.Shell, settings(p))
+	}
+	if y, _ := Build(a, Options{Mode: ModeFresh, Yolo: true, Provider: provider("anthropic", "", "bearer")}); !strings.Contains(envMap(y.Env)["NB_WRAP"], "--dangerously-skip-permissions") {
+		t.Fatal("yolo without the scrub skips permissions as before")
+	}
+	// on a server the yolo args stay the hub's tools only, and the add-dirs are not this PC's
+	c := ctx()
+	c.Remote, c.WorkDir = true, "/data/agents/remote/s1"
+	p, _ = Build(a, Options{Mode: ModeFresh, Yolo: true, WorkDir: c.WorkDir, Provider: scrub, Context: c})
+	if wrap = envMap(p.Env)["NB_WRAP"]; strings.Contains(wrap, "Bash,") || !strings.Contains(wrap, "Skill,mcp__nextboard__read_file") {
+		t.Fatalf("server yolo: %s", wrap)
+	}
+	p, _ = Build(a, Options{Mode: ModeFresh, WorkDir: c.WorkDir, Provider: scrub, Context: c})
+	if got := settings(p).Allow; strings.Join(got, " ") != "Edit(//data/agents/remote/s1/**) Edit(//data/attachments/**)" {
+		t.Fatalf("server: %v", got)
+	}
+}
+
+func TestClaudeEditRules(t *testing.T) {
+	// escaped as Claude Code escapes its own folder rules (measured with 2.1.325: each one literal)
+	if r, ok := claudeFolderRule("/var/tmp/my (copy)/x[1]+^|$#!"); !ok || r != `Edit(//var/tmp/my \\\(copy\\\)/x\\[1\\]\\+\\^\\|\\$#!/**)` {
+		t.Fatalf("%v %s", ok, r)
+	}
+	// an escaped * at the end of a name still matches anything there: no rule rather than a wider one
+	for _, d := range []string{"/var/tmp/a*", "/var/tmp/a?b", `/var/tmp/a\b`, "/var/tmp/a\nb", "relative/dir", "/", ""} {
+		if r, ok := claudeFolderRule(d); ok {
+			t.Errorf("%q: %s", d, r)
+		}
+	}
+	if got := ClaudeEditRules("/srv/odd*", []string{"/srv/odd?"}); len(got) != 1 || got[0] != "Edit(./**)" {
+		t.Fatalf("odd folders: %v", got)
+	}
+	// a folder under a link: as written and as resolved
+	real := filepath.Join(t.TempDir(), "acme-shop")
+	link := filepath.Join(t.TempDir(), "shop")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	resolved, _ := filepath.EvalSymlinks(real)
+	got := ClaudeEditRules(link, []string{real + "/"})
+	if want := []string{"Edit(/" + link + "/**)", "Edit(/" + resolved + "/**)"}; strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("%v, want %v", got, want)
 	}
 }
 

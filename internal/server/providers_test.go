@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -78,7 +79,7 @@ func TestProvidersAPI(t *testing.T) {
 	api := newFakeAPI(t)
 	out := t.TempDir()
 	bin := filepath.Join(out, "fakebin")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nenv > \""+out+"/$NB_FAKE_NAME.env\"\necho FAKE-START\nsleep 60\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \""+out+"/$NB_FAKE_NAME.args\"\nenv > \""+out+"/$NB_FAKE_NAME.env\"\necho FAKE-START\nsleep 60\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, x := range [][2]string{{"fake-claude", "claude"}, {"fake-codex", "codex"}} {
@@ -160,6 +161,17 @@ func TestProvidersAPI(t *testing.T) {
 		if env[k] != want {
 			t.Errorf("%s = %q, want %q", k, env[k], want)
 		}
+	}
+	// edits go ahead, commands ask: acceptEdits, or with bubblewrap (the scrub, which pins Claude
+	// Code to its default mode) allow rules for the folder it starts in
+	args, _ := os.ReadFile(filepath.Join(out, "fake-claude.args"))
+	if _, err := exec.LookPath("bwrap"); err == nil {
+		rule := "Edit(/" + strings.TrimRight(in["cwd"].(string), "/") + "/**)"
+		if env["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] != "1" || strings.Contains(string(args), "--permission-mode") || !strings.Contains(env["NB_HOOKS"], `"allow":["`+rule+`"`) {
+			t.Errorf("scrubbed console: args %q, settings %s, want %s", args, env["NB_HOOKS"], rule)
+		}
+	} else if !strings.Contains(string(args), "--permission-mode\nacceptEdits\n") || env["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] != "" {
+		t.Errorf("console without bubblewrap: args %q", args)
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, ".claude.json")); err != nil || !strings.Contains(string(b), `"hasCompletedOnboarding": true`) {
 		t.Fatalf("first run not answered: %v %s", err, b)

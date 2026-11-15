@@ -638,7 +638,8 @@ func (m *Manager) plan(s *Session, a agent.Agent, sp Spec, mode string) (agent.P
 	token := s.priv.HookToken
 	s.mu.Unlock()
 	o := agent.Options{Mode: mode, AgentSessionID: sp.AgentSessionID, Yolo: sp.Yolo, LiveStatus: st.Agents.LiveStatus,
-		SessionID: sp.ID, Token: token, ProfileDir: m.profileDir(sp), Model: sp.Model, Effort: sp.Effort, CoAuthor: st.Agents.CoAuthor}
+		SessionID: sp.ID, Token: token, ProfileDir: m.profileDir(sp), Model: sp.Model, Effort: sp.Effort, CoAuthor: st.Agents.CoAuthor,
+		WorkDir: sp.Cwd}
 	if p := st.Agents.Paths[sp.MachineID][a.ID]; p != "" {
 		o.Command = p
 	}

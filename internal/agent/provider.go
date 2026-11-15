@@ -7,6 +7,8 @@ package agent
 
 import (
 	"encoding/json"
+	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -25,8 +27,103 @@ type ProviderLaunch struct {
 	// that the subscription login is neither used nor overwritten.
 	ConfigDir string
 	// Scrub: bubblewrap is on This PC, which Claude Code needs to keep the key out of the
-	// commands its tools run (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).
+	// commands its tools run (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB). Claude Code then runs in its
+	// default permission mode, whatever it is told (see ClaudeEditRules).
 	Scrub bool
+}
+
+// claudeScrubbed: this launch of Claude Code gets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB.
+func claudeScrubbed(a Agent, p *ProviderLaunch) bool {
+	return p != nil && p.Scrub && a.CapBase() == "claude"
+}
+
+// With CLAUDE_CODE_SUBPROCESS_ENV_SCRUB set, Claude Code (read in the 2.1.325 bundle and measured
+// with it) forces its default mode, where every edit asks: --permission-mode,
+// --dangerously-skip-permissions and permissions.defaultMode are all dropped ("Permission mode
+// forced to default … Declare allowedTools explicitly"). Allow rules still count, so a scrubbed
+// provider console gets by rule what the mode would have let through.
+
+// ClaudeEditRules allow edits where acceptEdits lets them through: in Claude Code's working
+// folders, the one it starts in (workDir, "" = not known) and each --add-dir, each also by its
+// real path, since Claude Code checks a path both as written and resolved. Its protected files
+// there (.claude, .git, …) still ask.
+func ClaudeEditRules(workDir string, addDirs []string) []string {
+	var out []string
+	add := func(r string) {
+		if !slices.Contains(out, r) {
+			out = append(out, r)
+		}
+	}
+	for i, d := range append([]string{workDir}, addDirs...) {
+		paths := []string{d}
+		if r, err := filepath.EvalSymlinks(d); d != "" && err == nil && r != filepath.Clean(d) {
+			paths = append(paths, r)
+		}
+		for _, p := range paths {
+			if r, ok := claudeFolderRule(p); ok {
+				add(r)
+			} else if i == 0 {
+				add("Edit(./**)") // relative to the folder it starts in, nothing to escape
+			}
+		}
+	}
+	return out
+}
+
+// claudeAddDirs are the folders planContext gives Claude Code with --add-dir.
+func claudeAddDirs(c *LaunchContext, takesContext bool) []string {
+	var dirs []string
+	if c != nil && takesContext {
+		if c.AttachDir != "" {
+			dirs = append(dirs, c.AttachDir)
+		}
+		if !c.Remote {
+			dirs = append(dirs, c.AddDirs...)
+		}
+	}
+	return dirs
+}
+
+// claudeFolderRule is Edit(//<dir>/**), escaped as Claude Code 2.1.325 escapes its own "allow in
+// this folder" rules. Its pattern is gitignore-like, and an escaped * at the end of a name still
+// matches anything there (measured), so a path with * or ? (or \ or a control character) gets
+// no rule rather than one that could allow more.
+func claudeFolderRule(dir string) (string, bool) {
+	dir = strings.TrimRight(dir, "/")
+	if !filepath.IsAbs(dir) || strings.ContainsAny(dir, "*?\\") || strings.ContainsFunc(dir, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return "", false
+	}
+	var b strings.Builder
+	for _, r := range dir {
+		if strings.ContainsRune("[]()|+^$", r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	// the text between the rule's parentheses escapes \ and the parentheses once more
+	content := strings.NewReplacer(`\`, `\\`, "(", `\(`, ")", `\)`).Replace("/" + b.String() + "/**")
+	return "Edit(" + content + ")", true
+}
+
+// claudeScrubYolo are the yolo args of a scrubbed console: --dangerously-skip-permissions becomes
+// allow rules for the built-in tools that can ask, the hub's tools and each of the owner's MCP
+// servers. The project's blocked commands are ask rules, which still win over them.
+func claudeScrubYolo(yolo []string, c *LaunchContext) []string {
+	tools := []string{"Bash", "Edit", "Write", "NotebookEdit", "Read", "WebFetch", "WebSearch", "Skill", "mcp__nextboard"}
+	if c != nil {
+		for _, m := range c.MCP {
+			tools = append(tools, "mcp__"+m.Name)
+		}
+	}
+	var out []string
+	for _, y := range yolo {
+		if y == "--dangerously-skip-permissions" {
+			out = append(out, "--allowedTools", strings.Join(tools, ","))
+			continue
+		}
+		out = append(out, y)
+	}
+	return out
 }
 
 // codexProviderID names the provider inside Codex's config.
