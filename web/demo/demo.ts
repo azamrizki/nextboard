@@ -139,6 +139,27 @@ export async function docsBoard(request: APIRequestContext, p: Made): Promise<st
   return s.id;
 }
 
+/** acme-shop's "Platform" board: a console at the root of the project beside a console in each server part. */
+export async function platformBoard(request: APIRequestContext, p: Made): Promise<string> {
+  const project = (await call(request, 'GET', '/api/projects')).find((x: { id: string }) => x.id === p.id);
+  const ws = project.workspaces.find((w: { name: string }) => w.name === 'Platform') ?? (await call(request, 'POST', `/api/projects/${p.id}/workspaces`, { name: 'Platform' }));
+  if ((await call(request, 'GET', `/api/workspaces/${ws.id}/board`)).nodes.length > 0) return ws.id;
+  const parts: { id: string; name: string }[] = project.parts;
+  const part = (name: string) => parts.find((pt) => pt.name === name)?.id;
+  // without the demo's servers the shop is one part: then all three work in it
+  const W = 470;
+  const H = 380;
+  const at: [string, string, Record<string, unknown>, number][] = [
+    ['architect', 'Architect', { root: true }, 0],
+    ['backend', 'Backend', part('API') ? { partId: part('API') } : {}, W + 24],
+    ['jobs', 'Jobs', part('Worker') ? { partId: part('Worker') } : {}, 2 * (W + 24)],
+  ];
+  for (const [agent, name, place, x] of at) {
+    await call(request, 'POST', '/api/sessions', { agent, workspaceId: ws.id, name, cols: 54, rows: 18, node: { x, y: 0, w: W, h: H }, ...place });
+  }
+  return ws.id;
+}
+
 /**
  * What must never be on a screenshot or in the video: this machine's name, home folder, or the
  * account the demo's SSH server lets in. Checked on the page's text before each capture.
@@ -146,10 +167,111 @@ export async function docsBoard(request: APIRequestContext, p: Made): Promise<st
 export async function assertPrivate(page: Page) {
   const text = await page.evaluate(() => document.body.innerText + ' ' + [...document.querySelectorAll('iframe')].map((f) => { try { return f.contentDocument?.body?.innerText ?? ''; } catch { return ''; } }).join(' '));
   const user = userInfo().username;
-  for (const bad of [hostname(), homedir(), `${user}@127.0.0.1`, `${user}@localhost`]) {
+  for (const bad of [hostname(), homedir(), '/home/', '/Users/', `${user}@127.0.0.1`, `${user}@localhost`]) {
     if (bad && bad.length > 2 && text.includes(bad)) throw new Error(`the page shows "${bad}", which is of this machine`);
   }
 }
+
+/**
+ * Paints a made-up project's cover (3:1) and icon (a rounded square) in the page, from a gradient
+ * and a motif (projects.ts Art), as WebP in base64: no picture file, no AI, no network.
+ */
+export const PAINT = `async ({ colors, motif, seed }) => {
+  const [c1, c2, c3] = colors;
+  let s = seed;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  // a plain canvas in software (willReadFrequently): a headless GPU canvas may not read back
+  const canvas = (w, h) => {
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    return [cv, cv.getContext('2d', { willReadFrequently: true })];
+  };
+  const b64 = (cv) => cv.toDataURL('image/webp', 0.9).split(',')[1];
+  const rr = (g, x, y, w, h, r) => { g.beginPath(); g.roundRect(x, y, w, h, r); };
+  const glyph = (g, cx, cy, u, alpha) => {
+    g.save();
+    g.globalAlpha = alpha;
+    g.fillStyle = '#fff';
+    g.strokeStyle = '#fff';
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    const cut = () => (g.globalCompositeOperation = 'destination-out');
+    if (motif === 'bag') {
+      g.lineWidth = u * 0.12;
+      g.beginPath(); g.arc(cx, cy - u * 0.32, u * 0.3, Math.PI, 0); g.stroke();
+      rr(g, cx - u * 0.62, cy - u * 0.32, u * 1.24, u * 1.0, u * 0.14); g.fill();
+    } else if (motif === 'pages') {
+      rr(g, cx - u * 0.5, cy - u * 0.66, u * 1.0, u * 1.32, u * 0.1); g.fill();
+      cut();
+      for (let i = 0; i < 4; i++) { rr(g, cx - u * 0.32, cy - u * 0.4 + i * u * 0.24, i === 3 ? u * 0.38 : u * 0.64, u * 0.09, u * 0.045); g.fill(); }
+    } else if (motif === 'phone') {
+      rr(g, cx - u * 0.42, cy - u * 0.72, u * 0.84, u * 1.44, u * 0.16); g.fill();
+      cut();
+      rr(g, cx - u * 0.32, cy - u * 0.56, u * 0.64, u * 1.0, u * 0.06); g.fill();
+      g.beginPath(); g.arc(cx, cy + u * 0.57, u * 0.07, 0, 7); g.fill();
+    } else if (motif === 'shapes') {
+      g.beginPath(); g.arc(cx - u * 0.34, cy - u * 0.3, u * 0.3, 0, 7); g.fill();
+      rr(g, cx + u * 0.06, cy - u * 0.6, u * 0.58, u * 0.58, u * 0.1); g.fill();
+      g.beginPath(); g.moveTo(cx, cy + 0.02 * u); g.lineTo(cx + u * 0.42, cy + u * 0.68); g.lineTo(cx - u * 0.42, cy + u * 0.68); g.closePath(); g.fill();
+    } else if (motif === 'bars') {
+      for (const [x, h] of [[-0.55, 0.5], [-0.15, 0.95], [0.25, 0.7]]) { rr(g, cx + x * u, cy + u * 0.6 - h * u * 1.2, u * 0.3, h * u * 1.2, u * 0.06); g.fill(); }
+    } else if (motif === 'nodes') {
+      g.lineWidth = u * 0.1;
+      const pts = [[-0.45, 0.35], [0.45, 0.35], [0, -0.45]];
+      g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(cx + x * u, cy + y * u) : g.moveTo(cx + x * u, cy + y * u))); g.closePath(); g.stroke();
+      for (const [x, y] of pts) { g.beginPath(); g.arc(cx + x * u, cy + y * u, u * 0.2, 0, 7); g.fill(); }
+    } else if (motif === 'spark') {
+      g.beginPath();
+      for (let i = 0; i < 8; i++) { const a = (i * Math.PI) / 4; const r = i % 2 ? u * 0.24 : u * 0.7; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+      g.closePath(); g.fill();
+    } else if (motif === 'window') {
+      rr(g, cx - u * 0.7, cy - u * 0.5, u * 1.4, u * 1.0, u * 0.12); g.fill();
+      cut();
+      rr(g, cx - u * 0.58, cy - u * 0.24, u * 1.16, u * 0.62, u * 0.06); g.fill();
+    } else if (motif === 'gift') {
+      rr(g, cx - u * 0.6, cy - u * 0.2, u * 1.2, u * 0.85, u * 0.1); g.fill();
+      rr(g, cx - u * 0.7, cy - u * 0.45, u * 1.4, u * 0.3, u * 0.08); g.fill();
+      g.beginPath(); g.ellipse(cx - u * 0.22, cy - u * 0.6, u * 0.24, u * 0.14, -0.4, 0, 7); g.fill();
+      g.beginPath(); g.ellipse(cx + u * 0.22, cy - u * 0.6, u * 0.24, u * 0.14, 0.4, 0, 7); g.fill();
+      cut();
+      g.fillRect(cx - u * 0.07, cy - u * 0.45, u * 0.14, u * 1.1);
+    }
+    g.restore();
+  };
+  const W = 1500, H = 500;
+  const [cv, g] = canvas(W, H);
+  const lin = g.createLinearGradient(0, 0, W, H);
+  lin.addColorStop(0, c1);
+  lin.addColorStop(1, c2);
+  g.fillStyle = lin;
+  g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 3; i++) {
+    const x = rnd() * W, y = rnd() * H, r = 220 + rnd() * 260;
+    const glow = g.createRadialGradient(x, y, 0, x, y, r);
+    glow.addColorStop(0, c3 + '88');
+    glow.addColorStop(1, c3 + '00');
+    g.fillStyle = glow;
+    g.fillRect(0, 0, W, H);
+  }
+  for (let i = 0; i < 16; i++) glyph(g, rnd() * W, rnd() * H, 26 + rnd() * 40, 0.05 + rnd() * 0.09);
+  glyph(g, W * 0.78, H * 0.52, 170, 0.24);
+  const fade = g.createLinearGradient(0, H * 0.55, 0, H);
+  fade.addColorStop(0, 'rgba(0,0,0,0)');
+  fade.addColorStop(1, 'rgba(0,0,0,0.28)');
+  g.fillStyle = fade;
+  g.fillRect(0, 0, W, H);
+  const S = 256;
+  const [ic, h] = canvas(S, S);
+  const lg = h.createLinearGradient(0, 0, S, S);
+  lg.addColorStop(0, c3);
+  lg.addColorStop(1, c2);
+  h.fillStyle = lg;
+  rr(h, 0, 0, S, S, 58);
+  h.fill();
+  glyph(h, S / 2, S / 2 + 6, 92, 0.95);
+  return { cover: b64(cv), icon: b64(ic) };
+}`;
 
 /** Points the storefront's tile at the dev server, as one would by typing it. */
 export async function openShop(page: Page) {

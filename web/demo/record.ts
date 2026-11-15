@@ -53,7 +53,8 @@ export class Recorder {
     execFileSync(
       'ffmpeg',
       ['-y', '-loglevel', 'error', '-ss', from.toFixed(2), '-t', (to - from).toFixed(2), '-i', mp4,
-        '-vf', `fps=12,scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
+        // 10 frames a second keep typing smooth and the file under 1.5 MB
+        '-vf', `fps=10,scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
         out],
       { stdio: 'inherit' },
     );

@@ -4,11 +4,12 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { createServer, type Server } from 'node:http';
 import { createServer as netServer } from 'node:net';
 import { userInfo } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { request, type APIRequestContext } from '@playwright/test';
+import { chromium, request, type APIRequestContext } from '@playwright/test';
 import { PORT, ROOT, ROUTER_PORT, SITE_PORT, STATE_FILE } from './playwright.config';
-import { PARTS, PROJECTS, type DemoPart, type DemoProject } from './projects';
+import { PAINT } from './demo';
+import { PARTS, PROJECTS, type Art, type DemoPart, type DemoProject } from './projects';
 
 // A hub of made-up data for the screenshots and the video (README "Screenshots"), apart from any
 // real one: its own port, and a home folder of its own in which every name, file and commit is
@@ -39,8 +40,11 @@ function write(base: string, files: Record<string, string>) {
   }
 }
 
-/** A folder with its history: commits by made-up authors, days apart. */
-function makeRepo(home: string, dir: string, p: Pick<DemoProject, 'files' | 'commits' | 'dirty'>) {
+/**
+ * A folder with its history: commits by made-up authors, days apart, and a bare "origin" in the
+ * demo home that has all but the last `unpushed` of them.
+ */
+function makeRepo(home: string, dir: string, p: Pick<DemoProject, 'files' | 'commits' | 'dirty' | 'unpushed'>) {
   write(dir, p.files);
   if (!p.commits) return dir;
   const git = (env: Record<string, string>, ...a: string[]) => execFileSync('git', a, { cwd: dir, env: { ...process.env, HOME: home, GIT_CONFIG_NOSYSTEM: '1', ...env }, stdio: 'ignore' });
@@ -55,6 +59,13 @@ function makeRepo(home: string, dir: string, p: Pick<DemoProject, 'files' | 'com
     git(env, 'add', '-A');
     git(env, 'commit', '-q', '--allow-empty', '-m', c.message);
   }
+  const origin = join(home, 'remotes', `${basename(dir)}.git`);
+  mkdirSync(origin, { recursive: true });
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { env: { ...process.env, HOME: home, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' });
+  git({}, 'remote', 'add', 'origin', origin);
+  git({}, 'push', '-q', 'origin', `HEAD~${Math.min(p.unpushed ?? 0, p.commits.length - 1)}:refs/heads/main`);
+  git({}, 'fetch', '-q', 'origin');
+  git({}, 'branch', '-q', '--set-upstream-to=origin/main', 'main');
   if (p.dirty) write(dir, p.dirty);
   return dir;
 }
@@ -139,6 +150,22 @@ async function sshd(home: string): Promise<{ proc: ChildProcess; port: number; k
   return null;
 }
 
+/** Each project's cover and icon, painted in a browser page (demo.ts PAINT). */
+async function paintAll(arts: Art[]): Promise<{ cover: Buffer; icon: Buffer }[]> {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const out = [];
+    for (const art of arts) {
+      const r: { cover: string; icon: string } = await page.evaluate(`(${PAINT})(${JSON.stringify(art)})`);
+      out.push({ cover: Buffer.from(r.cover, 'base64'), icon: Buffer.from(r.icon, 'base64') });
+    }
+    return out;
+  } finally {
+    await browser.close();
+  }
+}
+
 async function call(ctx: APIRequestContext, method: string, url: string, data?: unknown) {
   const r = await ctx.fetch(url, { method, data });
   if (!r.ok()) throw new Error(`${method} ${url}: ${r.status()} ${await r.text()}`);
@@ -219,6 +246,11 @@ export default async function globalSetup() {
       ['qa', 'QA', '#3a9bd6', ''],
       ['mobile', 'Mobile QA', '#c4a23a', ''],
       ['changelog', 'Changelog', '#9a7cd6', ''],
+      // the Platform board: one at the project's root, and one in each server part. An agent in a
+      // part on a server is on a CLI's base, whose tools reach that server (only shells run there)
+      ['architect', 'Architect', '#5b8def', ''],
+      ['backend', 'Backend', '#2bb3a3', 'claude'],
+      ['jobs', 'Jobs', '#d9822b', 'claude'],
     ]) {
       await call(ctx, 'POST', '/api/agents', { id, name, command: 'demo-agent', args: [id], color, env: [`DEMO_PATCH=${patch}`], ...(base ? { base } : {}) });
     }
@@ -228,8 +260,8 @@ export default async function globalSetup() {
     const off = Object.fromEntries(['claude', 'codex', 'gemini', 'opencode', 'aider', 'amp', 'auggie', 'cline', 'codebuff', 'cn', 'copilot', 'crush', 'cursor-agent', 'droid', 'goose', 'kimi', 'kiro', 'pi', 'qwen', 'vibe'].map((a) => [a, true]));
     // no pop-up per finished turn or question either: the board and its header say it
     await call(ctx, 'PATCH', '/api/settings', { agents: { defaults: { local: 'tester' }, disabled: off }, notifications: { needsYou: false, finished: false } });
-    // the hub's own project for its home folder: the demo has its three
-    for (const p of await call(ctx, 'GET', '/api/projects')) if (p.path === home) await call(ctx, 'DELETE', `/api/projects/${p.id}`);
+    // the hub's own project for its home folder: the demo has its own (permanently, not archived)
+    for (const p of await call(ctx, 'GET', '/api/projects')) if (p.path === home) await call(ctx, 'DELETE', `/api/projects/${p.id}?permanent=1`);
 
     // each project's first part (every part has a "pt_…" id since v0.9.0-beta.2)
     const firstPart = new Map<string, string>();
@@ -241,6 +273,18 @@ export default async function globalSetup() {
       if (p.memory) await call(ctx, 'PUT', `/api/projects/${made.id}/memory`, { scope: 'project', content: p.memory });
       for (const m of p.pages ?? []) await call(ctx, 'PUT', `/api/memory/docs/${m.name}?projectId=${made.id}`, { title: m.title, description: m.description ?? '', content: m.content });
     }
+    // covers and icons, as uploaded pictures; then the old ones go to the archive
+    const dressed = PROJECTS.filter((p) => p.art);
+    const art = await paintAll(dressed.map((p) => p.art!));
+    for (const [i, p] of dressed.entries()) {
+      const asset = async (body: Buffer) => {
+        const r = await ctx.fetch('/api/assets', { method: 'POST', data: body, headers: { 'Content-Type': 'image/webp' } });
+        if (!r.ok()) throw new Error(`POST /api/assets: ${r.status()} ${await r.text()}`);
+        return (await r.json()).id as string;
+      };
+      await call(ctx, 'PATCH', `/api/projects/${p.id}`, { cover: { assetId: await asset(art[i].cover) }, icon: { assetId: await asset(art[i].icon) } });
+    }
+    for (const p of PROJECTS) if (p.archived) await call(ctx, 'DELETE', `/api/projects/${p.id}`);
     const shopId = PROJECTS[0].id!;
 
     // acme-shop in three parts: the storefront here, its API and worker each on a server

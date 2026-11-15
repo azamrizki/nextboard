@@ -2,12 +2,15 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { OUT } from './playwright.config';
-import { assertPrivate, call, consoles, docsBoard, openShop, projects, releaseBoard, seedVault, shopBoard } from './demo';
+import { assertPrivate, call, consoles, docsBoard, openShop, platformBoard, projects, releaseBoard, seedVault, shopBoard } from './demo';
 
 // The README's screenshots, from the demo hub, all in the dark theme, one feature each: the board
-// and its agents' states, an order and its report, the Mission Map, a project in parts on three
-// machines, review, Local History and git in the code card, the web preview, layouts, memory, the
-// vault, API providers, a sleeping agent, a phone, uptime and its public page.
+// and its agents' states, the projects with their covers, select mode, the Archived view and the
+// remove dialog, an order and its report, the Mission Map, a project in parts on three machines,
+// where a console works (Root or a part), consoles at the root and in parts, the editor at the
+// root, every part's git, review, Local History and git in the code card, the web preview,
+// layouts placed in parts, memory, the vault, API providers, a sleeping agent, a phone, uptime and
+// its public page.
 //
 // The board and the memory galaxy are taken at 1600 × 900; the rest at 1280 × 720 and a device
 // scale of 1.25, so that panels and dialogs come out at the same 1600 px, larger and readable.
@@ -45,6 +48,7 @@ test('screenshots', async ({ page, request, browser }) => {
   await shopBoard(request, shop);
   const release = await releaseBoard(request, shop);
   const writer = await docsBoard(request, docs);
+  const platform = await platformBoard(request, shop);
   const nodes = await consoles(request, shop.wid);
   const tile = (p: Page, id: string) => p.locator(`.react-flow__node[data-id="${id}"]`);
   const sessions: { id: string; agent: string; handle: string }[] = await call(request, 'GET', '/api/sessions');
@@ -59,6 +63,15 @@ test('screenshots', async ({ page, request, browser }) => {
   await page.getByRole('button', { name: 'Fit to content' }).click();
   await settle(page, 2500);
   await shot(page, 'board');
+
+  // ---- the projects, at 1600 × 900: covers and icons, and acme-shop's one row of parts
+  await page.goto('/');
+  const covers = page.locator('.project-cover img');
+  await expect.poll(() => covers.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(6);
+  await expect.poll(async () => (await covers.count()) === (await page.locator('.project-cover img.is-loaded').count()), { timeout: 15_000 }).toBe(true);
+  await expect(page.locator('.partsline-sum').first()).toBeVisible();
+  await settle(page, 1200);
+  await shot(page, 'projects');
 
   // the rest at 125 %
   const big = await browser.newContext({
@@ -97,14 +110,43 @@ test('screenshots', async ({ page, request, browser }) => {
   await shot(p, 'vault');
   await p.keyboard.press('Escape');
 
-  // ---- the layout library
+  // ---- where new consoles work: at the root, which reaches every part, or in one part
+  await p.getByRole('toolbar', { name: 'Quick actions' }).getByRole('button', { name: /^Spawn \d/ }).click();
+  const spawn = p.getByRole('dialog', { name: 'Spawn consoles' });
+  await spawn.getByRole('radiogroup', { name: 'Place in' }).getByRole('radio', { name: 'Root' }).click();
+  await spawn.getByRole('button', { name: 'Every slot runs Builder' }).click();
+  await spawn.getByRole('button', { name: 'One console fewer' }).click();
+  await blur(p);
+  await settle(p, 600);
+  await shot(p, 'place');
+  await p.keyboard.press('Escape');
+  await expect(spawn).toBeHidden();
+
+  // ---- the layout library: each group in a part of its own
   await p.getByRole('button', { name: 'Layouts' }).first().click();
   const layouts = p.getByRole('dialog', { name: 'Layouts' });
   await layouts.getByRole('option', { name: /Front & back/ }).click();
+  const placeFront = layouts.getByLabel('Place Frontend in');
+  if (await placeFront.count()) {
+    await placeFront.selectOption({ label: 'Storefront' });
+    await layouts.getByLabel('Place Backend in').selectOption({ label: 'API' });
+  }
   await layouts.getByRole('button', { name: /^More consoles in / }).first().click();
+  await blur(p);
   await settle(p);
   await shot(p, 'layouts');
   await p.keyboard.press('Escape');
+
+  // ---- a console at the root beside consoles in the two server parts, at 1600 × 900 (three
+  // tiles in a row, the minimap below them)
+  await page.goto(`/p/${shop.id}/w/${platform}`);
+  const roots = page.locator('.react-flow__node');
+  await expect(roots.filter({ hasText: 'One plan for three parts' })).toHaveCount(1, { timeout: 20_000 });
+  await expect(roots.filter({ hasText: 'Codes are checked on api-server' })).toHaveCount(1, { timeout: 20_000 });
+  await expect(roots.filter({ hasText: 'Receipts print the coupon' })).toHaveCount(1, { timeout: 20_000 });
+  await page.getByRole('button', { name: 'Fit to content' }).click();
+  await settle(page, 1500);
+  await shot(page, 'root-console');
 
   // ---- an API provider: the stand-in on loopback answers with its models
   await p.goto('/settings/providers');
@@ -120,7 +162,8 @@ test('screenshots', async ({ page, request, browser }) => {
 
   // ---- acme-shop in three parts: the storefront here, its API and worker on two servers
   await p.goto('/');
-  await p.getByRole('button', { name: 'Actions for acme-shop' }).click();
+  // by host, a project of several parts is under each machine it is on: the first is This PC's
+  await p.getByRole('button', { name: 'Actions for acme-shop' }).first().click();
   await p.getByRole('menuitem', { name: 'Parts…' }).click();
   const parts = p.getByRole('dialog', { name: 'Parts of acme-shop' });
   await expect(parts.getByRole('list', { name: 'Parts of acme-shop' }).getByRole('listitem')).toHaveCount(3);
@@ -128,6 +171,36 @@ test('screenshots', async ({ page, request, browser }) => {
   await settle(p, 600);
   await shot(p, 'parts');
   await p.keyboard.press('Escape');
+
+  // ---- select mode: two picked, then the remove dialog with Delete permanently chosen
+  const selectBar = p.getByRole('toolbar', { name: /^Selected / });
+  await p.getByRole('button', { name: 'Select', exact: true }).click();
+  await p.getByRole('checkbox', { name: 'analytics', exact: true }).click();
+  await p.getByRole('checkbox', { name: 'infra', exact: true }).click();
+  await expect(selectBar).toContainText('2 selected');
+  await selectBar.getByRole('button', { name: 'Archive' }).click();
+  const remove = p.getByRole('dialog', { name: 'Remove 2 projects?' });
+  await remove.getByRole('radio', { name: /^Delete permanently/ }).click();
+  await expect(remove).toContainText('What is deleted');
+  await blur(p);
+  await settle(p, 600);
+  await shot(p, 'archive');
+  await remove.getByRole('button', { name: 'Cancel' }).click();
+  await selectBar.getByRole('button', { name: 'Cancel' }).click();
+  await expect(selectBar).toBeHidden();
+
+  // ---- the Archived view, in select mode, with its bar
+  await p.getByRole('radio', { name: /^Archived/ }).click();
+  const archived = p.getByRole('list', { name: 'Archived projects' });
+  await expect(archived.getByRole('article')).toHaveCount(3);
+  await p.getByRole('button', { name: 'Select', exact: true }).click();
+  for (const name of ['spring-sale', 'holiday-promo']) await archived.getByRole('checkbox', { name: `Select ${name}` }).click();
+  await expect(selectBar).toContainText('2 selected');
+  await blur(p);
+  await settle(p, 600);
+  await shot(p, 'select');
+  await selectBar.getByRole('button', { name: 'Cancel' }).click();
+  await p.getByRole('radio', { name: /^Projects/ }).click();
 
   // ---- a sleeping agent: its process ended to free memory, its conversation kept
   await p.goto(`/p/${docs.id}/w/${docs.wid}`);
@@ -230,6 +303,50 @@ test('screenshots', async ({ page, request, browser }) => {
   await blur(p);
   await settle(p, 2000);
   await shot(p, 'git');
+
+  // ---- the editor at the root: every part a folder, one search across them, grouped by part
+  await call(request, 'POST', `/api/workspaces/${shop.wid}/board/ops`, {
+    clientId: 'c_demo',
+    baseRev: 0,
+    ops: [{ op: 'put', node: { id: 'n_demoroot01', kind: 'editor', x: 1400, y: 1000, w: 1300, h: 800, data: {} } }],
+  });
+  await p.goto(`/p/${shop.id}/w/${shop.wid}?card=n_demoroot01`);
+  const rootCard = p.getByRole('group', { name: 'Code editor · All parts' });
+  const rootSide = rootCard.locator('.wb-side');
+  // the side bar opens on the view the last card used (Source Control): Search is one click
+  await rootCard.getByRole('button', { name: 'Search', exact: true }).click({ timeout: 20_000 });
+  await rootSide.getByRole('textbox', { name: 'Search', exact: true }).fill('coupon');
+  const byPart = rootSide.locator('.wb-result-part');
+  await expect(byPart).toHaveCount(shopParts.length, { timeout: 20_000 });
+  // every file folded but the API's coupons.go, so that the three parts show at once
+  const unfolded = rootSide.locator('.wb-result-head[aria-expanded="true"]').filter({ hasNotText: 'coupons.go' });
+  while (await unfolded.count()) await unfolded.first().click();
+  const apiPart = byPart.filter({ has: p.locator('.wb-part-head', { hasText: 'API' }) });
+  if (await apiPart.count()) await apiPart.locator('.wb-result-file', { hasText: 'coupons.go' }).locator('.wb-hit').first().click();
+  await expect(rootCard.locator('.wb-tab.is-active')).toBeVisible({ timeout: 15_000 });
+  await rootSide.locator('.wb-results').evaluate((el) => (el.scrollTop = 0));
+  await blur(p);
+  await settle(p, 2500);
+  await shot(p, 'editor-root');
+
+  // ---- the board's Git panel, at 1600 × 900 (it is tall): every part's repository, the last
+  // one (the worker's) open on its history graph, so that every part's row stays in view
+  await call(request, 'POST', `/api/workspaces/${shop.wid}/board/ops`, { clientId: 'c_demo', baseRev: 0, ops: [{ op: 'del', id: 'n_demoroot01' }, { op: 'del', id: 'n_demoeditor' }] });
+  await page.goto(`/p/${shop.id}/w/${shop.wid}`);
+  await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Fit to content' }).click();
+  await page.getByRole('button', { name: /^Git \(/ }).click();
+  const gitPanel = page.getByRole('complementary', { name: 'Git' });
+  await expect(gitPanel.getByRole('region', { name: /^Part / }).first()).toBeVisible({ timeout: 15_000 });
+  const workerGit = gitPanel.getByRole('region', { name: 'Part Worker' });
+  if (await workerGit.count()) {
+    await workerGit.getByRole('button', { name: /^Worker/ }).first().click();
+    await workerGit.getByRole('button', { name: 'History', exact: true }).click();
+    await expect(workerGit.locator('.wb-graph-row').first()).toBeVisible({ timeout: 15_000 });
+  }
+  await blur(page);
+  await settle(page, 1500);
+  await shot(page, 'git-parts');
 
   // ---- uptime, once the monitors have a few checks behind them, and its public page
   await call(request, 'POST', `/api/workspaces/${shop.wid}/board/ops`, {

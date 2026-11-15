@@ -3,11 +3,12 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { OUT } from './playwright.config';
 import { Recorder } from './record';
-import { OVERLAY, assertPrivate, call, caption, click, consoles, hideTitleCard, openShop, point, projects, releaseBoard, seedVault, shopBoard, titleCard, type } from './demo';
+import { OVERLAY, assertPrivate, call, caption, click, consoles, hideTitleCard, openShop, platformBoard, point, projects, releaseBoard, seedVault, shopBoard, titleCard, type } from './demo';
 
 // The product video: about a minute through the demo hub, in the dark theme, recorded from the
-// page. Its story: work sent with an @mention, the agent at work, its report in the thread, its
-// change reviewed in the code card; then a glance at the rest. Captions and the cursor are drawn
+// page. Its story: a project in three parts, work sent with an @mention, the agent at work, its
+// report in the thread, its change reviewed in the code card; then a glance at the rest, among it
+// consoles at the project's root and in its parts. Captions and the cursor are drawn
 // into the page (demo.ts); everything else is the real UI.
 
 // Chrome sends the frames in CSS pixels, whatever the device scale
@@ -21,6 +22,7 @@ test('product tour', async ({ page, request }) => {
   const shop = projects()['acme-shop'];
   await shopBoard(request, shop);
   const release = await releaseBoard(request, shop);
+  const platform = await platformBoard(request, shop);
   const tile = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
   const head = (id: string) => tile(id).locator('.nb-node-header, .tile-head').first();
   const nodes = await consoles(request, shop.wid);
@@ -48,24 +50,27 @@ test('product tour', async ({ page, request }) => {
 
   // 1. title
   await titleCard(page, 'NextBoard', 'Your agents. Your machines. One board.');
-  await page.waitForTimeout(2600);
+  await page.waitForTimeout(2300);
   await hideTitleCard(page);
   await page.waitForTimeout(400);
 
   // 2. projects, one of them in three parts
-  await caption(page, 'Your projects, on a hub you run yourself', 'acme-shop spans three parts: the storefront here, its API and worker on servers');
-  const partsList = page.getByRole('list', { name: 'Parts of acme-shop' });
-  await point(page, partsList, 800);
-  await page.waitForTimeout(1800);
-  await click(page, page.getByText('acme-shop', { exact: true }).first(), { ms: 600 });
+  await caption(page, 'Your projects, on a hub you run yourself', 'acme-shop is one project in three parts: the storefront here, its API and worker on servers');
+  const shopCard = page.locator(`.project-card[data-project="${shop.id}"]`).first();
+  await click(page, shopCard.locator('.project-partsline'), { ms: 800 });
+  await expect(page.getByRole('list', { name: 'Parts of acme-shop' })).toBeVisible();
+  await page.waitForTimeout(1900);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await click(page, shopCard.locator('.project-open'), { ms: 600 });
 
   // 3. the board
   for (const id of Object.values(nodes)) await expect(tile(id)).toContainText('demo agent', { timeout: 15_000 });
   await page.waitForTimeout(500);
   await caption(page, 'Every agent on one canvas', 'Working, needs you or idle, without opening each terminal');
   for (const id of [nodes.builder, nodes.reviewer, nodes.tester]) {
-    await point(page, head(id), 550, 0.85, 0.5);
-    await page.waitForTimeout(450);
+    await point(page, head(id), 500, 0.85, 0.5);
+    await page.waitForTimeout(350);
   }
 
   // 4. answer the reviewer from its tile
@@ -130,10 +135,10 @@ test('product tour', async ({ page, request }) => {
   await page.waitForTimeout(400);
   await click(page, changed, { ms: 450 });
   await expect(page.getByRole('button', { name: 'Keep file' })).toBeVisible({ timeout: 15_000 });
-  await page.waitForTimeout(2600);
+  await page.waitForTimeout(2000);
 
   // 9. a team from a template
-  await caption(page, 'Start a whole team from a template', 'And choose how many agents each group gets before you deploy');
+  await caption(page, 'Start a whole team from a template', 'Each group in a part of its own, and as many agents as it needs');
   await click(page, page.getByRole('button', { name: 'Layouts' }).first());
   const layouts = page.getByRole('dialog', { name: 'Layouts' });
   await expect(layouts).toBeVisible();
@@ -143,12 +148,20 @@ test('product tour', async ({ page, request }) => {
   if (editors.length) await call(request, 'POST', `/api/workspaces/${shop.wid}/board/ops`, { clientId: 'c_demo', baseRev: 0, ops: editors });
   await page.waitForTimeout(300);
   await click(page, layouts.getByRole('option', { name: /Front & back/ }), { ms: 500 });
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(350);
+  // each group at the root or in a part of its own (a select: its list is not drawn headless)
+  for (const [group, part] of [['Frontend', 'Storefront'], ['Backend', 'API']]) {
+    const where = layouts.getByLabel(`Place ${group} in`);
+    if (!(await where.count())) break;
+    await point(page, where, 400);
+    await where.selectOption({ label: part });
+    await page.waitForTimeout(350);
+  }
   const more = layouts.getByRole('button', { name: /^More consoles in / }).first();
   await click(page, more, { ms: 500 });
   await page.waitForTimeout(350);
   await click(page, more, { ms: 150 });
-  await page.waitForTimeout(1100);
+  await page.waitForTimeout(800);
   await click(page, layouts.getByRole('button', { name: 'Close' }).last(), { ms: 500 });
   // the code card is gone: the board fits at once, so no empty view shows in between
   await page.getByRole('button', { name: 'Fit to content' }).click();
@@ -157,39 +170,51 @@ test('product tour', async ({ page, request }) => {
   // 10. the storefront beside its agents
   await caption(page, 'Preview the app next to the agents building it');
   await click(page, head('n_demoweb001'), { double: true, dx: 0.3 });
-  await page.waitForTimeout(2200);
+  await page.waitForTimeout(1900);
 
-  // 11. who directs whom
+  // 11. consoles at the project's root, and in its parts on the servers
+  await caption(page, 'Work at the root, or in one part', 'A root console reaches every part; the API and Worker ones work on their servers');
+  await click(page, page.getByRole('tab', { name: /^Platform/ }).first(), { ms: 550 });
+  await expect(page).toHaveURL(new RegExp(`/w/${platform}`));
+  await expect(page.locator('.react-flow__node .node-part').first()).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Fit to content' }).click();
+  await page.waitForTimeout(400);
+  for (const chip of await page.locator('.react-flow__node .node-part').all()) {
+    await point(page, chip, 450);
+    await page.waitForTimeout(400);
+  }
+
+  // 12. who directs whom
   await caption(page, 'See who directs whom', 'Mission Map: lead cards and the command bar, their groups and consoles');
   await click(page, page.getByRole('tab', { name: /^Release/ }).first(), { ms: 550 });
   await expect(page).toHaveURL(new RegExp(`/w/${release}`));
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(800);
   await page.keyboard.press('x');
   await expect(page.getByRole('dialog', { name: 'Mission Map' })).toBeVisible();
-  await page.waitForTimeout(2400);
+  await page.waitForTimeout(2100);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
 
-  // 12. memory
+  // 13. memory
   await caption(page, 'One memory per project, shared by every agent', 'Each agent is sent only what it does not have yet');
   await click(page, page.getByRole('link', { name: 'Memory' }).first());
-  await page.waitForTimeout(3300);
+  await page.waitForTimeout(2900);
 
-  // 13. the vault
+  // 14. the vault
   await caption(page, 'A zero-knowledge credentials vault', 'Agents use a secret through one approved command, without seeing it');
   await click(page, page.getByRole('button', { name: /^Credentials/ }).first());
   await expect(page.getByRole('button', { name: 'Lock the vault' })).toBeVisible();
   await page.waitForTimeout(400);
   await click(page, page.getByText('Payments sandbox').first(), { ms: 500 });
-  await page.waitForTimeout(2200);
+  await page.waitForTimeout(1900);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
   await assertPrivate(page);
 
-  // 14. the end
+  // 15. the end
   await caption(page);
   await titleCard(page, 'NextBoard', 'Open source · MIT', ['github.com/azamrizki/nextboard']);
-  await page.waitForTimeout(3500);
+  await page.waitForTimeout(3000);
 
   await rec.stop();
   rec.encode(join(OUT, 'demo.mp4'), W, H);

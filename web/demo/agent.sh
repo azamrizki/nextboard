@@ -22,6 +22,15 @@ done
 B=$'\033[1m' D=$'\033[2m' R=$'\033[0m' G=$'\033[32m' Y=$'\033[33m' C=$'\033[36m' M=$'\033[35m'
 SPIN='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 project=$(basename "$PWD")
+# at the project's root (a folder the hub makes, AGENTS.md first): the project's name, "root"
+if [ -f AGENTS.md ] && head -n1 AGENTS.md | grep -q 'project root'; then
+  project="$(sed -n '1s/^# \(.*\) — project root.*/\1/p' AGENTS.md) · root"
+fi
+# in a part on a server, the CLI runs on This PC in a folder of the hub's: say which part
+case $role in
+backend) project='acme-shop/API · api-server' ;;
+jobs) project='acme-shop/Worker · worker-1' ;;
+esac
 # how long the builder and QA keep working before they report (seconds since they started)
 BUSY=${DEMO_BUSY:-100}
 
@@ -118,6 +127,17 @@ if [ -n "$sid" ]; then
   banner "$role"
   case $role in
   writer) printf '%s●%s Ready. The help pages match the storefront: free shipping from $50.\n' "$G" "$R" ;;
+  backend)
+    # its part is on a server: it reads and runs there through the hub's tools
+    printf '  %stool%s  read_file %sAPI:%s coupons/coupons.go\n' "$C" "$R" "$D" "$R"
+    printf '  %stool%s  bash %sAPI:%s go test ./...  %s✓ ok%s\n' "$C" "$R" "$D" "$R" "$G" "$R"
+    printf '%s●%s Ready. Codes are checked on api-server.\n' "$G" "$R"
+    ;;
+  jobs)
+    printf '  %stool%s  read_file %sWorker:%s src/jobs/receipts.js\n' "$C" "$R" "$D" "$R"
+    printf '  %stool%s  bash %sWorker:%s npm test  %s✓ 9 passed%s\n' "$C" "$R" "$D" "$R" "$G" "$R"
+    printf '%s●%s Ready. Receipts print the coupon.\n' "$G" "$R"
+    ;;
   *) printf '%s●%s Ready. All 44 tests pass on main.\n' "$G" "$R" ;;
   esac
   box
@@ -196,6 +216,21 @@ mobile)
   printf '  %srun%s   e2e on a 375 px phone  %s✓ 31 passed%s\n' "$C" "$R" "$G" "$R"
   printf '  %srun%s   e2e on a tablet  %s✓ 31 passed%s\n' "$C" "$R" "$G" "$R"
   printf '%s●%s Done. Checkout works on phones and tablets.\n' "$G" "$R"
+  prompt
+  exec cat >/dev/null
+  ;;
+architect)
+  # at the project's root: one entry per part, and the AGENTS.md that lists them (made by the hub)
+  banner 'architect'
+  printf '%s›%s Plan coupons across the parts\n\n' "$D" "$R"
+  if [ -f AGENTS.md ]; then
+    printf '  %sread%s  AGENTS.md\n' "$D" "$R"
+    awk -F' *[|] *' '$2 != "" && $2 != "Part" && $2 !~ /^-/ { m = $3; gsub(/server |"/, "", m); printf "        %-11s %-11s %s\n", $2, m, $5 }' AGENTS.md
+  fi
+  printf '  %splan%s  API checks the code\n' "$D" "$R"
+  printf '        Worker prints it on the receipt\n'
+  printf '        Storefront shows the discount\n'
+  printf '%s●%s Ready. One plan for three parts.\n' "$G" "$R"
   prompt
   exec cat >/dev/null
   ;;
