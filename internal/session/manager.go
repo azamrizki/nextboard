@@ -128,6 +128,11 @@ type Manager struct {
 	RemoteWorkDir func(machineID, cwd string) (string, error)
 	// PartReadOnly: no agent may work in that part of the project (ROADMAP #49). nil = none is.
 	PartReadOnly func(projectID, partID string) bool
+	// RootDir makes the project's root folder current (<data>/roots/<projectId>, v0.9.0-beta.2)
+	// and returns it. It is called before every launch of a root console (Spec.Root): create,
+	// restart, wake and the start after a hub restart, so the folder exists and lists the parts
+	// as they are now. An error fails that launch. nil = no root consoles can start.
+	RootDir func(projectID string) (string, error)
 	// OnChannelLost: the channel of a console on a server died.
 	OnChannelLost func(sp Spec)
 	// LaunchContext is what the hub gives an agent's launch on This PC.
@@ -716,7 +721,12 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 	}
 	// In a read-only part an agent works as it does on a server, through the hub's tools, which
 	// then only read; a CLI that cannot work that way stays out.
-	readOnly := a.Kind == agent.KindAgent && m.partReadOnly(req.ProjectID, req.PartID)
+	// A root console reaches its read-only parts through the hub's read tools; it is never
+	// read-only itself (the server placed it on This PC, in the root folder).
+	readOnly := a.Kind == agent.KindAgent && !req.Root && m.partReadOnly(req.ProjectID, req.PartID)
+	if req.Root && (req.PartID != "" || req.MachineID != machine.LocalID || req.ProjectID == "") {
+		return Info{}, ErrBadRequest
+	}
 	if readOnly && (!st.Agents.RemoteTools || !a.WorksOnServers() || m.RemoteWorkDir == nil) {
 		return Info{}, ErrPartReadOnly
 	}
@@ -802,7 +812,7 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		Command: a.Command, Args: append([]string{}, a.Args...), ResumeArgs: append([]string{}, a.Resume.ContinueArgs...),
 		Env: append([]string{}, a.Env...), Cwd: cwd,
 		Cols: clamp(req.Cols, 10, 500), Rows: clamp(req.Rows, 4, 300),
-		CreatedAt: time.Now().UTC(), ProjectID: req.ProjectID, WorkspaceID: req.WorkspaceID, PartID: req.PartID, Panel: req.Panel,
+		CreatedAt: time.Now().UTC(), ProjectID: req.ProjectID, WorkspaceID: req.WorkspaceID, PartID: req.PartID, Root: req.Root, Panel: req.Panel,
 		Agent: a.ID, AgentKind: a.Kind, Yolo: yolo, ProfileID: profileID, ProviderID: providerID, AgentSessionID: aid,
 		Model: model, Effort: effort,
 	}
@@ -975,7 +985,7 @@ func (m *Manager) Restart(id string, req RestartRequest) (Info, error) {
 	}
 	// also a restart of the agent it has: the part may have become read-only since, and then the
 	// agent works through the hub's tools from now on
-	if a.Kind == agent.KindAgent && m.partReadOnly(sp.ProjectID, sp.PartID) && sp.RemoteMachineID == "" {
+	if a.Kind == agent.KindAgent && !sp.Root && m.partReadOnly(sp.ProjectID, sp.PartID) && sp.RemoteMachineID == "" {
 		if sp.MachineID != machine.LocalID || !m.Settings().Agents.RemoteTools || !a.WorksOnServers() || m.RemoteWorkDir == nil {
 			return Info{}, ErrPartReadOnly
 		}
@@ -1235,12 +1245,16 @@ func (m *Manager) Assign(id, projectID, workspaceID string) error {
 }
 
 // MoveProject gives one project's sessions to another, as when projects merge (ROADMAP #49), and
-// puts each in the part part maps its old one to. Nothing restarts.
+// puts each in the part part maps its old one to. Nothing restarts. A root console stays at the
+// root, with its folder (roots/<from>, which the hub keeps current as an alias of to's root).
 func (m *Manager) MoveProject(from, to string, part func(string) string) int {
 	var moved []*Session
 	for _, s := range m.all() {
 		s.mu.Lock()
-		if s.spec.ProjectID == from {
+		if s.spec.ProjectID == from && s.spec.Root {
+			s.spec.ProjectID = to
+			moved = append(moved, s)
+		} else if s.spec.ProjectID == from {
 			s.spec.ProjectID, s.spec.PartID = to, part(s.spec.PartID)
 			moved = append(moved, s)
 		}

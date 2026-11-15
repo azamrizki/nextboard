@@ -46,6 +46,10 @@ import { ContextMenu, type MenuEntry } from '../components/Menu';
 import { toast } from '../components/Toast';
 import { arrangeOps } from './arrange';
 import { prefs } from '../lib/format';
+import { isRoot, placementOfSession, projectParts, ROOT, type Placement } from '../lib/parts';
+import { defaultPlacement, focusedPlacement, isMultiPart, lastPlacement, machineOfPlace, placeFromValue, placeLabel, placeShort, placeValue, rememberPlacement, ROOT_VALUE } from '../lib/placement';
+import { pendingPaneOf } from '../agents/jump';
+import { cardFor, cardForFile, cardPlacement, editorData, isEditor, partOfFile, type CodeFile } from './editorCards';
 import type { BoardNode, Op, Project, Workspace } from '../lib/types';
 import { useLayout } from '../lib/layout';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -76,6 +80,7 @@ import { Inspector } from './Inspector';
 import { baseName, DEFAULT_SIZE, dirName, nodeLabel, readGroup, readNote } from './kinds';
 import { DEFAULT_H, DEFAULT_W, MINIMAP_H, MINIMAP_W, placeNear } from './layout';
 import { useNewTerminal, type TerminalChoice } from './NewTerminal';
+import { OTHER_VALUE, PlacePicker } from './PlacePicker';
 import { NOTE_COLORS } from './palette';
 import { InsertButtons, InsertRail, ToolRail, ZoomControls, type InsertItem } from './Rails';
 import { CardList, PhoneTabs, usePhoneTab } from './PhoneBoard';
@@ -196,6 +201,24 @@ function isTyping(t: EventTarget | null): boolean {
 }
 const modalOpen = () => !!document.querySelector('.modal-layer');
 
+/** What the board's openCode is asked (v0.9.0-beta.2): a file, a placement, or neither (ask). */
+interface OpenCodeRequest {
+  file?: CodeFile;
+  placement?: Placement;
+  /** With a placement: a Root card will do too (it shows every part). */
+  rootOk?: boolean;
+  /** Where a new card goes. */
+  at?: { x: number; y: number };
+}
+
+/** The editor card an agent pane of this session belongs in: its placement, else the Root. */
+function paneCardPlacement(project: Project, sessionId: string): Placement {
+  const waiting = pendingPaneOf(sessionId)?.placement;
+  if (waiting) return waiting;
+  const s = store.getState().sessions[sessionId];
+  return (s && placementOfSession(s, project)) ?? ROOT;
+}
+
 interface BoardViewProps {
   project: Project;
   workspace: Workspace;
@@ -299,7 +322,18 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     document.documentElement.setAttribute('data-phone-tab', phoneTab);
     return () => document.documentElement.removeAttribute('data-phone-tab');
   }, [phone, phoneTab]);
-  const machine = useMachine(project.machineId);
+  // "File from project": the part it browses (several parts: the default "Place in" part, picked in it)
+  const [pickerPartId, setPickerPartId] = useState('');
+  const pickerPart = useMemo(() => {
+    const parts = projectParts(project);
+    if (parts.length === 1) return parts[0];
+    const chosen = parts.find((p) => p.id === pickerPartId);
+    if (chosen) return chosen;
+    const last = lastPlacement(project);
+    // where the browser opens first; the part is picked in it (the root is no folder to browse)
+    return parts.find((p) => last && !isRoot(last) && p.id === last.partId) ?? parts.find((p) => (p.machineId || 'local') === 'local') ?? parts[0];
+  }, [project, pickerPartId]);
+  const pickerMachine = useMachine(pickerPart?.machineId || 'local');
   const shortcuts = useShortcuts();
   const [spawnOpen, setSpawnOpen] = useState(false);
   const [allAgents, setAllAgents] = useState(false);
@@ -488,10 +522,10 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     if (!p || ctl.sync.status !== 'ready') return;
     const n = ctl.nodes.find((x) => x.kind === 'terminal' && x.data.sessionId === p.sessionId);
     if (!n) {
-      // an agent opened inside the editor: the card shows it (agents/jump.ts)
+      // an agent opened inside the editor: the card of its placement shows it (agents/jump.ts)
       if (store.getState().sessions[p.sessionId]?.panel) {
         pendingFocus.current = null;
-        openCodeRef.current();
+        openCodeRef.current({ placement: paneCardPlacement(ctl.project, p.sessionId), rootOk: true });
       }
       return;
     }
@@ -513,9 +547,9 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       registerBoardFocus(ctl.workspaceId, (sessionId) => {
         const n = ctl.nodes.find((x) => x.kind === 'terminal' && x.data.sessionId === sessionId);
         if (!n) {
-          // an agent opened inside the editor has no tile: it lives in the editor card
+          // an agent opened inside the editor has no tile: it lives in an editor card, its placement's
           if (!store.getState().sessions[sessionId]?.panel) return false;
-          openCodeRef.current();
+          openCodeRef.current({ placement: paneCardPlacement(ctl.project, sessionId), rootOk: true });
           return true;
         }
         ctl.select([n.id]);
@@ -537,6 +571,8 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       }
       const rect = placeNear(ctl.nodes.map(rectOf), center, DEFAULT_W, DEFAULT_H);
       const s = await ctl.spawn({
+        // several parts: at the root, or in a part (its machine; cwd a folder inside it or empty)
+        ...(choice.place ? (isRoot(choice.place) ? { root: true } : { partId: choice.place.partId }) : {}),
         machineId: choice.machineId,
         preset: choice.preset,
         name: choice.name,
@@ -556,7 +592,17 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     },
     [ctl, compact, focusPending],
   );
-  const nt = useNewTerminal(project, (c) => spawnAt(c, viewCenter()));
+  /** Where the focused tile works (focus mode, else the selection): new consoles and cards go there by default. */
+  const focusedPlace = useCallback(() => focusedPlacement(ctl.project, ctl.nodes, ctl.selection, focusedRef.current?.id ?? null, store.getState().sessions), [ctl]);
+  const nt = useNewTerminal(project, (c) => spawnAt(c, viewCenter()), focusedPlace);
+  // "File from project" opens on the default "Place in" part (shown once that is known: one listing)
+  const [pickerFor, setPickerFor] = useState<object | null>(null);
+  useEffect(() => {
+    if (!filePicker) return;
+    const p = isMultiPart(ctl.project) ? defaultPlacement(ctl.project, focusedPlace(), lastPlacement(ctl.project)) : null;
+    setPickerPartId(p && !isRoot(p) ? p.partId : '');
+    setPickerFor(filePicker);
+  }, [filePicker, ctl, focusedPlace]);
 
   // ---- Spawn tool (T): the armed agent + its flyout ----
   const openSpawn = useCallback(() => {
@@ -1118,7 +1164,18 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       const rect = at
         ? { x: at.x - size.w / 2, y: at.y - size.h / 2, w: size.w, h: size.h }
         : placeNear(ctl.nodes.filter((n) => n.kind !== 'ink').map(rectOf), viewCenter(), size.w, size.h);
-      const node = kind === 'web' ? webNode(ctl, rect, url) : kind === 'app' ? ctl.make('app', rect, appData ?? {}) : kind === 'editor' ? ctl.make('editor', rect, {}) : ctl.make('branches', rect, { projectId: project.id });
+      // several parts: a web tile shows the dev server of the default "Place in" part (the root's
+      // is on This PC); a branches card is about that part (v0.9.0-beta.2)
+      const place = isMultiPart(ctl.project) ? defaultPlacement(ctl.project, focusedPlace(), lastPlacement(ctl.project)) : null;
+      const partId = place && !isRoot(place) ? place.partId : undefined;
+      const node =
+        kind === 'web'
+          ? webNode(ctl, rect, url, place ? { machineId: machineOfPlace(ctl.project, place), partId } : undefined)
+          : kind === 'app'
+            ? ctl.make('app', rect, appData ?? {})
+            : kind === 'editor'
+              ? ctl.make('editor', rect, appData ?? {})
+              : ctl.make('branches', rect, { projectId: project.id, ...(partId ? { partId } : {}) });
       ctl.addNodes([node]);
       // a big tile that landed (partly) outside the view gets framed
       const box = canvasRef.current?.getBoundingClientRect();
@@ -1129,7 +1186,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       }
       return node;
     },
-    [ctl, ui, viewCenter, project.id, rf, frame],
+    [ctl, ui, viewCenter, project.id, rf, frame, focusedPlace],
   );
   /** Each app has one session: a tile of it on this board takes the session, else a new tile. */
   const placeApp = useCallback(
@@ -1145,21 +1202,57 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     },
     [ctl, insertNode, frame],
   );
-  /** The editor is a card: show the one on this board, or place it, and open a file in it. */
+  /**
+   * The editor is a card, and a board may hold several (v0.9.0-beta.2): at the Root (every part)
+   * or in one part. A file opens in the card of its part, else a Root card, else a new card in its
+   * part, with no question. A placement (a pane, a commit, the lead) gets that card (a Root card
+   * too with rootOk), else a new one. Neither (the rail, the ring, the command bar): a project of
+   * several parts asks "Show: Root / <part>" (default: the focused tile's, else the last used); a
+   * single-part project shows its one card. Returns the card's node id, unless it asks.
+   */
   const openCode = useCallback(
-    (path?: string, line?: number, at?: { x: number; y: number }) => {
-      const existing = ctl.nodes.find((n) => n.kind === 'editor');
-      const node = existing ?? insertNode('editor', at);
-      ctl.select([node.id]);
-      frame(node.id);
-      if (path) ui.set({ openFile: { path, line, at: Date.now() } });
+    (req: OpenCodeRequest | string = {}, line?: number): string | undefined => {
+      const r: OpenCodeRequest = typeof req === 'string' ? { file: { path: req, line } } : req;
+      const proj = ctl.project;
+      const show = (card: BoardNode, file?: CodeFile) => {
+        ctl.select([card.id]);
+        frame(card.id);
+        if (file) {
+          const part = partOfFile(proj, file);
+          ui.set({ openFile: { nodeId: card.id, machineId: file.machineId ?? part?.machineId, partId: file.partId ?? part?.id, path: file.path, line: file.line, at: Date.now() } });
+        }
+        return card.id;
+      };
+      const place = (p: Placement) => insertNode('editor', r.at, '', editorData(proj, p));
+      if (r.file) {
+        const { card, placement } = cardForFile(ctl.nodes, proj, r.file);
+        return show(card ?? place(placement), r.file);
+      }
+      if (r.placement) return show(cardFor(ctl.nodes, proj, r.placement, r.rootOk) ?? place(r.placement));
+      if (isMultiPart(proj)) {
+        setCodeAsk({ at: r.at, value: placeValue(defaultPlacement(proj, focusedPlace(), lastPlacement(proj))) });
+        return undefined;
+      }
+      return show(ctl.nodes.find(isEditor) ?? place(ROOT));
     },
-    [ctl, insertNode, frame, ui],
+    [ctl, insertNode, frame, ui, focusedPlace],
   );
   const openCodeRef = useRef(openCode);
   openCodeRef.current = openCode;
+  /** Several parts: the part dropped files are copied into by default (the focused tile's, else the last used). */
+  const dropPart = () => {
+    const p = isMultiPart(ctl.project) ? defaultPlacement(ctl.project, focusedPlace(), lastPlacement(ctl.project)) : null;
+    return p && !isRoot(p) ? p.partId : undefined;
+  };
+  /** The card openCode showed, and what it shows (a commit goes into that card's view). */
+  const shownCard = (nodeId: string | undefined) => {
+    const n = nodeId ? ctl.node(nodeId) : undefined;
+    return n ? { nodeId: n.id, placement: cardPlacement(n, ctl.project) } : undefined;
+  };
+  /** "Show: Root (all parts) / <part>" before an editor card opens, in a project of several parts. */
+  const [codeAsk, setCodeAsk] = useState<{ at?: { x: number; y: number }; value: string } | null>(null);
   const openStudio = (kind: 'documents' | 'code' | 'markdown' | 'skills', extra: { path?: string; documentId?: string } = {}) => {
-    if (kind === 'code') openCode(extra.path);
+    if (kind === 'code') openCode(extra.path ? { file: { path: extra.path } } : {});
     else ui.set({ studio: { kind, ...extra } });
   };
   /** The right rail: what a project is worked with. What goes on the board is in the right-click ring. */
@@ -1251,7 +1344,8 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
               fit();
               break;
             case 'openFile':
-              if (a.path) openCodeRef.current(a.path, a.line);
+              // the part the lead meant (UIAction.part) decides the card
+              if (a.path) openCodeRef.current({ file: { path: a.path, line: a.line, partId: a.part || undefined } });
               break;
             case 'zoomIn':
               void rf.zoomIn({ duration: 150 });
@@ -1281,7 +1375,8 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
               else if (a.panel === 'mission') ui.set({ mission: true });
               else if (a.panel === 'settings') navigate('/settings');
               else if (a.panel === 'usage') usageUi.set(true);
-              else if (a.panel === 'code') openCodeRef.current();
+              // the lead works at the root: its "open code" is the Root card (a single part: the one card)
+              else if (a.panel === 'code') openCodeRef.current({ placement: ROOT });
               else if (a.panel === 'documents' || a.panel === 'markdown' || a.panel === 'skills') ui.set({ studio: { kind: a.panel } });
               else if (a.panel === 'diagrams') ui.set({ panel: 'diagrams' });
               else toast.info(`${a.panel ? a.panel[0].toUpperCase() + a.panel.slice(1) : 'That panel'} isn’t available here.`);
@@ -1521,11 +1616,12 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       const path = single.data.path;
       const mid = typeof single.data.machineId === 'string' ? single.data.machineId : '';
       items.push({ label: 'Copy path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(path).catch(() => undefined) });
-      if (mid === project.machineId && single.data.view !== 'folder')
+      // the editor: a file on the machine of any part (its part's card, v0.9.0-beta.2); the Markdown studio still reads the project's machine
+      if (single.data.view === 'markdown' ? mid === project.machineId : single.data.view !== 'folder' && projectParts(project).some((p) => (p.machineId || 'local') === (mid || 'local')))
         items.push(
           single.data.view === 'markdown'
             ? { label: 'Open in Markdown studio', icon: 'markdown', onSelect: () => openStudio('markdown', { path }) }
-            : { label: 'Open in the editor card', icon: 'code', onSelect: () => openStudio('code', { path }) },
+            : { label: 'Open in the editor card', icon: 'code', onSelect: () => void openCode({ file: { machineId: mid || 'local', path } }) },
         );
       if (mid && single.data.view !== 'folder')
         items.push({
@@ -1647,7 +1743,10 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       window.removeEventListener('pointerdown', release, true);
     };
   }, []);
-  const terminalHint = nt.agent ? `${nt.agent.name}${nt.machine && nt.machine.id !== project.machineId ? ` on ${nt.machine.name}` : ''}` : '';
+  // several parts: where it goes ("Claude Code in Root (all parts)", "… in admin")
+  const terminalHint = nt.agent
+    ? `${nt.agent.name}${nt.place ? ` in ${placeLabel(project, nt.place)}` : nt.machine && nt.machine.id !== project.machineId ? ` on ${nt.machine.name}` : ''}`
+    : '';
   const initialViewport = useMemo(() => loadViewport(ctl.workspaceId), [ctl.workspaceId]);
   // Decided once, when the board first loads: React Flow (re)fits whenever this prop is
   // true and nodes appear, which must not happen while someone is working.
@@ -1806,7 +1905,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} />
             <Panel position="bottom-left" className="bl-panel">
               <ZoomControls />
-              <GitPill projectId={project.id} open={panel === 'git'} onOpen={() => togglePanel('git')} shortcut={shortcuts.git} />
+              <GitPill projectId={project.id} project={project} open={panel === 'git'} onOpen={() => togglePanel('git')} shortcut={shortcuts.git} />
             </Panel>
             <MiniMap<FlowNode>
               pannable
@@ -1902,6 +2001,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
                   setAllAgents(true);
                 }}
                 onClose={() => setSpawnOpen(false)}
+                place={nt.multi ? <PlacePicker project={project} value={nt.placeValue} onChange={nt.setPlace} other={nt.placeValue === OTHER_VALUE} hint={false} /> : undefined}
               />
             }
           />
@@ -1920,7 +2020,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
           <CommandBar ctl={ctl} ui={ui} project={project} nt={nt} loopsRunning={loopsRunning} onArrange={arrange} lead={phone && phoneTab === 'lead'} />
           {phone && (
             <>
-              {phoneTab === 'cards' && !focused && <CardList nodes={state.nodes} onOpen={focusCard} onNewConsole={() => void nt.create()} onAdd={() => setAddingCard(true)} />}
+              {phoneTab === 'cards' && !focused && <CardList nodes={state.nodes} project={project} newConsoleWhere={nt.place ? placeShort(project, nt.place) : undefined} onOpen={focusCard} onNewConsole={() => void nt.create()} onAdd={() => setAddingCard(true)} />}
               <PhoneTabs
                 tab={phoneTab}
                 onTab={(t) => {
@@ -1999,7 +2099,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
           />
         )}
         {handoff && <HandoffDialog sessionId={handoff} workspaceId={ctl.workspaceId} projectId={project.id} onClose={() => ui.set({ handoff: null })} />}
-        {panel === 'git' && <GitPanel project={project} workspaceId={ctl.workspaceId} onClose={() => ui.set({ panel: null })} openEditor={(path) => openCode(path)} ui={ui} />}
+        {panel === 'git' && <GitPanel project={project} workspaceId={ctl.workspaceId} onClose={() => ui.set({ panel: null })} openEditor={(to?: string | { placement: Placement }) => (typeof to === 'object' ? shownCard(openCode({ placement: to.placement, rootOk: true })) : openCode(to ? { file: { path: to } } : {}))} ui={ui} />}
         {panel === 'diagrams' && <DiagramsPanel ctl={ctl} project={project} viewCenter={viewCenter} reveal={revealRect} onClose={() => ui.set({ panel: null })} />}
         {diagramRuns.length > 0 && <DrawingCards ctl={ctl} viewCenter={viewCenter} reveal={revealRect} />}
         {studio?.kind === 'documents' && (
@@ -2075,25 +2175,61 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
         </ConfirmDialog>
       )}
 
-      {drop && <DropDialog files={drop.files} at={drop.at} ctl={ctl} project={project} onClose={() => setDrop(null)} />}
+      {drop && <DropDialog files={drop.files} at={drop.at} ctl={ctl} project={project} partId={dropPart()} onClose={() => setDrop(null)} />}
 
-      {filePicker && (
+      {codeAsk && (
+        <CodePlaceDialog
+          project={project}
+          value={codeAsk.value}
+          onChange={(value) => setCodeAsk({ ...codeAsk, value })}
+          existing={!!cardFor(state.nodes, project, placeFromValue(codeAsk.value))}
+          onClose={() => setCodeAsk(null)}
+          onOpen={() => {
+            const p = placeFromValue(codeAsk.value);
+            setCodeAsk(null);
+            rememberPlacement(project, p);
+            openCode({ placement: p, at: codeAsk.at });
+          }}
+        />
+      )}
+
+      {filePicker && pickerPart && pickerFor === filePicker && (
         <FolderBrowser
-          machineId={project.machineId}
-          machineName={machine?.name ?? project.machineId}
-          initialPath={project.path}
-          title={`Add a file from ${project.name}`}
+          // another part: its machine and folder, browsed afresh
+          key={pickerPart.id}
+          machineId={pickerPart.machineId || 'local'}
+          machineName={pickerMachine?.name ?? (pickerPart.machineId || 'This PC')}
+          initialPath={pickerPart.path}
+          title={`Add a file from ${project.name}${projectParts(project).length > 1 ? ` · ${pickerPart.name}` : ''}`}
           chooseLabel="Add folder card"
+          top={
+            projectParts(project).length > 1 ? (
+              <div className="fb-part">
+                <PlacePicker
+                  project={project}
+                  value={pickerPart.id}
+                  onChange={(v) => {
+                    if (v === ROOT_VALUE) return;
+                    setPickerPartId(v);
+                    rememberPlacement(project, { partId: v });
+                  }}
+                  label="Part"
+                  hint={false}
+                  noRoot
+                />
+              </div>
+            ) : undefined
+          }
           onClose={() => ui.set({ filePicker: null })}
           onChoose={(path) => {
             const at = filePicker;
             ui.set({ filePicker: null });
-            void addPath(ctl, project.machineId, path, at, { dir: true });
+            void addPath(ctl, pickerPart.machineId || 'local', path, at, { dir: true });
           }}
           onChooseFile={(path) => {
             const at = filePicker;
             ui.set({ filePicker: null });
-            void addPath(ctl, project.machineId, path, at).then((n) => n && toast.success(`Added ${baseName(path)}.`));
+            void addPath(ctl, pickerPart.machineId || 'local', path, at).then((n) => n && toast.success(`Added ${baseName(path)}.`));
           }}
         />
       )}
@@ -2233,5 +2369,45 @@ function FocusBar({ ctl, node, nodes, back = 'Board' }: { ctl: BoardController; 
       <Button size="sm" variant="ghost" iconOnly icon="chevronLeft" disabled={!prev} aria-label={prev ? `Previous card: ${name(prev)}` : 'Previous card'} onClick={() => prev && focusCard(prev.id)} />
       <Button size="sm" variant="ghost" iconOnly icon="chevronRight" disabled={!next} aria-label={next ? `Next card: ${name(next)}` : 'Next card'} onClick={() => next && focusCard(next.id)} />
     </div>
+  );
+}
+
+/**
+ * "Show: Root (all parts) / <part>" before the Code editor opens in a project of several parts
+ * (v0.9.0-beta.2): the card of that placement comes into view, or one is added.
+ */
+function CodePlaceDialog({ project, value, onChange, existing, onClose, onOpen }: { project: Project; value: string; onChange: (v: string) => void; existing: boolean; onClose: () => void; onOpen: () => void }) {
+  const root = value === ROOT_VALUE;
+  return (
+    <Modal
+      title="Open the code editor"
+      icon="code"
+      size="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" form="code-place-form" variant="primary" icon="code">
+            {existing ? 'Show the editor' : 'Add the editor'}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="code-place-form"
+        className="form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onOpen();
+        }}
+      >
+        <PlacePicker project={project} value={value} onChange={onChange} label="Show" size="md" hint={false} />
+        <p className="fs-xs text-3">
+          {root ? 'One tree with every part as a top-level folder.' : 'Only this part’s folder, as its own tree.'} {existing ? 'Its card is on this board: it comes into view.' : 'A new editor card goes on the board.'}
+        </p>
+      </form>
+    </Modal>
   );
 }

@@ -15,7 +15,8 @@ func TestReviewLeavesTheHomeFolderAlone(t *testing.T) {
 
 	unsupported := func(id string) {
 		t.Helper()
-		if err := h.srv.review.Snapshot(id); err == nil {
+		key := h.srv.reviewKeyOf(id, "")
+		if err := h.srv.review.Snapshot(key); err == nil {
 			t.Fatalf("%s: snapshot harus ditolak", id)
 		}
 		var sum struct {
@@ -24,7 +25,7 @@ func TestReviewLeavesTheHomeFolderAlone(t *testing.T) {
 		if st := h.getJSON("/api/projects/"+id+"/review", &sum); st != 200 || sum.Supported {
 			t.Fatalf("%s: review: %d %+v", id, st, sum)
 		}
-		if _, err := os.Stat(h.srv.st.Path("review", id)); !os.IsNotExist(err) {
+		if _, err := os.Stat(h.srv.st.Path("review", key)); !os.IsNotExist(err) {
 			t.Fatalf("%s: folder review terbentuk: %v", id, err)
 		}
 	}
@@ -45,7 +46,7 @@ func TestReviewLeavesTheHomeFolderAlone(t *testing.T) {
 	if st != 201 {
 		t.Fatalf("project: %d %v", st, own)
 	}
-	if err := h.srv.review.Snapshot(own["id"].(string)); err != nil {
+	if err := h.srv.review.Snapshot(h.srv.reviewKeyOf(own["id"].(string), "")); err != nil {
 		t.Fatalf("project biasa: %v", err)
 	}
 }

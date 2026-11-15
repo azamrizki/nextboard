@@ -1,58 +1,67 @@
-// State of one project's Code workbench: file tree, open documents (Monaco models), editor
-// groups and tabs, git decorations, the file list of "Go to file". It outlives the
-// workbench's React tree so closing and reopening keeps tabs, undo and unsaved edits; the
-// layout and the tab list also survive a reload (localStorage, drafts in IndexedDB).
+// One editor card's view of a project (v0.9.0-beta.2, docs/API-studio.md §7): its tabs and
+// groups, the file tree, search state, panes, terminals, the debugger and the link to Claude
+// consoles, kept per place (viewKey): a single-part project's one card, a card placed in one part,
+// or the Root card that shows every part as a top-level folder. It outlives the card's React tree
+// so closing and reopening keeps tabs, undo and unsaved edits; the layout and the tab list also
+// survive a reload (localStorage, drafts in IndexedDB).
+//
+// The files themselves are the tab's DocStore (docs.ts), shared by every card; a part's language
+// servers, git, review and Laravel state are its PartService (partsvc.ts). Every path here is a
+// FileKey (paths.ts): the same as the absolute path on This PC, "//m-<hex>/abs" elsewhere.
 
-import { api, ApiError, errorMessage, fsRawUrl, isCode } from '../../api';
+import { api, errorMessage } from '../../api';
 import { sendPasted } from '../../board/files';
-import { packUpload } from '../../lib/pack';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { limiter } from '../../lib/limiter';
-import { projectParts } from '../../lib/parts';
-import type { Project, ProjectPart } from '../../lib/types';
-import { store } from '../../store';
-import { filesApi, fsApi, gitApi, laravelApi, reviewApi, type Confirm, type FileListing, type LaravelIndex } from '../api';
-import { drafts, type Draft } from '../drafts';
+import { packUpload } from '../../lib/pack';
+import { mountsOf, normalPlacement, partHoldingOn, projectParts, ROOT, type Placement } from '../../lib/parts';
+import type { CreateSession, Project, ProjectPart } from '../../lib/types';
+import { filesApi, fsApi, type Confirm, type FileListing, type LaravelIndex, type SearchFile, type SearchQuery } from '../api';
 import { studioStore, waitJob } from '../store';
-import type { GitStatus, GitTarget, ProjectTask, ReviewSummary, StudioEvent, TreeEntry } from '../types';
+import type { GitStatus, GitTarget, ProjectTask, ReviewSummary, TreeEntry } from '../types';
+import type { OpenOptions, PartServiceApi, PartSpecialView, ViewApi, ViewProblems } from './contracts';
+import { Debugger } from './debug';
+import { DEFAULT_EDITOR_PREFS, docStore, editorPrefs, MAX_EDIT, MAX_VIEW, type Doc, type EditorPrefs } from './docs';
 import { fileClip } from './fileClip';
 import { IdeLink } from './ideLink';
-import { Debugger } from './debug';
-import { LspHub } from './lsp';
-import { languageFor, monaco } from './monaco';
+import type { LspHub } from './lsp';
+import { monaco } from './monaco';
+import { PartService, type GitMark, type PartView } from './partsvc';
+import { asFileKey, cleanAbs, fileKey, isRootKey, joinKey, keyOfUri, keyUnder, LOCAL_MACHINE, parentKey, PERSIST_VERSION, ROOT_KEY, splitKey, under, viewKey, ViewPaths, type FileKey, type Mount } from './paths';
+import {
+  DEFAULT_SEARCH,
+  listUnder,
+  MAX_GROUPS,
+  MAX_RECENT,
+  mergeBookmarks,
+  mergeLegacy,
+  readBookmarks,
+  readState,
+  stateUnder,
+  type SavedBookmark,
+  type MdView,
+  type PanelView,
+  type Persisted,
+  type ReadState,
+  type SearchState,
+  type SideView,
+} from './persist';
 
-/** Files up to here are editable; larger ones are read-only up to MAX_VIEW. */
-export const MAX_EDIT = 1 << 20;
-export const MAX_VIEW = 10 << 20;
-const MAX_GROUPS = 3;
-const MAX_RECENT = 50;
-const LSP_IDLE_MS = 5 * 60_000;
+export { DEFAULT_EDITOR_PREFS, MAX_EDIT, MAX_VIEW };
+export type { Doc, EditorPrefs, GitMark, MdView, PanelView, SearchState, SideView };
+
 /**
- * A workbench closed this long, with nothing unsaved and no debug session, is let go: its
- * models, file tree, git and Laravel state, and its subscriptions. Opened again it is made
- * anew from what it saved (tabs, layout), as after a reload. Kept, every project whose editor
- * was ever opened stayed in the tab's memory until the tab closed.
+ * A card closed this long, with nothing unsaved only it holds and no debug session, is let go:
+ * its tree, its hold on the files and parts, and its subscriptions. Opened again it is made anew
+ * from what it saved (tabs, layout), as after a reload.
  */
 const RELEASE_MS = 10 * 60_000;
-/**
- * A model made for a language server (peek, go to definition, rename) on a file without a tab
- * is let go once nothing asked for it this long and no editor shows it. Kept, every file a
- * definition was looked up in stayed until the whole workbench went.
- */
-const LENT_MS = 3 * 60_000;
+/** The most paths one watch on a machine covers. */
+const MAX_WATCH = 200;
 
-const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg', 'ico']);
-const MEDIA_EXT = new Set(['mp4', 'webm', 'mov', 'mp3', 'wav', 'ogg', 'flac']);
 export const MARKDOWN_EXT = new Set(['md', 'markdown', 'mdx']);
 
-/** Saving one of these can change what the Laravel index holds. */
-const changesLaravelIndex = (rel: string) =>
-  /(^|\/)(routes|config|lang)\/[^/]+\.php$/.test(rel) || /(^|\/)resources\/views\//.test(rel) || /(^|\/)app\/View\/Components\//.test(rel) || /(^|\/)\.env\.example$/.test(rel);
-
-export type SideView = 'files' | 'search' | 'scm' | 'review' | 'debug' | 'laravel' | 'extensions' | 'agents' | 'settings';
-export type PanelView = 'terminal' | 'problems' | 'output' | 'debug' | 'tasks' | 'ports';
-export type MdView = 'reader' | 'split' | 'source';
 export type DiffSource = 'head' | 'index' | 'staged' | 'disk' | `commit:${string}` | `ide:${string}`;
 
 export const extOf = (p: string) => {
@@ -61,34 +70,12 @@ export const extOf = (p: string) => {
   return i > 0 ? base.slice(i + 1).toLowerCase() : '';
 };
 export const nameOf = (p: string) => p.slice(p.lastIndexOf('/') + 1);
-export const dirOf = (p: string) => p.slice(0, p.lastIndexOf('/')) || '/';
-
-export interface Doc {
-  path: string;
-  kind: 'text' | 'image' | 'media' | 'binary' | 'toolarge';
-  status: 'loading' | 'ready' | 'error';
-  error: string;
-  model: monaco.editor.ITextModel | null;
-  savedAlt: number;
-  dirty: boolean;
-  mtime: string;
-  size: number;
-  bom: boolean;
-  /** Not UTF-8: decoded with this, read-only so that the bytes stay as they are. */
-  encoding: string;
-  /** Both LF and CRLF in the file: saving makes them all the same. */
-  mixedEol: boolean;
-  /** Why the file cannot be edited ("" = editable). */
-  readOnly: string;
-  /** Changed on disk while there are unsaved edits, or a save was refused for it. */
-  conflict: boolean;
-  deleted: boolean;
-  outside: boolean;
-  saving: boolean;
-  saveError: string;
-  recovered: Draft | null;
-  md: MdView;
-}
+/** The folder of a path or a key ("//m-ab/x" → "//m-ab/", the machine's "/"). */
+export const dirOf = (p: string) => {
+  const d = p.slice(0, p.lastIndexOf('/'));
+  if (p.startsWith('//') && d.indexOf('/', 2) < 0) return `${d}/`;
+  return d || '/';
+};
 
 export interface CommitTab {
   hash: string;
@@ -97,23 +84,30 @@ export interface CommitTab {
   label: string;
   /** The file last chosen in it. */
   file?: string;
+  /** The part whose repository it is (id). */
+  part?: string;
 }
 
-/** A view of its own in a tab, instead of a file. */
-export type SpecialView = { kind: 'review'; session: string; path: string; agent: string } | { kind: 'history'; path: string } | { kind: 'graph' } | { kind: 'pr'; number: number; title: string; repo: string };
+/** A view of its own in a tab, instead of a file. The part is the active one when not named. */
+export type SpecialView =
+  | { kind: 'review'; part?: string; session: string; path: string; agent: string }
+  | { kind: 'history'; part?: string; path: string }
+  | { kind: 'graph'; part?: string }
+  | { kind: 'pr'; part?: string; number: number; title: string; repo: string };
 
-const viewId = (v: SpecialView) => (v.kind === 'review' ? `review:${v.session}:${v.path}` : v.kind === 'history' ? `history:${v.path}` : v.kind === 'pr' ? `pr:${v.repo}:${v.number}` : v.kind);
+const viewId = (v: PartSpecialView) =>
+  v.kind === 'review' ? `review:${v.part}:${v.session}:${v.path}` : v.kind === 'history' ? `history:${v.path}` : v.kind === 'pr' ? `pr:${v.part}:${v.repo}:${v.number}` : `graph:${v.part}`;
 
 export interface Tab {
   id: string;
-  /** "" when it shows no file: a pane, a commit or a special view. */
-  path: string;
+  /** The file's key; "" when it shows no file: a pane, a commit or a special view. */
+  path: FileKey | '';
   diff?: DiffSource;
   /** An agent console or the orchestrator instead of a file (AgentPanes.tsx). */
   pane?: string;
   /** A commit's details instead of a file (CommitView.tsx). */
-  commit?: CommitTab;
-  view?: SpecialView;
+  commit?: CommitTab & { part: string };
+  view?: PartSpecialView;
   preview: boolean;
 }
 
@@ -126,49 +120,11 @@ export interface Group {
   active: string | null;
 }
 
-export interface SearchState {
-  query: string;
-  replace: string;
-  matchCase: boolean;
-  wholeWord: boolean;
-  regex: boolean;
-  include: string;
-  exclude: string;
-}
+/** A row of the tree: in a Root view the top rows are the parts, with their folder's key. */
+export type ViewTreeEntry = TreeEntry & { key?: FileKey; part?: string };
+export type TreeSlot = ViewTreeEntry[] | 'loading' | { error: string };
 
-export interface EditorPrefs {
-  fontSize: number;
-  tabSize: number;
-  minimap: boolean;
-  wordWrap: boolean;
-  formatOnSave: boolean;
-  autoSave: 'off' | 'afterDelay' | 'onFocusChange';
-  stickyScroll: boolean;
-  bracketColors: boolean;
-  renderWhitespace: boolean;
-  /** Ghost text from the runner: never, on Alt+\\, or while typing. */
-  aiInline: 'off' | 'manual' | 'auto';
-  /** Claude consoles linked to this editor see the selected text. */
-  shareSelection: boolean;
-}
-
-export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
-  fontSize: 13,
-  tabSize: 2,
-  minimap: true,
-  wordWrap: false,
-  formatOnSave: false,
-  autoSave: 'off',
-  stickyScroll: true,
-  bracketColors: true,
-  renderWhitespace: false,
-  aiInline: 'off',
-  shareSelection: true,
-};
-
-export type TreeSlot = TreeEntry[] | 'loading' | { error: string };
-
-/** A row being typed into the tree: a new file or folder, or a rename. */
+/** A row being typed into the tree: a new file or folder, or a rename. dir and path are keys. */
 export interface TreeInput {
   kind: 'file' | 'folder' | 'rename';
   dir: string;
@@ -198,96 +154,105 @@ export interface AgentContextInput {
 
 export type RemoteRun = <T>(fn: (c: Confirm) => Promise<T>) => Promise<T | null>;
 
-export interface GitMark {
-  letter: string;
-  tone: string;
-}
-
-const STATUS_TONE: Record<string, string> = { modified: 'modified', typechange: 'modified', added: 'added', untracked: 'added', renamed: 'renamed', deleted: 'deleted', conflict: 'deleted' };
-const STATUS_LETTERS: Record<string, string> = { modified: 'M', typechange: 'T', added: 'A', untracked: 'U', renamed: 'R', deleted: 'D', conflict: '!' };
-
-const newDoc = (path: string, md: MdView): Doc => ({
-  path,
-  kind: 'text',
-  status: 'loading',
-  error: '',
-  model: null,
-  savedAlt: 0,
-  dirty: false,
-  mtime: '',
-  size: 0,
-  bom: false,
-  encoding: '',
-  mixedEol: false,
-  readOnly: '',
-  conflict: false,
-  deleted: false,
-  outside: false,
-  saving: false,
-  saveError: '',
-  recovered: null,
-  md,
-});
-
 const tabId = (path: string, diff?: DiffSource) => (diff ? `diff:${diff}:${path}` : path);
 const paneTab = (pane: string): Tab => ({ id: `pane:${pane}`, path: '', pane, preview: false });
-const readJSON = <T>(key: string, fallback: T): T => {
+
+function readJSON<T>(key: string): T | null {
   try {
     const raw = prefs.get(key);
-    return raw ? { ...fallback, ...(JSON.parse(raw) as T) } : fallback;
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
-    return fallback;
+    return null;
   }
-};
-
-interface Persisted {
-  groups: { tabs: { path: string; preview: boolean; pane?: string }[]; active: string | null }[];
-  activeGroup: number;
-  expanded: string[];
-  side: SideView;
-  sideOpen: boolean;
-  sideW: number;
-  panelOpen: boolean;
-  panelH: number;
-  panelView: PanelView;
-  showExcluded: boolean;
-  search: SearchState;
-  recent: string[];
-  terminals: string[];
-  activeTerminal: string;
-  md: Record<string, MdView>;
-  agentTarget: string;
-  rightOpen: boolean;
-  rightW: number;
-  rightPanes: string[];
-  rightActive: string;
 }
 
-const DEFAULT_SEARCH: SearchState = { query: '', replace: '', matchCase: false, wholeWord: false, regex: false, include: '', exclude: '' };
+function forget(key: string) {
+  try {
+    window.localStorage.removeItem(`nb.${key}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+const OUTSIDE = 'Outside the project: read-only.';
 
 const treeSlots = limiter(3);
-const ignoredSlots = limiter(1);
+/** Search and replace ask at most three parts at once. */
+const searchSlots = limiter(3);
 
-const workspaces = new Map<string, Workspace>();
+/** One part's answer to a search across the card's parts; files carry their keys. */
+export interface PartSearch {
+  part: PartService;
+  files: (SearchFile & { key: FileKey })[];
+  count: number;
+  truncated: boolean;
+  engine: string;
+  /** This part could not answer (the others did). */
+  error?: unknown;
+}
 
-export class Workspace {
-  readonly mid: string;
-  readonly root: string;
-  /** What the API calls this workbench by: the project id, or "<project>~<part>" for a part
-   * other than the first (ROADMAP #49), so its files, git and settings are its own. */
-  readonly pid: string;
-  /** The project's own id. */
+/** A search over every part a card mounts: one section per part that has matches or failed, in part order. */
+export interface ViewSearch {
+  parts: PartSearch[];
+  count: number;
+  truncated: boolean;
+}
+
+const joinGlobs = (...g: (string | undefined)[]) => g.filter((x) => x && x.trim()).join(',');
+
+const views = new Map<string, Workspace>();
+
+/**
+ * The docs a card holds (its tabs) or its parts' language servers borrowed: the shared Doc
+ * objects by key. get/has also take a plain absolute path, read as the card reads one (toKey).
+ */
+class ViewDocs extends Map<FileKey, Doc> {
+  constructor(private coerce: (p: string) => FileKey | null) {
+    super();
+  }
+  override get(k: string): Doc | undefined {
+    const key = this.coerce(k);
+    return key ? super.get(key) : undefined;
+  }
+  override has(k: string): boolean {
+    const key = this.coerce(k);
+    return !!key && super.has(key);
+  }
+  /** get by a key, as is. */
+  at(k: FileKey): Doc | undefined {
+    return super.get(k);
+  }
+  holds(k: FileKey): boolean {
+    return super.has(k);
+  }
+}
+
+interface Watch {
+  id: string;
+  off: () => void;
+  key: string;
+  renew: number;
+}
+
+export class Workspace implements ViewApi, PartView {
   readonly projectId: string;
-  /** The part this workbench shows. */
-  readonly partId: string;
+  /** paths.ts viewKey: wb.<viewKey> in the browser, and the registry. */
+  readonly viewKey: string;
+  readonly placement: Placement;
+  /** The card's paths: one part as itself, or the Root view's "/<part>/…". */
+  paths: ViewPaths;
+  /** The mounted parts, in part order. */
+  parts: PartService[] = [];
   name: string;
+  private project: Project;
+  private partSubs = new Map<PartService, () => void>();
 
   version = 0;
   cursorVersion = 0;
   private listeners = new Set<() => void>();
   private cursorListeners = new Set<() => void>();
 
-  docs = new Map<string, Doc>();
+  readonly docs: ViewDocs;
   groups: Group[] = [{ id: 'g1', tabs: [], active: null }];
   activeGroup = 0;
   private groupSeq = 1;
@@ -300,33 +265,27 @@ export class Workspace {
   panelView: PanelView = 'terminal';
   showExcluded = true;
   search: SearchState = DEFAULT_SEARCH;
+  /** Keys of the files opened last. */
   recent: string[] = [];
   terminals: string[] = [];
   activeTerminal = '';
   private mdViews: Record<string, MdView> = {};
-  editorPrefs: EditorPrefs;
 
+  /** Each folder's rows by its key (ROOT_KEY: the parts, in a Root view). */
   items = new Map<string, TreeSlot>();
+  /** Keys of the open folders. */
   expanded = new Set<string>();
   truncated = new Set<string>();
-  ignored = new Set<string>();
+  /** The key of the selected row. */
   selected: string | null = null;
   input: TreeInput | null = null;
 
-  git: GitStatus | null = null;
-  gitVersion = 0;
-  review: ReviewSummary | null = null;
   bookmarks: { path: string; line: number }[] = [];
   /** Moves when a pull request changed from here, so that the list follows. */
   pullsTick = 0;
-  tasks: ProjectTask[] = [];
   /** Task id → its last run. */
   taskRuns = new Map<string, { jobId: string; state: string; error: string }>();
   taskSelected = '';
-  private reviewMarks = new Map<string, string[]>();
-  private gitFiles = new Map<string, GitMark>();
-  private gitDirs = new Map<string, string>();
-  private gitTimer = 0;
 
   output: string[] = [];
 
@@ -346,17 +305,13 @@ export class Workspace {
   cursor = { line: 1, col: 1, selected: 0 };
 
   run: RemoteRun = (fn) => fn({});
-  lsp: LspHub;
   debug: Debugger;
-  /** The Laravel app in this project, as read from its files; null until read. */
-  laravel: LaravelIndex | null = null;
   /** Ghost text requests in flight, for the status bar. */
   aiBusy = 0;
   /** Where questions from the editor go ("quick", "planner", "console:x", "group:x", "card:id"). */
   agentTarget = '';
   quickTurns: QuickTurn[] = [];
   private quickSeq = 1;
-  /** What the editor's own menu needs from the card around it. */
   /** The right side bar: panes by id, and which one shows. */
   rightOpen = false;
   rightW = 460;
@@ -367,86 +322,61 @@ export class Workspace {
   /** The console asked to be closed: "stop the agent?". */
   closingPane = '';
   /** The link to Claude consoles on the board that shows this editor. */
-  readonly ide = new IdeLink(this);
-  actions: { ask?: (prompt?: string, ctx?: AgentContextInput) => void; aiEdit?: () => void; palette?: () => void; mention?: () => void; openWeb?: (url: string) => void; pick?: (placeholder: string, items: { label: string; detail?: string; run: () => void }[]) => void; addToBoard?: (path: string) => void } = {};
-  private filesCache: { at: number; list: FileListing } | null = null;
+  readonly ide: IdeLink;
+  actions: { ask?: (prompt?: string, ctx?: AgentContextInput) => void; aiEdit?: () => void; palette?: () => void; mention?: () => void; openWeb?: (url: string, machineId?: string) => void; pick?: (placeholder: string, items: { label: string; detail?: string; run: () => void }[]) => void; addToBoard?: (path: string) => void } = {};
+  /** Root card: the part the Debug view runs in (id). */
+  debugPart = '';
   private persistTimer = 0;
-  private watch: { id: string; off: () => void; key: string; renew: number } | null = null;
+  /** One watch per machine the card shows files of. */
+  private watches = new Map<string, Watch>();
+  private watchSeq = new Map<string, number>();
   private watchTimer = 0;
-  private watchSeq = 0;
-  private lspTimer = 0;
-  private draftTimers = new Map<string, number>();
-  private autoSaveTimers = new Map<string, number>();
   private mounted = false;
-  private mounts = 0;
+  private mountCount = 0;
   private releaseTimer = 0;
-  /** Files ensureModel gave out, and when last; let go after LENT_MS unless a tab has them. */
-  private lent = new Map<string, number>();
-  private lentTimer = 0;
-  /** What the constructor subscribed to, undone when the workbench is let go. */
+  /** What the constructor subscribed to, undone when the card is let go. */
   private offs: (() => void)[] = [];
 
-  /** The workbench of a part of the project; the first part when none is given. */
-  static get(project: Project, part?: ProjectPart): Workspace {
-    const parts = projectParts(project);
-    const pt = part ?? parts[0];
-    const key = pt.id === parts[0].id ? project.id : `${project.id}~${pt.id}`;
-    let w = workspaces.get(key);
-    // a part that moved to another folder is another workbench; a card showing the old one keeps it
-    if (w && (w.mid !== pt.machineId || w.root !== (pt.path.replace(/\/+$/, '') || '/'))) w = undefined;
-    if (!w) {
-      w = new Workspace(project, pt, key);
-      workspaces.set(key, w);
+  /**
+   * The view of a card placed in a project: at the root (every part, the default) or in one
+   * part (a Placement, or the part itself). A single-part project has one view, keyed by the
+   * project id as before. The same place on two boards is one view.
+   */
+  static get(project: Project, where?: Placement | ProjectPart): Workspace {
+    const asked: Placement = !where ? ROOT : 'machineId' in where ? { partId: where.id } : where;
+    const placement = normalPlacement(project, asked);
+    const key = viewKey(project.id, projectParts(project).length, placement);
+    let w = views.get(key);
+    if (w) w.setProject(project);
+    else {
+      w = new Workspace(project, placement, key);
+      views.set(key, w);
     }
-    w.name = project.name;
     return w;
   }
 
-  private constructor(project: Project, part: ProjectPart, key: string) {
-    this.pid = key;
+  /** Every view of the tab (open cards and the ones not let go yet). */
+  static all(): Iterable<Workspace> {
+    return views.values();
+  }
+
+  private constructor(project: Project, placement: Placement, key: string) {
     this.projectId = project.id;
-    this.partId = part.id;
-    this.mid = part.machineId;
-    this.root = part.path.replace(/\/+$/, '') || '/';
+    this.viewKey = key;
+    this.placement = placement;
+    this.project = project;
     this.name = project.name;
-    this.editorPrefs = readJSON('wb.editor', DEFAULT_EDITOR_PREFS);
-    this.bookmarks = readJSON(`wb.bookmarks.${this.pid}`, []);
-    this.lsp = new LspHub({
-      projectId: this.pid,
-      root: this.root,
-      ensureModel: (p) => this.ensureModel(p),
-      log: (l) => this.log(l),
-      changed: () => this.changed(),
-    });
+    const { mounts, multi } = mountsOf(project, placement);
+    this.paths = new ViewPaths(mounts, multi);
+    this.docs = new ViewDocs((p) => this.toKey(p));
+    this.ide = new IdeLink(this);
+    this.setParts(project, mounts);
     this.debug = new Debugger(this);
     const markers = monaco.editor.onDidChangeMarkers(() => this.changed());
     this.offs.push(() => markers.dispose());
-    let reviewRev = studioStore.get().reviewRev[this.pid] ?? 0;
-    this.offs.push(
-      studioStore.subscribe(() => {
-        const rev = studioStore.get().reviewRev[this.pid] ?? 0;
-        if (rev === reviewRev) return;
-        reviewRev = rev;
-        void this.refreshReview();
-      }),
-    );
-    const overlap = (e: Extract<StudioEvent, { type: 'reviewOverlap' }>) => {
-      if (e.projectId === this.pid) toast.info(`${e.agents.join(' and ')} both changed ${e.path}. Check it in Review.`);
-    };
-    studioStore.onReviewOverlap.add(overlap);
-    this.offs.push(() => studioStore.onReviewOverlap.delete(overlap));
-    void this.refreshReview();
-    void this.refreshLaravel();
-    let gitRepo = this.gitTarget.repo;
-    this.offs.push(
-      studioStore.subscribe(() => {
-        if (gitRepo === this.gitTarget.repo) return;
-        gitRepo = this.gitTarget.repo;
-        this.git = null;
-        void this.refreshGit();
-      }),
-    );
-    const saved = readJSON<Partial<Persisted>>(`wb.${this.pid}`, {});
+    this.offs.push(editorPrefs.subscribe(() => this.changed()));
+
+    const saved = this.loadState();
     this.side = saved.side ?? 'files';
     this.sideOpen = saved.sideOpen ?? true;
     this.sideW = saved.sideW ?? 280;
@@ -464,18 +394,280 @@ export class Workspace {
     this.activeTerminal = saved.activeTerminal ?? '';
     this.mdViews = saved.md ?? {};
     this.agentTarget = saved.agentTarget ?? '';
-    this.expanded = new Set(saved.expanded ?? [this.root]);
-    this.expanded.add(this.root);
+    this.debugPart = saved.debugPart ?? '';
+    this.expanded = new Set(saved.expanded?.length ? saved.expanded : this.defaultExpanded());
+    for (const k of this.defaultExpanded()) this.expanded.add(k);
+    this.bookmarks = this.loadBookmarks();
     const restored = (saved.groups ?? []).filter((g) => g.tabs?.length).slice(0, MAX_GROUPS);
     if (restored.length) {
       this.groups = restored.map((g) => ({
         id: `g${this.groupSeq++}`,
-        tabs: g.tabs.map((t) => (t.pane ? paneTab(t.pane) : { id: tabId(t.path), path: t.path, preview: t.preview })),
+        tabs: g.tabs.map((t) => (t.pane ? paneTab(t.pane) : { id: tabId(t.path), path: t.path as FileKey, preview: t.preview })),
         active: g.active,
       }));
       this.activeGroup = Math.min(saved.activeGroup ?? 0, this.groups.length - 1);
-      for (const g of this.groups) for (const t of g.tabs) if (!t.pane) this.ensureDoc(t.path);
+      for (const g of this.groups) for (const t of g.tabs) if (t.path) this.holdDoc(t.path);
     }
+  }
+
+  // ---- parts and paths ---------------------------------------------------------------
+
+  /** The folders always open: the tree root, and in a Root view every part's folder. */
+  private defaultExpanded(): FileKey[] {
+    return this.paths.multi ? [ROOT_KEY, ...this.paths.mounts.map((m) => m.rootKey)] : [this.paths.rootKey];
+  }
+
+  private setParts(project: Project, mounts: readonly Mount[]) {
+    const all = projectParts(project);
+    const next = mounts.map((m) => PartService.get(project, all.find((p) => p.id === m.partId)!));
+    for (const old of this.parts) {
+      if (next.includes(old)) continue;
+      if (this.mounted) old.unmount(this);
+      this.partSubs.get(old)?.();
+      this.partSubs.delete(old);
+      old.drop(this);
+    }
+    for (const p of next) {
+      if (this.parts.includes(p)) continue;
+      p.hold(this);
+      this.partSubs.set(
+        p,
+        p.subscribe(() => this.changed()),
+      );
+      if (this.mounted) p.mount(this);
+    }
+    this.parts = next;
+  }
+
+  /** The project changed (a part renamed, added, removed or moved): the card follows, its tabs stay. */
+  private setProject(project: Project) {
+    this.project = project;
+    this.name = project.name;
+    const { mounts, multi } = mountsOf(project, this.placement);
+    const same = mounts.length === this.paths.mounts.length && mounts.every((m, i) => m.partId === this.paths.mounts[i].partId && m.machineId === this.paths.mounts[i].machineId && m.root === this.paths.mounts[i].root);
+    this.paths = new ViewPaths(mounts, multi);
+    if (same) return;
+    this.setParts(project, mounts);
+    // the clean tabs of a part that went close; dirty ones stay, as outside files
+    for (const g of [...this.groups]) {
+      for (const t of [...g.tabs]) {
+        if (!t.path || this.paths.mountOf(t.path) || this.docs.at(t.path)?.dirty) continue;
+        if (this.partOf(t.path)) continue;
+        this.removeTab(this.groups.indexOf(g), t);
+      }
+    }
+    for (const k of this.defaultExpanded()) this.expanded.add(k);
+    if (this.mounted) for (const d of this.expanded) void this.loadDir(d);
+    this.changed();
+  }
+
+  get rootKey(): FileKey {
+    return this.paths.rootKey;
+  }
+
+  label(key: FileKey): string {
+    return this.paths.label(key);
+  }
+
+  relLabel(key: FileKey): string {
+    return this.paths.relLabel(key);
+  }
+
+  partRel(key: FileKey): { mount: Mount; rel: string } | null {
+    return this.paths.partRel(key);
+  }
+
+  resolve(input: string, machineId?: string): FileKey | null {
+    return this.paths.resolve(input, machineId);
+  }
+
+  /** The mounted part holding a key; null outside every mounted part. */
+  mountedPartOf(key: FileKey): PartService | null {
+    if (isRootKey(key)) return null;
+    const m = this.paths.mountOf(key);
+    return m ? (this.parts.find((p) => p.partId === m.partId) ?? null) : null;
+  }
+
+  /** The part of the project holding a key, mounted here or not; null outside every part. */
+  partOf(key: FileKey): PartService | null {
+    if (isRootKey(key)) return null;
+    const here = this.mountedPartOf(key);
+    if (here) return here;
+    const { machineId, abs } = splitKey(key);
+    const pt = partHoldingOn(this.project, machineId, abs);
+    return pt ? PartService.get(this.project, pt) : null;
+  }
+
+  /** The part a file is saved through: the one holding it, else a mounted one on its machine. */
+  private partFor(key: FileKey): PartService {
+    if (isRootKey(key)) return this.activePart;
+    const machine = splitKey(key).machineId;
+    return this.partOf(key) ?? this.parts.find((p) => p.machineId === machine) ?? this.activePart;
+  }
+
+  /** The part of the active doc, else of the selected tree row, else the first mount. */
+  get activePart(): PartService {
+    const t = this.activeTab;
+    const of = (k: string | null | undefined) => {
+      const key = k ? asFileKey(k) : null;
+      return key ? this.mountedPartOf(key) : null;
+    };
+    const tabPart = t?.commit?.part ?? t?.view?.part;
+    return (tabPart ? this.parts.find((p) => p.partId === tabPart) : null) ?? of(t?.path) ?? of(this.selected) ?? this.parts[0];
+  }
+
+  /** Why a doc cannot be edited in this card ("" = it can): its own reason, or outside every part of the project. */
+  readOnlyOf(doc: Doc): string {
+    if (doc.readOnly) return doc.readOnly;
+    return this.partOf(doc.path) ? '' : OUTSIDE;
+  }
+
+  /**
+   * A path as this card reads it: a key stays a key; a plain absolute path is on the card's
+   * machine (one part), or in the Root view on the machine of the part holding it (This PC
+   * when none does). For callers that still hand plain paths; keys are what to pass.
+   */
+  toKey(p: string): FileKey | null {
+    if (!p) return null;
+    if (isRootKey(p)) return ROOT_KEY;
+    if (p.startsWith('//')) return asFileKey(p);
+    const abs = cleanAbs(p);
+    if (abs === null) return null;
+    if (!this.paths.multi) return fileKey(this.paths.mounts[0].machineId, abs);
+    const local = fileKey(LOCAL_MACHINE, abs);
+    if (this.paths.mountOf(local)) return local;
+    let best: Mount | null = null;
+    for (const m of this.paths.mounts) if (under(abs, m.root) && (!best || m.root.length > best.root.length)) best = m;
+    return best ? fileKey(best.machineId, abs) : local;
+  }
+
+  // ---- what the panels used before parts (one part per card) ------------------------------
+  // Kept so that the panels keep working while they move to the API above; each is the
+  // active part's (a single-part card: its one part).
+
+  /** @deprecated activePart.machineId; fs calls take splitKey(key).machineId. */
+  get mid(): string {
+    return this.activePart.machineId;
+  }
+  /** @deprecated rootKey (the tree root, ROOT_KEY in a Root view); a part's folder is part.rootKey / part.root. */
+  get root(): string {
+    return this.rootKey;
+  }
+  /** @deprecated viewKey for what a card keeps (a single part: the project id, as before); part.ref for API calls. */
+  get pid(): string {
+    return this.paths.multi ? this.activePart.ref : this.viewKey;
+  }
+  /** @deprecated activePart.partId. */
+  get partId(): string {
+    return this.activePart.partId;
+  }
+  /** @deprecated activePart.lsp (the hub of a model: lsp.ts hubOf). */
+  get lsp(): LspHub {
+    return this.activePart.lsp;
+  }
+  /** @deprecated activePart.git. */
+  get git(): GitStatus | null {
+    return this.activePart.git;
+  }
+  /** @deprecated activePart.gitVersion. */
+  get gitVersion(): number {
+    return this.activePart.gitVersion;
+  }
+  /** @deprecated activePart.gitTarget. */
+  get gitTarget(): GitTarget {
+    return this.activePart.gitTarget;
+  }
+  /** @deprecated part.refreshGit() (this refreshes every mounted part). */
+  refreshGit(): Promise<unknown> {
+    return Promise.all(this.parts.map((p) => p.refreshGit()));
+  }
+  /** @deprecated part.gitSoon() (this does every mounted part). */
+  gitSoon() {
+    for (const p of this.parts) p.gitSoon();
+  }
+  /** @deprecated partOf(key)?.gitMark(key). */
+  gitMark(path: string): GitMark | undefined {
+    const k = this.toKey(path);
+    return k ? this.mountedPartOf(k)?.gitMark(k) : undefined;
+  }
+  /** @deprecated partOf(key)?.gitDirTone(key). */
+  gitDirTone(path: string): string | undefined {
+    const k = this.toKey(path);
+    return k ? this.mountedPartOf(k)?.gitDirTone(k) : undefined;
+  }
+  /** @deprecated partOf(key)?.repoRel(key). */
+  repoRel(path: string): string | null {
+    const k = this.toKey(path);
+    return k ? (this.mountedPartOf(k)?.repoRel(k) ?? null) : null;
+  }
+  /** @deprecated activePart.review (every part has its own). */
+  get review(): ReviewSummary | null {
+    return this.activePart.review;
+  }
+  /** @deprecated parts' reviewCount (this sums them). */
+  get reviewCount(): number {
+    return this.parts.reduce((n, p) => n + p.reviewCount, 0);
+  }
+  /** @deprecated part.refreshReview() (this refreshes every mounted part). */
+  refreshReview(): Promise<unknown> {
+    return Promise.all(this.parts.map((p) => p.refreshReview()));
+  }
+  /** @deprecated partOf(key)?.reviewMark(key). */
+  reviewMark(path: string): string[] | undefined {
+    const k = this.toKey(path);
+    return k ? this.mountedPartOf(k)?.reviewMark(k) : undefined;
+  }
+  /** @deprecated part.laravel (this is the active part's, else the first part's that has Laravel). */
+  get laravel(): LaravelIndex | null {
+    return this.activePart.laravel?.detected ? this.activePart.laravel : (this.parts.find((p) => p.laravel?.detected)?.laravel ?? this.activePart.laravel);
+  }
+  /** @deprecated part.refreshLaravel(). */
+  refreshLaravel(): Promise<unknown> {
+    return Promise.all(this.parts.map((p) => p.refreshLaravel()));
+  }
+  /** @deprecated part.fileList(force): paths relative to that part. */
+  fileList(force = false): Promise<FileListing> {
+    return this.activePart.fileList(force);
+  }
+  /** @deprecated partOf(key)?.ignored.has(key). */
+  get ignored(): { has(path: string): boolean } {
+    return {
+      has: (path: string) => {
+        const k = this.toKey(path);
+        return !!k && !!this.mountedPartOf(k)?.ignored.has(k);
+      },
+    };
+  }
+  /** @deprecated part.tasks. */
+  get tasks(): ProjectTask[] {
+    return this.activePart.tasks;
+  }
+  set tasks(list: ProjectTask[]) {
+    this.activePart.tasks = list;
+  }
+  /** @deprecated partRel(key)?.rel for API calls, relLabel(key) to show. Today's rel: the path inside the part, else the absolute path. */
+  rel(p: string): string {
+    const k = this.toKey(p);
+    if (!k || isRootKey(k)) return p;
+    const pr = this.paths.partRel(k);
+    if (!pr) return splitKey(k).abs;
+    if (this.paths.multi) return this.paths.relLabel(k);
+    return pr.rel || splitKey(k).abs;
+  }
+  /** @deprecated paths.keyOf(mount, rel) / part.keyOf(rel). A path inside the active part (an absolute one as toKey reads it). */
+  abs(rel: string): string {
+    if (rel.startsWith('/')) return this.toKey(rel) ?? rel;
+    return this.activePart.keyOf(rel);
+  }
+  /** @deprecated !!partOf(key) (the project) or !!paths.mountOf(key) (this card's parts). */
+  inside(p: string): boolean {
+    const k = this.toKey(p);
+    return !!k && !isRootKey(k) && !!this.paths.mountOf(k);
+  }
+  /** @deprecated docStore.ensureModel(key, part). */
+  ensureModel(path: string): Promise<monaco.editor.ITextModel | null> {
+    const k = this.toKey(path);
+    return k && !isRootKey(k) ? docStore.ensureModel(k, this.partFor(k)) : Promise.resolve(null);
   }
 
   // ---- subscriptions -----------------------------------------------------------------
@@ -508,8 +700,57 @@ export class Workspace {
     for (const fn of this.cursorListeners) fn();
   }
 
+  // ---- what the store tells a holder (docs.ts Holder) -----------------------------------
+
+  /** A doc this card holds got an edit: its own preview tabs of it stay. */
+  edited(key: FileKey) {
+    for (const g of this.groups) {
+      for (const t of g.tabs) if (t.path === key && t.preview && !t.diff) t.preview = false;
+    }
+  }
+
+  saveDoc(key: FileKey): Promise<boolean> {
+    return this.save(key);
+  }
+
+  ready() {
+    this.syncWatch();
+  }
+
+  renamed(from: FileKey, to: FileKey, doc?: Doc) {
+    for (const g of this.groups) {
+      for (const t of g.tabs) {
+        if (t.path !== from) continue;
+        const nid = tabId(to, t.diff);
+        if (g.active === t.id) g.active = nid;
+        t.id = nid;
+        t.path = to;
+      }
+    }
+    this.docs.delete(from);
+    if (doc) this.docs.set(to, doc);
+    if (this.mdViews[from]) {
+      this.mdViews[to] = this.mdViews[from];
+      delete this.mdViews[from];
+    }
+    this.recent = this.recent.map((p) => (p === from ? to : p));
+    if (this.selected === from) this.selected = to;
+    this.debug.fileRenamed(from, to);
+    this.changed();
+  }
+
+  lent(key: FileKey, doc: Doc) {
+    this.docs.set(key, doc);
+  }
+
+  gone(key: FileKey) {
+    if (this.groups.some((g) => g.tabs.some((t) => t.path === key))) return;
+    if (this.docs.delete(key)) this.changed();
+  }
+
   private persist() {
     const p: Persisted = {
+      v: PERSIST_VERSION,
       groups: this.groups.map((g) => ({
         tabs: g.tabs.filter((t) => !t.diff && !t.commit && !t.view).map((t) => ({ path: t.path, preview: t.preview, pane: t.pane })),
         active: g.active?.startsWith('diff:') ? null : g.active,
@@ -533,8 +774,82 @@ export class Workspace {
       activeTerminal: this.activeTerminal,
       md: this.mdViews,
       agentTarget: this.agentTarget,
+      ...(this.paths.multi && this.debugPart ? { debugPart: this.debugPart } : {}),
     };
-    prefs.set(`wb.${this.pid}`, JSON.stringify(p));
+    prefs.set(`wb.${this.viewKey}`, JSON.stringify(p));
+  }
+
+  /**
+   * What the card saved; else what came before it: a card in one part takes over the
+   * project-level state of the days when the editor showed the first part (wb.<project>) when
+   * that state lies in this part, and the first Root open merges every old state of the project.
+   */
+  private loadState(): ReadState {
+    const m0 = this.paths.mounts[0];
+    const own = readJSON<Partial<Persisted>>(`wb.${this.viewKey}`);
+    if (own) return readState(own, this.paths.multi ? LOCAL_MACHINE : m0.machineId);
+    if (this.paths.multi) {
+      const states: ReadState[] = [];
+      const old = readJSON<Partial<Persisted>>(`wb.${this.projectId}`);
+      if (old) states.push(this.legacyState(old));
+      for (const m of this.paths.mounts) {
+        const s = readJSON<Partial<Persisted>>(`wb.${this.projectId}~${m.partId}`);
+        if (s) states.push(readState(s, m.machineId));
+      }
+      // the part the editor showed last, per browser: Root shows them all now
+      forget(`wb.part.${this.projectId}`);
+      return mergeLegacy(states, this.paths.mounts.map((m) => m.rootKey));
+    }
+    if (this.viewKey !== this.projectId) {
+      const old = readJSON<Partial<Persisted>>(`wb.${this.projectId}`);
+      if (old) {
+        const s = readState(old, m0.machineId);
+        if (stateUnder(s, m0.rootKey)) return s;
+      }
+    }
+    return readState({}, m0.machineId);
+  }
+
+  /** An old project-level state read with the machine of the part it lies in. */
+  private legacyState(old: Partial<Persisted>): ReadState {
+    for (const m of this.paths.mounts) {
+      const s = readState(old, m.machineId);
+      if (stateUnder(s, m.rootKey)) return s;
+    }
+    // compat: wb.<project> was the first part's state (before v0.9.0-beta.2); nothing in it says otherwise
+    return readState(old, this.paths.mounts[0].machineId);
+  }
+
+  /**
+   * A per-card saved list or record (bookmarks, debug): its own, else (a part card) the
+   * project-level one when it lies in this part, else (the first Root open) every old one merged.
+   */
+  saved<T>(prefix: string, read: (raw: unknown, machineId: string) => T, isUnder: (v: T, root: FileKey) => boolean, merge: (list: T[]) => T): T {
+    const m0 = this.paths.mounts[0];
+    const own = readJSON<unknown>(`${prefix}.${this.viewKey}`);
+    if (own !== null) return read(own, this.paths.multi ? LOCAL_MACHINE : m0.machineId);
+    const old = readJSON<unknown>(`${prefix}.${this.projectId}`);
+    if (this.paths.multi) {
+      const list: T[] = [];
+      if (old !== null) {
+        const m = this.paths.mounts.find((x) => isUnder(read(old, x.machineId), x.rootKey)) ?? m0;
+        list.push(read(old, m.machineId));
+      }
+      for (const m of this.paths.mounts) {
+        const s = readJSON<unknown>(`${prefix}.${this.projectId}~${m.partId}`);
+        if (s !== null) list.push(read(s, m.machineId));
+      }
+      return merge(list);
+    }
+    if (this.viewKey !== this.projectId && old !== null) {
+      const s = read(old, m0.machineId);
+      if (isUnder(s, m0.rootKey)) return s;
+    }
+    return read(null, m0.machineId);
+  }
+
+  private loadBookmarks(): SavedBookmark[] {
+    return this.saved('wb.bookmarks', readBookmarks, listUnder, mergeBookmarks);
   }
 
   log(line: string) {
@@ -544,67 +859,63 @@ export class Workspace {
 
   // ---- mount -------------------------------------------------------------------------
 
-  /** The workbench opened: start what only runs while it is visible. */
+  /** The card opened: start what only runs while it is visible. */
   mount() {
-    this.mounts++;
-    this.mounted = true;
-    window.clearTimeout(this.lspTimer);
+    this.mountCount++;
     window.clearTimeout(this.releaseTimer);
-    if (!this.lsp.servers.length) void this.lsp.start();
-    else this.lsp.resume();
+    if (this.mountCount === 1) {
+      this.mounted = true;
+      for (const p of this.parts) p.mount(this);
+    }
     for (const d of this.expanded) void this.loadDir(d);
-    void this.refreshGit();
     this.syncWatch();
   }
 
-  /** The workbench closed: tabs stay, polling stops, servers stop after a while. */
+  /** The card closed: tabs stay, polling stops, servers stop after a while. */
   unmount() {
-    this.mounts = Math.max(0, this.mounts - 1);
-    if (this.mounts > 0) return; // still open elsewhere
+    this.mountCount = Math.max(0, this.mountCount - 1);
+    if (this.mountCount > 0) return; // still open elsewhere
     this.mounted = false;
     this.persist();
-    this.stopWatch();
-    window.clearTimeout(this.lspTimer);
-    this.lspTimer = window.setTimeout(() => {
-      if (!this.mounted) this.lsp.dispose();
-    }, LSP_IDLE_MS);
+    this.stopWatches();
+    for (const p of this.parts) p.unmount(this);
     window.clearTimeout(this.releaseTimer);
     this.releaseTimer = window.setTimeout(() => this.release(), RELEASE_MS);
   }
 
-  /** Lets a closed workbench go (RELEASE_MS); one with unsaved edits or a debug session stays. */
+  /** Lets a closed card go (RELEASE_MS); one with unsaved edits no other card holds, or a debug session, stays. */
   release(): boolean {
     if (this.mounted || this.debug.active) return false;
-    for (const d of this.docs.values()) if (d.dirty) return false;
-    if (workspaces.get(this.pid) === this) workspaces.delete(this.pid);
-    window.clearTimeout(this.lspTimer);
+    for (const d of this.docs.values()) {
+      if (d.dirty && ![...docStore.holders(d.path)].some((h) => h !== this)) return false;
+    }
+    if (views.get(this.viewKey) === this) views.delete(this.viewKey);
     window.clearTimeout(this.persistTimer);
     window.clearTimeout(this.watchTimer);
-    window.clearTimeout(this.lentTimer);
-    this.lent.clear();
-    for (const t of this.draftTimers.values()) window.clearTimeout(t);
-    for (const t of this.autoSaveTimers.values()) window.clearTimeout(t);
     this.persist();
-    this.lsp.dispose();
-    for (const d of this.docs.values()) {
-      if (!d.model) continue;
-      this.lsp.detach(d.model);
-      d.model.dispose();
+    for (const k of [...this.docs.keys()]) {
+      if (docStore.holders(k).has(this)) docStore.release(k, this);
+      else docStore.unlend(k, this);
     }
     this.docs.clear();
     for (const off of this.offs.splice(0)) off();
+    for (const [p, off] of this.partSubs) {
+      off();
+      p.drop(this);
+    }
+    this.partSubs.clear();
     return true;
   }
 
   /** Ask the hidden runner about the code; the answer streams into the Ask view. */
   /** `files` go along with the question, without showing in the conversation. */
-  async askQuick(question: string, ctx: AgentContextInput | null, files: { path: string; text: string }[] = []) {
+  async askQuick(question: string, ctx: AgentContextInput | null, files: { path: string; text: string }[] = [], part: PartServiceApi = this.activePart) {
     const turn: QuickTurn = { id: this.quickSeq++, question, contextLabel: ctx?.label ?? '', jobId: '', status: 'running', text: '', error: '' };
     this.quickTurns = [...this.quickTurns.slice(-30), turn];
     this.changed();
     try {
       const attached = files.map((f) => `\n\nFile ${f.path}:\n\`\`\`\n${f.text}\n\`\`\``).join('');
-      const j = await filesApi.aiAsk(this.pid, { question: question + attached, path: ctx?.rel ?? '', language: ctx?.language ?? '', selection: ctx?.code ?? '', startLine: ctx?.startLine ?? 0, endLine: ctx?.endLine ?? 0 });
+      const j = await filesApi.aiAsk(part.ref, { question: question + attached, path: ctx?.rel ?? '', language: ctx?.language ?? '', selection: ctx?.code ?? '', startLine: ctx?.startLine ?? 0, endLine: ctx?.endLine ?? 0 });
       turn.jobId = j.id;
       this.changed();
       const done = await waitJob(j.id, 6 * 60_000);
@@ -633,97 +944,205 @@ export class Workspace {
     this.changed();
   }
 
+  /** The editor settings: one set for every card. */
+  get editorPrefs(): EditorPrefs {
+    return editorPrefs.get();
+  }
+
   setPrefs(patch: Partial<EditorPrefs>) {
-    this.editorPrefs = { ...this.editorPrefs, ...patch };
-    prefs.set('wb.editor', JSON.stringify(this.editorPrefs));
-    this.changed();
+    editorPrefs.set(patch);
   }
 
-  // ---- paths -------------------------------------------------------------------------
+  /**
+   * Where a terminal or agent of this card starts (POST /api/sessions fields): the part of a
+   * folder (in that folder), else the card's part, else the project root (a Root card).
+   */
+  placeOf(dir?: string): Pick<CreateSession, 'partId' | 'root' | 'machineId' | 'cwd'> {
+    const k = dir ? this.toKey(dir) : null;
+    if (k && !isRootKey(k)) {
+      const { machineId, abs } = splitKey(k);
+      const part = this.partOf(k);
+      return part ? { partId: part.partId, machineId: part.machineId, cwd: abs } : { machineId, cwd: abs };
+    }
+    if (this.paths.multi) return { root: true };
+    const p = this.parts[0];
+    return { partId: p.partId, machineId: p.machineId, cwd: p.root };
+  }
 
-  rel(p: string): string {
-    return p.startsWith(`${this.root}/`) ? p.slice(this.root.length + 1) : p;
+  /** Problems of the files this card mounts or holds, from every mounted part's language servers. */
+  problems(): ViewProblems[] {
+    const by = new Map<FileKey, ViewProblems>();
+    for (const mk of monaco.editor.getModelMarkers({})) {
+      const key = keyOfUri(mk.resource);
+      if (!key || (!this.docs.holds(key) && !this.paths.mountOf(key))) continue;
+      let p = by.get(key);
+      if (!p) by.set(key, (p = { key, label: this.label(key), items: [] }));
+      p.items.push({ line: mk.startLineNumber, col: mk.startColumn, message: mk.message, severity: mk.severity, source: mk.source });
+    }
+    for (const part of this.parts) {
+      for (const d of part.lsp.closedDiagnostics()) if (!by.has(d.path)) by.set(d.path, { key: d.path, label: this.label(d.path), items: d.items });
+    }
+    return [...by.values()];
   }
-  abs(rel: string): string {
-    return this.root === '/' ? `/${rel}` : `${this.root}/${rel}`;
+
+  // ---- across the card's parts (search, Go to file, symbols) ---------------------------
+
+  /**
+   * Search every mounted part in parallel (three at a time). An include or exclude glob that
+   * starts with a part's name ("admin/**") goes to that part only, without the name; with
+   * include globs only for some parts, only those parts are searched (paths.ts routeGlobs). A
+   * single-part card asks its part exactly as before. When every part fails, the first error is
+   * thrown (a bad pattern says so once).
+   */
+  async searchParts(q: SearchQuery, signal?: AbortSignal): Promise<ViewSearch> {
+    const inc = this.paths.routeGlobs(q.include ?? '');
+    const exc = this.paths.routeGlobs(q.exclude ?? '');
+    const targets = this.parts.filter((p) => !inc.size || inc.has('*') || inc.has(p.partId));
+    const answers = await Promise.all(
+      targets.map((part) =>
+        searchSlots(() => filesApi.search(part.ref, { ...q, include: joinGlobs(inc.get(part.partId), inc.get('*')), exclude: joinGlobs(exc.get(part.partId), exc.get('*')) }, signal)).then(
+          (r): PartSearch => ({ part, files: (r.files ?? []).map((f) => ({ ...f, key: part.keyOf(f.rel) })), count: r.count, truncated: r.truncated, engine: r.engine }),
+          (error: unknown): PartSearch => ({ part, files: [], count: 0, truncated: false, engine: '', error }),
+        ),
+      ),
+    );
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const failed = answers.filter((a) => a.error !== undefined);
+    if (answers.length && failed.length === answers.length) throw failed[0].error;
+    return { parts: answers.filter((a) => a.files.length || a.error !== undefined), count: answers.reduce((n, a) => n + a.count, 0), truncated: answers.some((a) => a.truncated) };
   }
-  inside(p: string): boolean {
-    return p === this.root || p.startsWith(`${this.root}/`);
+
+  /**
+   * Replace in files of the card's parts (keys); files with unsaved edits are skipped and
+   * returned. Each part gets its own call with its own paths; open docs that changed reload.
+   */
+  async replaceParts(q: SearchQuery & { replacement: string }, keys: FileKey[]): Promise<{ count: number; failed: { key: FileKey; error: string }[]; skipped: FileKey[] } | null> {
+    const skipped = keys.filter((k) => docStore.get(k)?.dirty);
+    const by = new Map<PartService, string[]>();
+    for (const k of keys) {
+      if (skipped.includes(k)) continue;
+      const part = this.mountedPartOf(k);
+      const rel = part?.relOf(k);
+      if (!part || !rel) continue;
+      by.set(part, [...(by.get(part) ?? []), rel]);
+    }
+    let count = 0;
+    let ran = false;
+    const failed: { key: FileKey; error: string }[] = [];
+    for (const [part, paths] of by) {
+      const r = await this.run((c) => searchSlots(() => filesApi.replace(part.ref, { ...q, paths, ...c })));
+      if (!r) continue;
+      ran = true;
+      count += r.count;
+      for (const f of r.files ?? []) {
+        const key = part.keyOf(f.rel);
+        if (f.error) failed.push({ key, error: f.error });
+        else if (f.count && docStore.get(key)) void docStore.reload(key);
+      }
+      part.gitSoon();
+    }
+    return ran || !by.size ? { count, failed, skipped } : null;
+  }
+
+  /** Go to file: every mounted part's list, read in parallel. */
+  fileLists(force = false): Promise<{ part: PartService; list: FileListing; error?: unknown }[]> {
+    return Promise.all(
+      this.parts.map((part) =>
+        part.fileList(force).then(
+          (list) => ({ part, list }),
+          (error: unknown) => ({ part, list: { items: [], truncated: false, source: '' } as FileListing, error }),
+        ),
+      ),
+    );
+  }
+
+  /** "#" in Go to file: every mounted part's language servers in parallel, merged, at most 200. */
+  async workspaceSymbols(query: string): Promise<{ name: string; detail: string; path: FileKey; line: number; col: number; part: PartService }[]> {
+    const lists = await Promise.all(this.parts.map((part) => part.lsp.workspaceSymbols(query).then((l) => l.map((x) => ({ ...x, part })), () => [])));
+    return lists.flat().slice(0, 200);
   }
 
   // ---- tree --------------------------------------------------------------------------
 
+  /** The Root view's top rows: one per part, in part order. */
+  private rootEntries(): ViewTreeEntry[] {
+    return this.paths.mounts.map((m) => ({ name: m.name, dir: true, size: 0, hidden: false, binary: false, key: m.rootKey, part: m.partId }));
+  }
+
   async loadDir(dir: string) {
-    if (!this.items.has(dir)) {
-      this.items.set(dir, 'loading');
+    const k = this.toKey(dir);
+    if (!k) return;
+    if (isRootKey(k)) {
+      this.items.set(ROOT_KEY, this.paths.multi ? this.rootEntries() : []);
+      this.changed();
+      return;
+    }
+    if (!this.items.has(k)) {
+      this.items.set(k, 'loading');
       this.changed();
     }
     try {
-      const t = await treeSlots(() => fsApi.tree(this.mid, dir, true));
+      const { machineId, abs } = splitKey(k);
+      const t = await treeSlots(() => fsApi.tree(machineId, abs, true));
       const entries = (t.entries ?? [])
         .filter((e) => e.name !== '.git' && e.name !== '.nextboard-trash')
         .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
-      this.items.set(dir, entries);
-      if (t.truncated) this.truncated.add(dir);
-      else this.truncated.delete(dir);
+      this.items.set(k, entries);
+      if (t.truncated) this.truncated.add(k);
+      else this.truncated.delete(k);
       this.changed();
-      void this.loadIgnored(dir, entries);
+      void this.mountedPartOf(k)?.loadIgnored(
+        k,
+        entries.map((e) => e.name),
+      );
     } catch (err) {
-      this.items.set(dir, { error: errorMessage(err) });
+      this.items.set(k, { error: errorMessage(err) });
       this.changed();
-    }
-  }
-
-  private async loadIgnored(dir: string, entries: TreeEntry[]) {
-    if (!this.inside(dir) || !entries.length) return;
-    const paths = entries.map((e) => this.rel(`${dir === '/' ? '' : dir}/${e.name}`));
-    try {
-      const r = await ignoredSlots(() => filesApi.ignored(this.pid, paths));
-      for (const p of paths) this.ignored.delete(this.abs(p));
-      for (const p of r.items ?? []) this.ignored.add(this.abs(p.replace(/\/$/, '')));
-      this.changed();
-    } catch {
-      /* an older hub: nothing is dimmed */
     }
   }
 
   toggleDir(dir: string, open?: boolean) {
-    const next = open ?? !this.expanded.has(dir);
+    const k = this.toKey(dir);
+    if (!k) return;
+    const next = open ?? !this.expanded.has(k);
     if (next) {
-      this.expanded.add(dir);
-      void this.loadDir(dir);
+      this.expanded.add(k);
+      void this.loadDir(k);
     } else {
-      this.expanded.delete(dir);
+      this.expanded.delete(k);
     }
     this.changed();
     this.syncWatch();
   }
 
   collapseAll() {
-    this.expanded = new Set([this.root]);
+    this.expanded = new Set([this.rootKey]);
     this.changed();
     this.syncWatch();
   }
 
   refreshTree() {
-    this.filesCache = null;
+    for (const p of this.parts) p.filesChanged();
     for (const d of this.expanded) void this.loadDir(d);
     void this.refreshGit();
   }
 
   /** Open the folders above a file and scroll to it. */
   revealInTree(path: string) {
+    const k = this.toKey(path);
+    if (!k) return;
     this.side = 'files';
     this.sideOpen = true;
-    this.selected = path;
-    if (this.inside(path)) {
-      let d = dirOf(path);
-      while (this.inside(d) && d !== this.root) {
+    this.selected = k;
+    const m = this.paths.mountOf(k);
+    if (m) {
+      if (this.paths.multi) this.expanded.add(ROOT_KEY);
+      for (let d = parentKey(k); d && keyUnder(d, m.rootKey); d = parentKey(d)) {
         if (!this.expanded.has(d)) {
           this.expanded.add(d);
           void this.loadDir(d);
         }
-        d = dirOf(d);
+        if (d === m.rootKey) break;
       }
     }
     this.revealTick++;
@@ -731,98 +1150,18 @@ export class Workspace {
     this.syncWatch();
   }
 
-  // ---- git ---------------------------------------------------------------------------
-
-  /** The repository the Git views work on (the picker of the Git panel and of source control). */
-  get gitTarget(): GitTarget {
-    return studioStore.gitTarget(this.pid);
-  }
-
-  /** Refresh soon, once: saves and file events come in bursts. */
-  gitSoon() {
-    window.clearTimeout(this.gitTimer);
-    this.gitTimer = window.setTimeout(() => void this.refreshGit(), 700);
-  }
-
-  async refreshGit() {
-    try {
-      await studioStore.loadGitRepos(this.pid);
-      const target = this.gitTarget;
-      const st = await gitApi.status(target);
-      // the picker moved on: its own refresh is under way
-      if (target.repo !== this.gitTarget.repo) return;
-      this.git = st;
-      this.gitFiles.clear();
-      this.gitDirs.clear();
-      const base = st.root?.replace(/\/+$/, '') || this.root;
-      for (const f of st.files ?? []) {
-        const tone = STATUS_TONE[f.status] ?? 'modified';
-        const abs = `${base}/${f.path}`;
-        this.gitFiles.set(abs, { letter: STATUS_LETTERS[f.status] ?? '•', tone });
-        for (let d = dirOf(abs); d.length > 1 && this.inside(d); d = dirOf(d)) {
-          // a conflict or deletion outranks a modification in the folder's colour
-          if (!this.gitDirs.has(d) || tone === 'deleted') this.gitDirs.set(d, tone);
-          if (d === this.root) break;
-        }
-      }
-    } catch {
-      this.git = null;
-      this.gitFiles.clear();
-      this.gitDirs.clear();
-    }
-    this.gitVersion++;
-    this.changed();
-  }
-
-  gitMark(path: string): GitMark | undefined {
-    return this.gitFiles.get(path);
-  }
-
-  // ---- review of what agents changed (ReviewPanel.tsx) ----------------------------------
-
-  async refreshLaravel() {
-    try {
-      this.laravel = await laravelApi.index(this.pid);
-    } catch {
-      /* no answer now: what is known stays */
-    }
-    this.changed();
-  }
-
-  async refreshReview() {
-    try {
-      this.review = await reviewApi.list(this.pid);
-    } catch {
-      this.review = { supported: false, agents: [] };
-    }
-    this.reviewMarks.clear();
-    for (const a of this.review.agents) {
-      for (const f of a.files) {
-        const abs = this.abs(f.path);
-        this.reviewMarks.set(abs, [...(this.reviewMarks.get(abs) ?? []), a.name]);
-      }
-    }
-    this.changed();
-  }
-
-  /** The agents with a change to this file nobody has looked at yet. */
-  reviewMark(path: string): string[] | undefined {
-    return this.reviewMarks.get(path);
-  }
-
-  get reviewCount(): number {
-    return this.reviewMarks.size;
-  }
-
   // ---- local history (LocalHistoryView.tsx) -----------------------------------------------
 
   /** What a file holds for the owner now: the editor's text when it is open, else the disk's. */
   async currentText(path: string): Promise<string> {
-    const model = this.docs.get(path)?.model;
+    const k = this.toKey(path);
+    if (!k || isRootKey(k)) return '';
+    const model = docStore.get(k)?.model;
     if (model) return model.getValue();
     try {
-      const r = await api.fsRead(this.mid, path, MAX_VIEW);
-      return r.content.startsWith('\ufeff') ? r.content.slice(1) : r.content;
+      const { machineId, abs } = splitKey(k);
+      const r = await api.fsRead(machineId, abs, MAX_VIEW);
+      return r.content.startsWith('﻿') ? r.content.slice(1) : r.content;
     } catch {
       return ''; // it was deleted
     }
@@ -830,427 +1169,126 @@ export class Workspace {
 
   /** Bring back an earlier text: into the editor when the file is open, where Ctrl+Z undoes it. */
   async restoreText(path: string, text: string) {
-    const model = this.docs.get(path)?.model;
+    const k = this.toKey(path);
+    if (!k || isRootKey(k)) return;
+    const model = docStore.get(k)?.model;
     if (model) {
       // one step of its own, or Ctrl+Z also takes back what was typed before
       model.pushStackElement();
       model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
       model.pushStackElement();
-      this.open(path, { pin: true });
+      this.open(k, { pin: true });
       toast.success('Restored in the editor. Save to keep it.');
       return;
     }
-    await fsApi.write(this.mid, { path, content: text, projectId: this.pid });
-    this.open(path, { pin: true });
+    const { machineId, abs } = splitKey(k);
+    await fsApi.write(machineId, { path: abs, content: text, projectId: this.partFor(k).ref });
+    this.open(k, { pin: true });
     toast.success('Restored.');
-  }
-  gitDirTone(path: string): string | undefined {
-    return this.gitDirs.get(path);
-  }
-  /** Path relative to the repository (git API), or null outside it. */
-  repoRel(path: string): string | null {
-    const base = this.git?.root?.replace(/\/+$/, '');
-    if (!this.git?.isRepo || !base) return null;
-    return path.startsWith(`${base}/`) ? path.slice(base.length + 1) : null;
-  }
-
-  // ---- the file list -----------------------------------------------------------------
-
-  /** Every project file (ignored ones left out), cached briefly. */
-  async fileList(force = false): Promise<FileListing> {
-    if (!force && this.filesCache && Date.now() - this.filesCache.at < 30_000) return this.filesCache.list;
-    const list = await filesApi.list(this.pid);
-    this.filesCache = { at: Date.now(), list };
-    return list;
   }
 
   // ---- watching ----------------------------------------------------------------------
 
-  /** Watch the open folders and files; the hub stats them every few seconds. */
+  /** Watch the open folders and files, one watch per machine; the hub stats them every few seconds. */
   syncWatch() {
     window.clearTimeout(this.watchTimer);
-    this.watchTimer = window.setTimeout(() => void this.startWatch(), 500);
+    this.watchTimer = window.setTimeout(() => void this.startWatches(), 500);
   }
 
-  private async startWatch() {
+  private async startWatches() {
     if (!this.mounted) return;
-    const files = [...this.docs.values()].filter((d) => d.status === 'ready').map((d) => d.path);
-    const paths = [...new Set([...files, ...this.expanded])].slice(0, 200);
+    const by = new Map<string, string[]>();
+    const add = (raw: string) => {
+      const k = asFileKey(raw);
+      if (!k || isRootKey(k)) return;
+      const { machineId, abs } = splitKey(k);
+      const list = by.get(machineId) ?? [];
+      if (!by.has(machineId)) by.set(machineId, list);
+      list.push(abs);
+    };
+    for (const d of this.docs.values()) if (d.status === 'ready') add(d.path);
+    for (const e of this.expanded) add(e);
+    for (const machineId of [...this.watches.keys()]) if (!by.has(machineId)) this.stopWatch(machineId);
+    await Promise.all([...by].map(([machineId, list]) => this.watchOn(machineId, [...new Set(list)].slice(0, MAX_WATCH))));
+  }
+
+  private async watchOn(machineId: string, paths: string[]) {
     const key = paths.slice().sort().join('\n');
-    if (this.watch?.key === key) return;
-    this.stopWatch();
+    if (this.watches.get(machineId)?.key === key) return;
+    this.stopWatch(machineId);
     if (!paths.length) return;
-    const seq = ++this.watchSeq;
+    const seq = (this.watchSeq.get(machineId) ?? 0) + 1;
+    this.watchSeq.set(machineId, seq);
     try {
-      const w = await fsApi.watch(this.mid, paths, 60);
+      const w = await fsApi.watch(machineId, paths, 60);
       // closed meanwhile, or a newer set of paths is already on its way
-      if (!this.mounted || seq !== this.watchSeq) {
+      if (!this.mounted || seq !== this.watchSeq.get(machineId)) {
         void fsApi.unwatch(w.watchId).catch(() => undefined);
         return;
       }
       const off = studioStore.watchFs(w.watchId, (ev) => {
-        for (const c of ev.changes ?? []) this.onDiskChange(c.path, c.exists, c.mtime);
+        for (const c of ev.changes ?? []) {
+          const abs = cleanAbs(c.path);
+          if (abs) this.onDiskChange(fileKey(machineId, abs), c.exists, c.mtime);
+        }
       });
       // a renewal buys 30 s: well before that, and a lost watch (hub restart) starts over
       const renew = window.setInterval(() => {
         void fsApi.renewWatch(w.watchId).catch(() => {
-          if (this.watch?.id !== w.watchId) return;
-          this.stopWatch();
+          if (this.watches.get(machineId)?.id !== w.watchId) return;
+          this.stopWatch(machineId);
           this.syncWatch();
         });
       }, 15_000);
-      this.watch = { id: w.watchId, off: () => off(), key, renew };
+      this.watches.set(machineId, { id: w.watchId, off: () => off(), key, renew });
     } catch {
       /* no watch: the tree refreshes by hand, a save still detects conflicts */
     }
   }
 
-  private stopWatch() {
-    const w = this.watch;
+  private stopWatch(machineId: string) {
+    const w = this.watches.get(machineId);
     if (!w) return;
-    this.watch = null;
+    this.watches.delete(machineId);
     w.off();
     window.clearInterval(w.renew);
     void fsApi.unwatch(w.id).catch(() => undefined);
   }
 
-  private onDiskChange(path: string, exists: boolean, mtime: string | undefined) {
-    if (this.expanded.has(path)) {
-      this.filesCache = null;
-      void this.loadDir(path);
-      this.gitSoon();
+  private stopWatches() {
+    for (const machineId of [...this.watches.keys()]) this.stopWatch(machineId);
+  }
+
+  private onDiskChange(key: FileKey, exists: boolean, mtime: string | undefined) {
+    if (this.expanded.has(key)) {
+      this.partOf(key)?.filesChanged();
+      void this.loadDir(key);
+      this.mountedPartOf(key)?.gitSoon();
     }
-    const d = this.docs.get(path);
-    if (!d || d.status !== 'ready' || d.saving) return;
-    if (!exists) {
-      d.deleted = true;
-      this.changed();
-      return;
-    }
-    if (!mtime || mtime === d.mtime) return;
-    d.deleted = false;
-    this.gitSoon();
-    if (d.dirty) {
-      d.conflict = true;
-      this.changed();
-    } else {
-      void this.reload(path);
-    }
+    docStore.onDiskChange(key, exists, mtime);
   }
 
   // ---- documents ---------------------------------------------------------------------
 
-  private ensureDoc(path: string): Doc {
-    let d = this.docs.get(path);
-    if (!d) {
-      d = newDoc(path, this.mdViews[path] ?? 'reader');
-      this.docs.set(path, d);
-      void this.load(d);
-    }
+  /** The part a card reaches a file through: the mounted part holding it, else the active one (a definition outside). */
+  private viaFor(key: FileKey): PartService {
+    return this.mountedPartOf(key) ?? this.activePart;
+  }
+
+  private holdDoc(key: FileKey): Doc {
+    const d = docStore.acquire(key, this, this.viaFor(key), this.mdViews[key] ?? 'reader');
+    this.docs.set(key, d);
     return d;
   }
 
-  /** For language servers: the model of a file, without opening a tab. */
-  async ensureModel(path: string): Promise<monaco.editor.ITextModel | null> {
-    const existing = monaco.editor.getModel(monaco.Uri.file(path));
-    if (existing) {
-      if (this.docs.get(path)?.model === existing) this.lend(path);
-      return existing;
-    }
-    const d = this.ensureDoc(path);
-    this.lend(path);
-    await this.loaded(d);
-    return d.model;
-  }
-
-  private lend(path: string) {
-    this.lent.set(path, Date.now());
-    if (!this.lentTimer) this.lentTimer = window.setTimeout(() => this.sweepLent(), LENT_MS);
-  }
-
-  /** Let go of lent models no tab took up; unsaved edits (a rename) and shown ones stay. */
-  private sweepLent() {
-    this.lentTimer = 0;
-    const now = Date.now();
-    let next = Infinity;
-    const shown = new Set(monaco.editor.getEditors().map((e) => e.getModel()));
-    for (const [path, at] of [...this.lent]) {
-      const d = this.docs.get(path);
-      if (!d || this.groups.some((g) => g.tabs.some((t) => t.path === path))) {
-        this.lent.delete(path); // gone, or a tab has it and lets it go when it closes
-        continue;
-      }
-      const busy = d.status === 'loading' || this.loading.has(path) || d.dirty || d.saving || !!d.recovered || (!!d.model && shown.has(d.model));
-      if (busy || now - at < LENT_MS) {
-        next = Math.min(next, busy ? LENT_MS : LENT_MS - (now - at));
-        continue;
-      }
-      this.lent.delete(path);
-      this.releaseDoc(path);
-    }
-    if (next < Infinity) this.lentTimer = window.setTimeout(() => this.sweepLent(), Math.max(next, 10_000));
-  }
-
-  private loading = new Map<string, Promise<void>>();
-
-  private loaded(d: Doc): Promise<void> {
-    return this.loading.get(d.path) ?? Promise.resolve();
-  }
-
-  private load(d: Doc): Promise<void> {
-    const p = this.loadInner(d).finally(() => this.loading.delete(d.path));
-    this.loading.set(d.path, p);
-    return p;
-  }
-
-  private async loadInner(d: Doc) {
-    const ext = extOf(d.path);
-    try {
-      const st = await api.fsStat(this.mid, d.path);
-      d.size = st.size;
-      d.mtime = st.mtime;
-      if (st.exists === false) throw new Error('This file no longer exists.');
-      if (IMAGE_EXT.has(ext) || MEDIA_EXT.has(ext)) {
-        d.kind = IMAGE_EXT.has(ext) ? 'image' : 'media';
-        d.status = 'ready';
-        d.readOnly = 'Preview';
-        this.changed();
-        return;
-      }
-      if (st.size > MAX_VIEW) {
-        d.kind = 'toolarge';
-        d.status = 'ready';
-        d.readOnly = `This file is ${Math.round(st.size / (1 << 20))} MB; files over 10 MB are not opened.`;
-        this.changed();
-        return;
-      }
-      const r = await api.fsRead(this.mid, d.path, MAX_VIEW + 1);
-      d.size = r.size;
-      d.mtime = r.mtime;
-      let content = r.content;
-      if (r.binary) {
-        const legacy = await this.decodeLegacy(d.path);
-        if (legacy === null) {
-          d.kind = 'binary';
-          d.status = 'ready';
-          d.readOnly = 'Binary file: not opened.';
-          this.changed();
-          return;
-        }
-        content = legacy.text;
-        d.encoding = legacy.encoding;
-      }
-      d.bom = !d.encoding && content.startsWith('\uFEFF');
-      const text = d.bom ? content.slice(1) : content;
-      d.mixedEol = /\r\n/.test(text) && /(^|[^\r])\n/.test(text);
-      const uri = monaco.Uri.file(d.path);
-      const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(text, languageFor(d.path), uri);
-      if (model.getValue() !== text.replace(/\r\n|\r|\n/g, model.getEOL())) model.setValue(text);
-      d.model = model;
-      d.savedAlt = model.getAlternativeVersionId();
-      d.kind = 'text';
-      d.status = 'ready';
-      d.readOnly = !this.inside(d.path)
-        ? 'Outside the project: read-only.'
-        : d.encoding
-          ? `Not UTF-8 (shown as ${d.encoding}): read-only, so that its bytes stay as they are.`
-          : st.size > MAX_EDIT
-            ? `Files over 1 MB open read-only (this one is ${Math.round(st.size / 1024)} KB).`
-            : '';
-      model.onDidChangeContent(() => this.onModelChange(d));
-      this.lsp.attach(model);
-      const draft = await drafts.get(this.mid, d.path);
-      if (draft && draft.content !== model.getValue()) {
-        // The same base as on disk: the unsaved edits simply come back, like a hot exit.
-        // Otherwise the file moved on and the user has to choose.
-        if (draft.baseMtime === d.mtime) {
-          model.setValue(draft.content);
-        } else {
-          d.recovered = draft;
-        }
-      } else if (draft) {
-        void drafts.remove(this.mid, d.path);
-      }
-      this.updateDirty(d);
-      this.changed();
-      this.syncWatch();
-    } catch (err) {
-      d.status = 'error';
-      d.error = errorMessage(err);
-      this.changed();
-    }
-  }
-
-  /** The bytes of a file the hub would not hand over as UTF-8; null for real binaries. */
-  private async decodeLegacy(path: string, encoding?: string): Promise<{ text: string; encoding: string } | null> {
-    const res = await fetch(fsRawUrl(this.mid, path));
-    if (!res.ok) throw new Error(`Could not read the file (${res.status}).`);
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    let enc = encoding;
-    if (!enc) {
-      if (bytes[0] === 0xff && bytes[1] === 0xfe) enc = 'utf-16le';
-      else if (bytes[0] === 0xfe && bytes[1] === 0xff) enc = 'utf-16be';
-      else if (bytes.subarray(0, 8192).includes(0)) return null;
-      else enc = 'windows-1252';
-    }
-    return { text: new TextDecoder(enc).decode(bytes), encoding: enc };
-  }
-
-  /** "Reopen with Encoding": the file stays read-only, only the view changes. */
-  async reopenWithEncoding(path: string, encoding: string) {
-    const d = this.docs.get(path);
-    if (!d?.model || !d.encoding) return;
-    try {
-      const r = await this.decodeLegacy(path, encoding);
-      if (!r) return;
-      d.encoding = r.encoding;
-      d.readOnly = `Not UTF-8 (shown as ${r.encoding}): read-only, so that its bytes stay as they are.`;
-      d.model.setValue(r.text);
-      d.savedAlt = d.model.getAlternativeVersionId();
-      d.dirty = false;
-      this.changed();
-    } catch (err) {
-      toast.error(errorMessage(err));
-    }
-  }
-
-  private onModelChange(d: Doc) {
-    const was = d.dirty;
-    this.updateDirty(d);
-    if (d.dirty) {
-      // typing keeps the tab
-      for (const g of this.groups) {
-        for (const t of g.tabs) if (t.path === d.path && t.preview && !t.diff) t.preview = false;
-      }
-      this.scheduleDraft(d);
-      if (this.editorPrefs.autoSave === 'afterDelay' && !d.readOnly) this.scheduleAutoSave(d);
-    }
-    if (d.dirty !== was || d.dirty) this.changed();
-  }
-
-  private updateDirty(d: Doc) {
-    if (d.model) d.dirty = d.model.getAlternativeVersionId() !== d.savedAlt;
-  }
-
-  private scheduleDraft(d: Doc) {
-    window.clearTimeout(this.draftTimers.get(d.path));
-    this.draftTimers.set(
-      d.path,
-      window.setTimeout(() => this.writeDraft(d), 500),
-    );
-  }
-
-  private writeDraft(d: Doc) {
-    if (!d.model || !d.dirty) return;
-    void drafts.put(this.mid, d.path, { content: d.model.getValue(), baseMtime: d.mtime, at: Date.now() });
-  }
-
-  /** Write every pending draft now (the workbench is closing). */
-  flushDrafts() {
-    for (const d of this.docs.values()) if (d.dirty) this.writeDraft(d);
-  }
-
-  private scheduleAutoSave(d: Doc) {
-    window.clearTimeout(this.autoSaveTimers.get(d.path));
-    this.autoSaveTimers.set(
-      d.path,
-      window.setTimeout(() => {
-        if (d.dirty && !d.conflict) void this.save(d.path);
-      }, 1000),
-    );
-  }
-
-  /** Focus left the editor or the window (auto save "on focus change"). */
-  focusChanged() {
-    if (this.editorPrefs.autoSave !== 'onFocusChange') return;
-    for (const d of this.docs.values()) if (d.dirty && !d.readOnly && !d.conflict) void this.save(d.path);
-  }
-
-  async reload(path: string) {
-    const d = this.docs.get(path);
-    if (!d?.model) {
-      if (d) {
-        d.status = 'loading';
-        this.changed();
-        await this.load(d);
-      }
-      return;
-    }
-    try {
-      const r = await api.fsRead(this.mid, path, MAX_VIEW + 1);
-      const legacy = r.binary ? await this.decodeLegacy(path, d.encoding || undefined) : null;
-      if (r.binary && !legacy) return;
-      const text = legacy ? legacy.text : r.content.startsWith('\uFEFF') ? r.content.slice(1) : r.content;
-      this.replaceAll(d.model, text);
-      d.mtime = r.mtime;
-      d.size = r.size;
-      d.savedAlt = d.model.getAlternativeVersionId();
-      d.conflict = false;
-      d.deleted = false;
-      d.dirty = false;
-      void drafts.remove(this.mid, path);
-      this.changed();
-    } catch (err) {
-      toast.error(`Could not reload: ${errorMessage(err)}`);
-    }
-  }
-
-  /** Replace the text as one undoable step, so Undo brings back what was there. */
-  private replaceAll(model: monaco.editor.ITextModel, text: string) {
-    if (model.getValue() === text.replace(/\r\n|\r|\n/g, model.getEOL())) return;
-    model.pushStackElement();
-    model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
-    model.pushStackElement();
-  }
-
-  async save(path: string, opts: { force?: boolean; outside?: boolean } = {}): Promise<boolean> {
-    const d = this.docs.get(path);
-    if (!d?.model || d.readOnly || d.status !== 'ready') return false;
-    window.clearTimeout(this.draftTimers.get(path));
-    window.clearTimeout(this.autoSaveTimers.get(path));
-    d.saving = true;
-    d.saveError = '';
-    this.changed();
-    try {
-      if (this.editorPrefs.formatOnSave) await this.formatDoc(d);
-      let ifMtime = d.mtime || undefined;
-      if (opts.force) ifMtime = (await api.fsStat(this.mid, path)).mtime || undefined;
-      const body = { path, content: (d.bom ? '﻿' : '') + d.model.getValue(), ifMtime, projectId: this.pid, allowOutside: opts.outside || undefined };
-      const st = await this.run((c) => fsApi.write(this.mid, { ...body, ...c }));
-      if (!st) {
-        d.saving = false;
-        this.changed();
-        return false;
-      }
-      d.mtime = st.mtime;
-      if (this.laravel?.detected && changesLaravelIndex(this.rel(path))) void this.refreshLaravel();
-      d.size = st.size;
-      d.savedAlt = d.model.getAlternativeVersionId();
-      d.dirty = false;
-      d.conflict = false;
-      d.deleted = false;
-      d.outside = false;
-      d.saving = false;
-      d.recovered = null;
-      void drafts.remove(this.mid, path);
-      this.lsp.saved(d.model);
-      this.gitSoon();
-      this.changed();
-      void this.runOnSave(d);
-      return true;
-    } catch (err) {
-      d.saving = false;
-      if (isCode(err, 'mtime_mismatch') || (err instanceof ApiError && err.status === 409)) d.conflict = true;
-      else if (isCode(err, 'outside_project')) d.outside = true;
-      else if (isCode(err, 'no_sftp')) d.readOnly = 'This machine has no SFTP, so files can only be read.';
-      else d.saveError = errorMessage(err);
-      this.changed();
-      return false;
-    }
-  }
-
-  async saveAll() {
-    for (const d of this.docs.values()) if (d.dirty && !d.readOnly && !d.conflict) await this.save(d.path);
+  private releaseDoc(path: string) {
+    const k = path ? this.toKey(path) : null;
+    if (!k) return;
+    for (const g of this.groups) if (g.tabs.some((t) => t.path === k)) return;
+    if (!this.docs.holds(k)) return;
+    this.docs.delete(k);
+    docStore.release(k, this);
+    this.syncWatch();
   }
 
   private async formatDoc(d: Doc) {
@@ -1262,66 +1300,61 @@ export class Workspace {
     }
   }
 
-  private async runOnSave(d: Doc) {
-    if (!this.inside(d.path) || !store.getState().settings?.editor?.onSave?.length) return;
-    try {
-      const r = await filesApi.onSave(this.pid, this.rel(d.path));
-      for (const run of r.runs ?? []) {
-        this.log(`$ ${run.command}${run.output ? `\n${run.output.trimEnd()}` : ''}`);
-        if (run.exitCode !== 0 || run.timedOut) {
-          toast.notify('error', 'A command on save failed', `${run.command}: ${run.timedOut ? 'stopped after 60 s' : run.output.trim().slice(-300) || `exit ${run.exitCode}`}`);
-        }
-      }
-      if (!r.runs?.length || !d.model) return;
-      // A formatter may have changed the file: take it in as an undoable edit.
-      const fresh = await api.fsRead(this.mid, d.path, MAX_VIEW + 1);
-      if (fresh.mtime === d.mtime || d.dirty) return;
-      this.replaceAll(d.model, fresh.content.startsWith('﻿') ? fresh.content.slice(1) : fresh.content);
-      d.mtime = fresh.mtime;
-      d.size = fresh.size;
-      d.savedAlt = d.model.getAlternativeVersionId();
-      d.dirty = false;
-      this.changed();
-    } catch (err) {
-      this.log(`Commands on save: ${errorMessage(err)}`);
-    }
+  async save(path: string, opts: { force?: boolean; outside?: boolean } = {}): Promise<boolean> {
+    const k = this.toKey(path);
+    const d = k && !isRootKey(k) ? docStore.get(k) : undefined;
+    if (!k || !d || this.readOnlyOf(d)) return false;
+    return docStore.save(k, {
+      ref: this.partFor(k).ref,
+      run: this.run,
+      force: opts.force,
+      outside: opts.outside,
+      format: this.editorPrefs.formatOnSave ? (doc) => this.formatDoc(doc as Doc) : undefined,
+    });
+  }
+
+  async saveAll() {
+    for (const d of [...this.docs.values()]) if (d.dirty && !this.readOnlyOf(d) && !d.conflict) await this.save(d.path);
+  }
+
+  /** Focus left the editor or the window (auto save "on focus change"). */
+  focusChanged() {
+    if (this.editorPrefs.autoSave !== 'onFocusChange') return;
+    for (const d of this.docs.values()) if (d.dirty && !this.readOnlyOf(d) && !d.conflict) void this.save(d.path);
+  }
+
+  /** Write every pending draft now (the card is closing). */
+  flushDrafts() {
+    docStore.flushDrafts();
+  }
+
+  reload(path: string): Promise<void> {
+    const k = this.toKey(path);
+    return k && !isRootKey(k) ? docStore.reload(k) : Promise.resolve();
+  }
+
+  reopenWithEncoding(path: string, encoding: string): Promise<void> {
+    const k = this.toKey(path);
+    return k && !isRootKey(k) ? docStore.reopenWithEncoding(k, encoding) : Promise.resolve();
   }
 
   restoreDraft(path: string) {
-    const d = this.docs.get(path);
-    if (!d?.recovered || !d.model) return;
-    d.model.setValue(d.recovered.content);
-    d.recovered = null;
-    this.updateDirty(d);
-    this.changed();
+    const k = this.toKey(path);
+    if (k && !isRootKey(k)) docStore.restoreDraft(k);
   }
 
   dropDraft(path: string) {
-    const d = this.docs.get(path);
-    if (!d) return;
-    void drafts.remove(this.mid, path);
-    d.recovered = null;
-    this.changed();
+    const k = this.toKey(path);
+    if (k && !isRootKey(k)) docStore.dropDraft(k);
   }
 
   setMdView(path: string, v: MdView) {
-    const d = this.docs.get(path);
+    const k = this.toKey(path);
+    if (!k) return;
+    const d = docStore.get(k);
     if (d) d.md = v;
-    this.mdViews[path] = v;
+    this.mdViews[k] = v;
     this.changed();
-  }
-
-  private releaseDoc(path: string) {
-    for (const g of this.groups) if (g.tabs.some((t) => t.path === path)) return;
-    const d = this.docs.get(path);
-    if (!d) return;
-    if (d.model) {
-      this.lsp.detach(d.model);
-      if (d.dirty) void drafts.remove(this.mid, path);
-      d.model.dispose();
-    }
-    this.docs.delete(path);
-    this.syncWatch();
   }
 
   // ---- tabs --------------------------------------------------------------------------
@@ -1337,7 +1370,7 @@ export class Workspace {
 
   get activeDoc(): Doc | null {
     const t = this.activeTab;
-    return t ? (this.docs.get(t.path) ?? null) : null;
+    return t?.path ? (this.docs.at(t.path) ?? null) : null;
   }
 
   activeEditor(): monaco.editor.IStandaloneCodeEditor | null {
@@ -1352,20 +1385,22 @@ export class Workspace {
   }
 
   /** Open a file: a preview tab unless pinned, reusing the group's current preview. */
-  open(path: string, o: { pin?: boolean; keepFocus?: boolean; side?: boolean; group?: number; line?: number; col?: number; endCol?: number; source?: boolean } = {}) {
+  open(path: string, o: OpenOptions = {}) {
+    const k = this.toKey(path);
+    if (!k || isRootKey(k)) return;
     const gi = o.side ? this.groupForSide(this.activeGroup) : (o.group ?? this.activeGroup);
     const g = this.groups[gi] ?? this.group;
-    const id = tabId(path);
+    const id = tabId(k);
     let tab = g.tabs.find((t) => t.id === id);
     if (tab) {
       if (o.pin) tab.preview = false;
     } else {
-      tab = { id, path, preview: !o.pin };
-      const preview = g.tabs.findIndex((t) => t.preview && !this.docs.get(t.path)?.dirty);
+      tab = { id, path: k, preview: !o.pin };
+      const preview = g.tabs.findIndex((t) => t.preview && !(t.path && this.docs.at(t.path)?.dirty));
       if (preview >= 0) {
         const old = g.tabs[preview];
         g.tabs[preview] = tab;
-        this.ensureDoc(path);
+        this.holdDoc(k);
         this.releaseDoc(old.path);
       } else {
         const at = g.tabs.findIndex((t) => t.id === g.active);
@@ -1374,37 +1409,60 @@ export class Workspace {
     }
     g.active = id;
     this.activeGroup = this.groups.indexOf(g);
-    const d = this.ensureDoc(path);
+    const d = this.holdDoc(k);
     if (o.source && d.md === 'reader') d.md = 'source';
-    this.selected = path;
-    this.addRecent(path);
+    this.selected = k;
+    this.addRecent(k);
     if (o.line) this.reveal = { tabId: id, group: g.id, line: o.line, col: o.col, endCol: o.endCol };
     if (!o.keepFocus) this.focusTick++;
     this.changed();
     this.syncWatch();
   }
 
+  /** fileKey(machineId, abs), then open. */
+  openReal(machineId: string, abs: string, o?: OpenOptions) {
+    const p = cleanAbs(abs);
+    if (p) this.open(fileKey(machineId, p), o);
+  }
+
   /** Compare a file with HEAD or with what is on disk now. */
   openDiff(path: string, source: DiffSource, group?: number) {
+    const k = this.toKey(path);
+    if (!k || isRootKey(k)) return;
     const g = this.groups[group ?? this.activeGroup] ?? this.group;
-    const id = tabId(path, source);
+    const id = tabId(k, source);
     if (!g.tabs.some((t) => t.id === id)) {
       const at = g.tabs.findIndex((t) => t.id === g.active);
-      g.tabs.splice(at < 0 ? g.tabs.length : at + 1, 0, { id, path, diff: source, preview: false });
+      g.tabs.splice(at < 0 ? g.tabs.length : at + 1, 0, { id, path: k, diff: source, preview: false });
     }
     g.active = id;
-    this.ensureDoc(path);
+    this.holdDoc(k);
     this.changed();
   }
 
-  /** Show a commit: a preview tab unless pinned, in the same place a preview file would take. */
-  openCommit(hash: string, o: { label?: string; pin?: boolean } = {}) {
-    const repo = this.gitTarget.repo;
-    this.placeTab(`commit:${repo}:${hash}`, { path: '', commit: { hash, repo, label: o.label ?? hash.slice(0, 8) } }, !!o.pin);
+  /** Show a commit of a part's repository (the active part when only a hash is given): a preview tab unless pinned. */
+  openCommit(hash: string, o?: { label?: string; pin?: boolean }): void;
+  openCommit(part: PartServiceApi, hash: string, o?: { label?: string; pin?: boolean }): void;
+  openCommit(a: PartServiceApi | string, b?: string | { label?: string; pin?: boolean }, c?: { label?: string; pin?: boolean }) {
+    const part = typeof a === 'string' ? this.activePart : a;
+    const hash = typeof a === 'string' ? a : (b as string);
+    const o = (typeof a === 'string' ? (b as { label?: string; pin?: boolean } | undefined) : c) ?? {};
+    const repo = part.gitTarget.repo;
+    this.placeTab(`commit:${part.partId}:${repo}:${hash}`, { path: '', commit: { hash, repo, label: o.label ?? hash.slice(0, 8), part: part.partId } }, !!o.pin);
   }
 
-  openView(view: SpecialView, o: { pin?: boolean } = {}) {
-    this.placeTab(viewId(view), { path: '', view }, !!o.pin);
+  /** A view of its own in a tab; its part is the one named, else the file's (history), else the active one. */
+  openView(view: SpecialView | PartSpecialView, o: { pin?: boolean } = {}) {
+    let part = view.part;
+    let v = view;
+    if (view.kind === 'history') {
+      const k = this.toKey(view.path);
+      if (!k) return;
+      part ||= this.partOf(k)?.partId;
+      v = { ...view, path: k };
+    }
+    const full = { ...v, part: part || this.activePart.partId } as PartSpecialView;
+    this.placeTab(viewId(full), { path: '', view: full }, !!o.pin);
   }
 
   /** Close a tab that shows no file, wherever it is. */
@@ -1430,7 +1488,7 @@ export class Workspace {
       if (pin) tab.preview = false;
     } else {
       const next: Tab = { id, ...fields, preview: !pin };
-      const preview = g.tabs.findIndex((t) => t.preview && !this.docs.get(t.path)?.dirty);
+      const preview = g.tabs.findIndex((t) => t.preview && !(t.path && this.docs.at(t.path)?.dirty));
       if (preview >= 0) {
         const old = g.tabs[preview];
         g.tabs[preview] = next;
@@ -1478,7 +1536,12 @@ export class Workspace {
     return !this.groups.some((g) => g.tabs.some((t) => t !== except && t.path === path && !t.diff));
   }
 
-  /** Close a tab, asking first when it holds the only view of unsaved edits. */
+  /** Another card shows the file too. */
+  private shownElsewhere(key: FileKey): boolean {
+    return [...docStore.holders(key)].some((h) => h !== this);
+  }
+
+  /** Close a tab, asking first when it holds the only view of unsaved edits (in any card). */
   closeTab(gi: number, id: string) {
     const tab = this.groups[gi]?.tabs.find((t) => t.id === id);
     if (!tab) return;
@@ -1486,7 +1549,7 @@ export class Workspace {
       this.askClosePane(tab.pane);
       return;
     }
-    if (!tab.diff && this.docs.get(tab.path)?.dirty && this.lastTabOf(tab.path, tab)) {
+    if (tab.path && !tab.diff && this.docs.at(tab.path)?.dirty && this.lastTabOf(tab.path, tab) && !this.shownElsewhere(tab.path)) {
       this.closing = { group: gi, tab };
       this.changed();
       return;
@@ -1574,7 +1637,9 @@ export class Workspace {
 
   /** Closes a diff tab wherever it is. */
   closeDiffTab(path: string, source: DiffSource) {
-    const id = tabId(path, source);
+    const k = this.toKey(path);
+    if (!k) return;
+    const id = tabId(k, source);
     for (let gi = this.groups.length - 1; gi >= 0; gi--) {
       const tab = this.groups[gi].tabs.find((t) => t.id === id);
       if (tab) this.removeTab(gi, tab);
@@ -1602,14 +1667,12 @@ export class Workspace {
   resolveClosing(answer: 'save' | 'discard' | 'cancel') {
     const c = this.closing;
     this.closing = null;
-    if (!c || answer === 'cancel') {
+    if (!c || answer === 'cancel' || !c.tab.path) {
       this.changed();
       return;
     }
     if (answer === 'discard') {
-      void drafts.remove(this.mid, c.tab.path);
-      const d = this.docs.get(c.tab.path);
-      if (d) d.dirty = false;
+      docStore.discard(c.tab.path);
       this.removeTab(c.group, c.tab);
       return;
     }
@@ -1622,13 +1685,13 @@ export class Workspace {
   closeOthers(gi: number, id: string) {
     const g = this.groups[gi];
     if (!g) return;
-    for (const t of [...g.tabs]) if (t.id !== id && !t.pane && !(this.docs.get(t.path)?.dirty && !t.diff)) this.removeTab(this.groups.indexOf(g), t);
+    for (const t of [...g.tabs]) if (t.id !== id && !t.pane && !(t.path && this.docs.at(t.path)?.dirty && !t.diff)) this.removeTab(this.groups.indexOf(g), t);
   }
 
   closeAll(gi: number) {
     const g = this.groups[gi];
     if (!g) return;
-    for (const t of [...g.tabs]) if (!t.pane && (t.diff || !this.docs.get(t.path)?.dirty)) this.removeTab(this.groups.indexOf(g), t);
+    for (const t of [...g.tabs]) if (!t.pane && (t.diff || !(t.path && this.docs.at(t.path)?.dirty))) this.removeTab(this.groups.indexOf(g), t);
   }
 
   cycleTab(delta: number) {
@@ -1668,17 +1731,37 @@ export class Workspace {
     this.changed();
   }
 
-  private addRecent(path: string) {
-    this.recent = [path, ...this.recent.filter((p) => p !== path)].slice(0, MAX_RECENT);
+  private addRecent(key: FileKey) {
+    this.recent = [key, ...this.recent.filter((p) => p !== key)].slice(0, MAX_RECENT);
   }
 
   // ---- file operations ---------------------------------------------------------------
 
+  /** A part's own folder: renaming, moving or trashing it would leave the part pointing nowhere. */
+  private isPartFolder(k: FileKey): boolean {
+    return isRootKey(k) || this.paths.mounts.some((m) => m.rootKey === k);
+  }
+
+  private refusePartFolder(k: FileKey): boolean {
+    if (!this.isPartFolder(k)) return false;
+    toast.info(isRootKey(k) ? 'Pick a part’s folder first: the root of the project is a view of its parts.' : 'This is a part’s own folder. Change it in the project’s parts instead.');
+    return true;
+  }
+
   startInput(kind: TreeInput['kind'], dir: string, path?: string) {
+    const d = this.toKey(dir);
+    if (!d) return;
+    if (isRootKey(d) && kind !== 'rename') {
+      toast.info('Pick a part’s folder first: the root of the project is a view of its parts.');
+      return;
+    }
+    const target = path ? this.toKey(path) : null;
+    if (kind === 'rename' && target && this.refusePartFolder(target)) return;
     this.side = 'files';
     this.sideOpen = true;
-    if (kind !== 'rename' && !this.expanded.has(dir)) this.toggleDir(dir, true);
-    this.input = { kind, dir, path, value: kind === 'rename' && path ? nameOf(path) : '' };
+    if (kind !== 'rename' && !this.expanded.has(d)) this.toggleDir(d, true);
+    const p = path ? (this.toKey(path) ?? undefined) : undefined;
+    this.input = { kind, dir: d, path: p, value: kind === 'rename' && p ? nameOf(p) : '' };
     this.changed();
   }
 
@@ -1700,29 +1783,37 @@ export class Workspace {
       toast.error('Use a plain name, without \\ or .. in it.');
       return false;
     }
+    const dirKey = this.toKey(inp.dir);
+    if (!dirKey || isRootKey(dirKey)) return false;
     try {
       if (inp.kind === 'rename' && inp.path) {
-        await this.moveTo(inp.path, `${dirOf(inp.path)}/${name}`);
+        const from = this.toKey(inp.path);
+        const parent = from ? parentKey(from) : null;
+        if (from && parent) await this.moveTo(from, joinKey(parent, name));
       } else {
+        const { machineId, abs: dirAbs } = splitKey(dirKey);
+        const ref = this.partFor(dirKey).ref;
         // "src/new/file.ts" creates the folders on the way, as in VS Code
         const parts = name.split('/').filter(Boolean);
         const folders = inp.kind === 'folder' ? parts : parts.slice(0, -1);
-        let dir = inp.dir;
+        let dir = dirAbs === '/' ? '' : dirAbs;
         for (const f of folders) {
           dir = `${dir}/${f}`;
-          const r = await this.run((c) => fsApi.mkdir(this.mid, dir, c));
+          const at = dir;
+          const r = await this.run((c) => fsApi.mkdir(machineId, at, c));
           if (!r) return false;
         }
         if (inp.kind === 'file') {
-          const st = await this.run((c) => fsApi.write(this.mid, { path: `${dir}/${parts[parts.length - 1]}`, content: '', unique: true, projectId: this.pid, ...c }));
+          const file = `${dir}/${parts[parts.length - 1]}`;
+          const st = await this.run((c) => fsApi.write(machineId, { path: file, content: '', unique: true, projectId: ref, ...c }));
           if (!st) return false;
-          this.open(st.path, { pin: true });
+          this.open(fileKey(machineId, st.path), { pin: true });
         }
-        void this.loadDir(inp.dir);
-        if (dir !== inp.dir) this.revealInTree(inp.kind === 'file' ? `${dir}/${parts[parts.length - 1]}` : dir);
+        void this.loadDir(dirKey);
+        if ((dir || '/') !== dirAbs) this.revealInTree(fileKey(machineId, inp.kind === 'file' ? `${dir}/${parts[parts.length - 1]}` : dir));
       }
       this.input = null;
-      this.filesCache = null;
+      this.partOf(dirKey)?.filesChanged();
       this.gitSoon();
       this.changed();
       return true;
@@ -1732,77 +1823,70 @@ export class Workspace {
     }
   }
 
-  /** Rename or move, keeping open tabs and unsaved edits on the new path. */
+  /** Rename or move on one machine, keeping open tabs (in every card) and unsaved edits on the new path. */
   async moveTo(from: string, to: string) {
-    const st = await this.run((c) => fsApi.rename(this.mid, from, to, c));
-    if (!st) return;
-    await this.remap(from, st.path);
-    this.debug.fileRenamed(from, st.path);
-    void this.loadDir(dirOf(from));
-    void this.loadDir(dirOf(st.path));
-    if (this.expanded.delete(from)) {
-      this.expanded.add(st.path);
-      void this.loadDir(st.path);
+    const a = this.toKey(from);
+    const b = this.toKey(to);
+    if (!a || !b || isRootKey(a) || isRootKey(b) || this.refusePartFolder(a)) return;
+    const src = splitKey(a);
+    const dst = splitKey(b);
+    if (src.machineId !== dst.machineId) {
+      toast.error('Files can only be moved on the machine they are on.');
+      return;
     }
-    if (this.selected === from) this.selected = st.path;
-    this.filesCache = null;
+    const st = await this.run((c) => fsApi.rename(src.machineId, src.abs, dst.abs, c));
+    if (!st) return;
+    const moved = fileKey(src.machineId, st.path);
+    await docStore.remap(a, moved);
+    this.debug.fileRenamed(a, moved);
+    const pa = parentKey(a);
+    const pm = parentKey(moved);
+    if (pa) void this.loadDir(pa);
+    if (pm) void this.loadDir(pm);
+    if (this.expanded.delete(a)) {
+      this.expanded.add(moved);
+      void this.loadDir(moved);
+    }
+    if (this.selected === a) this.selected = moved;
+    this.partOf(a)?.filesChanged();
+    this.partOf(moved)?.filesChanged();
     this.gitSoon();
     this.changed();
   }
 
-  private async remap(from: string, to: string) {
-    const moved = [...this.docs.values()].filter((d) => d.path === from || d.path.startsWith(`${from}/`));
-    for (const old of moved) {
-      const next = to + old.path.slice(from.length);
-      const unsaved = old.dirty && old.model ? old.model.getValue() : null;
-      for (const g of this.groups) {
-        for (const t of g.tabs) {
-          if (t.path !== old.path) continue;
-          const nid = tabId(next, t.diff);
-          if (g.active === t.id) g.active = nid;
-          t.id = nid;
-          t.path = next;
-        }
-      }
-      if (old.model) {
-        this.lsp.detach(old.model);
-        old.model.dispose();
-      }
-      this.docs.delete(old.path);
-      void drafts.remove(this.mid, old.path);
-      const d = newDoc(next, old.md);
-      this.docs.set(next, d);
-      await this.load(d);
-      if (unsaved !== null && d.model) d.model.setValue(unsaved);
-    }
-  }
-
   async trash(path: string) {
-    const r = await this.run((c) => fsApi.trash(this.mid, path, this.pid, c));
+    const k = this.toKey(path);
+    if (!k || this.refusePartFolder(k)) return;
+    const { machineId, abs } = splitKey(k);
+    const r = await this.run((c) => fsApi.trash(machineId, abs, this.partFor(k).ref, c));
     if (!r) return;
     for (const g of [...this.groups]) {
       for (const t of [...g.tabs]) {
-        if (t.path === path || t.path.startsWith(`${path}/`)) {
-          const d = this.docs.get(t.path);
+        if (t.path && keyUnder(t.path, k)) {
+          const d = this.docs.at(t.path);
           if (d) d.dirty = false;
           this.removeTab(this.groups.indexOf(g), t);
         }
       }
     }
-    void this.loadDir(dirOf(path));
-    this.filesCache = null;
+    const parent = parentKey(k);
+    if (parent) void this.loadDir(parent);
+    this.partOf(k)?.filesChanged();
     this.gitSoon();
-    toast.success(`Moved to ${this.rel(r.trashedTo)}.`);
+    const to = cleanAbs(r.trashedTo);
+    toast.success(`Moved to ${to ? this.rel(fileKey(machineId, to)) : r.trashedTo}.`);
   }
 
   /** Show what was just added to a folder: selected, with the folder open. */
-  private showAdded(path: string) {
-    const dir = dirOf(path);
-    void this.loadDir(dir);
-    if (dir !== this.root && !this.expanded.has(dir)) this.toggleDir(dir, true);
-    this.selected = path;
+  private showAdded(key: FileKey) {
+    const dir = parentKey(key);
+    if (dir) {
+      void this.loadDir(dir);
+      if (dir !== this.rootKey && !this.expanded.has(dir)) this.toggleDir(dir, true);
+    }
+    this.selected = key;
     this.revealTick++;
-    this.filesCache = null;
+    this.partOf(key)?.filesChanged();
     this.gitSoon();
     this.changed();
   }
@@ -1810,35 +1894,44 @@ export class Workspace {
   /** Paste what Copy or Cut in a tree put aside into this folder. Nothing gets replaced. */
   async pasteClip(dir: string) {
     const clip = fileClip.get();
-    if (!clip) return;
-    if (clip.machineId !== this.mid) {
+    const d = this.toKey(dir);
+    if (!clip || !d || (isRootKey(d) && this.refusePartFolder(d))) return;
+    const into = splitKey(d);
+    const src = clip.path.startsWith('//') ? asFileKey(clip.path) : cleanAbs(clip.path) ? fileKey(clip.machineId, clip.path) : null;
+    if (!src || splitKey(src).machineId !== into.machineId) {
       toast.error('Files can only be pasted on the machine they were copied on.');
       return;
     }
-    const name = nameOf(clip.path);
-    const into = (d: string) => `${d === '/' ? '' : d}/${name}`;
-    const onItself = dir === clip.path || dir.startsWith(`${clip.path}/`);
+    const srcAbs = splitKey(src).abs;
+    const name = nameOf(srcAbs);
+    const target = (folder: string) => `${folder === '/' ? '' : folder}/${name}`;
+    const onItself = keyUnder(d, src);
     if (clip.cut) {
       if (onItself) {
         toast.error('A folder cannot be moved into itself.');
         return;
       }
-      if (dirOf(clip.path) !== dir) await this.moveTo(clip.path, into(dir));
+      if (parentKey(src) !== d) await this.moveTo(src, fileKey(into.machineId, target(into.abs)));
       fileClip.set(null);
       return;
     }
     // a folder pasted onto itself lands next to itself, as in VS Code
-    const st = await this.run((c) => fsApi.copy(this.mid, clip.path, into(onItself ? dirOf(clip.path) : dir), true, c));
-    if (st) this.showAdded(st.path);
+    const dest = target(onItself ? dirOf(srcAbs) : into.abs);
+    const st = await this.run((c) => fsApi.copy(into.machineId, srcAbs, dest, true, c));
+    if (st) this.showAdded(fileKey(into.machineId, st.path));
   }
 
   /** Files from the computer, into this folder. What already has the name stays. */
   async pasteFiles(dir: string, files: File[]) {
+    const d = this.toKey(dir);
+    if (!d || (isRootKey(d) && this.refusePartFolder(d))) return [];
+    const { machineId, abs } = splitKey(d);
+    const ref = this.partFor(d).ref;
     const sent = await sendPasted(files, async (f) => {
       const packed = await packUpload(f);
-      return this.run((c) => api.fsUpload(this.mid, packed, { path: `${dir === '/' ? '' : dir}/${f.name}`, unique: true, projectId: this.pid, ...c }));
+      return this.run((c) => api.fsUpload(machineId, packed, { path: `${abs === '/' ? '' : abs}/${f.name}`, unique: true, projectId: ref, ...c }));
     });
-    if (sent.length) this.showAdded(sent[sent.length - 1].path);
+    if (sent.length) this.showAdded(fileKey(machineId, sent[sent.length - 1].path));
     return sent;
   }
 
@@ -1861,20 +1954,27 @@ export class Workspace {
 
   /** Create a file with this text, making its folder when needed. */
   async writeNew(path: string, content: string, c: Confirm) {
-    await fsApi.mkdir(this.mid, dirOf(path), c).catch(() => undefined);
-    return fsApi.write(this.mid, { path, content, projectId: this.pid, ...c });
+    const k = this.toKey(path);
+    if (!k || isRootKey(k)) throw new Error(`Not a file: ${path}`);
+    const { machineId, abs } = splitKey(k);
+    await fsApi.mkdir(machineId, dirOf(abs), c).catch(() => undefined);
+    return fsApi.write(machineId, { path: abs, content, projectId: this.partFor(k).ref, ...c });
   }
 
   async duplicate(path: string) {
-    const r = await api.fsRead(this.mid, path, MAX_VIEW + 1);
+    const k = this.toKey(path);
+    if (!k || isRootKey(k)) return;
+    const { machineId, abs } = splitKey(k);
+    const r = await api.fsRead(machineId, abs, MAX_VIEW + 1);
     if (r.binary) {
       toast.error('Binary files cannot be duplicated here.');
       return;
     }
-    const st = await this.run((c) => fsApi.write(this.mid, { path, content: r.content, unique: true, projectId: this.pid, ...c }));
+    const st = await this.run((c) => fsApi.write(machineId, { path: abs, content: r.content, unique: true, projectId: this.partFor(k).ref, ...c }));
     if (!st) return;
-    void this.loadDir(dirOf(path));
-    this.filesCache = null;
-    this.open(st.path, { pin: true });
+    const parent = parentKey(k);
+    if (parent) void this.loadDir(parent);
+    this.partOf(k)?.filesChanged();
+    this.open(fileKey(machineId, st.path), { pin: true });
   }
 }

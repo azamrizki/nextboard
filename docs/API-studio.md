@@ -208,7 +208,7 @@ A project folder may be a parent folder holding several repositories, with or wi
 
 **State per repository:** the `git_busy` lock, the panel selection and the last summary. A push in one repository does not block other repositories.
 
-**Event:** repositories below the project folder use `{"type":"gitRepo","projectId","repo","status"}` so that a client that only knows the project's repository does not misread their summary. The project's own repository stays `{"type":"git"}`.
+**Event:** every part of a project sends `{"type":"gitPart","projectId","part","repo","status"}` for each of its repositories (`repo` `""` = the part folder's own), keyed by the part's id, so the key stays when the parts are reordered (API-board §1 "Project parts"). The first part in display order also sends the old events: repositories below its folder use `{"type":"gitRepo","projectId","repo","status"}` so that a client that only knows the project's repository does not misread their summary, and its own repository `{"type":"git"}`. The web keeps git state per part under `<project>~<part>`, and the old events under the bare project id for views that still ask by it. State per repository (`git_busy`, selection, last summary) is keyed by project, part and repository.
 
 **A repository nested inside another repository:**
 - `GitStatus.nestedRepos` (`["libs/inner"]`) lists it; `files` and `changed` no longer include `libs/inner/`.
@@ -252,7 +252,7 @@ Explorer also dims ignored files in repositories below the parent folder: in a p
 
 ### 3.8 The board's Git panel: every part, history graph
 
-No new endpoint: each part's git is already served under its project ref (`<project>~<part>`, API-board §1 "Project parts"), and its events come as `gitPart`.
+No new endpoint: each part's git is already served under its project ref (`<project>~<part>`, API-board §1 "Project parts"), and its events come as `gitPart`, the first part's too (§3.6).
 
 - **Several parts:** the panel (G) lists every part at once, in the project's order and under its own name. No part is marked as the main one. Each header shows the part's machine and its repository: branch, ahead/behind and the number of changed files. A part with several repositories (§3.6) shows one line per repository; a click picks that repository. A part with none says so. Opening the panel scans every part (`GET …~<part>/git/repos`). Refresh reads every part again.
 - **Opening a part:** each part opens and closes on its own, and several can be open at once. Which parts are open is kept per project in the browser (`nb.git.parts.<project>`). An open part has the whole panel for its picked repository: changes and diffs, commit, push, pull, fetch, publish to GitHub through the `gh` of that part's machine, discard and trash, and files over 100 MB. Its ticks go to its own `PUT …/git/selection`. Messages about a job say which part they are about (`Web: Push done.`).
@@ -613,7 +613,18 @@ Open VSX search results do not say what a package holds, so the hub asks for 50 
 
 ### 7.7 Card on the board
 
-The workbench is an `editor` node (`board/tiles/EditorTile.tsx`), not an overlay: one card per board, tabs and unsaved edits belong to the project (localStorage and IndexedDB), not to the card. The Fill button enlarges the card to the width of the view at 100 % zoom and restores it. A wire `editor → terminal | group | orchestrator` sets where questions from the Ask panel go; `POST /board/ops` validates it. Other clients that do not know this kind yet show an unsupported tile.
+The workbench is an `editor` node (`board/tiles/EditorTile.tsx`), not an overlay. The Fill button enlarges the card to the width of the view at 100 % zoom and restores it. A wire `editor → terminal | group | orchestrator` sets where questions from the Ask panel go; `POST /board/ops` validates it. Other clients that do not know this kind yet show an unsupported tile.
+
+**Cards by placement** (v0.9.0-beta.2, `board/editorCards.ts`). A card is placed like a console: `data.part` names a part (its id), and absent, `""` or an unknown id is the **Root** card of a project of several parts, one tree with each part as a top-level folder. A single-part project has one placement; its cards look and persist exactly as before. A board holds one card per placement: a second card of the same placement shows "already open, Show it" with a button that frames the first. Tabs, layout, explorer, git selection, review and debug state belong to the project and the placement (`wb.<viewKey>`), not to the card or the board, so the same placement on two boards is one view. Two cards showing one file share one model and its unsaved edits. The card's label and title name the placement: "Code editor · admin", "Code editor · All parts", and `acme-shop · admin` in its title bar; the status bar of a Root card names the part of the active file.
+
+- **Which card opens.** The board's `openCode` (`BoardView.tsx`) decides:
+  - A file (a file card's "Open in the editor card", the lead's `editor.open` with `UIAction.part`, the Git panel): the card of the file's part (its `partId`, else the part holding the path on its machine), else a Root card, else a new card placed in that part (a file outside every part: the Root). Nothing is asked.
+  - A placement (an agent pane, a commit from the Git panel, the lead's `openPanel code`): that card, a Root card for a pane or a commit (it lists every part), else a new card. The lead's `open code` is the Root card.
+  - Neither (the rail's Code editor, the studios menu's Code): in a project of several parts a small dialog asks **Show: Root (all parts) / <part>**, with the focused tile's placement (else the last used) chosen; the card of that placement comes into view, or a new one is added. A single-part project shows its one card, or adds it.
+- **`ui.openFile`** carries `nodeId` (the card that takes it), `machineId` and `partId`; the card opens `(machineId, path)`. A request without `nodeId` (an older sender) goes to the board's first editor card.
+- **Agent panes** (`agents/jump.ts`): every editor card of the board registers how to show a pane; a jump asks each card, and when none has the pane the board opens the card of the session's placement (else a Root card), which then shows it. A pane is handed only to a card of its placement, or to a Root card.
+- **The Git panel's "Open in editor"** (`git/openInEditor.ts`) opens the commit in the view of the card the board picked, with that part's repository.
+- **Ports panel → web tile:** the tile shows the page from the machine the ports were listed on (the active part's, or the section's when the panel names one), with that part's `partId`.
 
 ### 7.8 Agents inside the editor
 

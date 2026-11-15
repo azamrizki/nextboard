@@ -30,14 +30,19 @@ var (
 
 // Lane is a console slot.
 type Lane struct {
-	Key   string  `json:"key"`
-	Agent string  `json:"agent,omitempty"`
-	Role  string  `json:"role,omitempty"`
-	Group string  `json:"group,omitempty"`
-	X     float64 `json:"x"`
-	Y     float64 `json:"y"`
-	W     float64 `json:"w"`
-	H     float64 `json:"h"`
+	Key   string `json:"key"`
+	Agent string `json:"agent,omitempty"`
+	Role  string `json:"role,omitempty"`
+	Group string `json:"group,omitempty"`
+	// Part and Root are where the lane's console worked when the layout was saved from a project
+	// of several parts (v0.9.0-beta.2): a part by its name, so that the layout fits another project
+	// with a part of that name, or the project root. Neither = where the deploy puts it.
+	Part string  `json:"part,omitempty"`
+	Root bool    `json:"root,omitempty"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+	W    float64 `json:"w"`
+	H    float64 `json:"h"`
 }
 
 // LayoutGroup is a group of lanes.
@@ -531,8 +536,11 @@ func localhostURL(u string) string {
 // LayoutFromBoard saves a layout from board nodes (nodeIDs, or all): kind,
 // geometry, titles/text/colors, lane agents, groups, orchestrators,
 // wires/forwards, kanban column titles and localhost web tiles. Drawings,
-// ink, images, files, card contents and external URLs are dropped.
-func LayoutFromBoard(b board.Board, nodeIDs []string, sessions map[string]session.Info) Layout {
+// ink, images, files, card contents and external URLs are dropped. In a project of several
+// parts it keeps where each console and editor card works, by part name (proj is the board's
+// project); a single-part project saves none, so its layouts fit any project.
+func LayoutFromBoard(b board.Board, nodeIDs []string, sessions map[string]session.Info, proj project.Project) Layout {
+	multi := len(proj.Parts) > 1
 	sel := map[string]bool{}
 	for _, id := range nodeIDs {
 		sel[id] = true
@@ -573,6 +581,11 @@ func LayoutFromBoard(b board.Board, nodeIDs []string, sessions map[string]sessio
 			ln := Lane{Key: key, Group: groupOfTerm[n.ID], X: n.X - minX, Y: n.Y - minY, W: n.W, H: n.H}
 			if in, ok := sessions[n.SessionID()]; ok {
 				ln.Agent = in.Agent
+				if pl := placeOfSession(proj, in); multi && pl.Root {
+					ln.Root = true
+				} else if pt, ok := proj.PartByID(pl.Part); multi && ok {
+					ln.Part = pt.Name
+				}
 			}
 			x.Lanes = append(x.Lanes, ln)
 		case KindOrchestrator, KindMemory, KindEditor, "kanban", "note", "text", "checklist", "web", "calendar", "uptime":
@@ -605,13 +618,21 @@ func LayoutFromBoard(b board.Board, nodeIDs []string, sessions map[string]sessio
 					continue
 				}
 				keep["url"] = u
+				// whose dev server it shows: the part, by name (its partId, else the one part on
+				// its machine)
+				if pt, ok := webPart(proj, data); multi && ok {
+					keep["part"] = pt.Name
+				}
 			case "memory":
 				for _, k := range []string{"scope", "blocks", "manual"} {
 					if v, ok := data[k]; ok {
 						keep[k] = v
 					}
 				}
-			case KindEditor: // what it had open is not part of a layout
+			case KindEditor: // what it had open is not part of a layout; its part is, by name
+				if pt, ok := proj.PartByID(editorPlace(proj, n)); ok {
+					keep["part"] = pt.Name
+				}
 			default:
 				for _, k := range []string{"title", "text", "color", "font", "size", "align"} {
 					if v, ok := data[k]; ok {
@@ -644,9 +665,33 @@ func LayoutFromBoard(b board.Board, nodeIDs []string, sessions map[string]sessio
 	return x
 }
 
+// webPart is the part a web tile's dev server runs in: data.partId, else the only part on
+// data.machineId.
+func webPart(proj project.Project, data map[string]any) (project.Part, bool) {
+	id, _ := data["partId"].(string)
+	if pt, ok := proj.PartByID(id); ok {
+		return pt, true
+	}
+	mid, _ := data["machineId"].(string)
+	var found []project.Part
+	for _, pt := range proj.Parts {
+		if pt.MachineID == mid {
+			found = append(found, pt)
+		}
+	}
+	if len(found) == 1 {
+		return found[0], true
+	}
+	return project.Part{}, false
+}
+
 // LaneOverride is a per-lane deploy override.
 type LaneOverride struct {
-	Agent     string `json:"agent,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	// Root and Part place the lane (v0.9.0-beta.2): the project root, or a part by id or name.
+	Root bool   `json:"root,omitempty"`
+	Part string `json:"part,omitempty"`
+	// MachineID puts a lane no placement covers on that machine (a project of one part).
 	MachineID string `json:"machineId,omitempty"`
 	ProfileID string `json:"profileId,omitempty"`
 	// ProviderID runs the lane on an API provider instead of a login.
@@ -664,6 +709,13 @@ type DeployRequest struct {
 	LaneOverrides map[string]LaneOverride `json:"laneOverrides"`
 	// GroupSizes sets how many consoles a group has, by group key (Layout.Sized).
 	GroupSizes map[string]int `json:"groupSizes"`
+	// Places places groups, lanes and editor cards by key (v0.9.0-beta.2): a group's key places
+	// each of its lanes, a lane's key that lane, an editor card's key that card;
+	// {"root":true} or {"part":"<id or name>"}. They win over what the layout saved.
+	Places map[string]project.Place `json:"places,omitempty"`
+	// Fallback places the lanes nothing else places (not on the wire): a command's place, else
+	// the root (§3.10). Zero = the compat rule.
+	Fallback project.Place `json:"-"`
 }
 
 // DeployResult is the 201 body.
@@ -671,5 +723,3 @@ type DeployResult struct {
 	Sessions []session.Info `json:"sessions"`
 	NodeIDs  []string       `json:"nodeIds"`
 }
-
-var _ = project.MaxName

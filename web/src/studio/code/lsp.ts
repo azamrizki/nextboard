@@ -1,23 +1,37 @@
 // Language Server Protocol client of the Code workbench (docs/API-studio.md §7.3). The hub
-// starts the machine's own server in the project folder and bridges its stdio to a
-// WebSocket, one JSON-RPC message per text frame. Providers are registered per language
-// once and dispatch to the connection of the workspace that owns the model.
+// starts the machine's own server in the part's folder and bridges its stdio to a WebSocket,
+// one JSON-RPC message per text frame. There is one LspHub per part of a project (partsvc.ts),
+// shared by every editor card that mounts the part. Providers are registered per language once
+// and dispatch to the hub that attached the model (hubOf), never to "the last one opened".
+//
+// Model URIs carry the machine (file://m-<hex>/abs, paths.ts); a server only knows its own
+// machine, so a Connection speaks plain file:///abs and its hub maps what comes back.
 
 import { wsUrl } from '../../api';
 import { toast } from '../../components/Toast';
 import { filesApi, type LspServer } from '../api';
 import { disableBuiltinTypescript, monaco } from './monaco';
 import { hasNative, onNativeChange } from './nativeExt';
+import { fileKey, under, type FileKey } from './paths';
 
 type Model = monaco.editor.ITextModel;
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-/** What the client needs from the workspace. */
+/** What the client needs from its part (partsvc.ts). */
 export interface LspHost {
-  projectId: string;
+  /** The hub's id among the tab's hubs (nb.lsp.execute): the part's ref. */
+  id: string;
+  /** What the API calls the part: /api/projects/{ref}/lsp/… */
+  ref: string;
+  /** The part's folder on its machine. */
   root: string;
-  /** The model of a file (loaded when needed), or null when it cannot be read. */
-  ensureModel(path: string): Promise<Model | null>;
+  machineId: string;
+  /** The machine's URI authority (paths.ts authorityOf): the URIs of its models carry it. */
+  authority: string;
+  /** The model of a file on the hub's machine (loaded when needed), or null when it cannot be read. */
+  ensureModel(abs: string): Promise<Model | null>;
+  /** A card reached this model through the part (outside its folder): resume() takes it back. */
+  reachedVia?(model: Model): boolean;
   log(line: string): void;
   changed(): void;
 }
@@ -42,7 +56,9 @@ const toLspRange = (r: monaco.IRange) => ({
 });
 const isFileUri = (uri: string) => uri.startsWith('file:');
 const pathOf = (uri: string) => monaco.Uri.parse(uri).path;
-const docId = (model: Model) => ({ uri: model.uri.toString() });
+/** What a server calls a model: file:///abs, without the machine (it only sees its own). */
+const serverUri = (model: Model) => monaco.Uri.file(model.uri.path).toString();
+const docId = (model: Model) => ({ uri: serverUri(model) });
 
 const k = () => monaco.languages.CompletionItemKind;
 const completionKind = (n?: number): monaco.languages.CompletionItemKind => {
@@ -136,11 +152,11 @@ class Connection {
   diagnostics = new Map<string, Json[]>();
 
   constructor(
-    private hub: LspHub,
+    readonly hub: LspHub,
     readonly server: LspServer,
     onFail: (c: Connection) => void,
   ) {
-    this.ws = new WebSocket(wsUrl(`/api/projects/${encodeURIComponent(hub.host.projectId)}/lsp/${encodeURIComponent(server.id)}/ws`));
+    this.ws = new WebSocket(wsUrl(`/api/projects/${encodeURIComponent(hub.host.ref)}/lsp/${encodeURIComponent(server.id)}/ws`));
     this.ws.onopen = () => void this.initialize();
     this.ws.onmessage = (ev) => this.onMessage(String(ev.data));
     this.ws.onclose = (ev) => {
@@ -224,18 +240,18 @@ class Connection {
   }
 
   open(model: Model) {
-    const uri = model.uri.toString();
+    const uri = serverUri(model);
     if (this.opened.has(uri)) return;
     this.opened.set(uri, model);
     if (this.state === 'ready') this.sendOpen(model);
   }
 
   closeDoc(model: Model) {
-    if (this.opened.delete(model.uri.toString()) && this.state === 'ready') this.notify('textDocument/didClose', { textDocument: docId(model) });
+    if (this.opened.delete(serverUri(model)) && this.state === 'ready') this.notify('textDocument/didClose', { textDocument: docId(model) });
   }
 
   change(model: Model, e: monaco.editor.IModelContentChangedEvent) {
-    if (this.state !== 'ready' || !this.opened.has(model.uri.toString())) return;
+    if (this.state !== 'ready' || !this.opened.has(serverUri(model))) return;
     const sync = this.caps.textDocumentSync;
     const kind = typeof sync === 'number' ? sync : (sync?.change ?? 0);
     if (!kind) return;
@@ -245,7 +261,7 @@ class Connection {
   }
 
   saved(model: Model) {
-    if (this.state !== 'ready' || !this.opened.has(model.uri.toString())) return;
+    if (this.state !== 'ready' || !this.opened.has(serverUri(model))) return;
     const sync = this.caps.textDocumentSync;
     if (typeof sync === 'object' && sync?.save) {
       this.notify('textDocument/didSave', { textDocument: docId(model), text: sync.save.includeText ? model.getValue() : undefined });
@@ -341,10 +357,19 @@ class Connection {
   }
 }
 
-let active: LspHub | null = null;
 let providersDone = false;
 
-/** Language servers of one workspace. */
+/** The hub that attached each model (by its URI): providers ask it, not "the last one opened". */
+const modelHubs = new Map<string, LspHub>();
+/** The running hubs by id (the part's ref), for nb.lsp.execute. */
+const hubs = new Map<string, LspHub>();
+
+/** The language servers that speak for a model: its hub, or null when none attached it. */
+export function hubOf(model: Model): LspHub | null {
+  return modelHubs.get(model.uri.toString()) ?? null;
+}
+
+/** Language servers of one part of a project. */
 export class LspHub {
   servers: LspServer[] = [];
   readonly conns = new Map<string, Connection>();
@@ -364,11 +389,12 @@ export class LspHub {
 
   /** Learn what the machine has, then serve every model already known. */
   async start() {
-    active = this;
+    this.disposed = false;
+    hubs.set(this.host.id, this);
     this.followExtensions();
     registerProviders();
     try {
-      const r = await filesApi.lspStatus(this.host.projectId);
+      const r = await filesApi.lspStatus(this.host.ref);
       this.servers = r.items ?? [];
     } catch {
       this.servers = [];
@@ -376,6 +402,8 @@ export class LspHub {
     if (this.disposed) return;
     registerProviders(this.servers.flatMap((s) => s.languages));
     if (this.serverFor('typescript')?.available) disableBuiltinTypescript();
+    // the part's files another hub took meanwhile (a definition reached from another part)
+    for (const m of monaco.editor.getModels()) if (claims(this.host, m) && under(m.uri.path, this.host.root) && !this.models.has(m.uri.toString())) this.attach(m);
     for (const { model } of this.models.values()) this.route(model);
     this.host.changed();
   }
@@ -478,21 +506,27 @@ export class LspHub {
     }, 2000 * (tries + 1));
   }
 
+  /** Serve a model; another hub that served it lets it go (two servers would fight over its markers). */
   attach(model: Model) {
     const uri = model.uri.toString();
+    const other = modelHubs.get(uri);
+    if (other && other !== this) other.detach(model);
+    modelHubs.set(uri, this);
     if (this.models.has(uri)) return;
     const sub = model.onDidChangeContent((e) => this.connsFor(model).forEach((c) => c.change(model, e)));
     this.models.set(uri, { model, off: () => sub.dispose() });
     this.route(model);
     // diagnostics that arrived before the file was opened
+    const known = serverUri(model);
     for (const c of this.conns.values()) {
-      const d = c.diagnostics.get(uri);
-      if (d) this.applyDiagnostics(uri, d, c.markerOwner);
+      const d = c.diagnostics.get(known);
+      if (d) this.applyDiagnostics(known, d, c.markerOwner);
     }
   }
 
   detach(model: Model) {
     const uri = model.uri.toString();
+    if (modelHubs.get(uri) === this) modelHubs.delete(uri);
     const m = this.models.get(uri);
     if (!m) return;
     m.off();
@@ -517,19 +551,41 @@ export class LspHub {
     this.disposed = true;
     this.offNative?.();
     this.offNative = null;
-    if (active === this) active = null;
+    if (hubs.get(this.host.id) === this) hubs.delete(this.host.id);
     for (const c of this.conns.values()) c.close();
     this.conns.clear();
-    for (const m of this.models.values()) m.off();
+    for (const [uri, m] of this.models) {
+      m.off();
+      if (modelHubs.get(uri) === this) modelHubs.delete(uri);
+    }
     this.models.clear();
   }
 
-  /** Make this hub the one providers talk to, after a suspend. */
+  /**
+   * Serve again after a suspend: every model of the part's folder on its machine (at a "/"
+   * boundary: a root of /srv/app does not take /srv/app2/x), and the ones a card reached through
+   * this part that no other hub serves.
+   */
   resume() {
     this.disposed = false;
-    active = this;
+    hubs.set(this.host.id, this);
     this.followExtensions();
-    for (const m of monaco.editor.getModels()) if (m.uri.scheme === 'file' && m.uri.path.startsWith(this.host.root)) this.attach(m);
+    for (const m of monaco.editor.getModels()) {
+      if (!claims(this.host, m)) continue;
+      if (under(m.uri.path, this.host.root) || !modelHubs.has(m.uri.toString())) this.attach(m);
+    }
+    // models attached while suspended were kept, not served
+    for (const { model } of this.models.values()) this.route(model);
+  }
+
+  /** The model URI of what a server named (file:///abs on this hub's machine). */
+  modelUri(uri: string): monaco.Uri {
+    return monaco.Uri.from({ scheme: 'file', authority: this.host.authority, path: pathOf(uri) });
+  }
+
+  /** The key of what a server named. */
+  keyOf(uri: string): FileKey {
+    return fileKey(this.host.machineId, pathOf(uri));
   }
 
   stateFor(language: string): LspState {
@@ -546,7 +602,7 @@ export class LspHub {
   }
 
   applyDiagnostics(uri: string, diagnostics: Json[], owner = 'lsp') {
-    const model = monaco.editor.getModel(monaco.Uri.parse(uri));
+    const model = isFileUri(uri) ? monaco.editor.getModel(this.modelUri(uri)) : null;
     if (model) {
       const sev = SEVERITY();
       monaco.editor.setModelMarkers(
@@ -559,7 +615,7 @@ export class LspHub {
           source: d.source,
           code: d.code === undefined ? undefined : String(d.code),
           tags: d.tags,
-          relatedInformation: d.relatedInformation?.map((r: Json) => ({ resource: monaco.Uri.parse(r.location.uri), ...fromLspRange(r.location.range), message: r.message })),
+          relatedInformation: d.relatedInformation?.map((r: Json) => ({ resource: isFileUri(r.location.uri) ? this.modelUri(r.location.uri) : monaco.Uri.parse(r.location.uri), ...fromLspRange(r.location.range), message: r.message })),
         })),
       );
     }
@@ -568,21 +624,21 @@ export class LspHub {
 
   clearDiagnostics(c: Connection) {
     for (const uri of c.diagnostics.keys()) {
-      const model = monaco.editor.getModel(monaco.Uri.parse(uri));
+      const model = isFileUri(uri) ? monaco.editor.getModel(this.modelUri(uri)) : null;
       if (model) monaco.editor.setModelMarkers(model, c.markerOwner, []);
     }
     c.diagnostics.clear();
   }
 
-  /** Diagnostics of files without a model, for the Problems panel. */
-  closedDiagnostics(): { path: string; items: { line: number; col: number; message: string; severity: number; source?: string }[] }[] {
-    const out: { path: string; items: { line: number; col: number; message: string; severity: number; source?: string }[] }[] = [];
+  /** Diagnostics of files without a model, for the Problems panel: path is the file's key. */
+  closedDiagnostics(): { path: FileKey; items: { line: number; col: number; message: string; severity: number; source?: string }[] }[] {
+    const out: { path: FileKey; items: { line: number; col: number; message: string; severity: number; source?: string }[] }[] = [];
     const sev = SEVERITY();
     for (const c of this.conns.values()) {
       for (const [uri, list] of c.diagnostics) {
-        if (!list.length || !isFileUri(uri) || monaco.editor.getModel(monaco.Uri.parse(uri))) continue;
+        if (!list.length || !isFileUri(uri) || monaco.editor.getModel(this.modelUri(uri))) continue;
         out.push({
-          path: pathOf(uri),
+          path: this.keyOf(uri),
           items: list.map((d) => ({ line: d.range.start.line + 1, col: d.range.start.character + 1, message: d.message, severity: sev[d.severity ?? 1] ?? monaco.MarkerSeverity.Error, source: d.source })),
         });
       }
@@ -590,20 +646,20 @@ export class LspHub {
     return out;
   }
 
-  /** Symbols across the project, for "#" in Go to file. */
-  async workspaceSymbols(query: string): Promise<{ name: string; detail: string; path: string; line: number; col: number }[]> {
+  /** Symbols across the part, for "#" in Go to file: path is the file's key. */
+  async workspaceSymbols(query: string): Promise<{ name: string; detail: string; path: FileKey; line: number; col: number }[]> {
     const lists = await Promise.all(
       [...this.conns.values()]
         .filter((c) => c.state === 'ready' && c.has('workspaceSymbolProvider', 'workspace/symbol'))
         .map((c) => c.request<Json[] | null>('workspace/symbol', { query }).catch(() => null)),
     );
-    const out: { name: string; detail: string; path: string; line: number; col: number }[] = [];
+    const out: { name: string; detail: string; path: FileKey; line: number; col: number }[] = [];
     for (const l of lists) {
       for (const s of l ?? []) {
         const uri: string | undefined = s.location?.uri;
         if (!uri || !isFileUri(uri)) continue;
         const range = s.location.range;
-        out.push({ name: s.name, detail: s.containerName ?? '', path: pathOf(uri), line: (range?.start?.line ?? 0) + 1, col: (range?.start?.character ?? 0) + 1 });
+        out.push({ name: s.name, detail: s.containerName ?? '', path: this.keyOf(uri), line: (range?.start?.line ?? 0) + 1, col: (range?.start?.character ?? 0) + 1 });
       }
     }
     return out.slice(0, 200);
@@ -680,12 +736,16 @@ const TRIGGERS = ['.', ':', '>', '"', "'", '/', '@', '<', '$', '-', '\\', '(', '
 
 const providerLanguages = new Set<string>();
 
-/** Register the providers once per language; they ask `active` at call time. */
+/** A model this hub may serve: a file on its machine. */
+const claims = (host: LspHost, m: Model) => m.uri.scheme === 'file' && m.uri.authority === host.authority && (under(m.uri.path, host.root) || !!host.reachedVia?.(m));
+
+/** Register the providers once per language; they ask the model's hub at call time. */
 function registerProviders(languages: string[] = []) {
   if (!providersDone) {
     providersDone = true;
-    monaco.editor.registerCommand('nb.lsp.execute', (_acc, serverId: string, command: string, args: unknown[]) => {
-      const c = active && [...active.conns.values()].find((x) => x.server.id === serverId);
+    monaco.editor.registerCommand('nb.lsp.execute', (_acc, hubId: string, serverId: string, command: string, args: unknown[]) => {
+      const hub = hubs.get(hubId);
+      const c = hub && [...hub.conns.values()].find((x) => x.server.id === serverId);
       void c?.request('workspace/executeCommand', { command, arguments: args }).catch(() => undefined);
     });
   }
@@ -698,11 +758,11 @@ function registerProviders(languages: string[] = []) {
 
 function registerLanguage(lang: string) {
   const L = monaco.languages;
-  const conn = (model: Model) => active?.connFor(model);
+  const conn = (model: Model) => hubOf(model)?.connFor(model);
   const quiet = <T>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
   /** The first server with an answer: in a Vue file TypeScript's speaks for the script. */
   const firstAnswer = async <T = any>(model: Model, capability: string, ask: (c: Connection) => Promise<T>): Promise<T | null> => { // eslint-disable-line @typescript-eslint/no-explicit-any
-    for (const c of active?.connsFor(model) ?? []) {
+    for (const c of hubOf(model)?.connsFor(model) ?? []) {
       if (!c.caps[capability]) continue;
       const r = await quiet<T | null>(ask(c), null);
       if (r !== null && r !== undefined && !(Array.isArray(r) && !r.length)) return r;
@@ -758,7 +818,7 @@ function registerLanguage(lang: string) {
   L.registerCompletionItemProvider(lang, {
     triggerCharacters: TRIGGERS,
     async provideCompletionItems(model, position, ctx) {
-      const answers = await Promise.all((active?.connsFor(model) ?? []).map((c) => completeWith(c, model, position, ctx)));
+      const answers = await Promise.all((hubOf(model)?.connsFor(model) ?? []).map((c) => completeWith(c, model, position, ctx)));
       const lists = answers.filter((x) => !!x);
       if (!lists.length) return undefined;
       return { incomplete: lists.some((x) => x.incomplete), suggestions: lists.flatMap((x) => x.suggestions) };
@@ -779,7 +839,7 @@ function registerLanguage(lang: string) {
 
   L.registerHoverProvider(lang, {
     async provideHover(model, position) {
-      const conns = (active?.connsFor(model) ?? []).filter((c) => c.caps.hoverProvider);
+      const conns = (hubOf(model)?.connsFor(model) ?? []).filter((c) => c.caps.hoverProvider);
       const answers = await Promise.all(conns.map((c) => quiet(c.request('textDocument/hover', { textDocument: docId(model), position: toLspPos(position) }), null)));
       const hits = answers.filter((r) => markdownOf(r?.contents).length);
       if (!hits.length) return null;
@@ -809,8 +869,9 @@ function registerLanguage(lang: string) {
   });
 
   const locations = (capability: string, method: string) => async (model: Model, position: monaco.Position) => {
+    const hub = hubOf(model);
     const r = await firstAnswer(model, capability, (c) => c.request(method, { textDocument: docId(model), position: toLspPos(position) }));
-    return r && active ? active.toLocations(r) : null;
+    return r && hub ? hub.toLocations(r) : null;
   };
   L.registerDefinitionProvider(lang, { provideDefinition: locations('definitionProvider', 'textDocument/definition') });
   L.registerDeclarationProvider(lang, { provideDeclaration: locations('declarationProvider', 'textDocument/declaration') });
@@ -818,8 +879,9 @@ function registerLanguage(lang: string) {
   L.registerImplementationProvider(lang, { provideImplementation: locations('implementationProvider', 'textDocument/implementation') });
   L.registerReferenceProvider(lang, {
     async provideReferences(model, position, ctx) {
+      const hub = hubOf(model);
       const r = await firstAnswer(model, 'referencesProvider', (c) => c.request('textDocument/references', { textDocument: docId(model), position: toLspPos(position), context: { includeDeclaration: ctx.includeDeclaration } }));
-      return r && active ? active.toLocations(r) : null;
+      return r && hub ? hub.toLocations(r) : null;
     },
   });
 
@@ -854,16 +916,17 @@ function registerLanguage(lang: string) {
 
   L.registerRenameProvider(lang, {
     async provideRenameEdits(model, position, newName) {
-      if (!active?.connsFor(model).some((c) => c.caps.renameProvider)) return { edits: [], rejectReason: 'This language server cannot rename.' };
+      const hub = hubOf(model);
+      if (!hub?.connsFor(model).some((c) => c.caps.renameProvider)) return { edits: [], rejectReason: 'This language server cannot rename.' };
       const r = await firstAnswer(model, 'renameProvider', (c) => c.request('textDocument/rename', { textDocument: docId(model), position: toLspPos(position), newName }));
-      return r && active ? active.toMonacoEdit(r) : { edits: [] };
+      return r ? hub.toMonacoEdit(r) : { edits: [] };
     },
     async resolveRenameLocation(model, position) {
       const word = model.getWordAtPosition(position);
       const fallback = word
         ? { range: { startLineNumber: position.lineNumber, startColumn: word.startColumn, endLineNumber: position.lineNumber, endColumn: word.endColumn }, text: word.word }
         : { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: '', rejectReason: 'Nothing to rename here.' };
-      const conns = active?.connsFor(model).filter((c) => c.caps.renameProvider) ?? [];
+      const conns = hubOf(model)?.connsFor(model).filter((c) => c.caps.renameProvider) ?? [];
       if (!conns.length || conns.some((c) => typeof c.caps.renameProvider !== 'object' || !c.caps.renameProvider.prepareProvider)) return fallback;
       const r = await firstAnswer(model, 'renameProvider', (c) => c.request('textDocument/prepareRename', { textDocument: docId(model), position: toLspPos(position) }));
       if (!r) return { ...fallback, rejectReason: 'This cannot be renamed.' };
@@ -875,12 +938,12 @@ function registerLanguage(lang: string) {
 
   L.registerCodeActionProvider(lang, {
     async provideCodeActions(model, range, ctx) {
-      const hub = active;
+      const hub = hubOf(model);
       if (!hub) return { actions: [], dispose() {} };
       const conns = hub.connsFor(model).filter((c) => c.caps.codeActionProvider && (c === conn(model) || c.server.id === 'typescript'));
       const lists = await Promise.all(
         conns.map(async (c) => {
-          const known = c.diagnostics.get(model.uri.toString()) ?? [];
+          const known = c.diagnostics.get(serverUri(model)) ?? [];
           const overlapping = known.filter((d) => monaco.Range.areIntersectingOrTouching(fromLspRange(d.range), range));
           const r: Json[] | null = await quiet(
             c.request('textDocument/codeAction', { textDocument: docId(model), range: toLspRange(range), context: { diagnostics: overlapping, only: ctx.only ? [ctx.only] : undefined } }),
@@ -891,7 +954,7 @@ function registerLanguage(lang: string) {
               const action: monaco.languages.CodeAction & { lsp?: Json; lspConn?: Connection } = { title: a.title, kind: a.kind, isPreferred: a.isPreferred, disabled: a.disabled?.reason, lsp: a, lspConn: c };
               if (a.edit) action.edit = await hub.toMonacoEdit(a.edit);
               const cmd = a.command && typeof a.command === 'object' ? a.command : a.command ? a : null;
-              if (cmd) action.command = { id: 'nb.lsp.execute', title: cmd.title, arguments: [c.server.id, cmd.command, cmd.arguments] };
+              if (cmd) action.command = { id: 'nb.lsp.execute', title: cmd.title, arguments: [hub.host.id, c.server.id, cmd.command, cmd.arguments] };
               return action;
             }),
           );
@@ -902,10 +965,10 @@ function registerLanguage(lang: string) {
     async resolveCodeAction(action) {
       const a = action as monaco.languages.CodeAction & { lsp?: Json; lspConn?: Connection };
       const c = a.lspConn;
-      if (!c || a.edit || !a.lsp || !active) return action;
+      if (!c || a.edit || !a.lsp) return action;
       if (typeof c.caps.codeActionProvider !== 'object' || !c.caps.codeActionProvider.resolveProvider) return action;
       const r = await quiet(c.request('codeAction/resolve', a.lsp), null);
-      if (r?.edit) a.edit = await active.toMonacoEdit(r.edit);
+      if (r?.edit) a.edit = await c.hub.toMonacoEdit(r.edit);
       return a;
     },
   });

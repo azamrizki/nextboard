@@ -128,10 +128,13 @@ var idRules = []idRule{
 // idWantsConsole tells a request for a console from a request for work. After "spawn" a role or
 // a filler word is enough; after "buat" or "jalankan" it is not: "buat dokumentasi", "jalankan
 // backend", "jalankan lagi" and "buat cli" ask for work. It takes a number, a CLI, or the word
-// for a console; spawnTokens refuses anything else that is left.
+// for a console; spawnTokens refuses anything else that is left. Where it goes ("di admin",
+// "di semua part") says nothing about that, so the words from "di" on do not count.
 func idWantsConsole(rest string) bool {
 	for _, w := range strings.Fields(strings.ToLower(rest)) {
 		switch w {
+		case "di", "pada", "ke", "in", "on", "at":
+			return false
 		case "lagi", "baru", "buah", "new", "more", "of", "code", "cli", "session", "sessions", "instance", "instances":
 		default:
 			if RoleOf(w) == "" {

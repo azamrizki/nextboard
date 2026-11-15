@@ -111,7 +111,8 @@ Session Info gets `queue` (the number of active deliveries).
 { "text": "@Ash run the tests", "source": "typed",      // "typed" | "voice"
   "workspaceId": "w_…", "cardId": null,                 // cardId = orchestrator node → card scope
   "clientId": "c_…", "selection": ["n_…"], "planner": "auto",    // "auto" | "off"
-  "replyTo": "tm_…" }                                   // optional: the thread message being answered (§3.9)
+  "replyTo": "tm_…",                                    // optional: the thread message being answered (§3.9)
+  "place": { "part": "Web" } }                          // optional: where consoles the command starts go when it names no place (§3.10)
 ```
 
 Response `202`:
@@ -123,14 +124,17 @@ Response `202`:
   "confirmation": null, "messages": [ThreadMessage…] }
 ```
 
-Error: `400 empty_text`, `413 text_too_long` (> 4000 characters), `404 workspace_not_found`, `429 thread_busy` (already 3 commands queued behind one planner turn).
+Error: `400 empty_text`, `413 text_too_long` (> 4000 characters), `404 workspace_not_found`, `429 thread_busy` (already 3 commands queued behind one planner turn), `400 bad_placement` (`place` names the root and a part). A `place` part the project does not have is left out, with a note in the thread.
 
 ```jsonc
 // UiAction — run by the sending client; also broadcast in the "command" event with clientId
-{ "action": "fit"|"zoomIn"|"zoomOut"|"zoomReset"|"focus"|"openPanel"|"closePanel"|"tool"|"undo"|"redo"|"goWorkspace",
+{ "action": "fit"|"zoomIn"|"zoomOut"|"zoomReset"|"focus"|"openPanel"|"closePanel"|"tool"|"undo"|"redo"|"goWorkspace"|"openFile",
   // "focus" with "workspaceId": the node is on another board; the client opens that board first, then focuses it
   "target"?: "n_…", "panel"?: "loops"|"memory"|"mission"|"settings"|"git"|"usage"|"documents"|"code"|"markdown"|"skills",
-  "tool"?: "select"|"pen"|"eraser", "workspaceId"?: "w_…" }
+  "tool"?: "select"|"pen"|"eraser", "workspaceId"?: "w_…",
+  // "openFile": an absolute path on the machine of "part" (the part's id; absent = no part holds it), opened by that
+  // part's editor card, else by the Root card (§3.6)
+  "path"?: "/srv/acme-api/main.go", "line"?: 12, "part"?: "pt_…" }
 ```
 
 ### 3.2 Local parser (D4)
@@ -141,8 +145,8 @@ Normalization: trim, single spaces, case-insensitive matching (the original text
 |---|---|---|---|
 | Direct | `@Ash <text>` | `send` verbatim (mention dropped) | — |
 | All | `@everyone/@all/@everybody <text>` | treated as if there were no mention | — |
-| Spawn | `spawn\|spin up\|start\|launch [<n>] [<agent>] [<role>]`, `new console`, `open a shell\|terminal` | `spawn` (≤ 12) | > 6 → `bulkSpawn` |
-| Group | `make\|create a group of <n> [<agent>] [<role>] [called <name>]`, `group <who…>`, `group these` (selection) | `group.create` | — |
+| Spawn | `spawn\|spin up\|start\|launch [<n>] [<agent>] [<role>] [in\|on\|at <part> \| at the root \| in all parts]`, `new console`, `open a shell\|terminal` | `spawn` (≤ 12), placed §3.10 | > 6 → `bulkSpawn` |
+| Group | `make\|create a group of <n> [<agent>] [<role>] [in <part> \| at the root] [called <name>]`, `group <who…>`, `group these` (selection) | `group.create` | — |
 | Add | `add <n> [<agent>\|<role>] to <group>` | `group.add` | — |
 | Ungroup | `ungroup\|dissolve <group>` | `group.dissolve` | — |
 | Pause | `pause [<who>]`, `wait`, `hold on` / `resume\|continue\|keep going [<who>]` | `pause` / `resume` | — |
@@ -173,7 +177,7 @@ Text that matches nothing and has no addressee → the planner when available; w
 
 | Area | Pattern (example) |
 |---|---|
-| Spawn | `buat\|buatkan\|jalankan\|nyalakan\|tambah(kan) [<n>] [<agent>] [<role>]` (a role alone is not enough: there must be a number, a CLI, or the word `agen`/`konsol`), `terminal baru`, `buka shell`, `konsol baru` |
+| Spawn | `buat\|buatkan\|jalankan\|nyalakan\|tambah(kan) [<n>] [<agent>] [<role>] [di\|pada\|ke <part> \| di root \| di semua part\|bagian]` (a role alone is not enough: there must be a number, a CLI, or the word `agen`/`konsol`; the words from `di` on do not count for that), `terminal baru`, `buka shell`, `konsol baru` |
 | Group / ungroup | `buat grup\|tim\|kelompok <n> [<agent>] [<role>] [bernama <name>]`, `tambah <n> [<agent>\|<role>] ke [grup\|tim] <group>`, `kelompokkan\|gabungkan <who…>`, `kelompokkan ini`, `bubarkan\|pisahkan <group>` |
 | Pause | `jeda\|tahan\|hentikan sementara [<who>]`, `tunggu dulu`, `tahan dulu`, `stop dulu` / `lanjutkan\|teruskan <who>` |
 | Restart / kill | `mulai ulang\|muat ulang <who>` / `matikan\|hentikan\|tutup <who>`, `matikan semua` |
@@ -207,15 +211,17 @@ Deliberately not mapped: `lanjut`, `tunggu`, `lihat`, `hapus` on their own, and 
 
 ```jsonc
 { "op": "send", "targets": ["s_…"], "text": "…", "mode": "verbatim"|"rewritten" }
-{ "op": "spawn", "count": 3, "agent"?: "codex", "role"?: "reviewers", "groupId"?: "n_…", "newGroup"?: { "name", "role" }, "machineId"? }
-{ "op": "group.create", "members": ["s_…"], "name"?, "role"? }      { "op": "group.add", "groupId", "count", "agent"?, "role"? }
+{ "op": "spawn", "count": 3, "agent"?: "codex", "role"?: "reviewers", "groupId"?: "n_…", "newGroup"?: { "name", "role" }, "machineId"?,
+  "part"?: "Web", "root"?: true }                                     // placement, §3.10; both = invalid step
+{ "op": "group.create", "members": ["s_…"], "name"?, "role"? }      { "op": "group.add", "groupId", "count", "agent"?, "role"?, "part"?, "root"? }
 { "op": "group.dissolve", "groupId" }
 { "op": "pause"|"resume"|"restart"|"kill", "targets": ["s_…"] }
-{ "op": "handoff", "source": "s_…", "agent": "codex", "machineId"? }
+{ "op": "handoff", "source": "s_…", "agent": "codex", "machineId"?, "part"?, "root"? }   // absent: where the source works (§9)
 { "op": "forward", "sources": ["s_…"], "targets": ["s_…"], "mode": "digest"|"split" }
 { "op": "cancel", "orderId"? }      { "op": "ask", "query": "status"|"finished"|"needsYou"|"summary"|"help" }
 { "op": "ui", "uiAction": UiAction }
-{ "op": "node.add", "kind": "note"|"checklist"|"kanban"|"calendar"|"uptime"|"orchestrator"|"web", "data"?: {…}, "wireTo"?: ["n_…"] }
+{ "op": "node.add", "kind": "note"|"checklist"|"kanban"|"calendar"|"uptime"|"orchestrator"|"web"|"editor"|…, "data"?: {…}, "wireTo"?: ["n_…"],
+  "part"?, "root"? }                  // editor: the card of that placement (§3.6); web, file: that part's machine
 { "op": "wire", "orchestratorId": "n_…", "targets": ["n_…"] }
 { "op": "workspace.go"|"workspace.create"|"workspace.rename"|"workspace.close", "workspaceId"?, "name"? }
 { "op": "loop.create", "loop": LoopDef }      { "op": "git", "action": "commitPush"|"commit"|"push"|"pull", "message"? }
@@ -238,17 +244,17 @@ Deliberately not mapped: `lanjut`, `tunggu`, `lihat`, `hapus` on their own, and 
 
 ### 3.6 Board control by the planner
 
-The planner's input holds every tile: `id`, `kind`, position, size, and content (`data`, or `contentCut` when it exceeds 700 characters; `points`, `strokes`, `snapshot`, `markup` are not sent), plus each board's `edges`. At most 40 steps per plan. A tile can be named by id, `@handle`, group name, title, or by kind when there is only one (`editor`); a name that matches more than one tile gets its step dropped.
+The planner's input holds every tile: `id`, `kind`, position, size, and content (`data`, or `contentCut` when it exceeds 700 characters; `points`, `strokes`, `snapshot`, `markup` are not sent), plus each board's `edges`. In a project of several parts an editor card also says what it shows: `"part": "<name>"`, or `"root": true`. At most 40 steps per plan. A tile can be named by id, `@handle`, group name, title, or by kind when there is only one (`editor`); a name that matches more than one tile gets its step dropped. Several editor cards: `editor`/`code` is the Root card when there is one; `editor admin`, `admin editor`, `code editor at the root` name a card by its placement; a copy of a card means the first card of its placement.
 
 | Planner op | Field | Behavior |
 |---|---|---|
-| `node.add` | `kind` (`note text checklist kanban calendar uptime orchestrator web shape branches editor memory file`), `x y w h`, `title text color`, `data`, `path` | a second `editor` only focuses the existing card |
+| `node.add` | `kind` (`note text checklist kanban calendar uptime orchestrator web shape branches editor memory file`), `x y w h`, `title text color`, `data`, `path`, `part`, `root` | an `editor` is placed like a console: `part` (or `data.part`, a name or id) gives that part's card, neither or `root` the Root card (every part). A board keeps one card per placement: asking again focuses it. The new card stores the part's id in `data.part` (none at the root). A `file` card's `path` resolves like `editor.open` and takes its part's machine; a `web` tile with `part` previews on that part's machine |
 | `node.update` | `tile`, `x y w h`, `title text color`, `data` | `data` is merged per key, lists are replaced whole; `sessionId previewId assetId appId points strokes` cannot be changed; a console's content cannot be edited |
 | `node.delete` | `tile`/`tiles` | always through a `destructive` confirmation; consoles need `kill` |
 | `connect`, `disconnect` | `source`, `targets` | card (orchestrator, memory, editor) or content tile → console/group = wire, editor and memory also to an orchestrator, memory also to an editor; console ↔ console = forward; console → web = preview; web → log card = log. Content tiles and memory tiles send their content once when connected. A console without an agent is refused with a note in the thread. Reversed order ("Bea to the editor") is flipped automatically |
 | `ui` | `action` (`fit zoomIn zoomOut zoomReset focus openPanel closePanel undo redo`), `tile`, `panel` | run by the client that sent the command |
 | `task.add`, `task.update`, `task.delete` | `tile`, `card` (id or title), `title`, `text`, `column`, `assignee`, `priority`, `due`, `done` | cards in a kanban or checklist, §3.10; `send` with `tile` and `card` shares an existing card |
-| `editor.open` | `path`, `line` | becomes the uiAction `openFile`: the editor card appears and opens the file |
+| `editor.open` | `path`, `line`, `part` | becomes the uiAction `openFile` with the absolute `path` and the `part` (id) it is in: that part's editor card opens it, else the Root card. The path: with `part`, relative to that part's folder; in a project of several parts, `<part>/…` (`admin/src/x.ts`, also `./admin/…`); an absolute path belongs to the one part whose folder holds it (`/admin/x` names part admin when no folder holds it); otherwise a relative path is in the first part (compat) and an absolute one in no part. An unknown `part` drops the step |
 | `console.rename`, `group.dissolve`, `workspace.create`, `workspace.rename`, `workspace.go` | | as named |
 
 `workspace.close` deliberately stays outside the planner's authority. Planner changes do not go into the client's undo; they are reverted through board snapshots. Other clients receive the result like ordinary board ops.
@@ -386,22 +392,31 @@ Project thread = `p_…`, card thread = the orchestrator node's id `n_…`. Comm
 
 ### 3.10 Lead and project parts (ROADMAP #49)
 
-- The planner's input for a project with more than one part holds `parts` (`name`, `machine`: "This PC" or "a server", `path`, `readOnly`), and each console names its `part`.
-- The step schema has `part`. `spawn`/`group.add` with `part` opens a console on that part's machine and folder (name or id, case-insensitive). A part that does not exist → nothing is opened, the note "the project has no such part" (API: `404 part_not_found`). `task.add`/`task.update` store `part` on the card. Automatic handing out gives a card with a part only to consoles in that part. `editor.open` with `part` joins a relative path with that part's folder.
-- Prompt rules: work about one part is sent to a console in that part; changes across parts are done in turn (the first part reports, then its result is forwarded or sent to the next part); read-only parts are only for questions and investigation.
-- Typed commands: `spawn 2 claude in Backend` (also `on`, `di`, `pada`, `ke`, and the word `part`/`bagian` after it) when Backend is the name of a project part.
-- `POST /api/workspaces/{id}/spawn` accepts `part` in the request and in each slot. Sessions the orchestrator makes in a part's folder get that part's `partId`.
-- Mission Map shows each console's part and an "All parts" filter; kanban cards show a part chip.
+A console works at the **root** of the project (it reaches every part; API-board.md §1) or in **one part**. The lead itself is always at the root.
+
+- The planner's input for a project with more than one part holds `parts` (`name`, `machine`: "This PC" or "a server", `path`, `readOnly`), and each console names its `part`, or says `"root": true`.
+- The step schema has `part` and `root`. `spawn`/`group.add` with `part` opens a console on that part's machine and folder (name or id, case-insensitive); with `root: true` at the root (This PC, the hub's root folder). Both → the step is dropped ("root or part, not both"). A part that does not exist → nothing is opened, the note "the project has no such part" (API: `404 part_not_found`).
+- **A step or typed order that names no placement** goes to the command's `place` (§3.1: the part of the tile the owner has in focus, else the last one used), else to the **root**. `group.add` and a spawn into an existing group first take the group's placement, when its members agree. A single-part project has no root of its own: the root is its part, so nothing changes there. HTTP clients that send no placement keep the compat rule of §5.
+- Prompt rules: work about one part is sent to a console in that part; work across parts goes to a root console, or part by part (the first part reports, then its result is forwarded or sent to the next part); a spawn without `part` or `root` starts where the owner is working, else at the root; read-only parts are only for questions and investigation.
+- Typed commands: `spawn 2 claude in Backend` (also `on`, `at`, `di`, `pada`, `ke`, and the word `part`/`bagian` after it) when Backend is the name of a project part; `spawn 2 claude at the root`, `in all parts`, `buat 2 claude di root`, `di semua part`, `di semua bagian` place them at the root. A part actually named like one of those words (`root`) wins. `make a group of 3 codex in Backend called Ops` places the group too.
+- **Tasks.** `task.add`/`task.update` store `part` (its name) and `partId` on the card, so a renamed part keeps its cards. Automatic handing out gives a card with a part to a free console in that part, else to a free console at the root; a card whose part is gone goes to nobody.
+- `editor.open` and editor cards follow the part too (§3.6). A `web` tile from a typed `open localhost <port>` previews on the machine of the command's `place` part.
+- `POST /api/workspaces/{id}/spawn` accepts `part` and `root` in the request and in each slot (§5). Sessions the orchestrator makes go through the same placement as `POST /api/sessions` (API-board.md §1), so the hub checks the part's machine and makes the root folder.
+- Mission Map shows each console's part (or Root) and an "All parts" filter; kanban cards show a part chip.
 
 ## 5. Groups and the team composer (D14, C2)
 
 `POST /api/workspaces/{id}/spawn`:
 
 ```jsonc
-{ "slots": [{ "agent"?: "claude", "machineId"?: "m_…", "profileId"?, "yolo"? }],   // 1–12; or "count" + "agent"
+{ "slots": [{ "agent"?: "claude", "machineId"?: "m_…", "profileId"?, "yolo"?,
+              "part"?: "Web", "root"?: true }],                   // 1–12; or "count" + "agent"
+  "part"?: "Web", "root"?: true,                                  // for every slot without its own
   "group"?: { "name"?: "Backend", "role"?: "backend", "color"?: "teal" } | { "id": "n_grp" },
   "orchestratorId"?: "n_orch", "at"?: { "x": 0, "y": 0 } }
 ```
+
+**Placement per slot** (v0.9.0-beta.2): the slot's `part`/`root` → the request's → for `group.id`, the placement its members share (none when they differ) → for the lead and typed orders, the command's `place`, else the root (§3.10) → the compat rule: the slot's `machineId`, else the project's first part's machine, in the folder of the first part on that machine (a machine with no part: its home folder). A slot with its own `machineId` or `cwd` and no placement keeps them and skips the group and command defaults. `part` is a name or id, any case; a single-part project's root is its part. Errors: `400 bad_placement` (root and a part), `404 part_not_found`, and from the hub's placement `400 part_machine`, `500 root_unavailable`. Nothing starts when one slot is refused.
 
 → `201 {"sessions":[Session…],"groupNodeId":"n_…"}` in **one** `boardOps` broadcast (terminals, group, wires). Agent per slot: `slot.agent` → `settings.agents.roleAgents[role]` → the machine's default. Model and effort per slot: `slot.model`, `slot.effort` → `settings.agents.roleModels[role]` when its agent is that role's agent → `settings.agents.models[agent]` (API-agents.md §25). The word `shell`/`terminal` in an order → `shell`. Default group name `Group N`. Error: `400 too_many` (> 12 per call, > 64 sessions per workspace), `404 group_not_found`, `409 name_conflict`.
 
@@ -456,7 +471,9 @@ Filters (client): All · Working · Needs you (+ error) · Idle (`ready`, `shell
 
 ## 9. Handoff (D18)
 
-`POST /api/sessions/{id}/handoff` `{ "agent": "codex", "machineId"?, "profileId"?, "workspaceId"?, "note"?, "threadId"? }` → `202 Handoff`. `409 handoff_running` (one per source session), `400 not_agent`.
+`POST /api/sessions/{id}/handoff` `{ "agent": "codex", "part"?, "root"?, "machineId"?, "profileId"?, "workspaceId"?, "note"?, "threadId"? }` → `202 Handoff`. `409 handoff_running` (one per source session), `400 not_agent`, `400 bad_placement`, `404 part_not_found`.
+
+**Where the next console works:** `part`/`root` when given; otherwise, unless `machineId` is given, **where the source works**: at the root for a root console, in its part (by id, so a second part on the first part's machine stays itself), and for a console from before parts that works on a server, that machine and folder. `inPlace` ignores all three.
 
 ```jsonc
 { "id": "ho_…", "sourceSessionId": "s_…", "targetSessionId": null, "agent": "codex",
@@ -465,7 +482,7 @@ Filters (client): All · Working · Needs you (+ error) · Idle (`ready`, `shell
 ```
 
 1. **collecting:** the source's transcript (the last turns, up to 60 000 characters) or, without a transcript, the last 400 screen lines.
-2. **summarizing:** a `handoff-summary` runner job (≤ 4 minutes) on the project's machine when it has a logged-in Claude/Codex, otherwise on This PC (the content is sent via stdin). Brief: the goal, what is done, the current state, files touched, next steps, open questions (≤ 1500 words). Failure → brief = the last 12 000 characters as they are + a note.
+2. **summarizing:** a `handoff-summary` runner job (≤ 4 minutes) where the source works (its part's machine and folder; This PC for a root console; the first part for a console in no part) when that machine has a logged-in Claude/Codex, otherwise on This PC (the content is sent via stdin). Brief: the goal, what is done, the current state, files touched, next steps, open questions (≤ 1500 words). Failure → brief = the last 12 000 characters as they are + a note.
 3. **spawning:** a new console of the target agent (any catalog/custom agent with `kind:"agent"`; another machine is allowed — a NextBoard extension), next to the source, in one group with the source.
 4. **waitingReady:** ≤ 120 s; if `needsYou` (e.g. trusting the folder), wait for the user ≤ 120 s more; out of time → `manual`, the brief is shown in the thread with Copy.
 5. **delivering:** a `source:"handoff"` delivery: brief + "Continue this task from exactly this state. Do not redo finished work."
@@ -646,7 +663,8 @@ State: `collecting → summarizing → switching → waitingReady → delivering
 ```jsonc
 // Layout — coordinates relative to the deploy point
 { "id": "builtin:duo" | "ly_…", "name": "Duo", "builtin": true, "createdAt"?: "…",
-  "lanes":  [{ "key": "a", "agent"?: "claude", "role"?: "reviewers", "group"?: "g1", "x": 0, "y": 0, "w": 720, "h": 440 }],
+  "lanes":  [{ "key": "a", "agent"?: "claude", "role"?: "reviewers", "group"?: "g1", "x": 0, "y": 0, "w": 720, "h": 440,
+              "part"?: "Web", "root"?: true }],              // where it worked when saved (a part by its name)
   "groups": [{ "key": "g1", "name": "Builders", "role": "general", "color": "sky" }],
   "nodes":  [{ "key": "o1", "kind": "orchestrator"|"kanban"|"note"|"text"|"checklist"|"memory"|"web"|"editor", "x", "y", "w", "h", "data": {…} }],
   "wires":  [{ "from": "o1", "to": "g1", "kind": "wire"|"forward" }] }
@@ -661,12 +679,15 @@ Built-in (NextBoard names): **Duo** (group of 2), **Trio** (group of 3), **Quart
 | PATCH | `/api/layouts/{id}` | `{"name"}` | `Layout` |
 | DELETE | `/api/layouts/{id}` | — | `{"ok":true}`; `403 layout_builtin` |
 | POST | `/api/layouts/{id}/sized` | `{"groupSizes": {"g1": 3}}` | `Layout` as it would land with those sizes, without making anything. `404 layout_not_found`, `400 bad_layout`, `400 too_many` |
-| POST | `/api/workspaces/{id}/deploy` | `{"layoutId", "at"?: {x,y}, "fill"?: {"agent"}, "groupSizes"?: {"g1": 3}, "laneOverrides"?: {"a": {"agent"?, "machineId"?, "profileId"?, "yolo"?}}}` | `201 {"sessions":[Session…],"nodeIds":[…]}`; `404 layout_not_found`, `400 too_many` |
+| POST | `/api/workspaces/{id}/deploy` | `{"layoutId", "at"?: {x,y}, "fill"?: {"agent"}, "groupSizes"?: {"g1": 3}, "laneOverrides"?: {"a": {"agent"?, "machineId"?, "profileId"?, "yolo"?, "part"?, "root"?}}, "places"?: {"g1": {"part": "Web"}, "a2": {"root": true}, "e1": {"part": "Api"}}}` | `201 {"sessions":[Session…],"nodeIds":[…]}`; `404 layout_not_found`, `400 too_many`, `400 bad_placement`, `404 part_not_found`, `409 place_unmatched` |
 
-- A deploy happens entirely in the hub (Android can deploy), in one `boardOps` broadcast. Lane agent: override → `fill` → `lane.agent` → role agent → machine default (machine = the override or the project's machine). Unknown agent → default; a custom one that has been deleted → `shell`. Consoles get new handles.
+- A deploy happens entirely in the hub (Android can deploy), in one `boardOps` broadcast. Lane agent: override → `fill` → `lane.agent` → role agent → machine default (machine = the lane's placement, else the override's or the project's machine). Unknown agent → default; a custom one that has been deleted → `shell`. Consoles get new handles.
+- **Placement per lane** (v0.9.0-beta.2): `laneOverrides[lane].part`/`root` → `places[lane key]` → `places[group key]` → what the layout saved (`lane.part` matched by **part name**, any case, or `lane.root`) → for the lead and typed orders, the command's place, else the root → the compat rule of §5 (the override's `machineId`, else the project's first part's machine, in the folder of the first part on that machine; so a lane on a server lands in that server's part, not in `~`). An override with a `machineId` and no placement skips what the layout saved. A single-part project ignores what the layout saved.
+- **`409 place_unmatched`** `{"error","code":"place_unmatched","unmatched":[{"key":"g1","part":"Web"},{"key":"e1","part":"Api"}]}`: the layout saved part names this project lacks, and `places` does not cover them. A group whose lanes all name the same missing part is listed by its key, other lanes and editor cards by theirs. The client asks the owner to match them and deploys again with `places`. Nothing starts before that.
+- **Editor cards** are placed too: `places[node key]`, else the saved `data.part` (a part name; missing = `place_unmatched`), else the root. The board's editor card of that placement (root, or that part) moves into the layout's place and takes its wires; without one, a new card is made with the part's **id** in `data.part`. Several editor cards can be on one board, one per placement.
 - **The number of consoles per group** is picked before the deploy, in the Layouts panel or through `groupSizes`. The hub computes the positions, for the preview and the deploy, so what you see is what lands. The first lanes keep their keys and choices, new lanes copy their group's last lane (`a3`, `a4`), and `laneOverrides` applies to new lanes too. Group shape follows the built-in teams: one row up to 3, 4 becomes 2×2, 5–6 become 3 columns, more than that 4 columns; stacked groups stay stacked. Whatever is to the right of and below a group shifts by the change. Space freed by a group that shrinks is only closed if that makes nothing overlap; otherwise it is left empty. Cards the owner deliberately stacked in a saved layout stay that way.
 - **A group can be 0** when the layout has more than one group: the group and its wires are not made, other cards stay. A layout always keeps one console (`400 bad_layout`). Limit 12 per group and 12 per deploy (`400 too_many`). Lanes without a group in a saved layout cannot have their count changed. The template does not change: sizes apply only to that deploy. The command bar and the planner deploy the default sizes.
-- Saving a layout **keeps**: kind, geometry, title/text/color, lane agents, groups, orchestrators, editor cards (without open files), memory tile stacks, wires/forwards, kanban column titles, localhost web tile URLs. **Drops**: images, ink, file cards, the contents of kanban/checklist/calendar cards, external URLs. A deploy to a board that already has an editor does not add a second editor: its wires use the existing one.
+- Saving a layout **keeps**: kind, geometry, title/text/color, lane agents, groups, orchestrators, editor cards (without open files), memory tile stacks, wires/forwards, kanban column titles, localhost web tile URLs, and in a project of several parts where each console works (`lane.part` = the part's **name**, `lane.root`), each editor card's part (`data.part` = its name), and the part whose dev server a web tile shows (`data.part`, from its `partId`, else the one part on its machine; a deploy gives the tile that part's `machineId` and `partId`, and leaves an unknown name to the client's default). A single-part project saves no placement, so its layouts fit any project. **Drops**: images, ink, file cards, the contents of kanban/checklist/calendar cards, external URLs. A deploy to a board that already has an editor card of the same placement does not add a second one: its wires use the existing one.
 - Home screen "arm layout": the client opens the workspace, then calls `deploy`.
 
 ## 14. New events on `/api/events`

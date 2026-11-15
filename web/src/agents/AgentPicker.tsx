@@ -1,7 +1,7 @@
 // Agent pickers (docs/API-agents.md §17, C2): the Spawn tool flyout next to the rail,
 // the "All agents" dialog (Detected / Your agents / Not installed) and "Switch agent".
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { Button } from '../components/Button';
 import { Checkbox } from '../components/form';
 import { Icon } from '../components/Icon';
@@ -73,9 +73,11 @@ interface FlyoutProps {
   onChoice: (c: ModelChoice) => void;
   onAll: () => void;
   onClose: () => void;
+  /** "Place in" of a project of several parts (board/PlacePicker.tsx), under the heading. */
+  place?: ReactNode;
 }
 
-export function AgentFlyout({ machineId, machineName, armed, onPick, choice, onChoice, onAll, onClose }: FlyoutProps) {
+export function AgentFlyout({ machineId, machineName, armed, onPick, choice, onChoice, onAll, onClose, place }: FlyoutProps) {
   const ma = useMachineAgents(machineId);
   const ref = useRef<HTMLDivElement>(null);
   const rows = flyoutRows(ma.agents, armed);
@@ -107,6 +109,11 @@ export function AgentFlyout({ machineId, machineName, armed, onPick, choice, onC
       <div className="menu-heading" role="presentation">
         Spawn on {machineName}
       </div>
+      {place && (
+        <div className="flyout-model flyout-place" onMouseDown={(e) => e.stopPropagation()}>
+          {place}
+        </div>
+      )}
       {!ma.ready && (
         <div className="list-msg" role="status">
           <span className="spinner" aria-hidden="true" /> Loading agents…

@@ -1,10 +1,13 @@
 // The editor card's side of the link to Claude Code consoles (docs/API-agents.md §24). While
 // the card is open the hub can ask it what a console's own IDE would know: the selection, the
 // open files, the problems. A console's proposed change opens as a diff to accept or reject.
+// The CLI runs on This PC, so the paths it names are real paths there (fileKey("local", …)).
 
 import { api, errorMessage, wsUrl } from '../../api';
 import { toast } from '../../components/Toast';
+import { docStore, readKey } from './docs';
 import { monaco } from './monaco';
+import { fileKey, keyOfUri, LOCAL_MACHINE, splitKey, type FileKey } from './paths';
 import { nameOf, type Workspace } from './workspace';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
@@ -18,7 +21,9 @@ export interface LinkedConsole {
 /** A change a console proposes: its call stays open until someone decides. */
 export interface Proposal {
   tab: string;
-  path: string;
+  /** The file's key (on This PC, where the CLI runs). */
+  path: FileKey;
+  /** The real path of the file before the change, on This PC ("" for a new file). */
   oldPath: string;
   after: string;
   console: string;
@@ -116,18 +121,24 @@ export class IdeLink {
     this.selectionTimer = window.setTimeout(() => this.sendSelection(ed), SELECTION_MS);
   }
 
-  private shareable(path: string) {
-    return this.ws.editorPrefs.shareSelection && !SENSITIVE.test(path) && !this.ws.ignored.has(path);
+  /** A path the CLI names (a real path on This PC) as a key. */
+  private keyOfCli(path: unknown): FileKey | null {
+    return typeof path === 'string' ? this.ws.resolve(path, LOCAL_MACHINE) : null;
+  }
+
+  private shareable(key: FileKey) {
+    return this.ws.editorPrefs.shareSelection && !SENSITIVE.test(key) && !this.ws.mountedPartOf(key)?.ignored.has(key);
   }
 
   private sendSelection(ed: Editor) {
     const model = ed.getModel();
     const sel = ed.getSelection();
+    const key = model ? keyOfUri(model.uri) : null;
     let selection: Json = NOTHING;
-    if (model && sel && model.uri.scheme === 'file' && this.shareable(model.uri.path)) {
+    if (model && sel && key && this.shareable(key)) {
       selection = {
         text: model.getValueInRange(sel).slice(0, MAX_SELECTION),
-        filePath: model.uri.path,
+        filePath: splitKey(key).abs,
         fileUrl: model.uri.toString(),
         selection: {
           start: { line: sel.startLineNumber - 1, character: sel.startColumn - 1 },
@@ -153,8 +164,9 @@ export class IdeLink {
       g.tabs
         .filter((t) => !t.diff && t.path)
         .map((t) => {
-          const d = this.ws.docs.get(t.path);
-          return { uri: monaco.Uri.file(t.path).toString(), isActive: t === active, label: nameOf(t.path), languageId: d?.model?.getLanguageId() ?? 'plaintext', isDirty: !!d?.dirty };
+          const key = t.path as FileKey;
+          const d = this.ws.docs.at(key);
+          return { uri: docStore.uriOf(key).toString(), isActive: t === active, label: nameOf(key), languageId: d?.model?.getLanguageId() ?? 'plaintext', isDirty: !!d?.dirty };
         }),
     );
     const m = JSON.stringify({ t: 'tabs', tabs });
@@ -172,6 +184,7 @@ export class IdeLink {
     // without a selection the file itself is meant, as in VS Code
     // a selection that stops at the start of a line does not include that line
     const last = !whole && sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel?.endLineNumber;
+    // model.uri.path is the real path on the file's machine
     const mention: Json = { filePath: model.uri.path, lineStart: whole ? undefined : sel.startLineNumber - 1, lineEnd: whole || last === undefined ? undefined : last - 1 };
     this.send({ t: 'mention', session: consoleId, mention });
   }
@@ -181,7 +194,9 @@ export class IdeLink {
     const model = ed.getModel();
     const sel = ed.getSelection();
     if (!model) return;
-    let where = this.ws.rel(model.uri.path);
+    // as the card shows it: in a Root card "admin/src/x.ts", which is also the path from the root folder
+    const key = keyOfUri(model.uri);
+    let where = key ? this.ws.relLabel(key) : model.uri.path;
     if (sel && !sel.isEmpty()) {
       const last = sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber;
       where += sel.startLineNumber === last ? `:${last}` : `:${sel.startLineNumber}-${last}`;
@@ -238,13 +253,15 @@ export class IdeLink {
         case 'getDiagnostics':
           return this.reply(m.id, asJson(this.diagnostics(a.uri)));
         case 'checkDocumentDirty': {
-          const d = this.ws.docs.get(a.filePath);
+          const key = this.keyOfCli(a.filePath);
+          const d = key ? this.ws.docs.at(key) : undefined;
           return this.reply(m.id, asJson(d ? { success: true, filePath: a.filePath, isDirty: !!d.dirty, isUntitled: false } : { success: false, message: `Document not open: ${a.filePath}` }));
         }
         case 'saveDocument': {
-          const d = this.ws.docs.get(a.filePath);
-          if (!d) return this.reply(m.id, asJson({ success: false, message: `Document not open: ${a.filePath}` }));
-          const saved = await this.ws.save(a.filePath);
+          const key = this.keyOfCli(a.filePath);
+          const d = key ? this.ws.docs.at(key) : undefined;
+          if (!d || !key) return this.reply(m.id, asJson({ success: false, message: `Document not open: ${a.filePath}` }));
+          const saved = await this.ws.save(key);
           return this.reply(m.id, asJson({ success: saved, filePath: a.filePath, saved, message: saved ? 'Document saved' : 'Could not save the document' }));
         }
         case 'openFile':
@@ -261,7 +278,8 @@ export class IdeLink {
     const only = uri ? monaco.Uri.parse(uri) : undefined;
     const files = new Map<string, Json[]>();
     for (const d of monaco.editor.getModelMarkers(only ? { resource: only } : {})) {
-      if (d.resource.scheme !== 'file' || (!only && !this.ws.inside(d.resource.path))) continue;
+      const k = keyOfUri(d.resource);
+      if (!k || (!only && !this.ws.paths.mountOf(k))) continue;
       const key = d.resource.toString();
       const code = typeof d.code === 'string' ? d.code : d.code?.value;
       files.set(key, [
@@ -278,11 +296,18 @@ export class IdeLink {
     return [...files].map(([u, diagnostics]) => ({ uri: u, diagnostics }));
   }
 
+  /** A model for a file no tab may show yet, reached through this card. */
+  private ensureModel(key: FileKey) {
+    return docStore.ensureModel(key, this.ws.mountedPartOf(key) ?? this.ws.activePart);
+  }
+
   private async openFile(a: Json) {
     const path: string = a.filePath;
+    const key = this.keyOfCli(path);
+    if (!key) return { ...text(`Not a path: ${path}`), isError: true };
     let at: { line?: number; col?: number; endCol?: number } = {};
     if (a.startText) {
-      const model = await this.ws.ensureModel(path);
+      const model = await this.ensureModel(key);
       const hit = model?.findMatches(a.startText, false, false, true, null, false)[0];
       if (hit) {
         const end = hit.range.endLineNumber === hit.range.startLineNumber ? hit.range.endColumn : undefined;
@@ -290,10 +315,10 @@ export class IdeLink {
       }
     }
     if (a.makeFrontmost === false) {
-      const model = await this.ws.ensureModel(path);
+      const model = await this.ensureModel(key);
       return asJson({ success: !!model, filePath: path, languageId: model?.getLanguageId(), lineCount: model?.getLineCount() });
     }
-    this.ws.open(path, { pin: !a.preview, source: true, ...at });
+    this.ws.open(key, { pin: !a.preview, source: true, ...at });
     return text(`Opened file: ${path}`);
   }
 
@@ -306,7 +331,12 @@ export class IdeLink {
       this.reply(old.callId, text('DIFF_REJECTED', old.tab));
       this.proposals.delete(old.tab);
     }
-    const p: Proposal = { tab: a.tab_name, path: a.new_file_path || a.old_file_path, oldPath: a.old_file_path, after: a.new_file_contents ?? '', console: consoleName, callId };
+    const path = this.keyOfCli(a.new_file_path || a.old_file_path);
+    if (!path) {
+      this.reply(callId, { ...text(`Not a path: ${a.new_file_path || a.old_file_path}`), isError: true });
+      return;
+    }
+    const p: Proposal = { tab: a.tab_name, path, oldPath: typeof a.old_file_path === 'string' ? a.old_file_path : '', after: a.new_file_contents ?? '', console: consoleName, callId };
     this.proposals.set(p.tab, p);
     this.ws.openDiff(p.path, `ide:${p.tab}`);
     // a console inside this editor is in view already, and its needs-you says the rest
@@ -319,8 +349,8 @@ export class IdeLink {
 
   /** The text before the change; a new file has none. */
   before(p: Proposal): Promise<string> {
-    return api
-      .fsRead(this.ws.mid, p.oldPath, 32 << 20)
+    if (!p.oldPath.startsWith('/')) return Promise.resolve('');
+    return readKey(fileKey(LOCAL_MACHINE, p.oldPath), 32 << 20)
       .then((r) => (r.content.startsWith('﻿') ? r.content.slice(1) : r.content))
       .catch(() => '');
   }

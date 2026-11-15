@@ -36,10 +36,14 @@ const (
 
 // SpawnSlot is one console of POST /api/workspaces/{id}/spawn.
 type SpawnSlot struct {
-	// Cwd is used when the slot is not on the project's machine (handoff).
+	// Cwd and MachineID place a slot that names no placement on a machine and folder of its own
+	// (handoff of a console from before parts).
 	Cwd string `json:"cwd,omitempty"`
 	// Part is the part of the project it works in, by name or id (ROADMAP #49): its machine and folder.
-	Part      string `json:"part,omitempty"`
+	Part string `json:"part,omitempty"`
+	// Root places it at the project root, reaching every part (v0.9.0-beta.2); with Part it is
+	// 400 bad_placement.
+	Root      bool   `json:"root,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	MachineID string `json:"machineId,omitempty"`
 	ProfileID string `json:"profileId,omitempty"`
@@ -74,7 +78,9 @@ type SpawnRequest struct {
 	Role        string      `json:"role,omitempty"`
 	MachineID   string      `json:"machineId,omitempty"`
 	// Part is the part of the project every slot without its own works in, by name or id.
-	Part           string      `json:"part,omitempty"`
+	Part string `json:"part,omitempty"`
+	// Root places every slot without its own placement at the project root.
+	Root           bool        `json:"root,omitempty"`
 	Group          *SpawnGroup `json:"group,omitempty"`
 	OrchestratorID string      `json:"orchestratorId,omitempty"`
 	At             *Point      `json:"at,omitempty"`
@@ -84,7 +90,14 @@ type SpawnRequest struct {
 	// Account names, else the one settings lead.providers gives its agent (docs/API-agents.md §10.2).
 	ByLead  bool   `json:"-"`
 	Account string `json:"-"`
+	// Fallback places the slots nothing else places (not on the wire): a command gives its own
+	// place, else the root, the lead's level (§3.10). Zero = the compat rule: the slot's machine,
+	// else the project's, in the folder of its part there.
+	Fallback project.Place `json:"-"`
 }
+
+// place is the placement a slot or request names itself.
+func (sl SpawnSlot) place() project.Place { return project.Place{Root: sl.Root, Part: sl.Part} }
 
 // SpawnResult is the 201 body.
 type SpawnResult struct {
@@ -205,6 +218,36 @@ func (s *Service) Spawn(req SpawnRequest) (SpawnResult, error) {
 			}
 		}
 	}
+	// Where each slot goes: its own placement → the request's → an existing group's, when its
+	// members agree → the fallback (a command's) → the compat rule. A slot with a machine or folder
+	// of its own and no placement keeps them. Resolved before anything starts.
+	reqPlace := project.Place{Root: req.Root, Part: req.Part}
+	var groupPlace project.Place
+	if group != nil {
+		groupPlace = s.groupPlace(proj, b, group)
+	}
+	spots := make([]spot, len(slots))
+	for i, sl := range slots {
+		pl := sl.place()
+		if pl.IsZero() {
+			pl = reqPlace
+		}
+		explicit := sl.MachineID != "" || sl.Cwd != ""
+		if pl.IsZero() && !explicit {
+			pl = groupPlace
+		}
+		if pl.IsZero() && !explicit {
+			pl = req.Fallback
+		}
+		sp, ok, err := placeIn(proj, pl)
+		if err != nil {
+			return SpawnResult{}, err
+		}
+		if !ok {
+			sp = unplaced(proj, sl.MachineID, sl.Cwd)
+		}
+		spots[i] = sp
+	}
 	var created []session.Info
 	rollback := func() {
 		for _, in := range created {
@@ -214,23 +257,8 @@ func (s *Service) Spawn(req SpawnRequest) (SpawnResult, error) {
 	var ops []board.Op
 	var termNodes []*board.Node
 	for i, sl := range slots {
-		mid := sl.MachineID
-		named := sl.Part
-		if named == "" {
-			named = req.Part
-		}
-		var part project.Part
-		if named != "" {
-			pt, ok := partNamed(proj, named)
-			if !ok {
-				rollback()
-				return SpawnResult{}, fmt.Errorf("%w: %q", ErrPartNotFound, named)
-			}
-			part, mid = pt, pt.MachineID
-		}
-		if mid == "" {
-			mid = proj.MachineID
-		}
+		sp := spots[i]
+		mid := sp.machineID()
 		ag := s.pickAgent(sl.Agent, role, mid)
 		if req.ByLead && sl.ProfileID == "" && sl.ProviderID == "" {
 			pid, err := s.providerFor(ag, req.Account)
@@ -240,26 +268,11 @@ func (s *Service) Spawn(req SpawnRequest) (SpawnResult, error) {
 			}
 			sl.ProviderID = pid
 		}
-		cr := session.CreateRequest{Agent: ag, MachineID: mid, WorkspaceID: ws.ID, ProjectID: proj.ID, Yolo: sl.Yolo}
+		cr := session.CreateRequest{Agent: ag, WorkspaceID: ws.ID, ProjectID: proj.ID, Yolo: sl.Yolo}
+		sp.fill(proj, &cr)
 		cr.Model, cr.Effort = s.slotModel(role, ag, sl.Model, sl.Effort)
 		if sl.ProviderID != "" && sl.Model == nil {
 			cr.Model = nil // the provider's own model, not one the settings name for a login
-		}
-		switch {
-		case part.ID != "":
-			cr.Cwd, cr.PartID = part.Path, part.ID
-		case mid == proj.MachineID:
-			cr.Cwd = proj.Path
-		case sl.Cwd != "":
-			cr.Cwd = sl.Cwd
-		default:
-			// another machine of the project: the folder of its part there
-			for _, pt := range proj.Parts {
-				if pt.MachineID == mid {
-					cr.Cwd, cr.PartID = pt.Path, pt.ID
-					break
-				}
-			}
 		}
 		if sl.ProfileID != "" {
 			p := sl.ProfileID
@@ -400,7 +413,9 @@ func (s *Service) CreateGroup(wid string, members []string, name, role string) (
 
 // Deploy creates a layout's consoles, groups, tiles and wires in one board
 // change (§13). Lane agent: override → fill → lane → role agent → machine
-// default; machine: override → project machine.
+// default. Lane placement: override → places[lane] → places[group] → the layout's own,
+// matched by part name → the fallback → the compat rule (the override's machine, else the
+// project's).
 func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 	ws, proj, ok := s.hub.Workspace(wid)
 	if !ok {
@@ -430,6 +445,10 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 	if err != nil {
 		return DeployResult{}, err
 	}
+	laneSpots, editorAt, err := deployPlaces(proj, l, req)
+	if err != nil {
+		return DeployResult{}, err
+	}
 	ox, oy := rightOf(b.Nodes)
 	if req.At != nil {
 		ox, oy = req.At.X, req.At.Y
@@ -447,12 +466,10 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 	for _, g := range l.Groups {
 		groupRole[g.Key] = g.Role
 	}
-	for _, ln := range l.Lanes {
+	for i, ln := range l.Lanes {
 		ov := req.LaneOverrides[ln.Key]
-		mid := ov.MachineID
-		if mid == "" {
-			mid = proj.MachineID
-		}
+		sp := laneSpots[i]
+		mid := sp.machineID()
 		want := ov.Agent
 		if want == "" && req.Fill != nil {
 			want = req.Fill.Agent
@@ -471,11 +488,9 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 				ag = "shell"
 			}
 		}
-		cr := session.CreateRequest{Agent: ag, MachineID: mid, WorkspaceID: ws.ID, ProjectID: proj.ID, Yolo: ov.Yolo}
+		cr := session.CreateRequest{Agent: ag, WorkspaceID: ws.ID, ProjectID: proj.ID, Yolo: ov.Yolo}
+		sp.fill(proj, &cr)
 		cr.Model, cr.Effort = s.slotModel(role, ag, ov.Model, ov.Effort)
-		if mid == proj.MachineID {
-			cr.Cwd = proj.Path
-		}
 		if ov.ProfileID != "" {
 			p := ov.ProfileID
 			cr.ProfileID = &p
@@ -526,23 +541,52 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 		groupOps = append(groupOps, board.Op{Op: "put", Node: gn})
 	}
 	ops = append(groupOps, ops...)
+	moved := map[string]bool{}
 	for _, n := range l.Nodes {
+		data := n.Data
 		if n.Kind == KindEditor {
-			// A board has one editor card: the layout's wires go to the one it has, and it moves
-			// into the layout's place, as the preview drew it (left where it was, it looked as if the
-			// layout had none). Its open files go with it; one the owner locked stays put.
-			if i := slices.IndexFunc(b.Nodes, func(o *board.Node) bool { return o.Kind == KindEditor }); i >= 0 {
+			// A board has one editor card per placement (the root, or a part): the layout's wires
+			// go to the one it has, and it moves into the layout's place, as the preview drew it
+			// (left where it was, it looked as if the layout had none). Its open files go with it;
+			// one the owner locked stays put.
+			at := editorAt[n.Key]
+			if i := slices.IndexFunc(b.Nodes, func(o *board.Node) bool {
+				return o.Kind == KindEditor && !moved[o.ID] && editorPlace(proj, o) == at
+			}); i >= 0 {
 				old := b.Nodes[i]
-				keyNode[n.Key] = old.ID
+				keyNode[n.Key], moved[old.ID] = old.ID, true
 				if !old.Locked {
 					ops = append(ops, board.Op{Op: "put", Node: &board.Node{ID: old.ID, Kind: old.Kind, X: clampCoord(ox + n.X), Y: clampCoord(oy + n.Y),
 						W: max(n.W, 40), H: max(n.H, 40), Rotation: old.Rotation, Data: old.Data}})
 				}
 				continue
 			}
+			// a template names a part by its name, a board card by its id
+			data = map[string]any{}
+			for k, v := range n.Data {
+				if k != "part" {
+					data[k] = v
+				}
+			}
+			if at != "" {
+				data["part"] = at
+			}
 		}
-		raw, _ := json.Marshal(n.Data)
-		if n.Data == nil {
+		if name, _ := n.Data["part"].(string); n.Kind == "web" && name != "" {
+			// a preview of that part's dev server, on its machine; a part this project lacks
+			// leaves the tile to the client's default
+			data = map[string]any{}
+			for k, v := range n.Data {
+				if k != "part" {
+					data[k] = v
+				}
+			}
+			if pt, ok := proj.PartNamed(name); ok && len(proj.Parts) > 1 {
+				data["machineId"], data["partId"] = pt.MachineID, pt.ID
+			}
+		}
+		raw, _ := json.Marshal(data)
+		if data == nil {
 			raw = []byte("{}")
 		}
 		node := &board.Node{ID: auth.RandomID("n_"), Kind: n.Kind, X: clampCoord(ox + n.X), Y: clampCoord(oy + n.Y), W: max(n.W, 40), H: max(n.H, 40), Data: raw}
@@ -578,6 +622,108 @@ func (s *Service) Deploy(wid string, req DeployRequest) (DeployResult, error) {
 	return res, nil
 }
 
+// deployPlaces resolves where each lane of a layout goes (spots, in lane order) and which
+// placement each editor card is (editorPlace keys, by node key), before anything starts. A part
+// the layout saved by name and this project lacks, which the request does not place itself,
+// is a *PlaceUnmatchedError listing them: a group's key when all its lanes name that part, else
+// the lane's or the card's key. A single-part project ignores what the layout saved.
+func deployPlaces(proj project.Project, l Layout, req DeployRequest) ([]spot, map[string]string, error) {
+	multi := len(proj.Parts) > 1
+	saved := func(pl project.Place) (project.Place, bool) {
+		if !multi || pl.IsZero() {
+			return project.Place{}, true
+		}
+		if strings.TrimSpace(pl.Part) != "" {
+			if _, ok := proj.PartNamed(pl.Part); !ok {
+				return project.Place{}, false
+			}
+		}
+		return pl, true
+	}
+	type miss struct {
+		UnmatchedPlace
+		group string
+	}
+	var misses []miss
+	spots := make([]spot, len(l.Lanes))
+	for i, ln := range l.Lanes {
+		ov := req.LaneOverrides[ln.Key]
+		pl := project.Place{Root: ov.Root, Part: ov.Part}
+		if pl.IsZero() {
+			pl = req.Places[ln.Key]
+		}
+		if pl.IsZero() && ln.Group != "" {
+			pl = req.Places[ln.Group]
+		}
+		explicit := ov.MachineID != ""
+		if pl.IsZero() && !explicit {
+			var ok bool
+			if pl, ok = saved(project.Place{Root: ln.Root, Part: ln.Part}); !ok {
+				misses = append(misses, miss{UnmatchedPlace{Key: ln.Key, Part: ln.Part}, ln.Group})
+				continue
+			}
+		}
+		if pl.IsZero() && !explicit {
+			pl = req.Fallback
+		}
+		sp, ok, err := placeIn(proj, pl)
+		if err != nil {
+			return nil, nil, fmt.Errorf("lane %s: %w", ln.Key, err)
+		}
+		if !ok {
+			sp = unplaced(proj, ov.MachineID, "")
+		}
+		spots[i] = sp
+	}
+	// a whole group in one missing part is one question
+	lanes, missing := map[string]int{}, map[string][]string{}
+	for _, ln := range l.Lanes {
+		lanes[ln.Group]++
+	}
+	for _, m := range misses {
+		missing[m.group] = append(missing[m.group], strings.ToLower(m.Part))
+	}
+	whole := func(g string) bool {
+		names := missing[g]
+		return g != "" && len(names) == lanes[g] && !slices.ContainsFunc(names, func(n string) bool { return n != names[0] })
+	}
+	var unmatched []UnmatchedPlace
+	asked := map[string]bool{}
+	for _, m := range misses {
+		switch {
+		case !whole(m.group):
+			unmatched = append(unmatched, m.UnmatchedPlace)
+		case !asked[m.group]:
+			asked[m.group] = true
+			unmatched = append(unmatched, UnmatchedPlace{Key: m.group, Part: m.Part})
+		}
+	}
+	editors := map[string]string{}
+	for _, n := range l.Nodes {
+		if n.Kind != KindEditor {
+			continue
+		}
+		pl := req.Places[n.Key]
+		if pl.IsZero() {
+			name, _ := n.Data["part"].(string)
+			var ok bool
+			if pl, ok = saved(project.Place{Part: name}); !ok {
+				unmatched = append(unmatched, UnmatchedPlace{Key: n.Key, Part: name})
+				continue
+			}
+		}
+		at, err := editorKey(proj, pl)
+		if err != nil {
+			return nil, nil, fmt.Errorf("card %s: %w", n.Key, err)
+		}
+		editors[n.Key] = at
+	}
+	if len(unmatched) > 0 {
+		return nil, nil, &PlaceUnmatchedError{Unmatched: unmatched}
+	}
+	return spots, editors, nil
+}
+
 func isBuiltinAgent(id string) bool {
 	for _, a := range append(agent.Builtins(), agent.Catalog()...) {
 		if a.ID == id {
@@ -598,15 +744,23 @@ func (s *Service) handleTaken(name string) bool {
 	return false
 }
 
-// partNamed finds a part of the project by id or name, any case.
-func partNamed(proj project.Project, name string) (project.Part, bool) {
-	name = strings.TrimSpace(name)
-	for _, pt := range proj.Parts {
-		if pt.ID == name || strings.EqualFold(pt.Name, name) {
-			return pt, true
+// groupPlace is where an existing group's consoles work, when they all agree: a group.add or a
+// spawn into it starts there too. Zero when they differ, or none is in a part or at the root.
+func (s *Service) groupPlace(proj project.Project, b board.Board, group *board.Node) project.Place {
+	var common project.Place
+	n := 0
+	for _, sid := range nodeSessionIDs(b, group.ID) {
+		in, ok := s.hub.SessionInfo(sid)
+		if !ok {
+			continue
 		}
+		pl := placeOfSession(proj, in)
+		if pl.IsZero() || (n > 0 && pl != common) {
+			return project.Place{}
+		}
+		common, n = pl, n+1
 	}
-	return project.Part{}, false
+	return common
 }
 
 // partNames are the names of a project's parts, for the typed grammar; none for one part.

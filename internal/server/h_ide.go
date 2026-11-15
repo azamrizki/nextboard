@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -16,10 +17,19 @@ import (
 const ideMaxFrame = 64 << 20
 
 // ideEnv is what a console gets at launch: its folder and the project's are the
-// workspace folders the CLI compares with where it runs.
+// workspace folders the CLI compares with where it runs. A root console's are its root folder
+// and the folders of the parts on This PC it changes (roots.go).
 func (s *Server) ideEnv(sp session.Spec, configDir string) ([]string, error) {
 	roots := []string{sp.Cwd}
-	if _, pr, ok := s.projects.Workspace(sp.WorkspaceID); ok && pr.Path != "" && pr.Path != sp.Cwd {
+	_, pr, ok := s.projects.Workspace(sp.WorkspaceID)
+	switch {
+	case ok && sp.Root:
+		for _, d := range rootAddDirs(pr) {
+			if !slices.Contains(roots, d) {
+				roots = append(roots, d)
+			}
+		}
+	case ok && pr.Path != "" && pr.Path != sp.Cwd:
 		roots = append(roots, pr.Path)
 	}
 	return s.ide.Env(sp.ID, roots, configDir)

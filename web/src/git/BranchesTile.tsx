@@ -1,7 +1,8 @@
 // Branches card (node kind "branches", docs/API-studio.md §3.4, B22): current branch,
 // ahead/behind, changed files and up to 200 local branches. Click = switch (no
 // confirmation: Git itself refuses a switch that would overwrite work), New branch,
-// delete with `git branch -d` (refuses unmerged branches), Panel opens the Git panel.
+// delete with `git branch -d` (refuses unmerged branches), Panel opens the Git panel. In a project
+// of several parts the card is about one part (data.partId, v0.9.0-beta.2), picked in the card.
 
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { NodeProps } from '@xyflow/react';
@@ -15,15 +16,20 @@ import { useBoardEnv } from '../board/ui';
 import { gitApi } from '../studio/api';
 import { studioStore, useStudio } from '../studio/store';
 import type { GitBranch } from '../studio/types';
+import { partRef, projectParts } from '../lib/parts';
 import { gitError } from './common';
 import { RepoPicker } from './RepoPicker';
 
-function BranchesTileImpl({ id, selected }: NodeProps<FlowNode>) {
-  const { ui, project } = useBoardEnv();
-  const pid = project.id;
-  const sum = useStudio((s) => s.git[pid]);
-  const rev = useStudio((s) => s.gitRev[pid] ?? 0);
-  const scanned = useStudio((s) => !!s.gitRepos[pid]);
+function BranchesTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
+  const { ui, project, ctl } = useBoardEnv();
+  const parts = projectParts(project);
+  const want = typeof data.node.data.partId === 'string' ? data.node.data.partId : '';
+  const part = parts.length > 1 ? parts.find((p) => p.id === want) : undefined;
+  // its part's git ("<project>~<part>", as every part's); several parts: the card's part, none until picked
+  const pid = parts.length > 1 ? (part ? partRef(project, part) : '') : partRef(project, parts[0]);
+  const sum = useStudio((s) => (pid ? s.git[pid] : undefined));
+  const rev = useStudio((s) => (pid ? (s.gitRev[pid] ?? 0) : 0));
+  const scanned = useStudio((s) => !!pid && !!s.gitRepos[pid]);
   const repo = useStudio((s) => s.gitRepo[pid] ?? '');
   const target = useMemo(() => ({ pid, repo }), [pid, repo]);
   const [items, setItems] = useState<GitBranch[] | null>(null);
@@ -44,11 +50,15 @@ function BranchesTileImpl({ id, selected }: NodeProps<FlowNode>) {
   }, [target, scanned]);
   useEffect(load, [load, rev]);
   useEffect(() => {
-    void studioStore.loadGitRepos(pid);
+    if (pid) void studioStore.loadGitRepos(pid);
   }, [pid]);
   useEffect(() => {
-    if (!sum) void studioStore.loadGitSummary(pid);
+    if (pid && !sum) void studioStore.loadGitSummary(pid);
   }, [pid, sum]);
+  const pickPart = (partId: string) => {
+    setItems(null);
+    ctl.apply([{ op: 'patch', id, set: { data: { partId } } }]);
+  };
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label);
@@ -90,7 +100,17 @@ function BranchesTileImpl({ id, selected }: NodeProps<FlowNode>) {
         menuLabel="Branches card actions"
       />
       <div className="branches-body nodrag nowheel">
-        <RepoPicker pid={pid} disabled={!!busy} />
+        {parts.length > 1 && (
+          <select className="control control-sm" aria-label="Part" title="Which part’s repository" value={part?.id ?? ''} onChange={(e) => pickPart(e.target.value)} disabled={!!busy}>
+            {!part && <option value="">Pick a part</option>}
+            {parts.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {pid && <RepoPicker pid={pid} disabled={!!busy} />}
         <div className="branches-now">
           <span className="badge git-branch">
             <Icon name="branch" />
@@ -101,7 +121,8 @@ function BranchesTileImpl({ id, selected }: NodeProps<FlowNode>) {
           </span>
         </div>
         {error && <p className="field-error">{error}</p>}
-        {!items && !error && <p className="tile-hint">Loading branches…</p>}
+        {!pid && <p className="tile-hint">Pick the part whose branches this card shows.</p>}
+        {pid && !items && !error && <p className="tile-hint">Loading branches…</p>}
         {items && (
           <ul className="plain branch-list" aria-label="Local branches">
             {items.map((b) => (
@@ -166,7 +187,7 @@ function BranchesTileImpl({ id, selected }: NodeProps<FlowNode>) {
             </Button>
           </>
         ) : (
-          <Button size="sm" icon="plus" onClick={() => setAdding(true)}>
+          <Button size="sm" icon="plus" disabled={!pid} onClick={() => setAdding(true)}>
             New branch
           </Button>
         )}

@@ -318,7 +318,7 @@ func (s *Server) monitorPart(m *uptime.Monitor) error {
 	if !ok {
 		return project.ErrPartNotFound
 	}
-	if _, ok := pr.Part(m.PartID); !ok {
+	if _, ok := pr.PartByID(m.PartID); !ok {
 		return project.ErrPartNotFound
 	}
 	return nil

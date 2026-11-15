@@ -1,7 +1,8 @@
 // The ring's Spawn agent: pick the agent and the login profile it runs under, its model and effort
 // start from the defaults in settings, and Spawn places it. A double click on a tile spawns it as
 // it is. The profile starts at the default one (NextBoard unless settings say otherwise) every time
-// the panel opens or the agent changes, whatever another form picked last.
+// the panel opens or the agent changes, whatever another form picked last. In a project of several
+// parts it asks where: Root (all parts) or a part, the focused tile's by default.
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { AgentBadge, shortAgentName } from '../agents/AgentBadge';
@@ -11,6 +12,7 @@ import { SelectField } from '../components/form';
 import type { Agent } from '../lib/types';
 import { AccountOptions } from '../providers/AccountOptions';
 import type { useNewTerminal } from './NewTerminal';
+import { OTHER_VALUE, PlacePicker } from './PlacePicker';
 
 interface Props {
   agents: Agent[];
@@ -53,6 +55,7 @@ export function SpawnPanel({ agents, nt, onSpawn }: Props) {
           </button>
         ))}
       </div>
+      {nt.multi && <PlacePicker project={nt.project} value={nt.placeValue} onChange={nt.setPlace} other={nt.placeValue === OTHER_VALUE} />}
       {profiles.length + providers.length > 0 && (
         <SelectField label="Login profile" value={chosen} onChange={(e) => setProfileId(e.target.value)} className="control-sm">
           <AccountOptions profiles={profiles} defaultProfile={nt.defaultProfile} providers={providers} />

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -106,6 +107,31 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		}
 		prompt.WriteString(remotePrompt(name, sp.RemoteCwd, s.remoteProjectRules(host, sp.RemoteCwd, docs), claude, extras))
 	}
+	if sp.Root {
+		// At the project root (roots.go): the CLI's own tools in the root folder, whose links lead
+		// to the parts on This PC; the hub's tools, with part, for the others.
+		pr, ok := s.projects.Get(sp.ProjectID)
+		if !ok {
+			return nil, project.ErrNotFound
+		}
+		c.WorkDir, c.TrustDir, c.AddDirs = sp.Cwd, sp.Cwd, rootAddDirs(pr)
+		if claude {
+			// the root folders are the hub's: no trust dialog for them, only in config folders the
+			// hub made (a profile it made, an API provider's), never in the user's own
+			dir := ""
+			switch {
+			case sp.ProviderID != "":
+				dir = providerHub{s}.ConfigDir(sp.ProviderID, a)
+			case hasProfile && pf.CreatedByHub:
+				dir = pf.Dir
+			}
+			if dir != "" {
+				if err := profiles.TrustFolder(dir, s.st.Path("roots")); err != nil {
+					log.Printf("trust root folder: %v", err)
+				}
+			}
+		}
+	}
 	if parts := s.partsPrompt(sp); parts != "" {
 		if prompt.Len() > 0 {
 			prompt.WriteString("\n")
@@ -134,6 +160,9 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 	}
 	if s.orch != nil {
 		c.Blocked = s.blockedIn(sp.ProjectID, sp.PartID)
+		if sp.Root {
+			c.Blocked = s.rootBlocked(sp.ProjectID) // its shell can cd into any part
+		}
 		// Codex keeps its rules in its config folder: only in one the hub made, never the user's own.
 		if a.CapBase() == "codex" && hasProfile && pf.CreatedByHub && !c.Remote {
 			if err := agent.WriteCodexRules(pf.Dir, s.allBlocked()); err != nil {
@@ -144,10 +173,20 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 	if !c.Remote && sp.MachineID == machine.LocalID && agent.Sandboxes(a) {
 		if pr, ok := s.projects.Get(sp.ProjectID); ok && pr.Sandbox != "" {
 			c.Sandbox = &agent.Sandbox{Network: pr.Sandbox != project.SandboxOffline, Write: sandboxWrites()}
+			rule := sandboxRule(c.Sandbox.Network)
+			if sp.Root {
+				// the folders behind the root's links, not the read-only parts
+				for _, d := range c.AddDirs {
+					if !slices.Contains(c.Sandbox.Write, d) {
+						c.Sandbox.Write = append(c.Sandbox.Write, d)
+					}
+				}
+				rule = rootSandboxRule(c.Sandbox.Network)
+			}
 			if prompt.Len() > 0 {
 				prompt.WriteString("\n")
 			}
-			prompt.WriteString(sandboxRule(c.Sandbox.Network) + "\n")
+			prompt.WriteString(rule + "\n")
 		}
 	}
 	if !s.settings.View().Agents.CoAuthor {
@@ -244,6 +283,9 @@ type remoteTarget struct {
 	parts                []partTarget
 	// reviewKey: the review of the part the call works in (h_parts.go)
 	reviewKey string
+	// root: a console at the project root (roots.go), which names the part of every file call;
+	// own: the call's part is one it changes with its own tools (partTarget.own)
+	root, own bool
 }
 
 func (t remoteTarget) tools() []map[string]any {
@@ -377,6 +419,9 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 			}
 			return remoteAnswer("This job may only read.", true), nil
 		}
+		if t.own && !remoteReadTools[p.Name] {
+			return remoteAnswer(fmt.Sprintf("%s is on This PC: use your own tools in ./%s. The nextboard tools only read there.", t.inPart, rootEntryName(project.Part{ID: t.inPartID, Name: t.inPart})), true), nil
+		}
 		if t.machineID == "" {
 			return remoteAnswer("This console works on This PC: use your own tools for files.", true), nil
 		}
@@ -416,7 +461,7 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 // noteRemoteChange tells review what an agent's tool just did on the server: whose file it is,
 // and that a look is due. Never in the way of the call itself: a look can take a while.
 func (s *Server) noteRemoteChange(t remoteTarget, tool string, args json.RawMessage) {
-	if t.projectID == "" || t.sessionID == "" || s.review == nil {
+	if t.projectID == "" || t.sessionID == "" || s.review == nil || t.review() == "" {
 		return
 	}
 	switch tool {

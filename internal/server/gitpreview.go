@@ -12,6 +12,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/preview"
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
 )
 
@@ -190,14 +191,19 @@ func (s *Server) spaCSP(scheme, hostHeader string) string {
 		frames + "; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 }
 
-// gitRepo resolves a project to the git service's target: its first part.
+// gitRepo resolves a project ref to the git service's target: the part a "<project>~<part>" ref
+// names, else (compat, a bare project id) the project's DefaultPart.
 func (s *Server) gitRepo(pid string) (gitsvc.Repo, bool) {
 	return s.gitRepoIn(pid, "")
 }
 
-// gitRepoIn resolves a part of a project ("" = the first) to the git service's target.
+// gitRepoIn resolves a part of a project to the git service's target: the part a
+// "<project>~<part>" ref or part names. Neither names one: the DefaultPart, for old clients and
+// callers that name no part. The target always carries the part's id, so its state and its
+// gitPart events keep their key when the parts are reordered; Legacy marks the first part in
+// display order, which also sends the old git/gitRepo events.
 func (s *Server) gitRepoIn(pid, part string) (gitsvc.Repo, bool) {
-	id, inRef, cut := strings.Cut(pid, "~")
+	id, inRef, cut := strings.Cut(pid, project.PartKeySep)
 	if cut {
 		part = inRef
 	}
@@ -205,15 +211,14 @@ func (s *Server) gitRepoIn(pid, part string) (gitsvc.Repo, bool) {
 	if !ok {
 		return gitsvc.Repo{}, false
 	}
-	pt, ok := p.Part(part)
-	if !ok {
+	pt := p.DefaultPart() // compat: no part named
+	if part != "" {
+		pt, ok = p.PartByID(part)
+	}
+	if !ok || pt.ID == "" {
 		return gitsvc.Repo{}, false
 	}
-	rp := gitsvc.Repo{ProjectID: p.ID, MachineID: pt.MachineID, Path: pt.Path}
-	if pt.ID != p.Parts[0].ID {
-		rp.Part = pt.ID
-	}
-	return rp, true
+	return gitsvc.Repo{ProjectID: p.ID, Part: pt.ID, Legacy: pt.ID == p.DefaultPart().ID, MachineID: pt.MachineID, Path: pt.Path}, true
 }
 
 var _ = jobs.KindGit

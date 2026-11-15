@@ -4,13 +4,15 @@
 // project, and those do not run here.
 
 import type { Options, Plugin } from 'prettier';
-import { api, errorMessage } from '../../api';
+import { errorMessage } from '../../api';
 import { toast } from '../../components/Toast';
 import { fsApi } from '../api';
+import { readKey } from './docs';
 import { parseJsonc } from './jsonc';
 import { monaco } from './monaco';
 import { hasNative, modelOwners, onNativeChange } from './nativeExt';
-import type { Workspace } from './workspace';
+import { PartService } from './partsvc';
+import { fileKey, keyOfUri, splitKey } from './paths';
 
 type Model = monaco.editor.ITextModel;
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -187,12 +189,21 @@ export function ignoredBy(text: string, rel: string): boolean {
   return ignored;
 }
 
-const read = (ws: Workspace, path: string) => api.fsRead(ws.mid, path, 1 << 20).then((r) => r.content);
+/** A file to format: its machine and real path, and the folder of the part holding it (null: in no part). */
+interface Where {
+  machineId: string;
+  path: string;
+  root: string | null;
+}
 
-function parents(ws: Workspace, path: string): string[] {
-  const root = ws.root.replace(/\/+$/, '');
+const read = (w: Where, path: string) => readKey(fileKey(w.machineId, path), 1 << 20).then((r) => r.content);
+
+/** The folders from the file's up to its part's folder: where a configuration may be. */
+function parents(w: Where): string[] {
+  if (w.root === null) return [];
+  const root = w.root.replace(/\/+$/, '');
   const out: string[] = [];
-  let d = path.slice(0, path.lastIndexOf('/'));
+  let d = w.path.slice(0, w.path.lastIndexOf('/'));
   while (d && d.length >= root.length && d.startsWith(root)) {
     out.push(d);
     d = d.slice(0, d.lastIndexOf('/'));
@@ -201,26 +212,28 @@ function parents(ws: Workspace, path: string): string[] {
 }
 
 /** The nearest configuration and .editorconfig for a file, with its overrides applied. */
-async function optionsFor(ws: Workspace, path: string): Promise<Json> {
-  const dirs = parents(ws, path);
+async function optionsFor(w: Where): Promise<Json> {
+  const path = w.path;
+  const dirs = parents(w);
   const names = [...CONFIG_DATA, ...CONFIG_CODE, 'package.json', '.editorconfig'];
-  const stats = await fsApi.statBatch(ws.mid, dirs.flatMap((d) => names.map((n) => `${d}/${n}`))).catch(() => []);
+  // one stat for every candidate, on the file's own machine (real paths, never keys)
+  const stats = await fsApi.statBatch(w.machineId, dirs.flatMap((d) => names.map((n) => `${d}/${n}`))).catch(() => []);
   const found = new Set(stats.filter((s) => s.exists).map((s) => s.path));
   const has = (d: string, n: string) => found.has(`${d}/${n}`);
   let base: Json = {};
   const editorDir = dirs.find((d) => has(d, '.editorconfig'));
-  if (editorDir) base = fromEditorConfig(await read(ws, `${editorDir}/.editorconfig`).catch(() => ''), path.slice(editorDir.length + 1));
+  if (editorDir) base = fromEditorConfig(await read(w, `${editorDir}/.editorconfig`).catch(() => ''), path.slice(editorDir.length + 1));
   for (const d of dirs) {
     const rel = path.slice(d.length + 1);
     const name = CONFIG_DATA.find((n) => has(d, n));
     let config: Json | null = null;
     if (name) {
-      config = parseConfig(name, await read(ws, `${d}/${name}`));
+      config = parseConfig(name, await read(w, `${d}/${name}`));
     } else if (CONFIG_CODE.some((n) => has(d, n))) {
       toast.info('Prettier: this project’s config is JavaScript, which does not run here. Using .editorconfig and the defaults.');
       return base;
     } else if (has(d, 'package.json')) {
-      const pkg = parseJsonc(await read(ws, `${d}/package.json`).catch(() => '{}')) as Json | null;
+      const pkg = parseJsonc(await read(w, `${d}/package.json`).catch(() => '{}')) as Json | null;
       if (pkg && typeof pkg.prettier === 'object' && pkg.prettier) config = pkg.prettier as Json;
     }
     if (!config) continue;
@@ -236,23 +249,31 @@ async function optionsFor(ws: Workspace, path: string): Promise<Json> {
   return base;
 }
 
-async function isIgnored(ws: Workspace, path: string): Promise<boolean> {
-  const text = await read(ws, `${ws.root.replace(/\/+$/, '')}/.prettierignore`).catch(() => '');
-  return !!text && ignoredBy(text, ws.rel(path));
+/** The part's .prettierignore names the file (by its path inside the part). */
+async function isIgnored(w: Where): Promise<boolean> {
+  if (w.root === null) return false;
+  const root = w.root.replace(/\/+$/, '');
+  const text = await read(w, `${root}/.prettierignore`).catch(() => '');
+  return !!text && ignoredBy(text, w.path.slice(root.length + 1));
 }
 
 async function format(model: Model, range?: monaco.IRange): Promise<monaco.languages.TextEdit[]> {
   const ws = modelOwners.get(model);
+  const key = keyOfUri(model.uri);
   const path = model.uri.path;
   const name = path.slice(path.lastIndexOf('/') + 1);
   const parser = parserFor(name, model.getLanguageId());
-  if (!ws || !parser) return [];
+  if (!ws || !key || !parser) return [];
+  // the configuration is the part's that holds the file, on that part's machine
+  const part = ws.partOf(key) ?? PartService.holding(key);
+  const { machineId, abs } = splitKey(key);
+  const w: Where = { machineId, path: abs, root: part ? part.root : null };
   try {
-    if (await isIgnored(ws, path)) {
+    if (await isIgnored(w)) {
       toast.info(`Prettier: ${name} is in .prettierignore.`);
       return [];
     }
-    const options = await optionsFor(ws, path);
+    const options = await optionsFor(w);
     const chosen: string = typeof options.parser === 'string' ? options.parser : parser;
     const [prettier, ...plugins] = await Promise.all([import('prettier/standalone'), ...(PARSER_PLUGINS[chosen] ?? []).map((p) => PLUGIN[p]())]);
     const text = model.getValue();

@@ -69,6 +69,18 @@ type execCtx struct {
 	ui                                                                        []UIAction
 	orderID                                                                   string
 	reply                                                                     *ReplyRef // the earlier message this answers
+	// place is where consoles the command starts go when it names no placement (the UI's
+	// default); zero = the root, the lead's level (§3.10).
+	place project.Place
+}
+
+// spawnFallback is where a command's spawns go when they name no placement: the command's
+// place, else the project root.
+func (c *execCtx) spawnFallback() project.Place {
+	if c.place.IsZero() {
+		return project.Place{Root: true}
+	}
+	return c.place
 }
 
 func (s *Service) say(c *execCtx, m ThreadMessage) ThreadMessage {
@@ -131,9 +143,16 @@ func (s *Service) Command(req CommandRequest) (CommandResponse, error) {
 	if src != "voice" {
 		src = "typed"
 	}
+	// the UI's default placement: a part the project lacks is left out, with a note
+	place, placeNote := req.Place, ""
+	if _, _, err := placeIn(proj, place); errors.Is(err, project.ErrBadPlace) {
+		return CommandResponse{}, err
+	} else if err != nil {
+		place, placeNote = project.Place{}, "This project has no part \""+strings.TrimSpace(req.Place.Part)+"\"; new consoles start at the root."
+	}
 	c := &execCtx{commandID: auth.RandomID("cmd_"), threadID: tid, projectID: proj.ID, workspaceID: ws.ID,
 		cardID: req.CardID, clientID: req.ClientID, source: src, by: req.By, selection: req.Selection, plannerMode: req.Planner,
-		reply: s.replyRef(tid, req.ReplyTo)}
+		reply: s.replyRef(tid, req.ReplyTo), place: place}
 	s.mu.Lock()
 	tq := s.thread[tid]
 	if tq == nil {
@@ -148,10 +167,16 @@ func (s *Service) Command(req CommandRequest) (CommandResponse, error) {
 		tq.queue = append(tq.queue, queuedCmd{ctx: c, text: text})
 		s.mu.Unlock()
 		s.say(c, ThreadMessage{Role: "user", Kind: "order", Text: text, Source: src, ReplyTo: c.reply})
+		if placeNote != "" {
+			s.note(c, placeNote)
+		}
 		return s.response(c, "pending", nil), nil
 	}
 	s.mu.Unlock()
 	s.say(c, ThreadMessage{Role: "user", Kind: "order", Text: text, Source: src, ReplyTo: c.reply})
+	if placeNote != "" {
+		s.note(c, placeNote)
+	}
 	handled, cf := s.process(c, text)
 	return s.response(c, handled, cf), nil
 }
@@ -496,7 +521,7 @@ func (s *Service) build(c *execCtx, sc *scope, in Intent, text string) built {
 			b.notes = append(b.notes, "At most 12 consoles per command.")
 			break
 		}
-		st := Step{Op: "spawn", Count: in.Count, Agent: in.Agent, Role: in.Role, Part: in.Part}
+		st := Step{Op: "spawn", Count: in.Count, Agent: in.Agent, Role: in.Role, Part: in.Part, Root: in.Root}
 		if card {
 			st.OrchestratorID = c.cardID
 		}
@@ -508,7 +533,7 @@ func (s *Service) build(c *execCtx, sc *scope, in Intent, text string) built {
 				b.notes = append(b.notes, "A group has at most 12 consoles.")
 				break
 			}
-			b.steps = append(b.steps, Step{Op: "spawn", Count: in.Count, Agent: in.Agent, Role: in.Role,
+			b.steps = append(b.steps, Step{Op: "spawn", Count: in.Count, Agent: in.Agent, Role: in.Role, Part: in.Part, Root: in.Root,
 				NewGroup: &NewGroup{Name: strings.TrimSpace(in.Name), Role: in.Role}, OrchestratorID: map[bool]string{true: c.cardID}[card]})
 		case in.Select:
 			var members []string

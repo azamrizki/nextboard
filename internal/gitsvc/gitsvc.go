@@ -49,8 +49,13 @@ const (
 // Repo is the repository a request works on.
 type Repo struct {
 	ProjectID string
-	// Part is the part of the project (ROADMAP #49); "" = the first part.
-	Part      string
+	// Part is the id of the project's part (ROADMAP #49), set for every part, the first one too:
+	// the service's state and the gitPart events are keyed by it, so reordering the parts moves
+	// nothing. "" is a repository not resolved through a part (it sends the old events only).
+	Part string
+	// Legacy marks the project's first part in display order: its status also goes out as the
+	// old {"type":"git"} / {"type":"gitRepo"} events, for clients from before parts.
+	Legacy    bool
 	MachineID string
 	Path      string // project folder (may be below the repo root)
 	Sub       string // repository below Path, relative to it ("" = Path's own)
@@ -380,10 +385,13 @@ func (st *Status) summary() Summary {
 	return sum
 }
 
-// publishStatus emits {"type":"git"} when the summary changed (force:
-// always, after a mutation). A repository below the project folder uses
-// {"type":"gitRepo"}: clients that only know the project's own repository
-// must not read its summary as theirs.
+// publishStatus emits the status when the summary changed (force: always,
+// after a mutation): {"type":"gitPart"} for every part of a project, keyed by
+// project and part. The first part in display order (Legacy), and a repository
+// with no part, also send the old events for clients from before parts:
+// {"type":"git"}, or {"type":"gitRepo"} for a repository below the folder, so
+// that a client that only knows the folder's own repository does not read its
+// summary as theirs.
 func (s *Service) publishStatus(r Repo, st *Status, force bool) {
 	if st == nil || r.ProjectID == "" || s.Publish == nil {
 		return
@@ -397,9 +405,10 @@ func (s *Service) publishStatus(r Repo, st *Status, force bool) {
 		return
 	}
 	if r.Part != "" {
-		// a part other than the first: its own event, for clients that know parts
 		s.Publish(map[string]any{"type": "gitPart", "projectId": r.ProjectID, "part": r.Part, "repo": r.Sub, "status": sum})
-		return
+		if !r.Legacy {
+			return
+		}
 	}
 	if r.Sub != "" {
 		s.Publish(map[string]any{"type": "gitRepo", "projectId": r.ProjectID, "repo": r.Sub, "status": sum})

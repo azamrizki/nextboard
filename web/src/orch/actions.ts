@@ -39,6 +39,12 @@ const CODE_TEXT: Record<string, string> = {
   memory_empty: 'The memory is empty: write or scan some facts first.',
   runner_unsupported: 'Scans run with Claude Code or Codex only.',
   unknown_agent: 'That agent is not installed there.',
+  // placement (v0.9.0-beta.2)
+  bad_placement: 'Place it at the root or in one part, not both.',
+  part_not_found: 'That part is no longer in the project.',
+  part_machine: 'That machine is not the part’s machine.',
+  place_unmatched: 'The layout was saved in parts this project does not have. Pick where those groups work.',
+  root_unavailable: 'NextBoard could not make the project’s root folder on This PC.',
   group_not_found: 'That group no longer exists.',
   loop_not_found: 'That loop no longer exists.',
   pid_unknown: 'NextBoard cannot find the agent’s process to pause it. Restart the console to pause it later.',
@@ -169,6 +175,11 @@ export interface SendOptions {
   cardId?: string | null;
   selection?: string[];
   source?: 'typed' | 'voice';
+  /**
+   * Where consoles the command spawns without naming a place go (v0.9.0-beta.2): the UI's default
+   * "Place in" (the focused tile's, else the last used). Absent: the root, the lead's level.
+   */
+  place?: { root?: true; part?: string };
 }
 
 /** POST a command; applies messages / confirmation / uiActions. Throws on error. */
@@ -184,6 +195,7 @@ export async function sendCommand(projectId: string, text: string, opts: SendOpt
       selection: opts.selection ?? [],
       planner: planner && !planner.available && planner.reason === 'disabled' ? 'off' : 'auto',
       replyTo: opts.replyTo,
+      ...(opts.place ? { place: opts.place } : {}),
     });
     orchStore.markSupported();
     if (res.messages?.length) orchStore.addMessages(res.threadId, res.messages);

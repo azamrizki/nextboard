@@ -1,18 +1,27 @@
 // Debugger of the Code workbench (docs/API-studio.md §7.5): a Debug Adapter Protocol client
 // over the hub's WebSocket bridge, plus breakpoints, launch configurations from
 // .vscode/launch.json, the call stack, variables, watches and the debug console.
+//
+// One per editor card. A session runs in one part (v0.9.0-beta.2): the card's part, or in a Root
+// card the one chosen in the Debug view (default: the active file's part). launch.json, the
+// automatic entries, ${workspaceFolder} and the adapter's machine come from that part.
+// Breakpoints and frames are FileKeys; an adapter hears only the paths on its machine.
 
 import { api, errorMessage, wsUrl } from '../../api';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { filesApi, type DebugAdapterInfo, type NodeProcessInfo } from '../api';
 import { parseJsonc } from './jsonc';
+import type { PartService } from './partsvc';
+import { asFileKey, cleanAbs, fileKey, splitKey, type FileKey } from './paths';
+import { listUnder, mergeDebug, readDebug, type SavedDebug } from './persist';
 import { dirOf, extOf, nameOf, type Workspace } from './workspace';
 
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export interface Breakpoint {
   id: number;
+  /** The file's key. */
   path: string;
   line: number;
   enabled: boolean;
@@ -53,6 +62,7 @@ export interface DapFrame {
   name: string;
   line: number;
   column: number;
+  /** The file's key, on the session's machine. */
   path?: string;
   label?: string;
 }
@@ -136,14 +146,10 @@ class DapClient {
   }
 }
 
-interface Saved {
-  breakpoints: Breakpoint[];
-  watches: string[];
-  config: string;
-  filters: string[];
-}
-
 export class Debugger {
+  /** Every debugger with a session (the hover asks the one stopped on the model's machine). */
+  static readonly live = new Set<Debugger>();
+
   adapters: DebugAdapterInfo[] = [];
   breakpoints: Breakpoint[] = [];
   state: DebugState = 'inactive';
@@ -160,8 +166,10 @@ export class Debugger {
   scopes: DapScope[] = [];
   watches: Watch[] = [];
   console: ConsoleLine[] = [];
-  /** Where execution is stopped, for the editor's highlight. */
+  /** Where execution is stopped (a key), for the editor's highlight. */
   current: { path: string; line: number } | null = null;
+  /** Root card: the part a session starts in (id; "" = the active file's part). */
+  partId = '';
   /** The breakpoint being edited in the dialog. */
   editing: Breakpoint | null = null;
   /** The session's program was already running: stopping lets go of it. */
@@ -170,6 +178,10 @@ export class Debugger {
   picker: { config: LaunchConfig; adapter: DebugAdapterInfo; items: NodeProcessInfo[] | null; opening: number; error: string } | null = null;
 
   private client: DapClient | null = null;
+  /** The part the running session works in. */
+  private sessionPart: PartService | null = null;
+  /** The part the adapters were read for. */
+  private adaptersOf = '';
   private lastConfig: LaunchConfig | null = null;
   private lastNoDebug = false;
   private nextId = 1;
@@ -181,21 +193,21 @@ export class Debugger {
 
   constructor(private ws: Workspace) {
     try {
-      const raw = prefs.get(`wb.debug.${ws.pid}`);
-      const s = raw ? (JSON.parse(raw) as Partial<Saved>) : {};
-      this.breakpoints = (s.breakpoints ?? []).map((b) => ({ ...b, verified: undefined, adapterId: undefined }));
+      const s = ws.saved<SavedDebug>('wb.debug', (raw, machineId) => readDebug(raw as Partial<SavedDebug> | null, machineId), (d, root) => listUnder(d.breakpoints, root), mergeDebug);
+      this.breakpoints = s.breakpoints.map((b) => ({ ...b, verified: undefined, adapterId: undefined }));
       this.nextId = this.breakpoints.reduce((m, b) => Math.max(m, b.id + 1), 1);
-      this.watches = (s.watches ?? []).map((expr) => ({ expr }));
-      this.configName = s.config ?? '';
-      this.enabledFilters = new Set(s.filters ?? []);
+      this.watches = s.watches.map((expr) => ({ expr }));
+      this.configName = s.config;
+      this.enabledFilters = new Set(s.filters);
+      this.partId = s.part ?? '';
     } catch {
       /* start empty */
     }
   }
 
   private changed() {
-    const s: Saved = { breakpoints: this.breakpoints, watches: this.watches.map((w) => w.expr), config: this.configName, filters: [...this.enabledFilters] };
-    prefs.set(`wb.debug.${this.ws.pid}`, JSON.stringify(s));
+    const s: SavedDebug = { v: 2, breakpoints: this.breakpoints.map(({ id, path, line, enabled, condition, hitCondition, logMessage }) => ({ id, path, line, enabled, condition, hitCondition, logMessage })), watches: this.watches.map((w) => w.expr), config: this.configName, filters: [...this.enabledFilters], part: this.partId || undefined };
+    prefs.set(`wb.debug.${this.ws.viewKey}`, JSON.stringify(s));
     this.ws.changed();
   }
 
@@ -203,13 +215,51 @@ export class Debugger {
     return this.state !== 'inactive';
   }
 
+  /** The card this debugger belongs to. */
+  get view(): Workspace {
+    return this.ws;
+  }
+
+  /** The part a session works in: the running one's, else the chosen one (Root), else the active file's. */
+  get part(): PartService {
+    if (this.sessionPart) return this.sessionPart;
+    if (this.ws.paths.multi && this.partId) {
+      const p = this.ws.parts.find((x) => x.partId === this.partId);
+      if (p) return p;
+    }
+    return this.ws.activePart;
+  }
+
+  /** Root card: run the next session in this part ("" = the active file's). */
+  choosePart(id: string) {
+    if (this.active || this.partId === id) return;
+    this.partId = id;
+    this.changed();
+    void this.refreshAdapters();
+  }
+
   async refreshAdapters() {
+    const part = this.part;
     try {
-      this.adapters = (await filesApi.dapStatus(this.ws.pid)).items ?? [];
+      this.adapters = (await filesApi.dapStatus(part.ref)).items ?? [];
+      this.adaptersOf = part.ref;
     } catch {
       this.adapters = [];
     }
     this.ws.changed();
+  }
+
+  /** The adapters of the part a session would run in. */
+  private async ensureAdapters() {
+    if (!this.adapters.length || this.adaptersOf !== this.part.ref) await this.refreshAdapters();
+  }
+
+  /** The path of a key on the part's machine; null for a file on another machine. */
+  private absOn(part: PartService, key: string): string | null {
+    const k = asFileKey(key);
+    if (!k) return null;
+    const { machineId, abs } = splitKey(k);
+    return machineId === part.machineId ? abs : null;
   }
 
   // ---- configurations ----------------------------------------------------------------
@@ -217,12 +267,13 @@ export class Debugger {
   /** .vscode/launch.json first, then what fits the active file. */
   async configurations(): Promise<LaunchConfig[]> {
     const out: LaunchConfig[] = [];
-    if (!this.adapters.length) await this.refreshAdapters();
+    await this.ensureAdapters();
+    const part = this.part;
     try {
-      const file = this.ws.abs('.vscode/launch.json');
-      const st = await api.fsStat(this.ws.mid, file);
+      const file = `${part.root === '/' ? '' : part.root}/.vscode/launch.json`;
+      const st = await api.fsStat(part.machineId, file);
       if (st.exists === false) return this.autoConfigs([]);
-      const r = await api.fsRead(this.ws.mid, file);
+      const r = await api.fsRead(part.machineId, file);
       const list = (parseJsonc(r.content) as { configurations?: LaunchConfig[] }).configurations ?? [];
       for (const c of list) if (c?.name && c.type && c.request) out.push(c);
     } catch {
@@ -254,14 +305,17 @@ export class Debugger {
 
   private substitute(v: unknown): unknown {
     if (typeof v === 'string') {
-      const path = this.ws.activeDoc?.path ?? '';
+      const part = this.part;
+      const key = this.ws.activeDoc?.path;
+      const path = (key && this.absOn(part, key)) ?? '';
+      const rel = key && path ? part.relOf(key as FileKey) : null;
       const base = nameOf(path);
       const noExt = base.includes('.') ? base.slice(0, base.lastIndexOf('.')) : base;
       return v
-        .replaceAll('${workspaceFolder}', this.ws.root)
-        .replaceAll('${workspaceFolderBasename}', nameOf(this.ws.root))
+        .replaceAll('${workspaceFolder}', part.root)
+        .replaceAll('${workspaceFolderBasename}', nameOf(part.root))
         .replaceAll('${file}', path)
-        .replaceAll('${relativeFile}', path ? this.ws.rel(path) : '')
+        .replaceAll('${relativeFile}', path ? (rel || path) : '')
         .replaceAll('${fileDirname}', path ? dirOf(path) : '')
         .replaceAll('${fileBasename}', base)
         .replaceAll('${fileBasenameNoExtension}', noExt);
@@ -273,9 +327,10 @@ export class Debugger {
 
   /** Open .vscode/launch.json, writing a starting point when there is none. */
   async openLaunchJson() {
-    const path = this.ws.abs('.vscode/launch.json');
+    const part = this.part;
+    const path = part.keyOf('.vscode/launch.json');
     try {
-      const st = await api.fsStat(this.ws.mid, path);
+      const st = await api.fsStat(part.machineId, splitKey(path).abs);
       if (st.exists === false) {
         await this.ws.run((c) => this.ws.writeNew(path, LAUNCH_TEMPLATE, c));
         this.ws.refreshTree();
@@ -298,7 +353,7 @@ export class Debugger {
   async start(config: LaunchConfig, noDebug = false) {
     if (this.active) return;
     this.notice = null;
-    if (!this.adapters.length) await this.refreshAdapters();
+    await this.ensureAdapters();
     const adapter = this.adapterFor(config.type);
     if (!adapter) {
       this.notice = { text: `No debugger here handles the type “${config.type}”. This hub knows: ${this.adapters.flatMap((a) => a.types).join(', ')}.` };
@@ -324,7 +379,7 @@ export class Debugger {
     const port = this.substitute(config.port);
     if (typeof port === 'number') {
       try {
-        const r = await filesApi.nodeInspect(this.ws.pid, { port });
+        const r = await filesApi.nodeInspect(this.part.ref, { port });
         await this.session(config, adapter, false, { port: r.port, closeInspector: false });
       } catch (err) {
         this.notice = { text: `Nothing to attach to on port ${port}: ${errorMessage(err)}` };
@@ -335,7 +390,7 @@ export class Debugger {
     this.picker = { config, adapter, items: null, opening: 0, error: '' };
     this.ws.changed();
     try {
-      const r = await filesApi.nodeProcesses(this.ws.pid);
+      const r = await filesApi.nodeProcesses(this.part.ref);
       if (this.picker) this.picker = { ...this.picker, items: r.items ?? [] };
     } catch (err) {
       if (this.picker) this.picker = { ...this.picker, items: [], error: errorMessage(err) };
@@ -355,7 +410,7 @@ export class Debugger {
     this.picker = { ...p, opening: pid, error: '' };
     this.ws.changed();
     try {
-      const r = await filesApi.nodeInspect(this.ws.pid, { pid });
+      const r = await filesApi.nodeInspect(this.part.ref, { pid });
       this.picker = null;
       await this.session(p.config, p.adapter, false, { port: r.port, closeInspector: r.opened });
     } catch (err) {
@@ -365,7 +420,10 @@ export class Debugger {
   }
 
   private async session(config: LaunchConfig, adapter: DebugAdapterInfo, noDebug: boolean, inspect?: { port: number; closeInspector: boolean }) {
+    const part = this.part;
     await this.ws.saveAll();
+    this.sessionPart = part;
+    Debugger.live.add(this);
     this.lastConfig = config;
     this.lastNoDebug = noDebug;
     this.configName = config.name;
@@ -381,7 +439,7 @@ export class Debugger {
     this.ws.panelView = 'debug';
     this.changed();
     const query = inspect ? `?inspect=${inspect.port}` : '';
-    const url = wsUrl(`/api/projects/${encodeURIComponent(this.ws.pid)}/dap/${encodeURIComponent(adapter.id)}/ws${query}`);
+    const url = wsUrl(`/api/projects/${encodeURIComponent(part.ref)}/dap/${encodeURIComponent(adapter.id)}/ws${query}`);
     this.client = new DapClient(url, {
       open: () => void this.handshake(config, adapter, noDebug, inspect),
       event: (e) => this.onEvent(e),
@@ -475,6 +533,8 @@ export class Debugger {
     if (reason && this.state !== 'inactive' && !this.ending) this.log('stderr', `${reason}\n`);
     this.ending = false;
     this.client = null;
+    this.sessionPart = null;
+    Debugger.live.delete(this);
     this.state = 'inactive';
     this.threads = [];
     this.frames = [];
@@ -570,9 +630,11 @@ export class Debugger {
     if (!c) return;
     try {
       const s = await c.request('stackTrace', { threadId, startFrame: 0, levels: 100 });
+      const part = this.part;
       this.frames = (s.stackFrames ?? []).map((f: Json) => {
         const raw: string | undefined = f.source?.path;
-        const path = raw && !raw.startsWith('/') ? `${this.ws.root}/${raw}` : raw;
+        const abs = raw ? cleanAbs(raw.startsWith('/') ? raw : `${part.root}/${raw}`) : null;
+        const path = abs ? fileKey(part.machineId, abs) : undefined;
         return { id: f.id, name: f.name, line: f.line, column: f.column, path, label: f.source?.name };
       });
       const first = this.frames.find((f) => f.path) ?? this.frames[0];
@@ -761,11 +823,15 @@ export class Debugger {
 
   private async sendBreakpoints(path: string) {
     const c = this.client;
-    if (!c || !this.configured) return;
+    const part = this.sessionPart;
+    if (!c || !this.configured || !part) return;
+    // an adapter only knows its own machine: the files of another one have no breakpoints there
+    const abs = this.absOn(part, path);
+    if (abs === null) return;
     const list = this.breakpointsFor(path).filter((b) => b.enabled);
     try {
       const r = await c.request('setBreakpoints', {
-        source: { path, name: nameOf(path) },
+        source: { path: abs, name: nameOf(abs) },
         breakpoints: list.map((b) => ({ line: b.line, condition: b.condition || undefined, hitCondition: b.hitCondition || undefined, logMessage: b.logMessage || undefined })),
         sourceModified: false,
       });

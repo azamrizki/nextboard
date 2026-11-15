@@ -3,8 +3,8 @@
 // Reader/Split/Source, image and media preview, and the bars that ask what to do when a
 // file changed on disk. Inline AI edits (Ctrl+I) end in a diff to accept or reject.
 
-import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
-import { api, errorMessage, fsRawUrl } from '../../api';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
+import { errorMessage } from '../../api';
 import { clipboardFiles } from '../../board/files';
 import { Button } from '../../components/Button';
 import { SegmentedControl } from '../../components/form';
@@ -33,6 +33,12 @@ import { ReviewView } from './ReviewView';
 import { currentTheme, FONT, languageFor, monaco } from './monaco';
 import { editorKeys } from './editorKeys';
 import { useWs } from './useWs';
+import { rawUrlOf, readKey } from './docs';
+import { crumbsOf, tabDir } from './partGroups';
+import type { PartSpecialView } from './contracts';
+import { mountedPart } from './partGit';
+import type { PartService } from './partsvc';
+import { asFileKey, cleanAbs, fileKey, splitKey, type FileKey } from './paths';
 import { dirOf, extOf, MARKDOWN_EXT, nameOf, type Doc, type Group, type MdView, type Tab, type Workspace } from './workspace';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
@@ -117,7 +123,8 @@ function MonacoView({ ws, group, gi, doc, tab }: { ws: Workspace; group: Group; 
   const shown = useRef<string | null>(null);
   const pathRef = useRef(doc.path);
   pathRef.current = doc.path;
-  const readOnly = !!doc.readOnly;
+  // its own reason (not UTF-8, too large), or outside every part of the project
+  const readOnly = !!ws.readOnlyOf(doc);
   useDebugEditor(edRef, ws, doc.path, doc.model);
 
   // a layout effect, so that the editor exists when the model effect below runs
@@ -212,18 +219,19 @@ function MonacoView({ ws, group, gi, doc, tab }: { ws: Workspace; group: Group; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusTick]);
 
-  // gutter marks against HEAD, refreshed when git or the saved file changes
-  const repoRel = ws.repoRel(doc.path);
-  const mark = ws.gitMark(doc.path);
+  // gutter marks against HEAD of the file's part, refreshed when git or the saved file changes
+  const part = ws.partOf(doc.path);
+  const repoRel = part?.repoRel(doc.path) ?? null;
+  const mark = part?.gitMark(doc.path);
   const tracked = !!repoRel && mark && mark.letter !== 'U';
   useEffect(() => {
     const ed = edRef.current;
     if (!ed || !doc.model) return;
     const coll = ed.createDecorationsCollection();
-    if (!tracked || !repoRel) return () => coll.clear();
+    if (!tracked || !repoRel || !part) return () => coll.clear();
     let stop = false;
     gitApi
-      .diff(ws.gitTarget, repoRel)
+      .diff(part.gitTarget, repoRel)
       .then((d) => {
         if (stop || d.binary || d.truncated || ed.getModel() !== doc.model) return;
         const h = parseHunks(d.diff);
@@ -243,7 +251,7 @@ function MonacoView({ ws, group, gi, doc, tab }: { ws: Workspace; group: Group; 
       stop = true;
       coll.clear();
     };
-  }, [ws, ws.gitVersion, doc.model, doc.mtime, repoRel, tracked]);
+  }, [ws, part, part?.gitVersion, doc.model, doc.mtime, repoRel, tracked]);
 
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
@@ -342,11 +350,17 @@ const headingId = (text: string) =>
 function MarkdownReader({ ws, doc, scrollRef }: { ws: Workspace; doc: Doc; scrollRef?: RefObject<HTMLDivElement | null> }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const text = useModelText(doc.model);
-  const dir = dirOf(doc.path);
+  // URL math on the real path, on the file's own machine, then a key again
+  const { machineId, abs: docAbs } = splitKey(doc.path);
+  const dir = dirOf(docAbs);
+  const keyAt = (rel: string): FileKey | null => {
+    const p = cleanAbs(decodeURI(new URL(rel, `file://${dir === '/' ? '' : dir}/`).pathname));
+    return p ? fileKey(machineId, p) : null;
+  };
   const resolve = (src: string) => {
     if (/^[a-z]+:/i.test(src) || src.startsWith('/')) return null;
-    const abs = new URL(src, `file://${dir}/`).pathname;
-    return ws.inside(abs) ? fsRawUrl(ws.mid, decodeURI(abs)) : null;
+    const k = keyAt(src);
+    return k && ws.partOf(k) ? rawUrlOf(k) : null;
   };
   const onLink = (href: string) => {
     if (/^[a-z]+:/i.test(href)) return false;
@@ -356,13 +370,13 @@ function MarkdownReader({ ws, doc, scrollRef }: { ws: Workspace; doc: Doc; scrol
       ref.current?.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ block: 'start' });
       return true;
     }
-    const abs = decodeURI(new URL(target, `file://${dir}/`).pathname);
-    if (!MARKDOWN_EXT.has(extOf(abs))) return false;
-    if (!ws.inside(abs)) {
+    const k = keyAt(target);
+    if (!k || !MARKDOWN_EXT.has(extOf(k))) return false;
+    if (!ws.partOf(k)) {
       toast.error('That link points outside the project.');
       return true;
     }
-    ws.open(abs, { pin: true });
+    ws.open(k, { pin: true });
     return true;
   };
   // code blocks in the file's own language, coloured by the editor; copy buttons, heading links
@@ -434,8 +448,10 @@ function DiffPane({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc }) {
   const [changes, setChanges] = useState<LineChange[]>([]);
   const [at, setAt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const rel = ws.repoRel(doc.path);
-  const file = ws.git?.files?.find((f) => f.path === rel);
+  // git of the part holding the file (a commit's files are in its part's repository)
+  const part = ws.partOf(doc.path);
+  const rel = part?.repoRel(doc.path) ?? null;
+  const file = part?.git?.files?.find((f) => f.path === rel);
   const partlyStaged = !!file && gitSideChanged(file.index);
   // against HEAD, staging a part only works while the index still is HEAD
   const canStage = tab.diff === 'index' || (tab.diff === 'head' && !partlyStaged);
@@ -447,7 +463,8 @@ function DiffPane({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc }) {
     let original: monaco.editor.ITextModel | null = null;
     let modified: monaco.editor.ITextModel | null = null;
     const readIndex = async (path: string) => {
-      const f = await gitApi.index(ws.gitTarget, path);
+      if (!part) throw new Error('This file is in no part of the project.');
+      const f = await gitApi.index(part.gitTarget, path);
       if (f.binary) throw new Error('Binary file: nothing to compare.');
       return f.text;
     };
@@ -459,7 +476,7 @@ function DiffPane({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc }) {
       renderSideBySide: sideBySide,
       originalEditable: false,
       ignoreTrimWhitespace: false,
-      readOnly: !!doc.readOnly,
+      readOnly: !!ws.readOnlyOf(doc),
       fixedOverflowWidgets: false,
     });
     diffRef.current = diff;
@@ -474,25 +491,25 @@ function DiffPane({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc }) {
     const commit = tab.diff?.startsWith('commit:') ? tab.diff.slice('commit:'.length) : null;
     const load = async (ref = 'HEAD'): Promise<string> => {
       if (tab.diff === 'disk') {
-        const r = await api.fsRead(ws.mid, doc.path, 10 << 20);
+        const r = await readKey(doc.path, 10 << 20);
         return r.content.startsWith('﻿') ? r.content.slice(1) : r.content;
       }
-      const rel = ws.repoRel(doc.path);
-      if (!rel) throw new Error('This file is not in the selected Git repository.');
+      const rel = part?.repoRel(doc.path);
+      if (!part || !rel) throw new Error('This file is not in the selected Git repository.');
       if (tab.diff === 'index') {
-        const f = await gitApi.index(ws.gitTarget, rel);
+        const f = await gitApi.index(part.gitTarget, rel);
         if (f.binary) throw new Error('Binary file: nothing to compare.');
         if (!f.exists) setNote('New file: not in Git yet.');
         return f.text;
       }
-      const f = await gitApi.show(ws.gitTarget, rel, ref);
+      const f = await gitApi.show(part.gitTarget, rel, ref);
       if (f.binary) throw new Error('Binary file: nothing to compare.');
       if (!f.exists && !commit) setNote('New file: not in HEAD yet.');
       return f.content;
     };
     const language = languageFor(doc.path) ?? doc.model.getLanguageId();
     if (commit || tab.diff === 'staged') diff.updateOptions({ readOnly: true });
-    const rel0 = ws.repoRel(doc.path);
+    const rel0 = part?.repoRel(doc.path);
     (commit ? Promise.all([load(`${commit}^`), load(commit)]) : tab.diff === 'staged' && rel0 ? Promise.all([load(), readIndex(rel0)]) : load().then((t) => [t, null] as const))
       .then(([before, after]) => {
         if (stop || !doc.model) return;
@@ -518,7 +535,7 @@ function DiffPane({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc }) {
     };
     // sideBySide updates in place; the file's text is read when the tab opens
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, doc.model, tab.diff, doc.path]);
+  }, [ws, part, doc.model, tab.diff, doc.path]);
 
   useEffect(() => {
     diffRef.current?.updateOptions({ renderSideBySide: sideBySide });
@@ -533,14 +550,14 @@ function DiffPane({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc }) {
   const moveChange = async (stage: boolean) => {
     const base = baseRef.current?.getValue();
     const after = (stagedRef.current ?? doc.model)?.getValue();
-    if (!rel || !current || base === undefined || after === undefined) return;
+    if (!part || !rel || !current || base === undefined || after === undefined) return;
     setBusy(true);
     try {
       const text = stage ? baseWithChange(base, after, current) : currentWithoutChange(base, after, current);
-      await gitApi.stage(ws.gitTarget, [rel], text);
+      await gitApi.stage(part.gitTarget, [rel], text);
       if (stage) baseRef.current?.setValue(text);
       else stagedRef.current?.setValue(text);
-      void ws.refreshGit();
+      void part.refreshGit();
     } catch (err) {
       toast.error(gitError(err));
     } finally {
@@ -693,22 +710,26 @@ function Banners({ ws, doc }: { ws: Workspace; doc: Doc }) {
 }
 
 function Crumbs({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc | undefined }) {
-  const rel = ws.rel(tab.path);
-  const parts = rel.split('/');
+  const key = tab.path as FileKey;
+  // a Root card starts with the part; a file outside the card's parts shows its absolute path
+  const crumbs = crumbsOf(ws.paths, key);
+  const inside = !!ws.paths.mountOf(key);
   const isMd = doc?.kind === 'text' && !tab.diff && MARKDOWN_EXT.has(extOf(tab.path));
-  const repoRel = ws.repoRel(tab.path);
+  const part = ws.partOf(key);
+  const repoRel = part?.repoRel(key);
+  const readOnly = doc ? ws.readOnlyOf(doc) : '';
   return (
     <nav className="wb-crumbs" aria-label="Path">
-      {parts.map((p, i) => (
+      {crumbs.map((c, i) => (
         <span key={i} className="wb-crumb">
           {i > 0 && <Icon name="chevronRight" />}
-          <button type="button" className="truncate" onClick={() => ws.revealInTree(ws.inside(tab.path) ? ws.abs(parts.slice(0, i + 1).join('/')) : tab.path)} title={parts.slice(0, i + 1).join('/')}>
-            {p}
+          <button type="button" className="truncate" onClick={() => ws.revealInTree(inside && c.key ? c.key : key)} title={c.key ? ws.relLabel(c.key) : c.label}>
+            {c.label}
           </button>
         </span>
       ))}
       <span className="spacer" />
-      {doc?.readOnly && doc.kind === 'text' && <span className="wb-crumb-note truncate">{doc.readOnly}</span>}
+      {readOnly && doc?.kind === 'text' && <span className="wb-crumb-note truncate">{readOnly}</span>}
       {isMd && doc && (
         <SegmentedControl<MdView>
           size="sm"
@@ -722,7 +743,7 @@ function Crumbs({ ws, tab, doc }: { ws: Workspace; tab: Tab; doc: Doc | undefine
           ]}
         />
       )}
-      {!tab.diff && repoRel && ws.gitMark(tab.path) && (
+      {!tab.diff && repoRel && part?.gitMark(key) && (
         <Button size="sm" variant="ghost" iconOnly icon="branch" aria-label="Compare with HEAD" title="Compare with HEAD" onClick={() => ws.openDiff(tab.path, 'head')} />
       )}
     </nav>
@@ -788,21 +809,21 @@ function PaneBody({ ws, group, gi, tab, doc }: { ws: Workspace; group: Group; gi
   if (doc.kind === 'image') {
     return (
       <div className="wb-preview nowheel">
-        <img src={fsRawUrl(ws.mid, doc.path)} alt={nameOf(doc.path)} />
+        <img src={rawUrlOf(doc.path)} alt={nameOf(doc.path)} />
         <p className="wb-preview-note tabular">{doc.size >= 1024 ? `${Math.round(doc.size / 1024)} KB` : `${doc.size} B`}</p>
       </div>
     );
   }
   if (doc.kind === 'media') {
     const audio = ['mp3', 'wav', 'ogg', 'flac'].includes(extOf(doc.path));
-    return <div className="wb-preview">{audio ? <audio controls src={fsRawUrl(ws.mid, doc.path)} /> : <video controls src={fsRawUrl(ws.mid, doc.path)} />}</div>;
+    return <div className="wb-preview">{audio ? <audio controls src={rawUrlOf(doc.path)} /> : <video controls src={rawUrlOf(doc.path)} />}</div>;
   }
   if (doc.kind !== 'text' || !doc.model) {
     return (
       <div className="wb-empty">
         <Icon name="file" className="wb-empty-icon" />
         <p>{doc.readOnly}</p>
-        <Button size="sm" onClick={() => window.open(fsRawUrl(ws.mid, doc.path), '_blank', 'noopener')}>
+        <Button size="sm" onClick={() => window.open(rawUrlOf(doc.path), '_blank', 'noopener')}>
           Download
         </Button>
       </div>
@@ -820,15 +841,40 @@ function PaneBody({ ws, group, gi, tab, doc }: { ws: Workspace; group: Group; gi
 }
 
 function tabLabel(ws: Workspace, tab: Tab, group: Group) {
-  if (tab.commit) return { name: tab.commit.label, dir: '' };
-  if (tab.view?.kind === 'review') return { name: `${nameOf(tab.view.path)} (${tab.view.agent})`, dir: '' };
-  if (tab.view?.kind === 'history') return { name: `${nameOf(tab.view.path)} (history)`, dir: '' };
-  if (tab.view?.kind === 'graph') return { name: 'Commit graph', dir: '' };
-  if (tab.view?.kind === 'pr') return { name: `#${tab.view.number} ${tab.view.title}`, dir: '' };
+  // a Root card says which part a commit, a review, a history or a graph is of
+  const part = ws.paths.multi ? (mountedPart(ws, tab.commit?.part ?? tab.view?.part)?.name ?? '') : '';
+  if (tab.commit) return { name: tab.commit.label, dir: part };
+  if (tab.view?.kind === 'review') return { name: `${nameOf(tab.view.path)} (${tab.view.agent})`, dir: part };
+  if (tab.view?.kind === 'history') return { name: `${nameOf(tab.view.path)} (history)`, dir: part };
+  if (tab.view?.kind === 'graph') return { name: 'Commit graph', dir: part };
+  if (tab.view?.kind === 'pr') return { name: `#${tab.view.number} ${tab.view.title}`, dir: part };
   const name = nameOf(tab.path);
   const twin = group.tabs.some((t) => t !== tab && nameOf(t.path) === name && t.path !== tab.path);
   const suffix = tab.diff === 'head' ? ' (HEAD)' : tab.diff === 'index' ? ' (changes)' : tab.diff === 'staged' ? ' (staged)' : tab.diff === 'disk' ? ' (on disk)' : tab.diff?.startsWith('ide:') ? ' (proposed)' : '';
-  return { name: name + suffix, dir: twin ? nameOf(dirOf(ws.rel(tab.path))) : '' };
+  // a Root card names the part, and the folder when two tabs share a name
+  return { name: name + suffix, dir: tab.path ? tabDir(ws.paths, tab.path, twin) : '' };
+}
+
+/** What a review or history tab's tooltip names: the file as the card shows it ("admin/src/x.ts" in a Root card). */
+function viewTitle(ws: Workspace, v: PartSpecialView): string {
+  if (v.kind === 'history') return ws.relLabel(v.path);
+  if (v.kind !== 'review') return '';
+  // the hub reports a review's path inside its part
+  const key = mountedPart(ws, v.part)?.keyOf(v.path);
+  return key ? ws.relLabel(key) : v.path;
+}
+
+/** A tab of a part's own (a commit, the graph, a review, a pull request): shown while the card still mounts that part. */
+function PartTab({ ws, partId, children }: { ws: Workspace; partId: string; children: (part: PartService) => ReactNode }) {
+  const part = mountedPart(ws, partId);
+  if (!part) {
+    return (
+      <div className="wb-view-empty" role="status">
+        <p>This tab belongs to a part this card no longer shows.</p>
+      </div>
+    );
+  }
+  return <>{children(part)}</>;
 }
 
 function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Group; gi: number; onAddFile: (p: string) => void; onAi: () => void }) {
@@ -864,21 +910,21 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
     { label: 'Close All', onSelect: () => ws.closeAll(gi) },
     'sep',
     { label: 'Split Right', icon: 'layout', onSelect: () => ws.open(t.path, { pin: true, side: true }) },
-    { label: 'Compare with HEAD', icon: 'branch', disabled: !ws.gitMark(t.path), onSelect: () => ws.openDiff(t.path, 'head', gi) },
+    { label: 'Compare with HEAD', icon: 'branch', disabled: !(t.path && ws.partOf(t.path)?.gitMark(t.path)), onSelect: () => ws.openDiff(t.path, 'head', gi) },
     { label: 'Local History', icon: 'history', onSelect: () => ws.openView({ kind: 'history', path: t.path }) },
     { label: 'Reveal in Explorer', icon: 'folderOpen', onSelect: () => ws.revealInTree(t.path) },
-    { label: 'Copy Path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(t.path).then(() => toast.success('Path copied.')) },
-    { label: 'Copy Relative Path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(ws.rel(t.path)).then(() => toast.success('Path copied.')) },
+    { label: 'Copy Path', icon: 'link', onSelect: () => t.path && void navigator.clipboard?.writeText(splitKey(t.path).abs).then(() => toast.success('Path copied.')) },
+    { label: 'Copy Relative Path', icon: 'link', onSelect: () => t.path && void navigator.clipboard?.writeText(ws.relLabel(t.path)).then(() => toast.success('Path copied.')) },
     { label: 'Add to Board', icon: 'plus', onSelect: () => onAddFile(t.path) },
   ];
 
   return (
     <div className="wb-tabs" role="tablist" aria-label="Open files" ref={ref}>
       {group.tabs.map((t) => {
-        const d = ws.docs.get(t.path);
+        const d = t.path ? ws.docs.at(t.path) : undefined;
         const active = group.active === t.id;
         const { name, dir } = tabLabel(ws, t, group);
-        const mark = !t.diff ? ws.gitMark(t.path) : undefined;
+        const mark = !t.diff && t.path ? ws.partOf(t.path)?.gitMark(t.path) : undefined;
         return (
           <div
             key={t.id}
@@ -886,7 +932,7 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
             tabIndex={active ? 0 : -1}
             aria-selected={active}
             className={`wb-tab ${active ? 'is-active' : ''} ${t.preview ? 'is-preview' : ''} ${mark ? `git-${mark.tone}` : ''} ${d?.dirty && !t.diff ? 'is-dirty' : ''}`}
-            title={t.pane ? undefined : t.commit ? t.commit.label : t.view?.kind === 'graph' ? 'Commit graph' : t.view?.kind === 'pr' ? t.view.title : t.view ? ws.rel(ws.abs(t.view.path)) : t.path}
+            title={t.pane ? undefined : t.commit ? t.commit.label : t.view?.kind === 'graph' ? 'Commit graph' : t.view?.kind === 'pr' ? t.view.title : t.view ? viewTitle(ws, t.view) : t.path ? ws.label(t.path) : ''}
             draggable
             onDragStart={(e) => {
               e.dataTransfer.setData('application/x-nextboard-tab', JSON.stringify({ gi, id: t.id }));
@@ -1019,7 +1065,11 @@ function AiEditBar({ ws, editor, doc, onClose }: { ws: Workspace; editor: Editor
     // follows the range if the file is edited while the agent works
     deco.current = editor.createDecorationsCollection([{ range: s, options: { className: 'wb-ai-range', stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } }]);
     try {
-      const j = await filesApi.aiEdit(ws.pid, { path: ws.rel(doc.path), language: model.getLanguageId(), instruction: text.trim(), before, selection, after });
+      // asked of the file's part: its folder is where the agent reads
+      const part = ws.partOf(doc.path);
+      const rel = part?.relOf(doc.path);
+      if (!part || !rel) throw new Error('This file is in no part of the project.');
+      const j = await filesApi.aiEdit(part.ref, { path: rel, language: model.getLanguageId(), instruction: text.trim(), before, selection, after });
       const done = await waitJob(j.id, 4 * 60_000);
       if (cancelled.current) return;
       if (done.state !== 'done') throw new Error(done.error || 'The agent did not finish.');
@@ -1072,7 +1122,7 @@ function AiEditBar({ ws, editor, doc, onClose }: { ws: Workspace; editor: Editor
             }
           }}
         />
-        <Button type="submit" size="sm" variant="primary" loading={busy} disabled={!text.trim() || !!doc.readOnly}>
+        <Button type="submit" size="sm" variant="primary" loading={busy} disabled={!text.trim() || !!ws.readOnlyOf(doc)}>
           {busy ? 'Working…' : 'Generate'}
         </Button>
         <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close" onClick={onClose} />
@@ -1112,14 +1162,15 @@ function AiEditBar({ ws, editor, doc, onClose }: { ws: Workspace; editor: Editor
 
 function GroupView({ ws, group, gi, onAddFile, aiOpen, setAiOpen }: { ws: Workspace; group: Group; gi: number; onAddFile: (p: string) => void; aiOpen: boolean; setAiOpen: (open: boolean) => void }) {
   const tab = group.tabs.find((t) => t.id === group.active) ?? null;
-  const doc = tab ? ws.docs.get(tab.path) : undefined;
+  const doc = tab?.path ? ws.docs.at(tab.path) : undefined;
   const editor = ws.editors.get(group.id);
   const [over, setOver] = useState(false);
 
   const onDrop = (e: DragEvent) => {
     setOver(false);
     const moved = e.dataTransfer.getData('application/x-nextboard-tab');
-    const path = e.dataTransfer.getData('application/x-nextboard-path');
+    // a tree row's key (Explorer.tsx); a folder has items, a file not
+    const path = asFileKey(e.dataTransfer.getData('application/x-nextboard-path'));
     if (moved) {
       e.preventDefault();
       const { gi: from, id } = JSON.parse(moved) as { gi: number; id: string };
@@ -1153,11 +1204,20 @@ function GroupView({ ws, group, gi, onAddFile, aiOpen, setAiOpen }: { ws: Worksp
         </div>
       ) : tab?.commit ? (
         <div className="wb-pane-tab">
-          <CommitView key={tab.id} ws={ws} commit={tab.commit} />
+          <PartTab ws={ws} partId={tab.commit.part}>{(part) => <CommitView key={tab.id} ws={ws} part={part} commit={tab.commit!} />}</PartTab>
         </div>
       ) : tab?.view ? (
         <div className="wb-pane-tab">
-          {tab.view.kind === 'review' ? <ReviewView key={tab.id} ws={ws} tab={tab} session={tab.view.session} path={tab.view.path} agent={tab.view.agent} /> : tab.view.kind === 'graph' ? <CommitGraphView key={tab.id} ws={ws} /> : tab.view.kind === 'pr' ? <PullRequestView key={tab.id} ws={ws} number={tab.view.number} repo={tab.view.repo} /> : <LocalHistoryView key={tab.id} ws={ws} path={tab.view.path} />}
+          {tab.view.kind === 'history' ? (
+            <LocalHistoryView key={tab.id} ws={ws} path={tab.view.path} />
+          ) : (
+            <PartTab ws={ws} partId={tab.view.part}>
+              {(part) => {
+                const v = tab.view!;
+                return v.kind === 'review' ? <ReviewView key={tab.id} ws={ws} part={part} tab={tab} session={v.session} path={v.path} agent={v.agent} /> : v.kind === 'graph' ? <CommitGraphView key={tab.id} ws={ws} part={part} /> : v.kind === 'pr' ? <PullRequestView key={tab.id} ws={ws} part={part} number={v.number} repo={v.repo} /> : null;
+              }}
+            </PartTab>
+          )}
         </div>
       ) : tab ? (
         <>

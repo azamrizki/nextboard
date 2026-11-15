@@ -15,10 +15,12 @@ import { gitApi } from '../api';
 import type { GitCommit, GitRef, GitStatus, GitTarget } from '../types';
 import { layoutGraph, refPills, type GraphRow } from './commitGraph';
 import { useWs } from './useWs';
+import { gitHostOf } from './partGit';
+import type { PartService } from './partsvc';
 import type { Workspace } from './workspace';
 
 /**
- * Where the history and the stash show: the editor's workbench (a Workspace fits as it is), or a
+ * Where the history and the stash show: a part in an editor card (partGit.ts gitHostOf), or a
  * part of the project in the board's Git panel.
  */
 export interface GitHost {
@@ -409,8 +411,10 @@ export function HistorySection({ ws, defaultOpen = true }: { ws: GitHost; defaul
 }
 
 /** The graph in a tab of its own: room for every lane, the author and the date, and a filter. */
-export function CommitGraphView({ ws }: { ws: Workspace }) {
-  useWs(ws);
+export function CommitGraphView({ ws: view, part }: { ws: Workspace; part: PartService }) {
+  useWs(view);
+  // the part's git, with the card's tabs: a commit opens here, naming the part
+  const ws = gitHostOf(view, part);
   const h = useHistory(ws, true);
   const commitMenu = useCommitMenu(ws);
   const [filter, setFilter] = useState('');

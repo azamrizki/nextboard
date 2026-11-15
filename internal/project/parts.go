@@ -7,12 +7,15 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Part is one place of a project's code: a folder on a machine, named for its role ("Backend",
-// "Frontend"), so one project can span the machines its pieces run on (ROADMAP #49). The first
-// part is the project's own machineId and path; the project keeps both fields in step with it,
-// so a client that knows nothing of parts still sees the project as before.
+// "Frontend"), so one project can span the machines its pieces run on (ROADMAP #49). All parts
+// are equal (v0.9.0-beta.2): any one may be renamed, moved or removed while another is left, and
+// the order is only the display order. The project keeps its machineId and path in step with the
+// first part, only so that a client that knows nothing of parts still sees the project as before.
+// A part's name is also its folder's name at the project root (CleanPartName).
 type Part struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -56,7 +59,9 @@ func cleanBlocked(in []string) ([]string, error) {
 }
 
 const (
-	// MainPart is the id of the first part of a project made before parts, or with one.
+	// MainPart is the id the first part of a project had before v0.9.0-beta.2 (made before parts,
+	// or with them). It is only in old data, and nothing treats it specially: new projects and
+	// their parts all get "pt_…" ids, and old ids are never rewritten.
 	MainPart = "main"
 	// MaxParts is how many parts one project may have.
 	MaxParts = 8
@@ -65,14 +70,12 @@ const (
 var (
 	ErrPartNotFound  = errors.New("part not found")
 	ErrPartOverlap   = errors.New("that folder is inside another part of this project, or holds one")
-	ErrMainPart      = errors.New("the first part is the project's own folder: move another part first to remove it")
 	ErrTooManyParts  = fmt.Errorf("a project has at most %d parts", MaxParts)
 	ErrPartName      = errors.New("another part of this project has that name")
 	ErrBadPartAccess = errors.New(`partAccess must be "" (read only on other machines) or "full"`)
 	ErrBadBlocked    = fmt.Errorf("blocked takes at most %d commands of at most %d characters, one line each", maxBlocked, maxBlockedLen)
-	// ErrLastPart: a project keeps at least one part (409 last_part). From v0.9.0-beta.2 every
-	// part is equal: any one may be removed or split off while another is left; it replaces
-	// ErrMainPart, which goes with the equal-parts change.
+	// ErrLastPart: a project keeps at least one part (409 last_part). Every part is equal: any one
+	// may be removed or split off while another is left.
 	ErrLastPart = errors.New("a project keeps at least one part")
 	// ErrBadPartName: a part's name is its folder's name at the project root, so it must be safe
 	// as one path segment (400 bad_part_name). See CleanPartName.
@@ -84,27 +87,6 @@ type InProjectError struct{ ProjectID, Name string }
 
 func (e *InProjectError) Error() string {
 	return fmt.Sprintf("that folder is already in project %q", e.Name)
-}
-
-// Part returns a part of the project; "" is the first part.
-//
-// Deprecated: from v0.9.0-beta.2 "" no longer means the first part (all parts are equal, a root
-// console has no part, a session's "" is "in no part's folder"). Use PartByID for an exact id,
-// PartNamed for an id or a name, and DefaultPart where a client or an old record named no part.
-// The equal-parts change removes it, so that every caller is checked.
-func (p Project) Part(id string) (Part, bool) {
-	if len(p.Parts) == 0 {
-		return Part{}, false
-	}
-	if id == "" {
-		return p.Parts[0], true
-	}
-	for _, pt := range p.Parts {
-		if pt.ID == id {
-			return pt, true
-		}
-	}
-	return Part{}, false
 }
 
 // PartByID returns the part with exactly this id. "" is no part and never matches.
@@ -185,13 +167,100 @@ func (p Project) PartAt(machineID, dir string) (Part, bool) {
 	return best, found
 }
 
-// normParts gives a project from before parts its one part, and keeps machineId and path in
-// step with the first part.
+// normParts gives a project from before parts its one part (id MainPart, named after its folder),
+// and keeps machineId and path in step with the first part for old clients.
 func (p *Project) normParts() {
 	if len(p.Parts) == 0 {
-		p.Parts = []Part{{ID: MainPart, Name: "Main", MachineID: p.MachineID, Path: p.Path}}
+		p.Parts = []Part{{ID: MainPart, Name: partNameFrom(p.Path), MachineID: p.MachineID, Path: p.Path}}
 	}
 	p.MachineID, p.Path = p.Parts[0].MachineID, p.Parts[0].Path
+}
+
+// partNameFrom is the default name of a part in dir: its folder's name, made safe as a path
+// segment (sanitizePartName); "Part" for "/".
+func partNameFrom(dir string) string {
+	base := path.Base(dir)
+	if base == "/" || base == "." || base == "" {
+		return "Part"
+	}
+	return sanitizePartName(base)
+}
+
+// sanitizePartName makes a name CleanPartName accepts: "/" and "\" become "-", control
+// characters go, leading dots go ("." and ".." become "Part"), AGENTS.md and CLAUDE.md get
+// " part" added, and it is cut to MaxName. Being unique is the caller's (uniqueName).
+func sanitizePartName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case r == '/' || r == '\\':
+			return '-'
+		case unicode.IsControl(r):
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(name), "."))
+	if name == "" {
+		name = "Part"
+	}
+	for _, r := range partReserved {
+		if strings.EqualFold(name, r) {
+			name += " part"
+		}
+	}
+	if n, err := CleanPartName(truncName(name)); err == nil {
+		return n
+	}
+	return "Part"
+}
+
+// PartRename is a part whose name the store changed when it opened data from before
+// v0.9.0-beta.2: a name that is not safe as its folder's name at the project root (Unsafe: the
+// hub tells the owner), or the "Main" of a project in one part, which takes its folder's name.
+type PartRename struct {
+	ProjectID, ProjectName, PartID, From, To string
+	Unsafe                                   bool
+}
+
+// migratePartNames makes every part's name path-safe and unique in the project and, with single,
+// renames the {main, "Main"} part of a project in one part after its folder (a project in several
+// keeps "Main": the owner may have chosen it). Ids are never rewritten. It is idempotent.
+func (p *Project) migratePartNames(single bool) []PartRename {
+	var out []PartRename
+	for i := range p.Parts {
+		pt := &p.Parts[i]
+		from, unsafe := pt.Name, false
+		if _, err := CleanPartName(pt.Name); err != nil {
+			pt.Name, unsafe = sanitizePartName(pt.Name), true
+		} else if single && len(p.Parts) == 1 && pt.ID == MainPart && pt.Name == "Main" {
+			pt.Name = partNameFrom(pt.Path)
+		}
+		taken := func(name string) bool {
+			for k, o := range p.Parts {
+				if k != i && strings.EqualFold(o.Name, name) {
+					return true
+				}
+			}
+			return false
+		}
+		if taken(pt.Name) {
+			pt.Name, unsafe = uniqueName(pt.Name, taken), unsafe || pt.Name == from
+		}
+		if pt.Name != from {
+			out = append(out, PartRename{ProjectID: p.ID, ProjectName: p.Name, PartID: pt.ID, From: from, To: pt.Name, Unsafe: unsafe})
+		}
+	}
+	return out
+}
+
+// TakePartRenames returns, once, the parts Open renamed (PartRename), for the hub to tell the
+// owner and log.
+func (s *Store) TakePartRenames() []PartRename {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.renamed
+	s.renamed = nil
+	return out
 }
 
 // isUnder reports whether dir is strictly inside parent (both absolute and clean).
@@ -222,7 +291,7 @@ func (s *Store) holderLocked(machineID, dir, skip string) *Project {
 // AddPart adds a folder to a project as a new part, at the end. dir must already be an absolute,
 // cleaned path that was verified to be a folder on machineID.
 func (s *Store) AddPart(projectID, name, machineID, dir string) (Project, Part, error) {
-	name, err := CleanName(name)
+	name, err := CleanPartName(name)
 	if err != nil {
 		return Project{}, Part{}, err
 	}
@@ -261,7 +330,7 @@ type NewPart struct {
 	Name, MachineID, Path string
 }
 
-// AtPart is an error about one folder of a project being made; Index 0 is its own folder.
+// AtPart is an error about one folder of a project being made; Index is its place in the list.
 type AtPart struct {
 	Index int
 	Err   error
@@ -270,10 +339,11 @@ type AtPart struct {
 func (e *AtPart) Error() string { return e.Err.Error() }
 func (e *AtPart) Unwrap() error { return e.Err }
 
-// CreateWithParts makes a project from its parts, parts[0] being its own folder: unnamed, the
-// first is "Main" and the others take their folder's name. Nothing is made when one part cannot
-// be, and the error is an *AtPart. A folder already in a project: with one part, that project is
-// returned (created=false), as Create does; with more, it is an *InProjectError.
+// CreateWithParts makes a project from its parts, in display order (the project's machineId and
+// path follow the first, for old clients). Every part gets a "pt_" id; an unnamed one takes its
+// folder's name (partNameFrom), with a number when another part has it. Nothing is made when one
+// part cannot be, and the error is an *AtPart. A folder already in a project: with one part, that
+// project is returned (created=false), as Create does; with more, it is an *InProjectError.
 func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, bool, error) {
 	if len(parts) == 0 {
 		return Project{}, false, ErrPartNotFound
@@ -295,30 +365,33 @@ func (s *Store) CreateWithParts(name string, parts []NewPart) (Project, bool, er
 	list := make([]Part, len(parts))
 	for i, np := range parts {
 		pn := strings.TrimSpace(np.Name)
-		switch {
-		case pn != "":
-		case i == 0:
-			pn = "Main"
-		default:
-			pn = truncName(path.Base(np.Path))
-		}
-		pn, err := CleanName(pn)
-		if err != nil {
-			return Project{}, false, &AtPart{Index: i, Err: err}
-		}
-		id := MainPart
-		if i > 0 {
-			id = randomID("pt_")
+		if pn != "" {
+			var err error
+			if pn, err = CleanPartName(pn); err != nil {
+				return Project{}, false, &AtPart{Index: i, Err: err}
+			}
+			for _, prev := range list[:i] {
+				if strings.EqualFold(prev.Name, pn) {
+					return Project{}, false, &AtPart{Index: i, Err: ErrPartName}
+				}
+			}
+		} else {
+			// a default name never clashes: not with the parts before, nor with a name given later
+			pn = uniqueName(partNameFrom(np.Path), func(n string) bool {
+				for k, o := range parts {
+					if (k < i && strings.EqualFold(list[k].Name, n)) || (k > i && strings.EqualFold(strings.TrimSpace(o.Name), n)) {
+						return true
+					}
+				}
+				return false
+			})
 		}
 		for _, prev := range list[:i] {
-			if strings.EqualFold(prev.Name, pn) {
-				return Project{}, false, &AtPart{Index: i, Err: ErrPartName}
-			}
 			if prev.MachineID == np.MachineID && overlaps(prev.Path, np.Path) {
 				return Project{}, false, &AtPart{Index: i, Err: ErrPartOverlap}
 			}
 		}
-		list[i] = Part{ID: id, Name: pn, MachineID: np.MachineID, Path: np.Path}
+		list[i] = Part{ID: randomID("pt_"), Name: pn, MachineID: np.MachineID, Path: np.Path}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -347,7 +420,8 @@ type PartPatch struct {
 	Name     *string
 	ReadOnly *bool
 	Blocked  *[]string
-	// Index moves the part; moving one to 0 makes it the project's own folder.
+	// Index moves the part. It is display order only: no part's id, review or git moves with
+	// it (the project's machineId and path follow index 0, for old clients).
 	Index *int
 }
 
@@ -371,7 +445,7 @@ func (s *Store) PatchPart(projectID, partID string, in PartPatch) (Project, erro
 	next := p.clone()
 	pt := next.Parts[i]
 	if in.Name != nil {
-		name, err := CleanName(*in.Name)
+		name, err := CleanPartName(*in.Name)
 		if err != nil {
 			return Project{}, err
 		}
@@ -408,7 +482,9 @@ func (s *Store) PatchPart(projectID, partID string, in PartPatch) (Project, erro
 	return p.clone(), nil
 }
 
-// DeletePart removes a part from a project; its folder is not touched. The first part stays.
+// DeletePart removes a part from a project; its folder is not touched. Any part may go while
+// another is left (else ErrLastPart); when the first goes, the project's machineId and path
+// follow the new first one.
 func (s *Store) DeletePart(projectID, partID string) (Project, Part, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -420,13 +496,14 @@ func (s *Store) DeletePart(projectID, partID string) (Project, Part, error) {
 		if pt.ID != partID {
 			continue
 		}
-		if i == 0 {
-			return Project{}, Part{}, ErrMainPart
+		if len(p.Parts) == 1 {
+			return Project{}, Part{}, ErrLastPart
 		}
-		old := p.Parts
+		old := *p
 		p.Parts = append(p.Parts[:i:i], p.Parts[i+1:]...)
+		p.normParts()
 		if err := s.saveLocked(); err != nil {
-			p.Parts = old
+			*p = old
 			return Project{}, Part{}, err
 		}
 		return p.clone(), pt, nil

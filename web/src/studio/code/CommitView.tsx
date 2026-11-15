@@ -15,6 +15,8 @@ import { RefPills } from './CommitGraph';
 import { STASH_LABEL } from './StashSection';
 import { FileIcon } from './Explorer';
 import { currentTheme, FONT, languageFor, monaco } from './monaco';
+import { repoKey } from './partGit';
+import type { PartService } from './partsvc';
 import type { CommitTab, Workspace } from './workspace';
 
 /** Narrower than this, the diff starts inline; the button then decides, not the width. */
@@ -45,7 +47,7 @@ function Person({ name, email, at, verb }: { name: string; email: string; at: st
   );
 }
 
-function FileDiff({ ws, target, detail, file }: { ws: Workspace; target: GitTarget; detail: GitCommitDetail; file: GitCommitFile }) {
+function FileDiff({ ws, part, target, detail, file }: { ws: Workspace; part: PartService; target: GitTarget; detail: GitCommitDetail; file: GitCommitFile }) {
   const host = useRef<HTMLDivElement>(null);
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const models = useRef<monaco.editor.ITextModel[]>([]);
@@ -127,8 +129,8 @@ function FileDiff({ ws, target, detail, file }: { ws: Workspace; target: GitTarg
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, detail.hash, detail.parents.length, file]);
 
-  const here = target.repo === ws.gitTarget.repo && file.status !== 'deleted';
-  const base = ws.git?.root?.replace(/\/+$/, '') ?? ws.root;
+  // the part's open repository is this one: its files are where git says
+  const here = target.repo === part.gitTarget.repo && file.status !== 'deleted';
   return (
     <div className="wb-diff wb-cv-diff">
       <div className="wb-diff-bar">
@@ -141,7 +143,7 @@ function FileDiff({ ws, target, detail, file }: { ws: Workspace; target: GitTarg
           {sideBySide ? 'Inline' : 'Side by side'}
         </Button>
         {here && (
-          <Button size="sm" variant="ghost" icon="file" onClick={() => ws.open(`${base}/${file.path}`, { pin: true, source: true })}>
+          <Button size="sm" variant="ghost" icon="file" onClick={() => ws.open(repoKey(part, file.path), { pin: true, source: true })}>
             Open file
           </Button>
         )}
@@ -151,8 +153,9 @@ function FileDiff({ ws, target, detail, file }: { ws: Workspace; target: GitTarg
   );
 }
 
-export function CommitView({ ws, commit }: { ws: Workspace; commit: CommitTab }) {
-  const target = useMemo<GitTarget>(() => ({ pid: ws.pid, repo: commit.repo }), [ws.pid, commit.repo]);
+/** A commit of a part's repository (the tab names the part). */
+export function CommitView({ ws, part, commit }: { ws: Workspace; part: PartService; commit: CommitTab }) {
+  const target = useMemo<GitTarget>(() => ({ pid: part.ref, repo: commit.repo }), [part.ref, commit.repo]);
   const [detail, setDetail] = useState<GitCommitDetail | null>(null);
   const [error, setError] = useState('');
   const [path, setPath] = useState(commit.file ?? '');
@@ -214,7 +217,7 @@ export function CommitView({ ws, commit }: { ws: Workspace; commit: CommitTab })
             <span className="wb-cv-parents">
               <span className="text-3">{detail.parents.length > 1 ? 'Merge of' : 'Parent'}</span>
               {detail.parents.map((p) => (
-                <button key={p} type="button" className="wb-cv-hash mono" title={`Open ${p}`} onClick={() => ws.openCommit(p)}>
+                <button key={p} type="button" className="wb-cv-hash mono" title={`Open ${p}`} onClick={() => ws.openCommit(part, p)}>
                   {p.slice(0, detail.short.length)}
                 </button>
               ))}
@@ -264,7 +267,7 @@ export function CommitView({ ws, commit }: { ws: Workspace; commit: CommitTab })
               );
             })}
           </div>
-          <FileDiff ws={ws} target={target} detail={detail} file={file} />
+          <FileDiff ws={ws} part={part} target={target} detail={detail} file={file} />
         </div>
       ) : (
         <div className="wb-row-msg">This commit changes no files.</div>

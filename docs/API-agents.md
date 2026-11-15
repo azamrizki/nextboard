@@ -803,9 +803,79 @@ A project that spans several parts (API-board §1) gives each console one **own 
 
 Tested: `TestPartsForAgents` (a fake Codex on This PC: reads in another part, a write refused and then allowed with `full`, `bash` in the part's folder, a read-only part still refused, an agent in a read-only part without a local shell and only reading).
 
+**At the project root (v0.9.0-beta.2).** A console placed at the root (§21.2) has no own part: every part is another part, seen from This PC.
+- `part` is required on `read_file`, `write_file`, `edit_file`, `grep`, `glob` and `bash` (the tool schema lists it under `required`). Without it the answer names the parts: "At the project root, name the part: Web (on This PC: change it with your own tools), Docs (read only), Api." `bash_output` and `bash_kill` stay without `part`.
+- A part on This PC that is not read only is changed with the agent's own tools, through its link at the root. The hub's tools only read there: `write_file`, `edit_file` and `bash` answer "Web is on This PC: use your own tools in ./Web", because a hub `bash` would run outside the project sandbox, next to the agent's own edits.
+- A read-only part on This PC and every part on a server: as for an agent in a part on This PC. Read always; change a server part only with `partAccess: "full"`, a read-only part never. That part's blocked commands hold on `bash` there, and its changes go to that part's review.
+- The tool list and the `part` description are computed per request, so they follow a part change at once. The launch prompt follows at the next launch (restart, wake); the hub types nothing into a running agent.
+- Its own shell's blocked commands are the hub's, the project's and every part's, since it can `cd` into any linked part. Read only on This PC stays a hub rule, as above: the CLI's own tools could still open the real folder of a read-only part if the agent learned it; the project sandbox closes the shell side (§27).
+
+Tested: `TestRootAgent` (a fake Codex at the root: `part` required, a linked part read through the hub and refused for writes, the read-only part read, a server part refused without `full`, the launch flags, the blocked list, the sandbox), `TestRootOnAServer` (a throwaway sshd: read, a write refused then allowed with `full`, `bash` in the server's folder, that part's blocked command refused).
+
+### 21.2 Project root (v0.9.0-beta.2)
+
+A console placed at the root of a project of two or more parts (`POST /api/sessions {"root": true}`, API-board §1 Sessions) runs on This PC, in a folder the hub makes for the project. It is a view: nothing of a part is copied, and server files never come to This PC.
+
+```
+<data>/roots/<projectId>/          0700  cwd of every root console of the project; never moves
+├─ AGENTS.md                       0444  written by the hub
+├─ CLAUDE.md                       0444  the same text (Claude Code reads only CLAUDE.md)
+├─ .nextboard/manifest.json        0600  what the hub made: [{name, kind: link|note, target, partId}]
+├─ Web -> /home/me/shop-web              a part on This PC that agents may change: a symlink
+├─ Docs/                           0555  a read-only part on This PC: a note only
+│   └─ NEXTBOARD-PART.md           0444
+└─ Api/                            0555  a part on a server: a note only
+    └─ NEXTBOARD-PART.md           0444
+```
+
+- **Entries** are named like the parts, which is why part names are path-safe (API-board §1). A note folder is 0555, so a write there fails (`EACCES`) instead of looking like a write to that part; its `NEXTBOARD-PART.md` says in prose where the part is and how to reach it. The root is not a git repository: each part's repository stays in its folder.
+- **AGENTS.md and CLAUDE.md** hold the same text for every root console of the project: a table of every part (name; machine, `This PC` or `server "<name>"`; folder; how it shows here, `./Web (link)` or `./Api (note)`; and what an agent may do there: "change it with your own tools, in ./Web", "read only: read_file, grep, glob with part: …", or read and change with the hub tools and `part`). Then: work about one part happens in that part (`cd Web && …`, or `bash` with `part` on its server); the notes are not those folders; an agent without the hub tools cannot reach the note parts and asks the owner; each part has its own instructions (the `CLAUDE.md`/`AGENTS.md` of a linked part are named when they exist; on a server `read_file {part, path: "CLAUDE.md"}`); blocked commands; git per part.
+- **Kept current.** The hub syncs the folder before every launch of a root console (create, restart, wake, the start after a hub restart) and 200 ms after any change of the project (parts added, renamed, moved, made read only or writable, removed, split off or merged in, `partAccess`), the latter only when the folder exists. A sync is idempotent and writes only what changed: files through a temp file and a rename, a link as a new link renamed over the old one. It removes only entries its manifest lists, a link with `unlink` (never following it) and a note folder with its note, only when nothing else is in it, so whatever an agent made at the root stays. A part rename renames its entry: an agent in the middle of editing `./Web/x` sees that path vanish. A sync that fails fails the launch (`500 root_unavailable` on create; otherwise the console shows the error).
+- **Merged projects.** A root console of a merged project keeps its folder (`roots/<from>`): it is its `cwd`, and Claude Code finds a conversation by its folder. That folder is synced with the merged project's parts while a root console works in it; one that no console uses goes.
+- **Removed** with the project when it is deleted for good (its links go as links, the parts' folders are never touched), and at hub start for projects that are gone. Archiving leaves it.
+
+**Launch of a root agent** (§22). `cwd` is the root folder, the CLI's own tools stay on, and the hub's tools reach the other parts with `part`. The CLIs check permissions, and their sandboxes act, on the real path behind a link, so the real folders of the linked parts are given to the CLI:
+
+| CLI | Linked parts | Trust | Instruction file |
+|---|---|---|---|
+| Claude Code | `--add-dir <real folder>` for each | `<data>/roots` recorded as trusted (`hasTrustDialogAccepted`), only in config folders the hub made: its profiles and an API provider's. With the default login the trust dialog appears once per root | root `CLAUDE.md` at start; a part's own `CLAUDE.md` once it works on files there |
+| Codex | `--add-dir <real folder>` for each | `-c projects={"<root>"={trust_level="trusted"}}` | root `AGENTS.md` at start |
+| OpenCode | `permission.external_directory`: `allow` for each real folder and what is in it | — | root `AGENTS.md` at start |
+
+The launch prompt points to that file instead of listing the parts: "You work at the root of project Shop, which spans 3 parts. ./CLAUDE.md lists them and how to reach each; NextBoard keeps it current. Give `part` to every nextboard file tool (…)" (`./AGENTS.md` for the other CLIs). Memory, the sandbox rule and the no-co-author rule follow as for any console. The blocked list at launch is every part's. With the project sandbox, `Write` gets the real folders of the linked parts, never a read-only part's (§27). The editor link (§24) gets the root folder and the linked parts' folders as its workspace folders.
+
+**Review.** A root console's turns are watched in the review of each part it changes with its own tools (the linked parts); in the other parts its changes come through the hub's tools, as in §21.1. A file its own tools name through `./<part>/…` goes to that part's review with its real path (the manifest maps the entry back to the part); a real path goes to the part that holds it; a path in no part is dropped.
+
+**Verified with the real CLIs** (2026-11-15; empty `HOME`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and XDG folders, an API provider pointed at a scripted model on 127.0.0.1, no account; part folders under `/var/tmp`; `NEXTBOARD_REAL_ROOT_TEST=1 go test ./internal/server -run 'TestRealRootConsole|TestRealRootAddDir'`). Each runs as a hub console at the root, then the same root without `--add-dir` as a control. No dialog is answered: a question is the result.
+
+| CLI | Write through `./Web` (the link) | Write in a read-only part's real folder | Without `--add-dir` (control) | Instruction file |
+|---|---|---|---|---|
+| Claude Code 2.1.325 (acceptEdits) | written, no question | asks | refused: "… resolves through a symlink to …, which is outside the allowed working directories" | root `CLAUDE.md` in the first turn; `Web/CLAUDE.md` only after it worked there |
+| Codex 0.165.0 (its own sandbox in a trusted folder; again with the project sandbox, `writable_roots`) | written, no question | refused by its sandbox ("read-only file system"), no question | "read-only file system" | root `AGENTS.md` in the first turn |
+| OpenCode 1.17.15 | written, no question; through the real path too | asks ("Access external directory") | — | root `AGENTS.md` in the first turn |
+
+Claude Code's own sandbox could not be tried: this host's AppArmor refuses its user namespace (§27). Limits seen there: Codex's sandbox lets every command write in `/tmp` and `$TMPDIR` anyway; OpenCode checks the path as written, not the real one, so only `external_directory` stands between it and another real folder. Claude Code 2.1.325 on an API provider runs in its default permission mode, where every edit asks, when `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is set ("Permission mode forced to default"), which the hub does for provider consoles when `bwrap` is installed; the test runs it without that variable to see the root's own rules.
+
+**Security.**
+
+| Target | With what | Limit |
+|---|---|---|
+| Linked parts (on This PC, writable) | its own tools through `./<part>` | the same as a console in that part. With the project sandbox its shell writes only there plus temp and caches; Claude Code's own Edit/Write are outside that sandbox (§27) |
+| Read-only parts on This PC | hub read tools | a hub rule, not a lock: its own tools can open the real folder if it learns it; with the sandbox its shell cannot write there |
+| Server parts | hub tools, `part` required | read always; change only with `partAccess: "full"` and not read only; each part's blocked list on `bash` |
+| Its own shell on This PC | — | blocked = hub ∪ project ∪ every part; network as the sandbox says |
+| Machines not in the project | none | — |
+| `<data>` (`..` of its folder) | same-user file access | not new: `<data>/agents/remote/…` already gives this |
+
+A root console has no copies of a server part's skills (§21): it reads them on the server with `read_file`, as the note says.
+
+**Order attachments on a server.** A file pasted into an order lives on This PC (`<data>/attachments/project-<id>/…`). When the order goes to an agent that works on a server, the hub copies each file the text names into that console's paste folder on the server (as for files pasted into its terminal, API-studio §7.9) and the delivered text names the copy next to the original: `… (a copy on srv-a: /tmp/nb-paste-1000-s_…/notes.txt)`. Codex and OpenCode, which cannot read This PC there, read the copy with the hub's tools; Claude Code still opens the original, an image too. A file that cannot be copied keeps only its own path.
+
 ## 22. Launch context
 
 Every agent launch on This PC whose CLI accepts context (`claude`, `codex`, `opencode`, and their derivatives) gets from the hub, without writing the CLI config: system instructions in `<data>/agents/prompts/<sid>.md` (deleted together with the console), project memory (API-orchestration §12), and for work on a server, the hub tools (§21). If the context fails to be prepared, a console on This PC still runs with a note in the log; a console on a server fails, because without those tools the agent would act on This PC.
+
+**At the project root** (§21.2), shells and agents alike: the hub syncs the root folder before every launch, and a sync that fails fails the launch, since the console would see no parts. An agent there gets the real folders of its linked parts (`--add-dir`, OpenCode's `external_directory`), its root trusted where the hub may say so, the blocked list of every part, and a launch prompt that points to the root's `CLAUDE.md`/`AGENTS.md` instead of the list of parts other consoles get.
 
 ## 23. MCP servers in NextBoard
 
@@ -937,6 +1007,7 @@ A lock, not an instruction: `project.sandbox` restricts the commands agents run 
 - **Other CLIs** (OpenCode, Gemini, …) have no sandbox: their commands are not restricted; the UI says so.
 - The agent is told in the launch prompt ("Your shell commands run in a sandbox…") so it does not try another way.
 - Limits: CLI tools outside the shell (Claude Code's own Edit/Write, MCP, hooks) are not in this sandbox; package caches are writable, so a command can leave something behind that a build outside the sandbox uses later. A project on a server over SSH does not use this sandbox (its agent works through the hub tools).
+- **At the project root** (§21.2): `Write` also holds the real folders of the linked parts (the parts on This PC agents may change), never a read-only part's, and the prompt's rule says "the parts on This PC you may change". The root folder itself is the working folder. Its server parts are reached through the hub tools, outside this sandbox, as for any console.
 
 ## 28. Sleeping agents (ROADMAP #50, 2026-11-13)
 
@@ -961,6 +1032,8 @@ Each agent CLI uses 120–250 MB even while idle at its prompt. Measured on the 
 - text for it (a lead order, a loop, a handoff, a send from the UI or API): the delivery engine wakes it and waits with the reason `starting`;
 - a shared typing group: sleeping peers wake too;
 - `POST /api/sessions/{id}/wake` → `Session` (`409 not_asleep`).
+
+Waking a console at the project root (§21.2) syncs its root folder first, so a part added while it slept is in its `AGENTS.md`/`CLAUDE.md`, and its launch prompt is made again.
 
 Kill on a sleeping console → `exited`, and it does not wake by itself. Restart runs a new process as usual.
 

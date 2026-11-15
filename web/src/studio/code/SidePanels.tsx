@@ -22,9 +22,11 @@ import { insertMention, mentionAt, mentionedFiles } from './fileMentions';
 import { fuzzyTop } from './fuzzy';
 import { splitPath } from '../../git/common';
 import { FileIcon } from './Explorer';
+import { fileLabel } from './partGroups';
 
 export interface AgentContext {
   label: string;
+  /** The file as the card shows it: "src/x.ts", "admin/src/x.ts" in a Root card (ViewPaths.relLabel). */
   rel: string;
   language: string;
   /** Selected code ("" = the file as a whole). */
@@ -134,10 +136,9 @@ export function AgentsPanel({
   const [picked, setPicked] = useState(0);
   const suggestions = useMemo(() => (mention ? fuzzyTop(mention.query, files, MENTION_ROWS).map((h) => h.path) : []), [mention, files]);
 
+  // @ names a file as the card shows it: "admin/src/x.ts" in a Root card
   useEffect(() => {
-    ws.fileList()
-      .then((l) => setFiles(l.items ?? []))
-      .catch(() => setFiles([]));
+    void ws.fileLists().then((lists) => setFiles(lists.flatMap(({ part, list }) => (list.items ?? []).map((rel) => fileLabel(ws.paths.multi, part.name, rel)))));
   }, [ws]);
 
   const takeMention = (path: string) => {
@@ -182,11 +183,16 @@ export function AgentsPanel({
       if (target.value === 'quick') {
         // the hidden CLI only answers from what it is given, so the files go along
         const named = mentionedFiles(t, new Set(files)).slice(0, MENTION_FILES);
-        const attached = await Promise.all(named.map(async (rel) => ({ path: rel, text: (await ws.currentText(ws.abs(rel))).slice(0, MENTION_BYTES) })));
-        void ws.askQuick(t, ctx, attached);
+        const attached = await Promise.all(named.map(async (rel) => ({ path: rel, text: (await ws.currentText(ws.resolve(rel) ?? rel)).slice(0, MENTION_BYTES) })));
+        // the runner works in the context file's part, with the path inside it
+        const key = ctx ? ws.resolve(ctx.rel) : null;
+        const part = (key && ws.partOf(key)) || ws.activePart;
+        const rel = key ? part.relOf(key) : null;
+        void ws.askQuick(t, ctx && rel !== null ? { ...ctx, rel } : ctx, attached, part);
       } else {
         const body = orderText(t, ctx);
-        await sendCommand(ws.pid, target.mention ? `${target.mention} ${body}` : body, { workspaceId: ctl.workspaceId, cardId: target.cardId ?? null, selection: [] });
+        // the lead is always at the project root: orders go to the project, from any card
+        await sendCommand(ws.projectId, target.mention ? `${target.mention} ${body}` : body, { workspaceId: ctl.workspaceId, cardId: target.cardId ?? null, selection: [] });
       }
       setText('');
       setContext(null);
@@ -250,7 +256,7 @@ export function AgentsPanel({
             </ol>
           </div>
         ) : (
-          <ThreadList key={target.cardId ?? ws.pid} threadId={target.cardId ?? ws.pid} compact empty="Orders and answers appear here. Edits your agents make show up in the tree and in open tabs." />
+          <ThreadList key={target.cardId ?? ws.projectId} threadId={target.cardId ?? ws.projectId} compact empty="Orders and answers appear here. Edits your agents make show up in the tree and in open tabs." />
         )}
       </div>
       <form
@@ -372,7 +378,7 @@ function OnSaveRules() {
   );
 }
 
-export function SettingsPanel({ ws, onInstall }: { ws: Workspace; onInstall: (command: string) => void }) {
+export function SettingsPanel({ ws, onInstall }: { ws: Workspace; onInstall: (command: string, dir?: string) => void }) {
   useWs(ws);
   const p = ws.editorPrefs;
   return (
@@ -431,23 +437,29 @@ export function SettingsPanel({ ws, onInstall }: { ws: Workspace; onInstall: (co
         <OnSaveRules />
         <section className="wb-settings-section">
           <h3>Language servers</h3>
-          <p className="text-3">IntelliSense for more languages comes from servers on the project’s machine. NextBoard never installs them for you.</p>
-          {ws.lsp.servers.map((s) => (
-            <div key={s.id} className="wb-lsp-row">
-              <span className={`wb-lsp-dot ${s.available ? 'is-on' : ''}`} aria-hidden="true" />
-              <span className="grow truncate" title={s.available ? s.command : s.install}>
-                {s.name}
-                <span className="text-3"> · {s.languages.join(', ')}</span>
-              </span>
-              {!s.available && s.install.includes(' ') && !s.install.startsWith('Installed') && (
-                <Button size="sm" variant="ghost" onClick={() => onInstall(s.install)} title={s.install}>
-                  Install…
-                </Button>
-              )}
+          <p className="text-3">{ws.paths.multi ? 'IntelliSense for more languages comes from servers on each part’s machine. NextBoard never installs them for you.' : 'IntelliSense for more languages comes from servers on the project’s machine. NextBoard never installs them for you.'}</p>
+          {ws.parts.map((part) => (
+            <div key={part.partId} className="wb-lsp-part">
+              {ws.paths.multi && <h4 className="wb-lsp-part-name truncate">{part.name}</h4>}
+              {part.lsp.servers.map((s) => (
+                <div key={s.id} className="wb-lsp-row">
+                  <span className={`wb-lsp-dot ${s.available ? 'is-on' : ''}`} aria-hidden="true" />
+                  <span className="grow truncate" title={s.available ? s.command : s.install}>
+                    {s.name}
+                    <span className="text-3"> · {s.languages.join(', ')}</span>
+                  </span>
+                  {!s.available && s.install.includes(' ') && !s.install.startsWith('Installed') && (
+                    // typed into a terminal on that part's machine, in its folder
+                    <Button size="sm" variant="ghost" onClick={() => onInstall(s.install, part.rootKey)} title={s.install}>
+                      Install…
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {!part.lsp.servers.length && <p className="text-3">Checking the machine…</p>}
             </div>
           ))}
-          {!ws.lsp.servers.length && <p className="text-3">Checking the machine…</p>}
-          <Button size="sm" icon="restart" onClick={() => ws.lsp.restart()}>
+          <Button size="sm" icon="restart" onClick={() => ws.parts.forEach((p) => p.lsp.restart())}>
             Restart language servers
           </Button>
         </section>

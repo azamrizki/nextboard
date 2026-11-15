@@ -131,6 +131,7 @@ func (s *Server) deleteProjectForever(id string) error {
 		_ = os.RemoveAll(s.st.Path("attachments", "project-"+pr.ID))
 	}
 	s.art.forget(pr.ID)
+	s.roots.Remove(append([]string{pr.ID}, pr.Aliases...)...) // root folders: links go, never what they point to
 	s.events.Publish(map[string]any{"type": "projectRemoved", "id": pr.ID})
 	return nil
 }

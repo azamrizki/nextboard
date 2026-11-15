@@ -3,7 +3,6 @@ package orch
 import (
 	"encoding/json"
 	"fmt"
-	"path"
 	"strings"
 	"time"
 
@@ -47,7 +46,7 @@ var PlanSchema = json.RawMessage(`{"type":"object","additionalProperties":false,
 	`"sources":{"type":"array","items":{"type":"string"},"maxItems":12},` +
 	`"text":{"type":"string","maxLength":8000},` +
 	`"count":{"type":"integer","minimum":1,"maximum":12},` +
-	`"agent":{"type":"string"},"account":{"type":"string"},"part":{"type":"string"},"role":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},` +
+	`"agent":{"type":"string"},"account":{"type":"string"},"part":{"type":"string"},"root":{"type":"boolean"},"role":{"type":"string"},"group":{"type":"string"},"name":{"type":"string"},` +
 	`"source":{"type":"string"},"mode":{"type":"string","enum":["digest","split"]},` +
 	`"query":{"type":"string","enum":["status","finished","needsYou","summary","help"]},` +
 	`"kind":{"type":"string","enum":["note","text","checklist","kanban","calendar","uptime","orchestrator","web","shape","branches","editor","memory","file"]},` +
@@ -139,16 +138,16 @@ Rules:
 - You can address consoles and groups on any board. Answer questions about the boards from the input.
 - spawn, group.create and node.add land on the current board unless you set "workspace" to the name of another board.
 - "providers" lists the API providers and which agents can run on each. When the user wants new consoles on one ("on the API", "pakai API", a provider's name), set "account" of the spawn step to that provider's name, with an agent it lists; "login" keeps them on the subscription. Otherwise leave "account" out: the owner's default applies.
-- "parts", when present, are the folders this one project spans, often on different machines (a backend on one server, a frontend on another), and each console says its "part". Send work about a part to consoles in that part. A spawn step for one part sets "part" to its name; without it the console works in the first part. A change that crosses parts goes to each part's consoles in turn: the first does its side and reports, then forward or send its result to the next. A read-only part only takes questions and investigation, never changes.
+- "parts", when present, are the folders this one project spans, often on different machines (a backend on one server, a frontend on another), and each console says its "part", or "root": true for a console at the project root, which reaches every part. Send work about a part to consoles in that part. A spawn step for one part sets "part" to its name; "root": true starts it at the root; with neither it starts in the part the owner is working in, else at the root. Give a change that crosses parts to a root console, or do it part by part: each part's consoles in turn, the first does its side and reports, then forward or send its result to the next. A read-only part only takes questions and investigation, never changes.
 - "send" gives a console a self-contained instruction in "text" (targets = handles). When several consoles should share a task, split the work: one send step per console with its own part, unless the user asked for the same prompt.
 - Rewrite vague orders into clear, specific instructions, keeping the user's intent. Do not add work the user did not ask for.
 - Put your answer to the user in the top-level "reply" field (max 2000 characters), once. Do not repeat it in a "reply" step. Use "ask" for status questions.
 - You control everything on the boards, not only consoles. "boards" gives every tile its id, kind, position, size and content, and each board's connections ("edges"). Do what is asked with these steps instead of explaining how:
-  - node.add: a new tile. kind, optional x, y, w, h, title, text, color, and "data" for its content (a checklist's items as [{"text","done"}], kanban columns as [{"title","cards":[{"title"}]}], calendar events as [{"title","date"}], a file card's path). Adding "editor" brings the board's one editor card into view.
+  - node.add: a new tile. kind, optional x, y, w, h, title, text, color, and "data" for its content (a checklist's items as [{"text","done"}], kanban columns as [{"title","cards":[{"title"}]}], calendar events as [{"title","date"}], a file card's path). Adding "editor" opens the editor card of the part in "part", or of the root (every part) without one or with "root": true; a board's card of that placement is brought into view instead of doubled.
   - node.update: change a tile. "tile" is its id, "@handle", a group name, a title, or a kind when there is only one. Set x, y, w, h to move or resize, title, text, color, or "data": keys are merged, and a list is replaced whole, so send all its entries, with their ids. Never replace a list you only saw part of ("contentCut").
   - node.delete: "tiles" lists them; the user is asked first. Consoles stop with kill instead.
   - connect and disconnect: "source" and "targets" are tiles. An orchestrator, memory or editor card connects to consoles and groups; the editor and memory also to orchestrator cards, and memory to the editor, and questions asked in the editor then go there. Two consoles connected means results of finished turns are forwarded. A note, checklist, kanban, calendar, file, image, link, document, branches, web or console log tile connects to consoles and groups too: its content goes to them once, when connected. A console without an agent (a plain shell) cannot be connected: only agents take text.
-  - ui: "action" fit, zoomIn, zoomOut, zoomReset, focus ("tile"), undo, redo, openPanel or closePanel ("panel": loops, memory, mission, git, usage, code). editor.open: "path" (relative to the project, or to the part in "part") and optional "line" opens a file in the editor card. workspace.go, workspace.create, workspace.rename, console.rename, group.dissolve do what they say.
+  - ui: "action" fit, zoomIn, zoomOut, zoomReset, focus ("tile"), undo, redo, openPanel or closePanel ("panel": loops, memory, mission, git, usage, code). editor.open: "path" and optional "line" opens a file in the editor card. The path is relative to the project root: "<part>/…" when the project has several parts (or relative to the part named in "part"); an absolute path belongs to the part whose folder holds it. workspace.go, workspace.create, workspace.rename, console.rename, group.dissolve do what they say.
   - To lay tiles out, use one node.update per tile with x and y, keeping clear of other tiles (leave about 40 between them).
   - Task boards: "tasks" lists every kanban and checklist with its cards. An orchestrator card connected to one ("linked") keeps it by itself: each order sent to its team becomes a card for that console and moves as the work goes, so never add a card for what you send. task.add: "tile", "title", optional "text" (notes), "column", "assignee" (a handle), "priority", "due" (YYYY-MM-DD), and "part" when the project has parts. task.update: "tile", "card" (its id or title) and what changes: "title", "text", "column", "assignee", "priority", "due", "done". task.delete: "tile", "card". To hand out a card already on a board, use send with "tile" and "card" too: that card then moves instead of a new one appearing. Connect an orchestrator card to a kanban or checklist to link them. When asked to plan work onto a board, add the tasks and hand out only what was asked for.
 - If a request fits more than one tile, ask which in "reply" rather than guessing.
@@ -189,8 +188,10 @@ func (s *Service) plannerSnapshot(c *execCtx, sc *scope, text string) plannerInp
 	for _, x := range sc.agentsInScope() {
 		c := map[string]any{"tile": sc.tileIDOf(x.ID), "handle": x.Handle, "agent": x.Agent, "state": x.AgentState, "paused": x.Paused, "board": sc.boardName(x.WorkspaceID)}
 		if len(sc.proj.Parts) > 1 {
-			if pt, ok := sc.proj.Part(x.PartID); ok {
+			if pt, ok := sc.proj.PartByID(x.PartID); ok {
 				c["part"] = pt.Name
+			} else if x.Root {
+				c["root"] = true
 			}
 		}
 		if x.Activity != "" {
@@ -287,7 +288,22 @@ func (sc *scope) boardsSnapshot() []map[string]any {
 			if len(tiles) >= maxPlannerTiles {
 				break
 			}
-			tiles = append(tiles, tileBrief(n))
+			t := tileBrief(n)
+			if n.Kind == KindEditor && len(sc.proj.Parts) > 1 {
+				// which tree it shows: a part, or the root with every part
+				if pt, ok := sc.proj.PartByID(editorPlace(sc.proj, n)); ok {
+					t["part"] = pt.Name
+				} else {
+					t["root"] = true
+				}
+				if d, ok := t["data"].(map[string]any); ok {
+					delete(d, "part")
+					if len(d) == 0 {
+						delete(t, "data")
+					}
+				}
+			}
+			tiles = append(tiles, t)
 		}
 		out = append(out, map[string]any{"name": w.Name, "current": w.ID == sc.ws.ID, "tiles": tiles, "edges": boardEdges(b)})
 	}
@@ -600,6 +616,7 @@ type plannerStep struct {
 	Agent    string   `json:"agent"`
 	Account  string   `json:"account"`
 	Part     string   `json:"part"`
+	Root     bool     `json:"root"`
 	Role     string   `json:"role"`
 	Group    string   `json:"group"`
 	Name     string   `json:"name"`
@@ -697,7 +714,7 @@ func (s *Service) translatePlan(sc *scope, p planOutput) ([]Step, []string) {
 				ok = false
 			}
 		case "spawn":
-			st.Count, st.Agent, st.Role, st.Account, st.Part = max(ps.Count, 1), ps.Agent, RoleOf(ps.Role), ps.Account, ps.Part
+			st.Count, st.Agent, st.Role, st.Account, st.Part, st.Root = max(ps.Count, 1), ps.Agent, RoleOf(ps.Role), ps.Account, ps.Part, ps.Root
 			if ps.Group != "" {
 				if g := sc.groupByName(ps.Group); g != nil {
 					st.Op, st.GroupID, st.WorkspaceID = "group.add", g.ID, sc.wsOf[g.ID]
@@ -718,7 +735,7 @@ func (s *Service) translatePlan(sc *scope, p planOutput) ([]Step, []string) {
 				ok = false
 				break
 			}
-			st.GroupID, st.WorkspaceID, st.Count, st.Agent, st.Role, st.Account, st.Part = g.ID, sc.wsOf[g.ID], max(ps.Count, 1), ps.Agent, RoleOf(ps.Role), ps.Account, ps.Part
+			st.GroupID, st.WorkspaceID, st.Count, st.Agent, st.Role, st.Account, st.Part, st.Root = g.ID, sc.wsOf[g.ID], max(ps.Count, 1), ps.Agent, RoleOf(ps.Role), ps.Account, ps.Part, ps.Root
 		case "pause", "resume", "restart", "kill":
 			st.Targets, ok = names(ps.Targets)
 			ok = ok && len(st.Targets) > 0
@@ -726,7 +743,7 @@ func (s *Service) translatePlan(sc *scope, p planOutput) ([]Step, []string) {
 			var src []string
 			src, ok = names([]string{ps.Source})
 			if ok && len(src) == 1 {
-				st.Source, st.Agent = src[0], ps.Agent
+				st.Source, st.Agent, st.Part, st.Root = src[0], ps.Agent, ps.Part, ps.Root
 			} else {
 				ok = false
 			}
@@ -760,12 +777,23 @@ func (s *Service) translatePlan(sc *scope, p planOutput) ([]Step, []string) {
 			for k, v := range planData(ps, ps.Kind) {
 				st.Data[k] = v
 			}
+			if ps.Kind == KindEditor || ps.Kind == "web" || ps.Kind == "file" {
+				st.Part, st.Root = ps.Part, ps.Root
+			}
 			if ps.Path != "" {
-				p := ps.Path
-				if !strings.HasPrefix(p, "/") {
-					p = path.Join(sc.proj.Path, p)
+				// a file card is on the machine of the part its path is in
+				pt, p, problem := projectPath(sc.proj, ps.Part, ps.Path)
+				if problem != "" {
+					notes = append(notes, problem)
+					continue
 				}
 				st.Data["path"] = p
+				if pt.ID != "" && ps.Kind == "file" {
+					st.Data["machineId"] = pt.MachineID
+				}
+			}
+			if pt, found := sc.proj.PartNamed(ps.Part); found && ps.Kind == "web" {
+				st.Data["machineId"] = pt.MachineID // the dev server runs on that part's machine
 			}
 			st.Geom = planGeom(ps)
 		case "node.update", "node.delete", "connect", "disconnect", "ui", "editor.open", "console.rename", "group.dissolve",

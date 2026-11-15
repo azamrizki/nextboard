@@ -2,8 +2,11 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
+	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
 )
@@ -21,10 +24,41 @@ var errRootUnavailable = errors.New("the project's root folder could not be made
 // go to the client through placeErr: project.ErrBadPlace (bad_placement), project.ErrPartNotFound
 // (part_not_found), errPartMachine (part_machine), errRootUnavailable (root_unavailable).
 //
-// For now it is placeInPart, which knows no root; the root and the rest of the placement table
-// come with the root folder.
+// The rules, in order:
+//   - root and partId: bad_placement.
+//   - root in a single-part project: that part (root false in the answer), so such a project
+//     never gets a root folder.
+//   - root in a project of several parts: machineId absent or "local" and no cwd, else
+//     bad_placement; then This PC, cwd the root folder (rootDirs.Sync), partId "". A sync that
+//     fails is root_unavailable. Shells and agents alike; never remoteMachineId.
+//   - partId, or neither: placeInPart (the part's machine and folder; the compat rules).
 func (s *Server) placeSession(proj project.Project, cr *session.CreateRequest) error {
-	return placeInPart(proj, cr)
+	if !cr.Root {
+		return placeInPart(proj, cr)
+	}
+	if strings.TrimSpace(cr.PartID) != "" {
+		return project.ErrBadPlace
+	}
+	root, pt, _, err := proj.ResolvePlace(project.Place{Root: true})
+	if err != nil {
+		return err
+	}
+	if !root {
+		cr.Root, cr.PartID = false, pt.ID
+		return placeInPart(proj, cr)
+	}
+	if (cr.MachineID != "" && cr.MachineID != machine.LocalID) || strings.TrimSpace(cr.Cwd) != "" {
+		return project.ErrBadPlace
+	}
+	if s.roots == nil {
+		return errRootUnavailable
+	}
+	dir, err := s.roots.Sync(proj.ID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errRootUnavailable, err)
+	}
+	cr.MachineID, cr.Cwd, cr.PartID = machine.LocalID, dir, ""
+	return nil
 }
 
 // placeErr writes an error of placeSession.

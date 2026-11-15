@@ -58,22 +58,90 @@ func (s *Server) setupReview() {
 		if in.Handle == "" {
 			name = in.Name
 		}
-		s.review.SessionChanged(s.reviewKeyOf(in.ProjectID, in.PartID), in.ID, name, in.Preset, working, in.StateSource == agentstate.SrcHooks)
+		for _, k := range s.sessionReviews(in.Spec) {
+			s.review.SessionChanged(k.key, in.ID, name, in.Preset, working && k.changes, in.StateSource == agentstate.SrcHooks)
+		}
 	}
 	s.sessions.OnFileTool = func(sp session.Spec, path string) {
-		s.review.Hint(s.reviewKeyOf(sp.ProjectID, sp.PartID), sp.ID, path)
+		if key, real, ok := s.fileToolReview(sp, path); ok {
+			s.review.Hint(key, sp.ID, real)
+		}
 	}
 	onRemove := s.sessions.OnRemove
 	s.sessions.OnRemove = func(sp session.Spec) {
 		if onRemove != nil {
 			onRemove(sp)
 		}
-		s.review.SessionChanged(s.reviewKeyOf(sp.ProjectID, sp.PartID), sp.ID, "", "", false, false)
+		for _, k := range s.sessionReviews(sp) {
+			s.review.SessionChanged(k.key, sp.ID, "", "", false, false)
+		}
 	}
 }
 
+// sessionReview is one review a console's work goes to; changes: it may change that part with
+// its own tools, so a turn of it is watched there.
+type sessionReview struct {
+	key     string
+	changes bool
+}
+
+// sessionReviews are the reviews a console's turns go to: its part's; at the project root every
+// part's, watched where it may change the part with its own tools (the parts on This PC that are
+// not read only; its changes on a server come through the hub's tools, noteRemoteChange). A
+// console in no part's folder has none.
+func (s *Server) sessionReviews(sp session.Spec) []sessionReview {
+	pr, ok := s.projects.Get(sp.ProjectID)
+	if !ok {
+		return nil
+	}
+	if sp.Root {
+		out := make([]sessionReview, 0, len(pr.Parts))
+		for _, pt := range pr.Parts {
+			out = append(out, sessionReview{key: reviewKey(pr, pt.ID), changes: pt.MachineID == machine.LocalID && !pt.ReadOnly})
+		}
+		return out
+	}
+	if _, ok := pr.PartByID(sp.PartID); !ok {
+		return nil
+	}
+	return []sessionReview{{key: reviewKey(pr, sp.PartID), changes: true}}
+}
+
+// fileToolReview is where a file a console's own tool named goes in review: the part that holds
+// it and its real path. At the root a path through a part's link maps to that part's folder; a
+// path in no part is dropped. In a part, a file in another part on its machine goes to that
+// part, anything else to its own.
+func (s *Server) fileToolReview(sp session.Spec, p string) (string, string, bool) {
+	pr, ok := s.projects.Get(sp.ProjectID)
+	if !ok {
+		return "", "", false
+	}
+	if sp.Root {
+		pt, real, ok := s.rootFilePart(sp, p)
+		if !ok {
+			return "", "", false
+		}
+		return reviewKey(pr, pt.ID), real, true
+	}
+	if filepath.IsAbs(p) && sp.RemoteMachineID == "" {
+		if pt, ok := pr.PartAt(sp.MachineID, filepath.Clean(p)); ok && pt.ID != sp.PartID {
+			return reviewKey(pr, pt.ID), p, true
+		}
+	}
+	if _, ok := pr.PartByID(sp.PartID); !ok {
+		return "", "", false
+	}
+	return reviewKey(pr, sp.PartID), p, true
+}
+
+// reviewRootsOf gives the review of one part its work trees. pid is its part key
+// "<project>~<part>" (reviewKey); a bare project id gets none, so nothing is ever kept under it
+// again (migrateReviewKeys moved what was).
 func (s *Server) reviewRootsOf(rs *reviewState, pid string) []review.Root {
-	rp, ok := s.gitRepo(pid)
+	if _, part := project.SplitPartKey(pid); part == "" {
+		return nil
+	}
+	rp, ok := s.gitRepoIn(pid, "")
 	if !ok {
 		return nil
 	}
@@ -158,8 +226,8 @@ func reviewErr(w http.ResponseWriter, err error) {
 	writeErrCode(w, http.StatusBadGateway, "review_failed", err.Error())
 }
 
-// reviewProject is the review a request is about: the project's first part, or the part its ref
-// or ?part= names (ROADMAP #49).
+// reviewProject is the review a request is about: the part its ref or ?part= names, else
+// (compat) the project's DefaultPart (ROADMAP #49).
 func (s *Server) reviewProject(w http.ResponseWriter, r *http.Request) (string, bool) {
 	pr, part, err := s.projectRef(r.PathValue("id"), r.URL.Query().Get("part"))
 	switch {

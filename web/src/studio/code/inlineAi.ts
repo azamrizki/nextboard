@@ -6,14 +6,16 @@
 import { errorMessage } from '../../api';
 import { filesApi, jobApi } from '../api';
 import { waitJob } from '../store';
+import { editorPrefs } from './docs';
 import { monaco } from './monaco';
+import { viewOfModel } from './nativeExt';
+import { keyOfUri } from './paths';
 import type { Workspace } from './workspace';
 
 const TYPING_PAUSE_MS = 900;
 const LINES_BEFORE = 120;
 const LINES_AFTER = 40;
 
-let current: Workspace | null = null;
 let registered = false;
 
 /** Text of a finished job, without the code fence models sometimes add. */
@@ -24,15 +26,22 @@ function completionOf(result: unknown): string {
   return (m ? m[1] : text).replace(/\s+$/, '');
 }
 
-export function registerInlineAi(ws: Workspace) {
-  current = ws;
+/**
+ * Once per tab. A suggestion is asked of the part that holds the file, in the card the model is
+ * worked on (nativeExt.ts viewOfModel), not "the card opened last"; none for a file outside every
+ * part, as before.
+ */
+export function registerInlineAi(_ws?: Workspace) {
   if (registered) return;
   registered = true;
   monaco.languages.registerInlineCompletionsProvider('*', {
     async provideInlineCompletions(model, position, ctx, token) {
-      const w = current;
-      if (!w || model.uri.scheme !== 'file' || !w.inside(model.uri.path)) return { items: [] };
-      const mode = w.editorPrefs.aiInline;
+      const key = keyOfUri(model.uri);
+      const w = key ? viewOfModel(model) : null;
+      const part = w && key ? w.partOf(key) : null;
+      const rel = part && key ? part.relOf(key) : null;
+      if (!w || !part || rel === null) return { items: [] };
+      const mode = editorPrefs.get().aiInline;
       const explicit = ctx.triggerKind === monaco.languages.InlineCompletionTriggerKind.Explicit;
       if (mode === 'off' || (mode === 'manual' && !explicit)) return { items: [] };
       if (!explicit) {
@@ -49,7 +58,7 @@ export function registerInlineAi(ws: Workspace) {
         if (jobId) void jobApi.cancel(jobId).catch(() => undefined);
       });
       try {
-        const j = await filesApi.aiComplete(w.pid, { path: w.rel(model.uri.path), language: model.getLanguageId(), before, after });
+        const j = await filesApi.aiComplete(part.ref, { path: rel, language: model.getLanguageId(), before, after });
         jobId = j.id;
         if (token.isCancellationRequested) {
           void jobApi.cancel(j.id).catch(() => undefined);

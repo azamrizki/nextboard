@@ -2,7 +2,9 @@
 // team layouts (built-in first), a preview, how many consoles each group gets, a lane inspector
 // (agent, machine, profile per lane, or fill every lane with one agent) and Deploy at the centre
 // of the view, which closes the popup. "Save current layout" keeps the board's structure (or the
-// selection) as a new template.
+// selection) as a new template. In a project of several parts each group and lane is placed at the
+// root or in a part (v0.9.0-beta.2): a saved template brings its placements by part name, and a
+// name this project lacks is asked for before deploying (orch/layoutPlace.ts).
 
 import { orchError } from '../actions';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
@@ -14,12 +16,17 @@ import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import type { Agent, Project } from '../../lib/types';
-import { useMachines, useProfiles } from '../../store';
+import { ApiError } from '../../api';
+import { FOCUS_PARAM } from '../../board/focus';
+import { projectParts } from '../../lib/parts';
+import { defaultPlacement, focusedPlacement, isMultiPart, lastPlacement, machineOfPlace, placeFromValue, placeValue, ROOT_VALUE } from '../../lib/placement';
+import { store, useMachines, useProfiles } from '../../store';
+import { deployPlaces, initialPlaces, unplaced, type LayoutPlaces } from '../layoutPlace';
 import { AccountOptions, splitAccount } from '../../providers/AccountOptions';
 import { compatible, useProviders } from '../../providers/providers';
 import { orchApi } from '../api';
 import { is404, useOrch } from '../store';
-import { ROLE_LABEL, type LaneOverride, type Layout, type LayoutNode, type Role } from '../types';
+import { ROLE_LABEL, type LaneOverride, type Layout, type LayoutNode, type Role, type UnmatchedPlace } from '../types';
 
 export default function LayoutsPanel({
   ctl,
@@ -438,6 +445,28 @@ function LaneInspector({
   const countOf = (key: string) => sizes[key] ?? baseCount(key);
   const total = groups.reduce((n, g) => n + countOf(g.key), 0) + (layout.lanes ?? []).filter((l) => !l.group || !groupName.has(l.group)).length;
   const sizesKey = JSON.stringify(sizes);
+  // several parts: where each group and lane works (place values; '' = still to be picked)
+  const multi = isMultiPart(project);
+  const [placed, setPlaced] = useState<LayoutPlaces>(() => {
+    const sessions = store.getState().sessions;
+    const focusId = new URLSearchParams(window.location.search).get(FOCUS_PARAM);
+    const fallback = placeValue(defaultPlacement(project, focusedPlacement(project, ctl.nodes, ctl.selection, focusId, sessions), lastPlacement(project)));
+    return multi ? initialPlaces(layout, project, fallback) : { groups: {}, lanes: {}, cards: {}, unmatched: [] };
+  });
+  const [hubUnmatched, setHubUnmatched] = useState<UnmatchedPlace[]>([]);
+  const missing = multi ? unplaced(placed.groups, placed.lanes, shown, placed.cards) : [];
+  const unmatched = [...placed.unmatched, ...hubUnmatched.filter((u) => !placed.unmatched.some((x) => x.key === u.key))].filter((u) => missing.includes(u.key));
+  const setGroupPlace = (key: string, v: string) => setPlaced((p) => ({ ...p, groups: { ...p.groups, [key]: v } }));
+  const setCardPlace = (key: string, v: string) => setPlaced((p) => ({ ...p, cards: { ...p.cards, [key]: v } }));
+  const editorCards = (layout.nodes ?? []).filter((n) => n.kind === 'editor');
+  const setLanePlace = (key: string, v: string | undefined) =>
+    setPlaced((p) => {
+      const lanes = { ...p.lanes };
+      if (v === undefined) delete lanes[key];
+      else lanes[key] = v;
+      return { ...p, lanes };
+    });
+  const groupLabel = (key: string) => groupName.get(key) ?? (key in placed.cards ? 'its editor card' : `Lane ${key}`);
 
   useEffect(() => {
     if (sizesKey === '{}') {
@@ -486,6 +515,11 @@ function LaneInspector({
   };
 
   deployRef.current = async () => {
+    if (missing.length) {
+      toast.error(`Pick where ${missing.map(groupLabel).join(', ')} ${missing.length === 1 ? 'works' : 'work'} first: the layout was saved in parts this project does not have.`);
+      document.querySelector<HTMLElement>('.lane-insp [aria-invalid="true"]')?.focus();
+      return;
+    }
     onDeploying(true);
     try {
       const overrides: Record<string, LaneOverride> = {};
@@ -503,16 +537,44 @@ function LaneInspector({
         ...(fill ? { fill: { agent: fill } } : {}),
         ...(Object.keys(overrides).length ? { laneOverrides: overrides } : {}),
         ...(Object.keys(sizes).length ? { groupSizes: sizes } : {}),
+        ...(multi ? { places: deployPlaces(placed.groups, placed.lanes, shown, placed.cards) } : {}),
       });
       const n = r.sessions?.length ?? 0;
       toast.success(`Deployed ${layout.name}: ${n === 1 ? '1 console' : `${n} consoles`}.`);
       onDeployed(r.nodeIds ?? []);
     } catch (err) {
+      // the hub found saved parts nothing here placed: ask for them as for the ones seen here
+      const list = err instanceof ApiError && err.code === 'place_unmatched' && Array.isArray(err.body.unmatched) ? (err.body.unmatched as UnmatchedPlace[]) : [];
+      if (list.length) {
+        setHubUnmatched(list);
+        const blank = (keep: (k: string) => boolean) => Object.fromEntries(list.filter((u) => keep(u.key)).map((u) => [u.key, '']));
+        setPlaced((p) => ({
+          ...p,
+          groups: { ...p.groups, ...blank((k) => k in p.groups) },
+          cards: { ...p.cards, ...blank((k) => k in p.cards) },
+          lanes: { ...p.lanes, ...blank((k) => !(k in p.groups) && !(k in p.cards)) },
+        }));
+      }
       toast.error(`Could not deploy ${layout.name}: ${orchError(err)}`);
     } finally {
       onDeploying(false);
     }
   };
+
+  /** Root and the parts, for a group's or lane's "Place in" (empty: a saved part to replace). */
+  const placeOptions = (blank: string | null) => (
+    <>
+      {blank !== null && <option value="">{blank}</option>}
+      <option value={ROOT_VALUE}>Root (all parts)</option>
+      {projectParts(project).map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.name}
+          {p.readOnly ? ' (read only)' : ''}
+        </option>
+      ))}
+    </>
+  );
+  const savedName = (key: string) => unmatched.find((u) => u.key === key)?.part;
 
   const agentOptions = (a: Agent[]) =>
     a.map((x) => (
@@ -576,6 +638,15 @@ function LaneInspector({
       <div className="lane-preview" data-testid="layout-preview">
         <LayoutPreview layout={shown} />
       </div>
+      {unmatched.length > 0 && (
+        <div className="alert" role="alert" data-testid="layout-unmatched">
+          <Icon name="alertCircle" />
+          <span>
+            Saved in {unmatched.length === 1 ? 'a part' : 'parts'} this project does not have: {unmatched.map((u) => `“${u.part}” (${groupLabel(u.key)})`).join(', ')}. Pick where{' '}
+            {unmatched.length === 1 ? 'it works' : 'they work'} below.
+          </span>
+        </div>
+      )}
       {groups.length > 0 && (
         <div className="lane-sizes" role="group" aria-label="Consoles per group" data-testid="layout-sizes">
           <div className="lane-sizes-head">
@@ -591,6 +662,18 @@ function LaneInspector({
                 <span className="grow truncate" title={g.role && g.role !== 'general' ? (ROLE_LABEL[g.role as Role] ?? g.role) : undefined}>
                   {g.name}
                 </span>
+                {multi && (
+                  <select
+                    className="control control-sm lane-place"
+                    aria-label={`Place ${g.name} in`}
+                    title={savedName(g.key) ? `Saved in “${savedName(g.key)}”, which this project does not have` : 'Root (all parts) or a part'}
+                    aria-invalid={placed.groups[g.key] === '' && missing.includes(g.key) ? true : undefined}
+                    value={placed.groups[g.key] ?? ''}
+                    onChange={(e) => setGroupPlace(g.key, e.target.value)}
+                  >
+                    {placeOptions(placed.groups[g.key] === '' ? `Pick (was ${savedName(g.key) ?? 'another part'})` : null)}
+                  </select>
+                )}
                 <Button size="sm" variant="ghost" iconOnly icon="minus" aria-label={`Fewer consoles in ${g.name}`} disabled={n <= least} onClick={() => setSize(g.key, n - 1)} />
                 <span className="lane-size-n tabular" aria-label={`${g.name}: ${n}`}>
                   {n}
@@ -608,6 +691,28 @@ function LaneInspector({
           )}
         </div>
       )}
+      {multi && editorCards.length > 0 && (
+        <div className="lane-sizes" role="group" aria-label="Editor cards">
+          <div className="lane-sizes-head">
+            <span className="field-label">Code editor {editorCards.length === 1 ? 'card' : 'cards'}</span>
+          </div>
+          {editorCards.map((n, i) => (
+            <div key={n.key} className="lane-size">
+              <span className="grow truncate">{editorCards.length === 1 ? 'Shows' : `Card ${i + 1} shows`}</span>
+              <select
+                className="control control-sm lane-place"
+                aria-label={editorCards.length === 1 ? 'What the editor card shows' : `What editor card ${i + 1} shows`}
+                aria-invalid={placed.cards[n.key] === '' ? true : undefined}
+                title={savedName(n.key) ? `Saved in “${savedName(n.key)}”, which this project does not have` : 'Root (all parts) or one part'}
+                value={placed.cards[n.key] ?? ROOT_VALUE}
+                onChange={(e) => setCardPlace(n.key, e.target.value)}
+              >
+                {placeOptions(placed.cards[n.key] === '' ? `Pick (was ${savedName(n.key) ?? 'another part'})` : null)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="lane-fill">
         <label className="field-label" htmlFor={`fill-${layout.id}`}>
           Fill every lane with
@@ -621,7 +726,11 @@ function LaneInspector({
         {lanes.map((l) => {
           const o = over[l.key] ?? {};
           const eff = o.agent || defaultFor(l.role, l.agent);
-          const mid = o.machineId || project.machineId;
+          // several parts: the lane's own placement, else its group's; the machine follows it
+          const grouped = !!l.group && groupName.has(l.group);
+          const ownPlace = placed.lanes[l.key];
+          const effPlace = ownPlace || (grouped ? placed.groups[l.group!] : '') || '';
+          const mid = multi ? (effPlace ? machineOfPlace(project, placeFromValue(effPlace)) : project.machineId) : o.machineId || project.machineId;
           const profs = profiles.filter((p) => p.machineId === mid && p.agent === eff);
           const effAgent = ma.agents.find((a) => a.id === eff);
           const provs = providers.filter((p) => compatible(effAgent, p));
@@ -648,13 +757,30 @@ function LaneInspector({
                 <option value="">Default ({nameOf(defaultFor(l.role, l.agent))})</option>
                 {agentOptions(ma.agents.filter((a) => a.available !== false))}
               </select>
-              <select className="control control-sm lane-select" aria-label={`Machine for lane ${l.key}`} value={mid} onChange={(e) => setLane(l.key, { machineId: e.target.value === project.machineId ? undefined : e.target.value, profileId: undefined, providerId: undefined })}>
-                {machines.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
+              {multi ? (
+                <select
+                  className="control control-sm lane-select lane-place"
+                  aria-label={`Place lane ${l.key} in`}
+                  aria-invalid={ownPlace === '' ? true : undefined}
+                  title={savedName(l.key) ? `Saved in “${savedName(l.key)}”, which this project does not have` : grouped ? 'As its group, or its own place' : 'Root (all parts) or a part'}
+                  value={grouped ? (ownPlace ?? '@group') : (ownPlace ?? '')}
+                  onChange={(e) => {
+                    setLanePlace(l.key, e.target.value === '@group' ? undefined : e.target.value);
+                    setLane(l.key, { profileId: undefined, providerId: undefined });
+                  }}
+                >
+                  {grouped && <option value="@group">As the group ({groupName.get(l.group!)})</option>}
+                  {placeOptions(ownPlace === '' ? `Pick (was ${savedName(l.key) ?? 'another part'})` : null)}
+                </select>
+              ) : (
+                <select className="control control-sm lane-select" aria-label={`Machine for lane ${l.key}`} value={mid} onChange={(e) => setLane(l.key, { machineId: e.target.value === project.machineId ? undefined : e.target.value, profileId: undefined, providerId: undefined })}>
+                  {machines.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              )}
               {profs.length + provs.length > 0 && (
                 <select
                   className="control control-sm lane-select"

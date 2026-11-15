@@ -1,5 +1,6 @@
 // Handoff (docs/API-orchestration.md §9, D18): continue a console's task in a fresh console
-// of another agent — on any machine (a NextBoard extension). The hub collects the
+// of another agent — on any machine (a NextBoard extension). In a project of several parts it
+// goes where the source works (its root or part) unless another place is picked. The hub collects the
 // transcript, writes a brief, starts the new console next to the source and delivers it.
 
 import { orchError } from '../actions';
@@ -14,7 +15,10 @@ import { Field, SelectField } from '../../components/form';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
-import { useMachines, useProfiles, useSession } from '../../store';
+import { useMachines, useProfiles, useProject, useSession } from '../../store';
+import { normalPlacement, placementOfSession } from '../../lib/parts';
+import { isMultiPart, machineOfPlace, orchPlace, placeFromValue, placeValue } from '../../lib/placement';
+import { OTHER_VALUE, PlacePicker } from '../../board/PlacePicker';
 import { AccountOptions, splitAccount } from '../../providers/AccountOptions';
 import { compatible, useProviders } from '../../providers/providers';
 import { orchApi } from '../api';
@@ -30,11 +34,21 @@ const STEPS: { id: string; label: string }[] = [
 
 export default function HandoffDialog({ sessionId, workspaceId, projectId, onClose }: { sessionId: string; workspaceId: string; projectId: string; onClose: () => void }) {
   const source = useSession(sessionId);
+  const project = useProject(projectId);
   const machines = useMachines();
   const profiles = useProfiles();
   const providers = useProviders();
   const settings = useEffectiveSettings();
-  const [machineId, setMachineId] = useState(source?.machineId ?? 'local');
+  const [chosenMachine, setMachineId] = useState(source?.machineId ?? 'local');
+  // a project of several parts: the next console goes where the source works (its root or part),
+  // or anywhere picked; "Other…" keeps today's machine choice (v0.9.0-beta.2)
+  const multi = !!project && isMultiPart(project);
+  const [placeVal, setPlaceVal] = useState(() => {
+    const own = project && source ? placementOfSession(source, project) : null;
+    return own ? placeValue(own) : OTHER_VALUE;
+  });
+  const place = multi && project && placeVal !== OTHER_VALUE ? normalPlacement(project, placeFromValue(placeVal)) : null;
+  const machineId = place && project ? machineOfPlace(project, place) : chosenMachine;
   const ma = useMachineAgents(machineId);
   const options = useMemo(() => ma.agents.filter((a) => a.kind === 'agent' && a.available !== false).sort(byPriority), [ma.agents]);
   const [agent, setAgent] = useState('');
@@ -58,7 +72,8 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
     try {
       const r = await orchApi.handoff(sessionId, {
         agent: chosen,
-        machineId: machineId !== source?.machineId ? machineId : undefined,
+        ...(place ? orchPlace(place) : {}),
+        machineId: !place && machineId !== source?.machineId ? machineId : undefined,
         ...splitAccount(account),
         workspaceId,
         note: note.trim() || undefined,
@@ -114,14 +129,17 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
     >
       {!h ? (
         <form id="handoff-form" className="form" onSubmit={submit}>
-          <SelectField label="Machine" value={machineId} onChange={(e) => setMachineId(e.target.value)} hint="Another machine works too: the brief travels with the task.">
-            {machines.map((m) => (
-              <option key={m.id} value={m.id} disabled={!machineReady(m)}>
-                {m.name}
-                {machineReady(m) ? '' : ' (offline)'}
-              </option>
-            ))}
-          </SelectField>
+          {multi && project && <PlacePicker project={project} value={placeVal} onChange={setPlaceVal} other size="md" />}
+          {!place && (
+            <SelectField label="Machine" value={machineId} onChange={(e) => setMachineId(e.target.value)} hint="Another machine works too: the brief travels with the task.">
+              {machines.map((m) => (
+                <option key={m.id} value={m.id} disabled={!machineReady(m)}>
+                  {m.name}
+                  {machineReady(m) ? '' : ' (offline)'}
+                </option>
+              ))}
+            </SelectField>
+          )}
           <SelectField label="Continue with" value={chosen} onChange={(e) => setAgent(e.target.value)} error={!options.length && ma.ready ? 'No agent is installed on that machine.' : undefined}>
             {options.map((a) => (
               <option key={a.id} value={a.id}>

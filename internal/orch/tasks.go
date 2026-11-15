@@ -8,6 +8,7 @@ import (
 
 	"github.com/azamrizki/nextboard/internal/auth"
 	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
 )
 
@@ -58,7 +59,8 @@ type TaskEdit struct {
 	Priority string `json:"priority,omitempty"`
 	Due      string `json:"due,omitempty"`
 	Done     *bool  `json:"done,omitempty"`
-	// Part: the part of the project the task is about (ROADMAP #49); handed out to its consoles.
+	// Part: the part of the project the task is about (ROADMAP #49), by name or id; handed out
+	// to its consoles, else to a console at the root. The card keeps its name and its id.
 	Part string `json:"part,omitempty"`
 }
 
@@ -403,20 +405,25 @@ func (s *Service) runTasks(wid string, t *taskTile) {
 			continue
 		}
 		pick := -1
-		want := strings.TrimPrefix(taskStr(e.m, "assignee"), "@")
-		// a task about one part goes to a console of that part
-		wantPart := taskStr(e.m, "part")
-		for i, in := range free {
-			if want != "" && !strings.EqualFold(in.Handle, want) {
-				continue
-			}
-			if want == "" && wantPart != "" {
-				if pt, ok := proj.Part(in.PartID); !ok || (!strings.EqualFold(pt.Name, wantPart) && pt.ID != wantPart) {
-					continue
+		find := func(fits func(session.Info) bool) {
+			for i, in := range free {
+				if pick < 0 && fits(in) {
+					pick = i
 				}
 			}
-			pick = i
-			break
+		}
+		// a task about one part goes to a console of that part, else to one at the root, which
+		// reaches every part; a part the project no longer has goes to nobody
+		pt, inPart, partGone := taskPart(proj, e.m)
+		switch want := strings.TrimPrefix(taskStr(e.m, "assignee"), "@"); {
+		case want != "":
+			find(func(in session.Info) bool { return strings.EqualFold(in.Handle, want) })
+		case partGone:
+		case inPart:
+			find(func(in session.Info) bool { return in.PartID == pt.ID })
+			find(func(in session.Info) bool { return in.Root })
+		default:
+			find(func(session.Info) bool { return true })
 		}
 		if pick < 0 {
 			continue
@@ -431,6 +438,22 @@ func (s *Service) runTasks(wid string, t *taskTile) {
 		o := s.sendOrder(c, []string{in.ID}, text, sourceTask, 0)
 		s.linkTask(wid, t.node.ID, taskStr(e.m, "id"), o)
 	}
+}
+
+// taskPart is the part a task card is about: by its partId, else its part name (cards from
+// before ids, or the planner's word). gone: the card names a part the project does not have.
+func taskPart(proj project.Project, card map[string]any) (pt project.Part, ok, gone bool) {
+	if pt, ok := proj.PartByID(taskStr(card, "partId")); ok {
+		return pt, true, false
+	}
+	name := taskStr(card, "part")
+	if strings.TrimSpace(name) == "" {
+		return project.Part{}, false, false
+	}
+	if pt, ok := proj.PartNamed(name); ok {
+		return pt, true, false
+	}
+	return project.Part{}, false, true
 }
 
 // linkTask makes a card the task of an order that was just sent. The board is read
@@ -584,7 +607,16 @@ func (s *Service) applyTaskEdit(c *execCtx, st Step) error {
 		}
 	}
 	set("assignee", strings.TrimPrefix(edit.Assignee, "@"))
-	set("part", edit.Part)
+	if edit.Part != "" {
+		// its name to show, and its id, which a rename of the part does not change
+		card["part"] = edit.Part
+		delete(card, "partId")
+		if _, proj, ok := s.hub.Workspace(wid); ok {
+			if pt, ok := proj.PartNamed(edit.Part); ok {
+				card["part"], card["partId"] = pt.Name, pt.ID
+			}
+		}
+	}
 	if edit.Done != nil {
 		card["done"] = *edit.Done
 	}

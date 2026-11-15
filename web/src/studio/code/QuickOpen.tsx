@@ -1,7 +1,8 @@
 // Go to file (Ctrl+P) and the command palette (Ctrl+Shift+P or F1), one input as in VS
 // Code: no prefix finds files with fuzzy matching and shows recent ones first, ">" runs
 // commands, ":" goes to a line, "@" lists the file's symbols, "#" searches symbols across
-// the project. "name.go:12" opens a file at a line. Ctrl+Enter opens to the side.
+// the project. "name.go:12" opens a file at a line. Ctrl+Enter opens to the side. A Root card
+// lists every part's files as "admin/src/x.ts", so typing a part's name narrows to it.
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -9,6 +10,8 @@ import { errorMessage } from '../../api';
 import { Icon, type IconName } from '../../components/Icon';
 import { fuzzyMatch, fuzzyTop } from './fuzzy';
 import { FileIcon } from './Explorer';
+import { fileLabel } from './partGroups';
+import { asFileKey } from './paths';
 import { nameOf, type Workspace } from './workspace';
 
 export interface Command {
@@ -67,7 +70,7 @@ export function QuickOpen({ ws, initial, commands, pick, onClose }: Props) {
   const [active, setActive] = useState(0);
   const [files, setFiles] = useState<string[] | null>(null);
   const [filesNote, setFilesNote] = useState('');
-  const [symbols, setSymbols] = useState<Awaited<ReturnType<Workspace['lsp']['workspaceSymbols']>>>([]);
+  const [symbols, setSymbols] = useState<Awaited<ReturnType<Workspace['workspaceSymbols']>>>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const prevFocus = useRef(document.activeElement as HTMLElement | null);
@@ -76,15 +79,13 @@ export function QuickOpen({ ws, initial, commands, pick, onClose }: Props) {
 
   useEffect(() => {
     if (pick) return;
-    ws.fileList()
-      .then((l) => {
-        setFiles(l.items ?? []);
-        if (l.truncated) setFilesNote('The list is cut short in this very large project.');
-      })
-      .catch((err) => {
-        setFiles([]);
-        setFilesNote(errorMessage(err));
-      });
+    // every part's list at once; a part that cannot answer says so, the others still list
+    void ws.fileLists().then((lists) => {
+      const multi = ws.paths.multi;
+      setFiles(lists.flatMap(({ part, list }) => (list.items ?? []).map((rel) => fileLabel(multi, part.name, rel))));
+      const notes = lists.flatMap(({ part, list, error }) => (error !== undefined ? [multi ? `${part.name}: ${errorMessage(error)}` : errorMessage(error)] : list.truncated ? [multi ? `The list of ${part.name} is cut short: it is very large.` : 'The list is cut short in this very large project.'] : []));
+      setFilesNote(notes.join(' '));
+    });
   }, [ws, pick]);
 
   useEffect(() => {
@@ -95,7 +96,7 @@ export function QuickOpen({ ws, initial, commands, pick, onClose }: Props) {
       return;
     }
     const t = window.setTimeout(() => {
-      void ws.lsp.workspaceSymbols(q).then(setSymbols);
+      void ws.workspaceSymbols(q).then(setSymbols);
     }, 200);
     return () => window.clearTimeout(t);
   }, [value, ws]);
@@ -151,7 +152,7 @@ export function QuickOpen({ ws, initial, commands, pick, onClose }: Props) {
       return symbols.map((s) => ({
         key: `${s.path}:${s.line}:${s.name}`,
         label: s.name,
-        detail: `${s.detail ? `${s.detail} · ` : ''}${ws.rel(s.path)}`,
+        detail: `${s.detail ? `${s.detail} · ` : ''}${ws.relLabel(s.path)}`,
         icon: 'braces' as IconName,
         run: (side: boolean) => ws.open(s.path, { line: s.line, col: s.col, side, source: true }),
       }));
@@ -168,11 +169,18 @@ export function QuickOpen({ ws, initial, commands, pick, onClose }: Props) {
         label: highlight(rel.slice(base), positions.filter((p) => p >= base).map((p) => p - base)),
         detail: base ? highlight(rel.slice(0, base - 1), positions.filter((p) => p < base - 1)) : undefined,
         file: nameOf(rel),
-        run: (side: boolean) => ws.open(ws.abs(rel), { pin: true, side, line, col, source: !!line }),
+        // "admin/src/x.ts" in a Root card, "src/x.ts" in a part: the card reads it back
+        run: (side: boolean) => {
+          const k = ws.resolve(rel);
+          if (k) ws.open(k, { pin: true, side, line, col, source: !!line });
+        },
       };
     };
     if (!term) {
-      const recent = ws.recent.filter((p) => ws.inside(p)).map((p) => ws.rel(p));
+      const recent = ws.recent.flatMap((p) => {
+        const k = asFileKey(p);
+        return k && ws.paths.mountOf(k) ? [ws.relLabel(k)] : [];
+      });
       const seen = new Set(recent);
       return [...recent, ...list.filter((r) => !seen.has(r)).slice(0, 50)].slice(0, 60).map((r) => fileItem(r));
     }
@@ -254,7 +262,7 @@ export function QuickOpen({ ws, initial, commands, pick, onClose }: Props) {
             </div>
           ))}
           {!items.length && (
-            <p className="wb-palette-msg">{!pick && !value.startsWith('>') && !value.startsWith('#') && files === null ? 'Listing the project’s files…' : value.startsWith('#') && !ws.lsp.servers.some((s) => s.available) ? 'Symbols across the project need a language server.' : 'Nothing matches.'}</p>
+            <p className="wb-palette-msg">{!pick && !value.startsWith('>') && !value.startsWith('#') && files === null ? 'Listing the project’s files…' : value.startsWith('#') && !ws.parts.some((p) => p.lsp.servers.some((s) => s.available)) ? 'Symbols across the project need a language server.' : 'Nothing matches.'}</p>
           )}
           {filesNote && !value.startsWith('>') && <p className="wb-palette-msg">{filesNote}</p>}
         </div>

@@ -107,6 +107,10 @@ func (s *Server) orchErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "code": "place_unmatched", "unmatched": pu.Unmatched})
 	case errors.Is(err, project.ErrBadPlace):
 		writeErrCode(w, http.StatusBadRequest, "bad_placement", err.Error())
+	case errors.Is(err, project.ErrPartNotFound):
+		writeErrCode(w, http.StatusNotFound, "part_not_found", err.Error())
+	case errors.Is(err, errPartMachine), errors.Is(err, errRootUnavailable):
+		placeErr(w, err) // from placeSession: part_machine, root_unavailable
 	case errors.Is(err, orch.ErrEmptyText), errors.Is(err, delivery.ErrEmptyText):
 		writeErrCode(w, http.StatusBadRequest, "empty_text", err.Error())
 	case errors.Is(err, orch.ErrCommandTooLong), errors.Is(err, delivery.ErrTextTooLong):
@@ -952,7 +956,7 @@ func (s *Server) handleLayoutCreate(w http.ResponseWriter, r *http.Request, p *p
 	if !decode(w, r, &req) {
 		return
 	}
-	ws, _, ok := s.projects.Workspace(req.WorkspaceID)
+	ws, proj, ok := s.projects.Workspace(req.WorkspaceID)
 	if !ok {
 		s.orchErr(w, orch.ErrWorkspaceNotFound)
 		return
@@ -966,7 +970,7 @@ func (s *Server) handleLayoutCreate(w http.ResponseWriter, r *http.Request, p *p
 	for _, in := range s.sessions.List() {
 		sessions[in.ID] = in
 	}
-	l := orch.LayoutFromBoard(b, req.NodeIDs, sessions)
+	l := orch.LayoutFromBoard(b, req.NodeIDs, sessions, proj)
 	l.Name = req.Name
 	saved, err := s.orch.Layouts.Add(l, time.Now())
 	if err != nil {

@@ -10,11 +10,13 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Icon } from '../../components/Icon';
 import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
-import type { TreeEntry } from '../types';
-import { fileClip } from './fileClip';
+import { useMachines } from '../../store';
+import { fileClip, type FileClip } from './fileClip';
 import { iconSrc, useIconTheme } from './iconTheme';
+import { isPartRoot } from './partGroups';
+import { asFileKey, cleanAbs, fileKey, isRootKey, joinKey, keyUnder, LOCAL_MACHINE, parentKey, splitKey, type FileKey } from './paths';
 import { useWs } from './useWs';
-import { dirOf, extOf, nameOf, type Workspace } from './workspace';
+import { extOf, nameOf, type ViewTreeEntry, type Workspace } from './workspace';
 
 const EXT_TONE: Record<string, string> = {};
 const tone = (color: string, exts: string[]) => exts.forEach((e) => (EXT_TONE[e] = color));
@@ -48,11 +50,17 @@ interface Row {
   kind: 'entry' | 'input' | 'msg';
   key: string;
   depth: number;
-  path: string;
-  entry?: TreeEntry;
+  /** The row's file key (in a Root card the top rows are the parts' folders). */
+  path: FileKey;
+  entry?: ViewTreeEntry;
   msg?: string;
   error?: boolean;
 }
+
+/** The key of what Copy or Cut put aside (it keeps the machine and the real path). */
+const clipKey = (c: FileClip): FileKey | null => (c.path.startsWith('//') ? asFileKey(c.path) : cleanAbs(c.path) ? fileKey(c.machineId || LOCAL_MACHINE, c.path) : null);
+
+const ROOT_FIRST = 'Pick a part’s folder first: the root of the project is a view of its parts.';
 
 function InlineInput({ ws, placeholder }: { ws: Workspace; placeholder: string }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -97,19 +105,23 @@ function InlineInput({ ws, placeholder }: { ws: Workspace; placeholder: string }
 
 export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Props) {
   useWs(ws);
-  const [menu, setMenu] = useState<{ x: number; y: number; path: string; entry: TreeEntry | null } | null>(null);
-  const [trash, setTrash] = useState<string | null>(null);
+  const machines = useMachines();
+  const [menu, setMenu] = useState<{ x: number; y: number; path: FileKey; entry: ViewTreeEntry | null } | null>(null);
+  const [trash, setTrash] = useState<FileKey | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const clip = useSyncExternalStore(fileClip.subscribe, fileClip.get);
+  const clipped = clip ? clipKey(clip) : null;
+  const multi = ws.paths.multi;
+  const machineName = (id: string) => (id === LOCAL_MACHINE || !id ? 'This PC' : (machines.find((m) => m.id === id)?.name ?? id));
 
   const rows = useMemo(() => {
     const out: Row[] = [];
-    const inputRow = (dir: string, depth: number) => {
+    const inputRow = (dir: FileKey, depth: number) => {
       const inp = ws.input;
       if (inp && inp.kind !== 'rename' && inp.dir === dir) out.push({ kind: 'input', key: `input:${dir}`, depth, path: dir });
     };
-    const walk = (dir: string, depth: number) => {
+    const walk = (dir: FileKey, depth: number) => {
       inputRow(dir, depth);
       const slot = ws.items.get(dir);
       if (!slot || slot === 'loading') {
@@ -122,7 +134,8 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
       }
       for (const e of slot) {
         if (e.hidden && !ws.showExcluded) continue;
-        const p = dir === '/' ? `/${e.name}` : `${dir}/${e.name}`;
+        // a Root card's top rows are the parts, with their folder's key
+        const p = e.key ?? joinKey(dir, e.name);
         if (ws.input?.kind === 'rename' && ws.input.path === p) {
           out.push({ kind: 'input', key: `input:${p}`, depth, path: p, entry: e });
         } else {
@@ -133,7 +146,7 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
       if (ws.truncated.has(dir)) out.push({ kind: 'msg', key: `more:${dir}`, depth, path: dir, msg: 'This folder has more entries than can be listed.' });
       if (!slot.length && depth === 0 && !ws.input) out.push({ kind: 'msg', key: 'empty', depth, path: dir, msg: 'This folder is empty.' });
     };
-    walk(ws.root, 0);
+    walk(ws.rootKey, 0);
     return out;
     // the workspace mutates in place: its version is the dependency
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -143,23 +156,28 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
     if (ws.selected) listRef.current?.querySelector('.wb-row.is-selected')?.scrollIntoView({ block: 'nearest' });
   }, [ws.revealTick, ws.selected]);
 
-  /** New items land in the selected folder, or next to the selected file. */
-  const targetDir = () => {
-    const sel = ws.selected;
-    if (!sel || !ws.inside(sel)) return ws.root;
-    return ws.items.has(sel) || rows.some((r) => r.path === sel && r.entry?.dir) ? sel : dirOf(sel);
+  /** New items land in the selected folder, or next to the selected file (in a Root card, nothing lands at the root itself). */
+  const targetDir = (): FileKey => {
+    const sel = ws.selected ? asFileKey(ws.selected) : null;
+    if (!sel || isRootKey(sel) || !ws.paths.mountOf(sel)) return ws.rootKey;
+    return ws.items.has(sel) || rows.some((r) => r.path === sel && r.entry?.dir) ? sel : (parentKey(sel) ?? ws.rootKey);
   };
 
   const failed = (err: unknown) => toast.error(err instanceof Error ? err.message : String(err));
 
   /** The tree's path also goes on the clipboard: pasted into a console or an order, it says which file. */
-  const putAside = (path: string, cut: boolean) => {
-    fileClip.set({ machineId: ws.mid, path, cut });
-    void navigator.clipboard?.writeText(path).catch(() => undefined);
+  const putAside = (path: FileKey, cut: boolean) => {
+    const { machineId, abs } = splitKey(path);
+    fileClip.set({ machineId, path: abs, cut });
+    void navigator.clipboard?.writeText(abs).catch(() => undefined);
   };
 
   /** From the menu the browser only hands over pictures, and only on https. */
-  const pasteFromMenu = async (dir: string) => {
+  const pasteFromMenu = async (dir: FileKey) => {
+    if (isRootKey(dir)) {
+      toast.info(ROOT_FIRST);
+      return;
+    }
     if (fileClip.get()) return ws.pasteClip(dir);
     const items = await navigator.clipboard?.read?.().catch(() => null);
     const files: File[] = [];
@@ -178,16 +196,22 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
   useEffect(() => {
     const focused = () => document.activeElement === listRef.current;
     const onCopy = (e: ClipboardEvent) => {
-      const sel = ws.selected;
-      if (!focused() || !sel || !ws.inside(sel) || sel === ws.root) return;
+      const sel = ws.selected ? asFileKey(ws.selected) : null;
+      // a part's own folder stays where it is
+      if (!focused() || !sel || isPartRoot(ws.paths, sel) || !ws.paths.mountOf(sel)) return;
       e.preventDefault();
-      e.clipboardData?.setData('text/plain', sel);
-      fileClip.set({ machineId: ws.mid, path: sel, cut: e.type === 'cut' });
+      const { machineId, abs } = splitKey(sel);
+      e.clipboardData?.setData('text/plain', abs);
+      fileClip.set({ machineId, path: abs, cut: e.type === 'cut' });
     };
     const onPaste = (e: ClipboardEvent) => {
       if (!focused()) return;
       e.preventDefault();
       const dir = target.current();
+      if (isRootKey(dir)) {
+        toast.info(ROOT_FIRST);
+        return;
+      }
       const files = clipboardFiles(e.clipboardData);
       void (files.length ? ws.pasteFiles(dir, files) : ws.pasteClip(dir)).catch(failed);
     };
@@ -206,7 +230,9 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
   useEffect(() => {
     const last = lastClip.current;
     lastClip.current = clip;
-    if (last?.cut && !clip && ws.items.has(dirOf(last.path))) void ws.loadDir(dirOf(last.path));
+    const from = last?.cut && !clip ? clipKey(last) : null;
+    const dir = from ? parentKey(from) : null;
+    if (dir && ws.items.has(dir)) void ws.loadDir(dir);
   }, [clip, ws]);
 
   const openEntry = (r: Row, pin: boolean) => {
@@ -217,45 +243,52 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
     else ws.open(r.path, { pin, keepFocus: !pin });
   };
 
-  const items = (path: string, e: TreeEntry | null): MenuEntry[] => {
-    const dir = !e || e.dir ? path : dirOf(path);
+  const items = (path: FileKey, e: ViewTreeEntry | null): MenuEntry[] => {
+    const dir = !e || e.dir ? path : (parentKey(path) ?? ws.rootKey);
+    const atRoot = isRootKey(dir);
+    // a part's own folder (a Root card's top row): no cut, rename or trash from here
+    const own = isPartRoot(ws.paths, path);
     const list: MenuEntry[] = [];
     if (e && !e.dir) {
       list.push(
         { label: 'Open', icon: 'file', shortcut: 'Enter', onSelect: () => ws.open(path, { pin: true }) },
         { label: 'Open to the Side', icon: 'layout', onSelect: () => ws.open(path, { pin: true, side: true }) },
-        { label: 'Compare with HEAD', icon: 'branch', disabled: !ws.gitMark(path), onSelect: () => ws.openDiff(path, 'head') },
+        { label: 'Compare with HEAD', icon: 'branch', disabled: !ws.partOf(path)?.gitMark(path), onSelect: () => ws.openDiff(path, 'head') },
         { label: 'Local History', icon: 'history', onSelect: () => ws.openView({ kind: 'history', path }) },
         'sep',
       );
     }
     list.push(
-      { label: 'New File…', icon: 'file', onSelect: () => ws.startInput('file', dir) },
-      { label: 'New Folder…', icon: 'folder', onSelect: () => ws.startInput('folder', dir) },
-      { label: 'Open in Terminal', icon: 'terminal', onSelect: () => onTerminal(dir) },
+      { label: 'New File…', icon: 'file', disabled: atRoot, title: atRoot ? ROOT_FIRST : undefined, onSelect: () => ws.startInput('file', dir) },
+      { label: 'New Folder…', icon: 'folder', disabled: atRoot, title: atRoot ? ROOT_FIRST : undefined, onSelect: () => ws.startInput('folder', dir) },
+      // at the root: a terminal at the project root, which reaches every part
+      { label: atRoot ? 'Open in Terminal at the Root' : 'Open in Terminal', icon: 'terminal', onSelect: () => onTerminal(dir) },
       'sep',
     );
-    if (e) {
+    if (e && !own) {
       list.push(
         { label: 'Cut', icon: 'scissors', shortcut: 'Ctrl+X', onSelect: () => putAside(path, true) },
         { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onSelect: () => putAside(path, false) },
       );
     }
-    list.push({ label: 'Paste', icon: 'clipboard', shortcut: 'Ctrl+V', onSelect: () => void pasteFromMenu(dir).catch(failed) });
+    list.push({ label: 'Paste', icon: 'clipboard', shortcut: 'Ctrl+V', disabled: atRoot, onSelect: () => void pasteFromMenu(dir).catch(failed) });
     if (e) {
       list.push(
         'sep',
-        { label: 'Copy Path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(path).then(() => toast.success('Path copied.')) },
-        { label: 'Copy Relative Path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(ws.rel(path)).then(() => toast.success('Path copied.')) },
+        // the real path on its machine; the relative one as the card shows it ("admin/src/x.ts" in a Root card)
+        { label: 'Copy Path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(splitKey(path).abs).then(() => toast.success('Path copied.')) },
+        { label: 'Copy Relative Path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(ws.relLabel(path)).then(() => toast.success('Path copied.')) },
         { label: 'Ask an Agent About This', icon: 'sparkle', onSelect: () => onAsk(path) },
         e.dir ? { label: 'Add Folder to Board', icon: 'plus', onSelect: () => onAddFolder(path) } : { label: 'Add to Board', icon: 'plus', disabled: e.binary, onSelect: () => onAddFile(path) },
       );
       if (!e.dir) list.push({ label: 'Duplicate', icon: 'duplicate', disabled: e.binary, onSelect: () => void ws.duplicate(path).catch((err) => toast.error(String(err))) });
-      list.push(
-        'sep',
-        { label: 'Rename…', icon: 'pencil', shortcut: 'F2', onSelect: () => ws.startInput('rename', dirOf(path), path) },
-        { label: 'Move to Trash…', icon: 'trash', danger: true, shortcut: 'Del', onSelect: () => setTrash(path) },
-      );
+      if (!own) {
+        list.push(
+          'sep',
+          { label: 'Rename…', icon: 'pencil', shortcut: 'F2', onSelect: () => ws.startInput('rename', parentKey(path) ?? ws.rootKey, path) },
+          { label: 'Move to Trash…', icon: 'trash', danger: true, shortcut: 'Del', onSelect: () => setTrash(path) },
+        );
+      }
     }
     return list;
   };
@@ -292,7 +325,7 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
         break;
       case 'ArrowLeft':
         if (cur?.entry?.dir && ws.expanded.has(cur.path)) ws.toggleDir(cur.path, false);
-        else if (cur) select(visible.find((r) => r.path === dirOf(cur.path)));
+        else if (cur) select(visible.find((r) => r.path === parentKey(cur.path)));
         break;
       case 'Enter':
         if (cur) openEntry(cur, true);
@@ -301,10 +334,10 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
         if (cur) openEntry(cur, false);
         break;
       case 'F2':
-        if (cur) ws.startInput('rename', dirOf(cur.path), cur.path);
+        if (cur && !isPartRoot(ws.paths, cur.path)) ws.startInput('rename', parentKey(cur.path) ?? ws.rootKey, cur.path);
         break;
       case 'Delete':
-        if (cur) setTrash(cur.path);
+        if (cur && !isPartRoot(ws.paths, cur.path)) setTrash(cur.path);
         break;
       case 'Escape':
         if (!clip?.cut) return;
@@ -330,23 +363,30 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
     e.preventDefault();
   };
 
-  const dropTo = (dir: string, e: DragEvent) => {
+  const dropTo = (dir: FileKey, e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDropOn(null);
-    const from = e.dataTransfer.getData('application/x-nextboard-path');
-    if (!from || from === dir || dirOf(from) === dir || dir.startsWith(`${from}/`)) return;
-    void ws.moveTo(from, `${dir}/${nameOf(from)}`).catch((err) => toast.error(err instanceof Error ? err.message : String(err)));
+    const from = asFileKey(e.dataTransfer.getData('application/x-nextboard-path'));
+    if (!from || isRootKey(from) || isPartRoot(ws.paths, from) || parentKey(from) === dir || keyUnder(dir, from)) return;
+    if (isRootKey(dir)) {
+      toast.info(ROOT_FIRST);
+      return;
+    }
+    void ws.moveTo(from, joinKey(dir, nameOf(from))).catch((err) => toast.error(err instanceof Error ? err.message : String(err)));
   };
+  const atRoot = isRootKey(targetDir());
+  const partHere = !multi && ws.viewKey !== ws.projectId ? ws.parts[0] : null;
 
   return (
     <div className="wb-view">
       <header className="wb-view-head">
-        <h2 className="truncate" title={ws.root}>
+        <h2 className="truncate" title={multi ? 'Every part of the project, each a folder' : splitKey(ws.rootKey).abs}>
           {ws.name}
+          {partHere ? ` · ${partHere.name}` : ''}
         </h2>
-        <Button size="sm" variant="ghost" iconOnly icon="file" aria-label="New file" title="New file" onClick={() => ws.startInput('file', targetDir())} />
-        <Button size="sm" variant="ghost" iconOnly icon="folder" aria-label="New folder" title="New folder" onClick={() => ws.startInput('folder', targetDir())} />
+        <Button size="sm" variant="ghost" iconOnly icon="file" aria-label="New file" title={atRoot ? ROOT_FIRST : 'New file'} disabled={atRoot} onClick={() => ws.startInput('file', targetDir())} />
+        <Button size="sm" variant="ghost" iconOnly icon="folder" aria-label="New folder" title={atRoot ? ROOT_FIRST : 'New folder'} disabled={atRoot} onClick={() => ws.startInput('folder', targetDir())} />
         <Button size="sm" variant="ghost" iconOnly icon="refresh" aria-label="Refresh" title="Refresh" onClick={() => ws.refreshTree()} />
         <Button size="sm" variant="ghost" iconOnly icon="chevronUp" aria-label="Collapse folders" title="Collapse folders" onClick={() => ws.collapseAll()} />
         <Button
@@ -365,7 +405,7 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
       </header>
       <div
         ref={listRef}
-        className={`wb-tree nowheel ${dropOn === ws.root ? 'is-drop' : ''}`}
+        className={`wb-tree nowheel ${dropOn === ws.rootKey ? 'is-drop' : ''}`}
         role="tree"
         aria-label="Project files"
         tabIndex={0}
@@ -373,16 +413,17 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
         onContextMenu={(e) => {
           if (e.target !== e.currentTarget) return;
           e.preventDefault();
-          setMenu({ x: e.clientX, y: e.clientY, path: ws.root, entry: null });
+          setMenu({ x: e.clientX, y: e.clientY, path: ws.rootKey, entry: null });
         }}
         onDragOver={(e) => {
           e.preventDefault();
-          setDropOn(ws.root);
+          // nothing lands at a Root card's root
+          if (!multi) setDropOn(ws.rootKey);
         }}
         onDragLeave={(e) => {
           if (e.target === e.currentTarget) setDropOn(null);
         }}
-        onDrop={(e) => dropTo(ws.root, e)}
+        onDrop={(e) => dropTo(ws.rootKey, e)}
       >
         {rows.map((r) => {
           const style = { '--depth': r.depth } as CSSProperties;
@@ -405,11 +446,16 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
           }
           const e = r.entry!;
           const open = e.dir && ws.expanded.has(r.path);
-          const mark = e.dir ? undefined : ws.gitMark(r.path);
-          const dirTone = e.dir ? ws.gitDirTone(r.path) : undefined;
-          const dim = ws.ignored.has(r.path) || e.hidden;
+          const part = ws.mountedPartOf(r.path);
+          const mark = e.dir ? undefined : part?.gitMark(r.path);
+          const dirTone = e.dir ? part?.gitDirTone(r.path) : undefined;
+          const dim = !!part?.ignored.has(r.path) || e.hidden;
           const selected = ws.selected === r.path;
-          const cut = clip?.cut && clip.machineId === ws.mid && (r.path === clip.path || r.path.startsWith(`${clip.path}/`));
+          const cut = clip?.cut && !!clipped && keyUnder(r.path, clipped);
+          const review = e.dir ? undefined : part?.reviewMark(r.path);
+          // a Root card's part row: its machine and folder
+          const top = e.part ? part : null;
+          const remote = !!top && top.machineId !== LOCAL_MACHINE;
           return (
             <div
               key={r.key}
@@ -419,8 +465,8 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
               aria-selected={selected}
               className={`wb-row ${selected ? 'is-selected' : ''} ${dim ? 'is-dim' : ''} ${cut ? 'is-cut' : ''} ${mark ? `git-${mark.tone}` : ''} ${dirTone ? `git-${dirTone}` : ''} ${dropOn === r.path ? 'is-drop' : ''}`}
               style={style}
-              title={r.path}
-              draggable
+              title={top ? `${top.name}: ${top.root} on ${machineName(top.machineId)}` : ws.label(r.path)}
+              draggable={!top}
               onDragStart={(ev) => {
                 ev.dataTransfer.setData('application/x-nextboard-path', r.path);
                 ev.dataTransfer.effectAllowed = 'move';
@@ -431,7 +477,7 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
                 ev.stopPropagation();
                 setDropOn(r.path);
               }}
-              onDrop={(ev) => dropTo(e.dir ? r.path : dirOf(r.path), ev)}
+              onDrop={(ev) => dropTo(e.dir ? r.path : (parentKey(r.path) ?? ws.rootKey), ev)}
               onClick={() => openEntry(r, false)}
               onDoubleClick={() => !e.dir && ws.open(r.path, { pin: true })}
               onContextMenu={(ev) => {
@@ -445,7 +491,8 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
               {e.dir ? <Icon name={open ? 'chevronDown' : 'chevronRight'} className="wb-chev" /> : <span className="wb-chev" aria-hidden="true" />}
               <FileIcon name={e.name} dir={e.dir} open={open} />
               <span className="wb-row-name truncate">{e.name}</span>
-              {!e.dir && ws.reviewMark(r.path) && <span className="wb-rv-mark" title={`Changed by ${ws.reviewMark(r.path)!.join(', ')}. Check it in Review.`} aria-label={`Changed by ${ws.reviewMark(r.path)!.join(', ')}`} />}
+              {remote && <span className="wb-part-machine truncate">{machineName(top.machineId)}</span>}
+              {review && <span className="wb-rv-mark" title={`Changed by ${review.join(', ')}. Check it in Review.`} aria-label={`Changed by ${review.join(', ')}`} />}
               {mark && <span className="wb-row-mark">{mark.letter}</span>}
               {dirTone && <span className="wb-row-dot" aria-hidden="true" />}
             </div>

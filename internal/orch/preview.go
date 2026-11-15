@@ -6,17 +6,25 @@ type PreviewOpener interface {
 	OpenPreview(machineID string, port int) (string, error)
 }
 
-// webTileData fills a web tile for "open localhost <port>": the project's
-// machine, the port and — when the hub can open previews — the preview id,
-// so clients load it without creating the preview themselves.
+// webTileData fills a web tile for "open localhost <port>": the machine (the one the step
+// names, else that of the part the command is placed in, else the project's first part), the
+// port and — when the hub can open previews — the preview id, so clients load it without
+// creating the preview themselves.
 func (s *Service) webTileData(c *execCtx, data map[string]any) {
 	port, _ := data["port"].(int)
 	if port <= 0 {
 		return
 	}
-	machineID := "local"
-	if p, ok := s.hub.Project(c.projectID); ok && p.MachineID != "" {
-		machineID = p.MachineID
+	machineID, _ := data["machineId"].(string)
+	if p, ok := s.hub.Project(c.projectID); ok && machineID == "" {
+		if sp, placed, _ := placeIn(p, c.place); placed && sp.part.ID != "" {
+			machineID = sp.part.MachineID
+		} else {
+			machineID = p.DefaultPart().MachineID // compat: no part named
+		}
+	}
+	if machineID == "" {
+		machineID = "local"
 	}
 	data["machineId"] = machineID
 	data["device"], data["zoom"], data["auto"] = "fit", 100, false

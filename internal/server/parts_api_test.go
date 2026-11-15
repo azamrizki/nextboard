@@ -30,14 +30,16 @@ func TestProjectParts(t *testing.T) {
 		t.Fatalf("other project %d %v", st, other)
 	}
 
-	// the project's own folder is the first part
+	// the project's folder is its first part, with a "pt_" id like every part; machineId and path
+	// follow the first part for old clients
 	st, pr := h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "Frontend", "machineId": "local", "path": web + "/./"}, nil)
 	parts, _ := pr["parts"].([]any)
 	if st != 201 || len(parts) != 2 || pr["path"] != api {
 		t.Fatalf("add %d %v", st, pr)
 	}
 	first, front := parts[0].(map[string]any), parts[1].(map[string]any)
-	if first["id"] != "main" || first["path"] != api || front["path"] != web || front["name"] != "Frontend" {
+	firstID, _ := first["id"].(string)
+	if !strings.HasPrefix(firstID, "pt_") || first["path"] != api || front["path"] != web || front["name"] != "Frontend" {
 		t.Fatalf("parts %v", parts)
 	}
 	fid := front["id"].(string)
@@ -53,7 +55,9 @@ func TestProjectParts(t *testing.T) {
 		{map[string]any{"name": "frontend", "path": t.TempDir()}, 409, "name_conflict", false},
 		{map[string]any{"name": "Docs", "path": docs}, 409, "path_in_project", true},
 		{map[string]any{"name": "Far", "machineId": "m_nope", "path": "/srv"}, 404, "", false},
-		{map[string]any{"path": t.TempDir()}, 400, "", false},
+		{map[string]any{"path": t.TempDir()}, 400, "bad_part_name", false},
+		{map[string]any{"name": "a/b", "path": t.TempDir()}, 400, "bad_part_name", false},
+		{map[string]any{"name": "CLAUDE.md", "path": t.TempDir()}, 400, "bad_part_name", false},
 	} {
 		st, b := h.do("POST", "/api/projects/"+pid+"/parts", c.body, nil)
 		if st != c.want || (c.code != "" && b["code"] != c.code) || (c.otherOwner && b["projectId"] != other["id"]) {
@@ -71,7 +75,7 @@ func TestProjectParts(t *testing.T) {
 		t.Fatalf("shell inside part %d part=%v", st, s2["partId"])
 	}
 	st, s3 := h.do("POST", "/api/sessions", map[string]any{"preset": "shell", "workspaceId": wid}, nil)
-	if st != 201 || s3["cwd"] != api || s3["partId"] != "main" {
+	if st != 201 || s3["cwd"] != api || s3["partId"] != firstID {
 		t.Fatalf("shell in the project %d cwd=%v part=%v", st, s3["cwd"], s3["partId"])
 	}
 	if st, b := h.do("POST", "/api/sessions", map[string]any{"preset": "shell", "workspaceId": wid, "partId": "pt_nope"}, nil); st != 404 || b["code"] != "part_not_found" {
@@ -110,11 +114,12 @@ func TestProjectParts(t *testing.T) {
 			t.Fatalf("close %d %v", st, b)
 		}
 	}
-	if st, b := h.do("DELETE", "/api/projects/"+pid+"/parts/main", nil, nil); st != 409 || b["code"] != "main_part" {
-		t.Fatalf("first part %d %v", st, b)
-	}
 	if st, b := h.do("DELETE", "/api/projects/"+pid+"/parts/"+fid, nil, nil); st != 200 || len(b["parts"].([]any)) != 1 {
 		t.Fatalf("delete %d %v", st, b)
+	}
+	// a project keeps one part
+	if st, b := h.do("DELETE", "/api/projects/"+pid+"/parts/"+firstID, nil, nil); st != 409 || b["code"] != "last_part" {
+		t.Fatalf("the last part %d %v", st, b)
 	}
 	if _, err := os.Stat(web); err != nil {
 		t.Fatalf("the folder went: %v", err)
@@ -171,26 +176,29 @@ func TestCreateWithParts(t *testing.T) {
 		t.Fatalf("a refused project was made: %d projects, %d before", n, count)
 	}
 
-	// made: its own folder is the first part, named; the others follow in order
+	// made: its parts in order, each with a "pt_" id
 	st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": api, "name": "Shop", "partName": "Api", "parts": []any{part("Web", "", web+"/./")}}, nil)
 	parts, _ := p["parts"].([]any)
 	if st != 201 || p["name"] != "Shop" || p["path"] != api || len(parts) != 2 {
 		t.Fatalf("made %d %v", st, p)
 	}
 	first, second := parts[0].(map[string]any), parts[1].(map[string]any)
-	if first["id"] != "main" || first["name"] != "Api" || second["name"] != "Web" || second["path"] != web || second["machineId"] != "local" {
+	if !strings.HasPrefix(first["id"].(string), "pt_") || first["name"] != "Api" || second["name"] != "Web" || second["path"] != web || second["machineId"] != "local" {
 		t.Fatalf("parts %v", parts)
 	}
-	// the first part's name alone is enough, and an unnamed one is Main
+	// the first part's name alone is enough
 	solo := t.TempDir()
 	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": solo, "partName": "Backend"}, nil); st != 201 || p["parts"].([]any)[0].(map[string]any)["name"] != "Backend" {
 		t.Fatalf("named first part %d %v", st, p)
 	}
-	// an unnamed part takes its folder's name
+	// an unnamed part takes its folder's name, the first one too; an unsafe name is refused
 	one, two := t.TempDir(), t.TempDir()
 	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": one, "parts": []any{part("", "local", two)}}, nil); st != 201 ||
-		p["parts"].([]any)[0].(map[string]any)["name"] != "Main" || p["parts"].([]any)[1].(map[string]any)["name"] != filepath.Base(two) {
+		p["parts"].([]any)[0].(map[string]any)["name"] != filepath.Base(one) || p["parts"].([]any)[1].(map[string]any)["name"] != filepath.Base(two) {
 		t.Fatalf("unnamed parts %d %v", st, p)
+	}
+	if st, b := h.do("POST", "/api/projects", extra(part("..", "local", web)), nil); st != 400 || b["code"] != "bad_part_name" || b["part"] != float64(1) {
+		t.Fatalf("unsafe part name %d %v", st, b)
 	}
 	// one part whose folder is already a project opens that project, as a plain add does
 	if st, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": taken, "partName": "Backend"}, nil); st != 200 || p["name"] != "Taken" {
@@ -420,7 +428,9 @@ func TestReviewPerPart(t *testing.T) {
 	if got := h.srv.reviewKeyOf(pid, part); got != key {
 		t.Fatalf("key %q", got)
 	}
-	if got := h.srv.reviewKeyOf(pid, ""); got != pid {
+	// every part is keyed <project>~<part>, the first one too; "" is the first in display order
+	firstKey := pid + "~" + p["parts"].([]any)[0].(map[string]any)["id"].(string)
+	if got := h.srv.reviewKeyOf(pid, ""); got != firstKey {
 		t.Fatalf("first part key %q", got)
 	}
 	if got := h.srv.reviewKeyAt(pid, "local", filepath.Join(web, "b.txt")); got != key {
@@ -429,8 +439,11 @@ func TestReviewPerPart(t *testing.T) {
 	if err := h.srv.review.Snapshot(key); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.srv.review.Snapshot(pid); err != nil {
+	if err := h.srv.review.Snapshot(firstKey); err != nil {
 		t.Fatal(err)
+	}
+	if err := h.srv.review.Snapshot(pid); err == nil {
+		t.Fatal("a bare project id is no review key")
 	}
 	rv := h.srv.review
 	rv.SessionChanged(key, "s_web", "@Bayu", "claude", true, true)
@@ -585,9 +598,6 @@ func TestMergeAndSplit(t *testing.T) {
 		t.Fatalf("busy %d %v", st, e)
 	}
 	h.do("DELETE", "/api/sessions/"+sh["id"].(string), nil, nil)
-	if st, e := h.do("POST", "/api/projects/"+aid+"/parts/main/split", nil, nil); st != 409 || e["code"] != "main_part" {
-		t.Fatalf("first part %d %v", st, e)
-	}
 	st, sp := h.do("POST", "/api/projects/"+aid+"/parts/"+pid+"/split", nil, nil)
 	if st != 201 {
 		t.Fatalf("split %d %v", st, sp)
@@ -595,6 +605,13 @@ func TestMergeAndSplit(t *testing.T) {
 	np, from := sp["project"].(map[string]any), sp["from"].(map[string]any)
 	if np["path"] != web || np["name"] != "Shop Web" || len(from["parts"].([]any)) != 1 || len(np["workspaces"].([]any)) != 1 {
 		t.Fatalf("split %v", sp)
+	}
+	// the new project keeps the part, its id too; the last part of a project stays
+	if np["parts"].([]any)[0].(map[string]any)["id"] != pid {
+		t.Fatalf("split part id %v", np["parts"])
+	}
+	if st, e := h.do("POST", "/api/projects/"+aid+"/parts/"+from["parts"].([]any)[0].(map[string]any)["id"].(string)+"/split", nil, nil); st != 409 || e["code"] != "last_part" {
+		t.Fatalf("split the last part %d %v", st, e)
 	}
 }
 
@@ -700,7 +717,7 @@ func TestPartsOnAServer(t *testing.T) {
 		t.Fatalf("project %d %v", st, p)
 	}
 	pid, wid := p["id"].(string), p["workspaces"].([]any)[0].(map[string]any)["id"].(string)
-	if st, b := h.do("PATCH", "/api/projects/"+pid+"/parts/main", map[string]any{"name": "Web"}, nil); st != 200 {
+	if st, b := h.do("PATCH", "/api/projects/"+pid+"/parts/"+p["parts"].([]any)[0].(map[string]any)["id"].(string), map[string]any{"name": "Web"}, nil); st != 200 {
 		t.Fatalf("rename %d %v", st, b)
 	}
 	st, p = h.do("POST", "/api/projects/"+pid+"/parts", map[string]any{"name": "Api", "machineId": mid, "path": api}, nil)

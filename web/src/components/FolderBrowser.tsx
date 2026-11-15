@@ -1,7 +1,7 @@
 // Folder picker backed by GET /api/machines/{id}/ls?path= (read-only `ls` on the machine).
 // With `onChooseFile` it also picks files ("File from project" on the board).
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, errorMessage } from '../api';
 import type { DirListing } from '../lib/types';
 import { Button } from './Button';
@@ -21,9 +21,11 @@ interface FolderBrowserProps {
   title?: string;
   /** Label of the folder button (default "Use this folder"). */
   chooseLabel?: string;
+  /** Above the path bar: the part picker of a project of several parts ("File from project"). */
+  top?: ReactNode;
 }
 
-export function FolderBrowser({ machineId, machineName, initialPath, onChoose, onClose, onChooseFile, title, chooseLabel }: FolderBrowserProps) {
+export function FolderBrowser({ machineId, machineName, initialPath, onChoose, onClose, onChooseFile, title, chooseLabel, top }: FolderBrowserProps) {
   const [listing, setListing] = useState<DirListing | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [pathInput, setPathInput] = useState(initialPath);
@@ -110,6 +112,7 @@ export function FolderBrowser({ machineId, machineName, initialPath, onChoose, o
         </>
       }
     >
+      {top}
       <form className="fb-bar" onSubmit={submitPath} aria-label="Go to path">
         <Button
           iconOnly

@@ -19,6 +19,7 @@ import type { FlowNode } from '../flow';
 import { PRIORITIES, PRIORITY_LABEL, readKanban, type KanbanCard, type KanbanColumn, type Priority } from '../kinds';
 import { TAG_COLORS, TAG_LABELS, type TagColor } from '../palette';
 import { useBoardEnv } from '../ui';
+import { projectParts } from '../../lib/parts';
 import { InlineTitle, TileFrame, TileHead, usePointerDrag } from './common';
 import { taskStateLabel, useTaskLink } from './taskLink';
 
@@ -55,7 +56,9 @@ interface DropTarget {
 
 function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const d = readKanban(data.node);
-  const { ctl } = useBoardEnv();
+  const { ctl, project } = useBoardEnv();
+  // a task's part by its id when the hub wrote one: a renamed part shows its new name
+  const partName = (c: { part?: string; partId?: string }) => (c.partId ? projectParts(project).find((p) => p.id === c.partId)?.name : undefined) ?? c.part;
   const autoRun = data.node.data.autoRun === true;
   const link = useTaskLink(id, autoRun);
   const [editCard, setEditCard] = useState<{ col: string; card: KanbanCard | null } | null>(null);
@@ -392,7 +395,7 @@ function KanbanTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                         <span className="kb-chips">
                           {card.part && (
                             <span className="kb-chip task-part" title="The part of the project it is about">
-                              {card.part}
+                              {partName(card)}
                             </span>
                           )}
                           {card.assignee && <span className="kb-chip task-who">@{card.assignee}</span>}

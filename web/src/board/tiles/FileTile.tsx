@@ -19,6 +19,7 @@ import type { FlowNode } from '../flow';
 import { baseName, dirName, isImagePath, isMarkdownPath, isProbablyText, joinPath, PREVIEW_LINES, readFile, type FileData } from '../kinds';
 import { useHighlighter, useMarkdown } from '../lazy';
 import { useBoardEnv } from '../ui';
+import { partHoldingOn, projectParts } from '../../lib/parts';
 import { TileFrame, TileHead } from './common';
 
 const POLL_MS = 3000;
@@ -49,8 +50,10 @@ function useOnScreen(ref: RefObject<HTMLElement | null>): boolean {
 function FileTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const d = readFile(data.node);
   const name = baseName(d.path) || 'File';
-  const { ctl } = useBoardEnv();
+  const { ctl, project } = useBoardEnv();
   const ref = useRef<HTMLDivElement>(null);
+  // several parts: which part the file is in, by its machine and path (v0.9.0-beta.2)
+  const part = projectParts(project).length > 1 && d.path ? partHoldingOn(project, d.machineId || 'local', d.path) : undefined;
 
   const copyPath = () => {
     void navigator.clipboard?.writeText(d.path).then(
@@ -120,7 +123,18 @@ function FileTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         hint={d.path}
         icon={VIEW_ICON[d.view]}
         title={name}
-        meta={badge && <span className={`badge ${d.view === 'markdown' ? 'badge-success' : ''}`}>{badge}</span>}
+        meta={
+          (badge || part) && (
+            <>
+              {part && (
+                <span className="node-part" title={`In ${part.name} of ${project.name}`}>
+                  {part.name}
+                </span>
+              )}
+              {badge && <span className={`badge ${d.view === 'markdown' ? 'badge-success' : ''}`}>{badge}</span>}
+            </>
+          )
+        }
         actions={
           d.view === 'code' && d.snapshot ? (
             <Button

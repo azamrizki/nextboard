@@ -249,9 +249,78 @@ func (s *Server) sweepRemoteAttachments(machineID string) {
 	}
 }
 
+// orderAttachments gives a console that works on a server the files pasted into an order for
+// it (SPEC "order attachments for a console on a server are sent to that server too"): each file
+// of This PC the text names (<data>/attachments/project-<id>/<name>) is copied into the console's
+// paste folder on that server, and the text names the copy next to the original. A CLI there
+// that cannot read This PC (Codex, OpenCode) reads the copy with the hub's tools; Claude Code
+// still opens the original, an image too. A file that cannot be copied keeps only its own path.
+func (s *Server) orderAttachments(sid, text string) string {
+	if !strings.Contains(text, "/attachments/project-") {
+		return text
+	}
+	sess, ok := s.sessions.Get(sid)
+	if !ok {
+		return text
+	}
+	sp := sess.Spec()
+	target := sp.RemoteMachineID
+	if target == "" {
+		target = sp.MachineID
+	}
+	if target == "" || target == machine.LocalID {
+		return text
+	}
+	h, ok := s.machines.Host(target)
+	if !ok {
+		return text
+	}
+	root := s.st.Path("attachments")
+	re := regexp.MustCompile(regexp.QuoteMeta(root) + `/project-([A-Za-z0-9_-]+)/([^\s/]+)`)
+	ctx, cancel := context.WithTimeout(context.Background(), attachTimeout)
+	defer cancel()
+	dir := ""
+	done := map[string]string{}
+	return re.ReplaceAllStringFunc(text, func(m string) string {
+		if c, ok := done[m]; ok {
+			return c
+		}
+		done[m] = m
+		sub := re.FindStringSubmatch(m)
+		if len(sub) != 3 || sub[2] != attachName(sub[2]) {
+			return m
+		}
+		f, err := os.OpenInRoot(filepath.Join(root, "project-"+sub[1]), sub[2])
+		if err != nil {
+			return m
+		}
+		defer f.Close()
+		if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() || fi.Size() > attachMaxBytes {
+			return m
+		}
+		if dir == "" {
+			if dir, err = s.attachDir(ctx, h, sid); err != nil {
+				log.Printf("attachments for %s on %s: %v", sid, target, err)
+				dir = ""
+				return m
+			}
+		}
+		st, err := h.WriteFrom(ctx, path.Join(dir, sub[2]), f, machine.WriteOptions{Unique: true})
+		if err != nil {
+			log.Printf("attachment for %s on %s: %v", sid, target, err)
+			return m
+		}
+		done[m] = fmt.Sprintf("%s (a copy on %s: %s)", m, h.Info().Name, st.Path)
+		return done[m]
+	})
+}
+
 // setupAttachments hooks the cleanup up to consoles going and servers coming.
 func (s *Server) setupAttachments() {
 	s.attachRoot = defaultAttachRoot
+	if s.deliver != nil {
+		s.deliver.Prepare = s.orderAttachments
+	}
 	s.sweepAttachments(time.Now())
 	onRemove := s.sessions.OnRemove
 	s.sessions.OnRemove = func(sp session.Spec) {

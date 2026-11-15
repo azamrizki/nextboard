@@ -18,16 +18,24 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Popover } from '../components/Popover';
 import { toast } from '../components/Toast';
-import { partNamesOn, partOn } from '../lib/parts';
+import { isRoot, partNamesOn, partOn, type Placement } from '../lib/parts';
+import { defaultPlacement, isMultiPart, lastPlacement, machineOfPlace, partOfPlace, placeFromValue, placeShort, placeValue, rememberPlacement, ROOT_VALUE } from '../lib/placement';
 import type { Agent, Machine, Project, ModelChoice } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useMachines, useProfiles } from '../store';
 import { AccountOptions, isProviderId } from '../providers/AccountOptions';
 import { compatible, useProviders } from '../providers/providers';
+import { OTHER_VALUE, PlacePicker } from './PlacePicker';
 import { machineReady, machineStatus } from './sessionStatus';
 
 /** What the dock / Spawn tool would start. */
 export interface TerminalChoice {
+  /**
+   * Its place in a project of several parts (v0.9.0-beta.2): the root, or a part (then machineId
+   * is that part's and cwd an optional folder inside it). Absent: machineId and cwd say where, as
+   * in a single-part project or "Another folder…".
+   */
+  place?: Placement;
   machineId: string;
   /** Agent (catalog) id. */
   preset: string;
@@ -64,13 +72,27 @@ function resolveAgent(agents: Agent[], armed: string, defaultAgent: string): Age
 /**
  * State + actions shared by the dock, the modal form and the Spawn tool.
  * `spawn` places and starts the terminal (the board decides where); resolves true on success.
+ * `focused` gives the placement of the board's focused tile: in a project of several parts the
+ * new console goes there by default, else where the last one went (lib/placement.ts).
  */
-export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => Promise<boolean>) {
+export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => Promise<boolean>, focused?: () => Placement | null) {
   const machines = useMachines();
   const settings = useEffectiveSettings();
   const profiles = useProfiles();
   const providers = useProviders();
-  const [machineId, setMachineId] = useState(project.machineId || 'local');
+  const [chosenMachine, setMachineId] = useState(project.machineId || 'local');
+  // "Place in" (several parts only): picked here, else the focused tile's, else the last used
+  const multi = isMultiPart(project);
+  const focusedPlace = multi && focused ? focused() : null;
+  const focusKey = focusedPlace ? placeValue(focusedPlace) : '';
+  const [pick, setPick] = useState<string | null>(null);
+  // another focused tile: its placement again, until something is picked for it
+  useEffect(() => setPick(null), [focusKey]);
+  const picked = pick === ROOT_VALUE || pick === OTHER_VALUE || (pick && partOfPlace(project, { partId: pick })) ? pick : null;
+  const placeVal = multi ? (picked ?? placeValue(defaultPlacement(project, focusedPlace, lastPlacement(project)))) : '';
+  const place: Placement | null = multi && placeVal !== OTHER_VALUE ? placeFromValue(placeVal) : null;
+  // the machine of the work: the part's, This PC for the root, else the one chosen
+  const machineId = place ? machineOfPlace(project, place) : chosenMachine;
   const armed = useArmed();
   const ma = useMachineAgents(machineId);
   const [name, setName] = useState('');
@@ -85,13 +107,14 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
 
   // Fall back to the first machine if the remembered one no longer exists.
   useEffect(() => {
-    if (machines.length > 0 && !machine) setMachineId(machines[0].id);
-  }, [machines, machine]);
+    if (machines.length > 0 && !machine && !place) setMachineId(machines[0].id);
+  }, [machines, machine, place]);
 
   // Another project → its machine (the cwd defaults to the project folder).
   useEffect(() => {
     setMachineId(project.machineId || 'local');
     setCwd('');
+    setPick(null);
   }, [project.id, project.machineId]);
 
   const agent = resolveAgent(ma.agents, armed, ma.defaultAgent);
@@ -117,12 +140,22 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     setCwd(''); // paths are per machine
   };
 
-  /** The current settings; cwd falls back to the folder of the project's part on that machine. */
+  const setPlace = (v: string) => {
+    setPick(v);
+    setCwd(''); // paths are per part
+  };
+
+  /**
+   * The current settings. With a placement, cwd is a folder inside the part (empty: the part's
+   * folder; the root takes none); without, it falls back to the folder of the project's part on
+   * that machine.
+   */
   const choice = (): TerminalChoice => ({
+    ...(place ? { place } : {}),
     machineId,
     preset: agentId,
     name: name.trim(),
-    cwd: cwd.trim() || (partOn(project, machineId)?.path ?? ''),
+    cwd: place ? (isRoot(place) ? '' : cwd.trim()) : cwd.trim() || (partOn(project, machineId)?.path ?? ''),
     yolo: yoloable && yoloChoice !== undefined ? yoloChoice : undefined,
     profileId: account && !isProviderId(account) ? account : undefined,
     providerId: isProviderId(account) ? account : undefined,
@@ -138,6 +171,7 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
       const ok = await spawn(choice());
       if (ok) {
         if (agentId !== armed) setArmed(agentId);
+        if (place) rememberPlacement(project, place);
         setName('');
         setYoloChoice(undefined);
       }
@@ -155,6 +189,13 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     machine,
     machineId,
     changeMachine,
+    /** A project of several parts: "Place in" shows. */
+    multi,
+    /** The placement the next console gets (null: a single-part project, or "Another folder…"). */
+    place,
+    /** The picker's value: placeValue(place), or OTHER_VALUE. */
+    placeValue: placeVal,
+    setPlace,
     agents: ma.agents,
     agentsError: ma.error,
     agentsReady: ma.ready,
@@ -248,9 +289,25 @@ function AgentOptions({ nt }: { nt: NT }) {
   );
 }
 
-/** Placeholder for the cwd field: the folder of the project's part on that machine, if any. */
+/** Placeholder for the cwd field: the folder of the placed part, else of the project's part on that machine, if any. */
 function cwdPlaceholder(nt: NT): string {
-  return partOn(nt.project, nt.machineId)?.path ?? (nt.machine?.probe?.home || '~');
+  return partOfPlace(nt.project, nt.place)?.path ?? partOn(nt.project, nt.machineId)?.path ?? (nt.machine?.probe?.home || '~');
+}
+
+/** Where Browse starts: the folder typed, else the placed part's, else the project's part on that machine. */
+function browseFrom(nt: NT): string {
+  return nt.cwd.trim() || (partOfPlace(nt.project, nt.place)?.path ?? partOn(nt.project, nt.machineId)?.path ?? '');
+}
+
+/** The working-directory field shows unless the console goes to the root (the hub picks its folder). */
+const askCwd = (nt: NT) => !nt.place || !isRoot(nt.place);
+
+/** In a project of several parts the machine follows the placement; it is asked only for "Another folder…". */
+const askMachine = (nt: NT) => !nt.multi || nt.placeValue === OTHER_VALUE;
+
+/** "Place in" for the forms (renders nothing in a single-part project). */
+function PlaceField({ nt, size = 'sm' }: { nt: NT; size?: 'sm' | 'md' }) {
+  return <PlacePicker project={nt.project} value={nt.placeValue} onChange={nt.setPlace} other size={size} />;
 }
 
 /** Yolo needs a confirmation every time it is switched on for a spawn. */
@@ -283,7 +340,7 @@ export function NewTerminal({ nt }: { nt: NT }) {
     <FolderBrowser
       machineId={nt.machine.id}
       machineName={nt.machine.name}
-      initialPath={nt.cwd.trim() || (partOn(nt.project, nt.machineId)?.path ?? '')}
+      initialPath={browseFrom(nt)}
       onClose={() => setBrowsing(false)}
       onChoose={(p) => {
         nt.setCwd(p);
@@ -322,14 +379,17 @@ function NewTerminalDock({ nt, onBrowse }: { nt: NT; onBrowse: () => void }) {
   };
   return (
     <form className="dock" onSubmit={submit} aria-label="New terminal">
-      <div className="input-group has-lead dock-machine" title={mstatus ? `Machine status: ${mstatus.label}` : 'Machine'}>
-        <span className="ig-lead">
-          <span className={`dot dot-${mstatus?.color ?? 'grey'}`} aria-hidden="true" />
-        </span>
-        <select className="control control-sm" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} aria-label="Machine">
-          <MachineOptions nt={nt} />
-        </select>
-      </div>
+      {nt.multi && <PlacePicker project={nt.project} value={nt.placeValue} onChange={nt.setPlace} other label={null} hint={false} block={false} className="dock-place" />}
+      {askMachine(nt) && (
+        <div className="input-group has-lead dock-machine" title={mstatus ? `Machine status: ${mstatus.label}` : 'Machine'}>
+          <span className="ig-lead">
+            <span className={`dot dot-${mstatus?.color ?? 'grey'}`} aria-hidden="true" />
+          </span>
+          <select className="control control-sm" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} aria-label="Machine">
+            <MachineOptions nt={nt} />
+          </select>
+        </div>
+      )}
 
       <div className="input-group has-lead dock-preset" title={nt.agentsError || (nt.agent ? `Runs ${nt.agent.command}` : 'Agent')}>
         <span className="ig-lead">
@@ -351,23 +411,25 @@ function NewTerminalDock({ nt, onBrowse }: { nt: NT; onBrowse: () => void }) {
         </div>
       )}
 
-      <div className="input-group has-lead has-addon dock-cwd">
-        <span className="ig-lead">
-          <Icon name="folder" />
-        </span>
-        <input
-          className="control control-sm mono"
-          placeholder={cwdPlaceholder(nt)}
-          value={nt.cwd}
-          onChange={(e) => nt.setCwd(e.target.value)}
-          aria-label="Working directory (optional)"
-          title="Working directory (empty = project folder)"
-          spellCheck={false}
-        />
-        <Button size="sm" className="ig-addon" onClick={onBrowse} disabled={!nt.machine}>
-          Browse
-        </Button>
-      </div>
+      {askCwd(nt) && (
+        <div className="input-group has-lead has-addon dock-cwd">
+          <span className="ig-lead">
+            <Icon name="folder" />
+          </span>
+          <input
+            className="control control-sm mono"
+            placeholder={cwdPlaceholder(nt)}
+            value={nt.cwd}
+            onChange={(e) => nt.setCwd(e.target.value)}
+            aria-label="Working directory (optional)"
+            title={nt.place ? 'Working directory (empty = the part’s folder)' : 'Working directory (empty = project folder)'}
+            spellCheck={false}
+          />
+          <Button size="sm" className="ig-addon" onClick={onBrowse} disabled={!nt.machine}>
+            Browse
+          </Button>
+        </div>
+      )}
 
       <input
         className="control control-sm dock-name"
@@ -429,9 +491,12 @@ function NewTerminalSheet({ nt, onClose, onBrowse }: { nt: NT; onClose: () => vo
     >
       <form id="new-terminal-form" className="form" onSubmit={submit}>
         <fieldset disabled={nt.creating}>
-          <SelectField label="Machine" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} hint={serverHint(nt)}>
-            <MachineOptions nt={nt} />
-          </SelectField>
+          <PlaceField nt={nt} size="md" />
+          {askMachine(nt) && (
+            <SelectField label="Machine" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} hint={serverHint(nt)}>
+              <MachineOptions nt={nt} />
+            </SelectField>
+          )}
           <SelectField
             label="Agent"
             value={nt.agentId}
@@ -447,26 +512,28 @@ function NewTerminalSheet({ nt, onClose, onBrowse }: { nt: NT; onClose: () => vo
               <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
             </SelectField>
           )}
-          <Field label="Working directory" optional hint="Leave empty to start in the project folder.">
-            {({ labelId: _l, ...a11y }) => (
-              <div className="input-group has-lead has-addon">
-                <span className="ig-lead">
-                  <Icon name="folder" />
-                </span>
-                <input
-                  className="control mono"
-                  placeholder={cwdPlaceholder(nt)}
-                  value={nt.cwd}
-                  onChange={(e) => nt.setCwd(e.target.value)}
-                  spellCheck={false}
-                  {...a11y}
-                />
-                <Button className="ig-addon" onClick={onBrowse} disabled={!nt.machine}>
-                  Browse
-                </Button>
-              </div>
-            )}
-          </Field>
+          {askCwd(nt) && (
+            <Field label="Working directory" optional hint={nt.place ? 'Leave empty to start in the part’s folder.' : 'Leave empty to start in the project folder.'}>
+              {({ labelId: _l, ...a11y }) => (
+                <div className="input-group has-lead has-addon">
+                  <span className="ig-lead">
+                    <Icon name="folder" />
+                  </span>
+                  <input
+                    className="control mono"
+                    placeholder={cwdPlaceholder(nt)}
+                    value={nt.cwd}
+                    onChange={(e) => nt.setCwd(e.target.value)}
+                    spellCheck={false}
+                    {...a11y}
+                  />
+                  <Button className="ig-addon" onClick={onBrowse} disabled={!nt.machine}>
+                    Browse
+                  </Button>
+                </div>
+              )}
+            </Field>
+          )}
           <TextField label="Name" optional placeholder={nt.agent?.name ?? 'Claude Code'} value={nt.name} onChange={(e) => nt.setName(e.target.value)} maxLength={80} />
           {nt.yoloable && <Checkbox checked={nt.yolo} onChange={() => yolo.toggle()} label="Yolo: run without permission prompts" />}
         </fieldset>
@@ -486,12 +553,14 @@ export function AgentChip({ nt, anchor }: { nt: NT; anchor?: RefObject<HTMLEleme
   const [browsing, setBrowsing] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   const remote = nt.machine && nt.machine.id !== nt.project.machineId;
-  const label = nt.agent ? `${nt.agent.name}${remote ? ` · ${nt.machine?.name}` : ''}` : 'Pick an agent';
+  // several parts: where the next console goes, always ("Claude Code · Root", "Claude Code · admin")
+  const where = nt.place ? placeShort(nt.project, nt.place) : nt.multi ? (nt.machine?.name ?? '') : remote ? (nt.machine?.name ?? '') : '';
+  const label = nt.agent ? `${nt.agent.name}${where ? ` · ${where}` : ''}` : 'Pick an agent';
   const folderBrowser = browsing && nt.machine && (
     <FolderBrowser
       machineId={nt.machine.id}
       machineName={nt.machine.name}
-      initialPath={nt.cwd.trim() || (partOn(nt.project, nt.machineId)?.path ?? '')}
+      initialPath={browseFrom(nt)}
       onClose={() => setBrowsing(false)}
       onChoose={(p) => {
         nt.setCwd(p);
@@ -548,9 +617,12 @@ function NewTerminalPanel({ nt, onBrowse, onDone }: { nt: NT; onBrowse: () => vo
         <Icon name="terminal" />
         <strong>New console</strong>
       </div>
-      <SelectField label="Machine" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} className="control-sm" hint={serverHint(nt) ?? (mstatus ? `Status: ${mstatus.label}` : undefined)}>
-        <MachineOptions nt={nt} />
-      </SelectField>
+      <PlaceField nt={nt} />
+      {askMachine(nt) && (
+        <SelectField label="Machine" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} className="control-sm" hint={serverHint(nt) ?? (mstatus ? `Status: ${mstatus.label}` : undefined)}>
+          <MachineOptions nt={nt} />
+        </SelectField>
+      )}
       <SelectField label="Agent" value={nt.agentId} onChange={(e) => nt.setAgentId(e.target.value)} className="control-sm" error={nt.agentsError || undefined}>
         <AgentOptions nt={nt} />
       </SelectField>
@@ -560,19 +632,21 @@ function NewTerminalPanel({ nt, onBrowse, onDone }: { nt: NT; onBrowse: () => vo
           <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
         </SelectField>
       )}
-      <Field label="Working directory" optional>
-        {({ labelId: _l, ...a11y }) => (
-          <div className="input-group has-lead has-addon">
-            <span className="ig-lead">
-              <Icon name="folder" />
-            </span>
-            <input className="control control-sm mono" placeholder={cwdPlaceholder(nt)} value={nt.cwd} onChange={(e) => nt.setCwd(e.target.value)} spellCheck={false} {...a11y} />
-            <Button size="sm" className="ig-addon" onClick={onBrowse} disabled={!nt.machine}>
-              Browse
-            </Button>
-          </div>
-        )}
-      </Field>
+      {askCwd(nt) && (
+        <Field label="Working directory" optional>
+          {({ labelId: _l, ...a11y }) => (
+            <div className="input-group has-lead has-addon">
+              <span className="ig-lead">
+                <Icon name="folder" />
+              </span>
+              <input className="control control-sm mono" placeholder={cwdPlaceholder(nt)} value={nt.cwd} onChange={(e) => nt.setCwd(e.target.value)} spellCheck={false} {...a11y} />
+              <Button size="sm" className="ig-addon" onClick={onBrowse} disabled={!nt.machine}>
+                Browse
+              </Button>
+            </div>
+          )}
+        </Field>
+      )}
       <TextField label="Name" optional className="control-sm" placeholder={nt.agent?.name ?? 'Claude Code'} value={nt.name} onChange={(e) => nt.setName(e.target.value)} maxLength={80} />
       {nt.yoloable && <Checkbox checked={nt.yolo} onChange={() => yolo.toggle()} label="Yolo: run without permission prompts" />}
       <div className="row-end">

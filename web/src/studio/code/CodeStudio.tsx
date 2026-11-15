@@ -1,5 +1,8 @@
 // Code workbench (docs/API-studio.md §7): the project's files in an editor of VS Code's
-// class, as a card on the board. Activity bar, side bar (Explorer, Search, Source Control,
+// class, as a card on the board. A card is placed (v0.9.0-beta.2, node data.part): at the Root of
+// a project of several parts, one tree with every part as a top-level folder, or in one part, that
+// part's folder as the tree. A board may hold one card per placement; two cards showing the same
+// file share its model and unsaved edits. Activity bar, side bar (Explorer, Search, Source Control,
 // Run and Debug, Extensions, Ask, Settings), editor groups, bottom panel, status bar, Go to
 // file and the command palette. Monaco is the editor; language servers and debug adapters
 // on the project's machine add the rest; files stay on the machine, written with ifMtime.
@@ -11,7 +14,7 @@
 import { useReactFlow } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { api, errorMessage } from '../../api';
+import { errorMessage } from '../../api';
 import type { BoardController } from '../../board/controller';
 import { rectOf } from '../../board/controller';
 import { snapshotOf } from '../../board/files';
@@ -25,11 +28,13 @@ import { EditorKeyBar } from './EditorKeyBar';
 import { Button } from '../../components/Button';
 import { Icon, type IconName } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
-import { useUi, type UiStore } from '../../board/ui';
+import { useUi, type OpenFileRequest, type UiStore } from '../../board/ui';
 import { toast } from '../../components/Toast';
-import { prefs } from '../../lib/format';
-import { partHolding, projectParts } from '../../lib/parts';
-import type { NodeLayout, Op, Project, ProjectPart } from '../../lib/types';
+import { isRoot, placementOf, projectParts, type Placement } from '../../lib/parts';
+import { placeLabel } from '../../lib/placement';
+import type { NodeLayout, Op, Project } from '../../lib/types';
+import { docStore, readKey } from './docs';
+import { fileKey, isRootKey, splitKey, viewKey } from './paths';
 import { useFullscreen } from '../../lib/useFullscreen';
 import { useRemoteConfirm } from '../confirm';
 import { BottomPanel, newTerminal, useProblems } from './BottomPanel';
@@ -107,24 +112,6 @@ const ENCODINGS: [string, string][] = [
   ['koi8-r', 'Cyrillic'],
 ];
 
-let openerWs: Workspace | null = null;
-let openerDone = false;
-
-/** Go to definition in another file ends up here. */
-function registerOpener() {
-  if (openerDone) return;
-  openerDone = true;
-  registerLaravel();
-  monaco.editor.registerEditorOpener({
-    openCodeEditor(_source, resource, target) {
-      const ws = openerWs;
-      if (!ws || resource.scheme !== 'file') return false;
-      const pos = target && 'startLineNumber' in target ? { line: target.startLineNumber, col: target.startColumn } : target && 'lineNumber' in target ? { line: target.lineNumber, col: target.column } : {};
-      ws.open(resource.path, { ...pos, source: true });
-      return true;
-    },
-  });
-}
 
 const ESLINT_TEXT: Record<EslintState, string> = { ask: 'ESLint: allow?', off: 'ESLint: off', running: 'ESLint…', ok: 'ESLint', failed: 'ESLint failed', missing: 'No ESLint' };
 const ESLINT_TITLE: Record<EslintState, string> = {
@@ -144,12 +131,20 @@ function StatusBar({ ws, onPick, onView, onPanel }: { ws: Workspace; onPick: (ki
   const model = doc?.model ?? null;
   const c = ws.cursor;
   const lang = model?.getLanguageId();
-  const lsp = lang ? ws.lsp.stateFor(lang) : null;
+  // branch, language server and ESLint of the part of the active file (a Root card shows which)
+  const part = ws.activePart;
+  const lsp = lang ? part.lsp.stateFor(lang) : null;
   const eslint = eslintStatus(ws, doc?.path);
   const opts = model?.getOptions();
-  const st = ws.git;
+  const st = part.git;
   return (
     <footer className="wb-status" aria-label="Status">
+      {ws.paths.multi && (
+        <button type="button" onClick={() => ws.revealInTree(part.rootKey)} title={`${part.name}: ${part.root}. Show its folder`}>
+          <Icon name="layers" />
+          {part.name}
+        </button>
+      )}
       {st?.isRepo && (
         <button type="button" onClick={() => onView('scm')} title="Source control">
           <Icon name="branch" />
@@ -243,7 +238,6 @@ function Workbench({
   nodeId,
   viewCenter,
   filled,
-  onPart,
 }: {
   ws: Workspace;
   project: Project;
@@ -251,8 +245,6 @@ function Workbench({
   nodeId: string;
   viewCenter: () => { x: number; y: number };
   filled: boolean;
-  /** A project in several parts: shows another part. */
-  onPart?: (id: string) => void;
 }) {
   useWs(ws);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -349,10 +341,13 @@ function Workbench({
       try {
         const s = DEFAULT_SIZE.code;
         const rect = placeNear(ctl.nodes.filter((n) => n.kind !== 'ink').map(rectOf), viewCenter(), s.w, s.h);
-        const model = monaco.editor.getModel(monaco.Uri.file(path));
-        const d = ws.docs.get(path);
-        const r = model && d ? { content: model.getValue(), size: d.size, mtime: d.mtime } : await api.fsRead(ws.mid, path, SNAPSHOT_MAX);
-        ctl.addNodes([ctl.make('file', rect, { machineId: ws.mid, path, view: 'code', snapshot: snapshotOf(r.content.slice(0, SNAPSHOT_MAX), r.size, r.mtime, r.content.length > SNAPSHOT_MAX) })]);
+        const key = ws.toKey(path);
+        if (!key || isRootKey(key)) return;
+        const { machineId, abs } = splitKey(key);
+        const model = monaco.editor.getModel(docStore.uriOf(key));
+        const d = ws.docs.at(key);
+        const r = model && d ? { content: model.getValue(), size: d.size, mtime: d.mtime } : await readKey(key, SNAPSHOT_MAX);
+        ctl.addNodes([ctl.make('file', rect, { machineId, path: abs, view: 'code', snapshot: snapshotOf(r.content.slice(0, SNAPSHOT_MAX), r.size, r.mtime, r.content.length > SNAPSHOT_MAX) })]);
         toast.success(`${nameOf(path)} added to the board.`);
       } catch (err) {
         toast.error(errorMessage(err));
@@ -363,7 +358,10 @@ function Workbench({
   const addFolder = (dir: string) => {
     const s = DEFAULT_SIZE.folder;
     const rect = placeNear(ctl.nodes.filter((n) => n.kind !== 'ink').map(rectOf), viewCenter(), s.w, s.h);
-    ctl.addNodes([ctl.make('file', rect, { machineId: ws.mid, path: dir, view: 'folder' })]);
+    const key = ws.toKey(dir);
+    if (!key || isRootKey(key)) return;
+    const { machineId, abs } = splitKey(key);
+    ctl.addNodes([ctl.make('file', rect, { machineId, path: abs, view: 'folder' })]);
     toast.success('Folder card added to the board.');
   };
 
@@ -376,7 +374,8 @@ function Workbench({
       if (target) {
         const model = !path ? ed?.getModel() : null;
         const sel = model && model === doc?.model ? ed?.getSelection() : null;
-        const rel = ws.rel(target);
+        const key = ws.toKey(target);
+        const rel = key ? ws.relLabel(key) : target;
         const language = model?.getLanguageId() ?? '';
         if (sel && !sel.isEmpty() && model) {
           const end = sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber;
@@ -521,9 +520,12 @@ function Workbench({
     },
     pick: (placeholder, items) => setPalette({ initial: '', pick: { placeholder, items } }),
     addToBoard: (path) => addFile(path),
-    openWeb: (url) => {
+    // the Ports panel: the page from the machine its ports were listed on (that section's, else the
+    // active part's), not the project's first part's (audit #31)
+    openWeb: (url: string, machineId?: string) => {
       const rect = placeNear(ctl.nodes.filter((n) => n.kind !== 'ink').map(rectOf), viewCenter(), DEFAULT_WEB_SIZE.w, DEFAULT_WEB_SIZE.h);
-      ctl.addNodes([webNode(ctl, rect, url)]);
+      const part = machineId ? (ws.parts.find((pt) => pt.machineId === machineId) ?? null) : ws.activePart;
+      ctl.addNodes([webNode(ctl, rect, url, { machineId: machineId ?? part?.machineId, partId: ws.paths.multi || projectParts(project).length > 1 ? part?.partId : undefined })]);
       toast.success(`${url} added to the board.`);
     },
   };
@@ -534,12 +536,14 @@ function Workbench({
   // a console's needs-you, the live chip and N all come here for an agent inside the editor
   useEffect(() => {
     const show = (id: string) => ws.revealPane(id) || (ws.placePane(id, 'side'), true);
-    const pending = takePendingPane();
+    // only a pane of this card's placement (a Root card takes any)
+    const pending = takePendingPane(ws.placement);
     if (pending) show(pending);
-    return registerEditorFocus(ctl.workspaceId, show);
-  }, [ws, ctl.workspaceId]);
+    return registerEditorFocus(ctl.workspaceId, nodeId, show);
+  }, [ws, ctl.workspaceId, nodeId]);
 
-  const installInTerminal = useCallback((command: string) => void newTerminal(ws, ctl.workspaceId, undefined, command), [ws, ctl.workspaceId]);
+  // typed into a new terminal: in a folder when given (the Laravel part, a part's language server), else at the card's default place
+  const installInTerminal = useCallback((command: string, dir?: string) => void newTerminal(ws, ctl.workspaceId, dir, command), [ws, ctl.workspaceId]);
 
   const commands = useCallback((): Command[] => {
     const doc = ws.activeDoc;
@@ -549,11 +553,12 @@ function Workbench({
       { id: 'file.save', label: 'File: Save', keys: 'Ctrl+S', icon: 'save', run: () => doc && void ws.save(doc.path) },
       { id: 'file.saveAll', label: 'File: Save All', keys: 'Ctrl+Alt+S', icon: 'save', run: () => void ws.saveAll() },
       { id: 'file.close', label: 'View: Close Editor', keys: 'Alt+W', icon: 'close', run: () => ws.group.active && ws.closeTab(ws.activeGroup, ws.group.active) },
-      { id: 'file.new', label: 'File: New File', icon: 'file', run: () => ws.startInput('file', doc ? dirOf(doc.path) : ws.root) },
-      { id: 'file.newFolder', label: 'File: New Folder', icon: 'folder', run: () => ws.startInput('folder', doc ? dirOf(doc.path) : ws.root) },
+      // in a Root card without an open file: the active part's folder (no file goes at the virtual root)
+      { id: 'file.new', label: 'File: New File', icon: 'file', run: () => ws.startInput('file', doc ? dirOf(doc.path) : ws.activePart.rootKey) },
+      { id: 'file.newFolder', label: 'File: New Folder', icon: 'folder', run: () => ws.startInput('folder', doc ? dirOf(doc.path) : ws.activePart.rootKey) },
       { id: 'file.reveal', label: 'File: Reveal Active File in Explorer', icon: 'folderOpen', run: () => doc && ws.revealInTree(doc.path) },
-      { id: 'file.copyPath', label: 'File: Copy Path of Active File', icon: 'link', run: () => doc && void navigator.clipboard?.writeText(doc.path) },
-      { id: 'file.copyRel', label: 'File: Copy Relative Path of Active File', icon: 'link', run: () => doc && void navigator.clipboard?.writeText(ws.rel(doc.path)) },
+      { id: 'file.copyPath', label: 'File: Copy Path of Active File', icon: 'link', run: () => doc && void navigator.clipboard?.writeText(splitKey(doc.path).abs) },
+      { id: 'file.copyRel', label: 'File: Copy Relative Path of Active File', icon: 'link', run: () => doc && void navigator.clipboard?.writeText(ws.relLabel(doc.path)) },
       { id: 'file.board', label: 'File: Add Active File to Board', icon: 'plus', run: () => doc && addFile(doc.path) },
       { id: 'file.revert', label: 'File: Revert File', icon: 'undo', run: () => doc && void ws.reload(doc.path) },
       { id: 'git.compare', label: 'Git: Compare Active File with HEAD', icon: 'branch', run: () => doc && ws.openDiff(doc.path, 'head') },
@@ -561,25 +566,28 @@ function Workbench({
         id: 'tasks.run',
         label: 'Tasks: Run Task…',
         icon: 'play',
+        // every part's tasks; a Root card names the part ("admin › npm: build")
         run: () =>
-          void taskApi
-            .list(ws.gitTarget)
-            .then((list) => ws.actions.pick?.('Run a task', list.map((t) => ({ label: `${t.group}: ${t.name}`, detail: t.command, run: () => void runTask(ws, t) }))))
+          void partTasks(ws)
+            .then((list) => ws.actions.pick?.('Run a task', list.map(({ part, task: t }) => ({ label: `${ws.paths.multi ? `${part.name} › ` : ''}${t.group}: ${t.name}`, detail: t.command, run: () => void runTask(ws, part, t) }))))
             .catch((err) => toast.error(errorMessage(err))),
       },
       {
         id: 'tasks.test',
         label: 'Tasks: Run Tests',
         icon: 'checklist',
-        run: () =>
+        // the active part's tests
+        run: () => {
+          const part = ws.activePart;
           void taskApi
-            .list(ws.gitTarget)
+            .list(part.gitTarget)
             .then((list) => {
               const t = list.find((x) => x.kind === 'test');
-              if (t) void runTask(ws, t);
-              else toast.info('This project names no tests.');
+              if (t) void runTask(ws, part, t);
+              else toast.info(ws.paths.multi ? `${part.name} names no tests.` : 'This project names no tests.');
             })
-            .catch((err) => toast.error(errorMessage(err))),
+            .catch((err) => toast.error(errorMessage(err)));
+        },
       },
       { id: 'bookmarks.toggle', label: 'Bookmarks: Toggle', keys: 'Ctrl+Alt+K', icon: 'bookmark', run: () => doc && toggleBookmark(ws, doc.path, ed?.getPosition()?.lineNumber ?? 1) },
       { id: 'bookmarks.next', label: 'Bookmarks: Next', keys: 'Ctrl+Alt+L', icon: 'arrowDown', run: () => jumpBookmark(ws, doc?.path, ed?.getPosition()?.lineNumber ?? 1, 1) },
@@ -619,7 +627,7 @@ function Workbench({
       { id: 'ai.explain', label: 'AI: Explain This', icon: 'sparkle', run: () => askAgent(undefined, 'Explain this code.') },
       { id: 'ai.bugs', label: 'AI: Find Bugs Here', icon: 'sparkle', run: () => askAgent(undefined, 'Look for bugs in this code. Say what is wrong and why, most serious first.') },
       { id: 'view.debug', label: 'View: Show Run and Debug', keys: 'Ctrl+Shift+D', icon: 'bug', run: () => showView('debug') },
-      ...(ws.laravel?.detected ? [{ id: 'view.laravel', label: 'View: Show Laravel', icon: 'layers' as const, run: () => showView('laravel') }] : []),
+      ...(ws.parts.some((pt) => pt.laravel?.detected) ? [{ id: 'view.laravel', label: 'View: Show Laravel', icon: 'layers' as const, run: () => showView('laravel') }] : []),
       { id: 'view.extensions', label: 'View: Show Extensions', keys: 'Ctrl+Shift+X', icon: 'puzzle', run: () => showView('extensions') },
       { id: 'debug.start', label: 'Debug: Start Debugging', keys: 'F5', icon: 'play', run: () => void startDebug() },
       { id: 'debug.run', label: 'Debug: Run Without Debugging', keys: 'Ctrl+F5', icon: 'play', run: () => void startDebug(true) },
@@ -635,7 +643,7 @@ function Workbench({
       { id: 'term.toggle', label: 'Terminal: Toggle Terminal', keys: 'Ctrl+`', icon: 'terminal', run: togglePanel },
       { id: 'ai.edit', label: 'AI: Edit with AI', keys: 'Ctrl+I', icon: 'sparkle', run: () => setAiOpen(true) },
       { id: 'ai.ask', label: 'AI: Ask an Agent About the Selection', keys: 'Ctrl+L', icon: 'sparkle', run: () => askAgent() },
-      { id: 'lsp.restart', label: 'Language Servers: Restart', icon: 'restart', run: () => ws.lsp.restart() },
+      { id: 'lsp.restart', label: 'Language Servers: Restart', icon: 'restart', run: () => ws.parts.forEach((pt) => pt.lsp.restart()) },
       { id: 'lang.pick', label: 'Change Language Mode', run: () => pick('language') },
       { id: 'lang.indent', label: 'Change Indentation', run: () => pick('indent') },
       { id: 'lang.eol', label: 'Change End of Line Sequence', run: () => pick('eol') },
@@ -906,6 +914,9 @@ function Workbench({
 
   const closing = ws.closing;
   const dirtyCount = [...ws.docs.values()].filter((d) => d.dirty).length;
+  // the activity badges add up the parts the card shows
+  const changedFiles = ws.parts.reduce((n, pt) => n + (pt.git?.files?.length ?? 0), 0);
+  const reviewCount = ws.parts.reduce((n, pt) => n + pt.reviewCount, 0);
 
   return (
     <PaneEnv.Provider value={paneEnv}>
@@ -927,7 +938,8 @@ function Workbench({
         id={nodeId}
         className="wb-title"
         icon="code"
-        title={project.name}
+        // several parts: what the card shows ("acme-shop · admin", "acme-shop · All parts")
+        title={projectParts(project).length > 1 ? `${project.name} · ${isRoot(ws.placement) ? 'All parts' : placeLabel(project, ws.placement)}` : project.name}
         meta={
           <button type="button" className="wb-command-center nodrag" onClick={() => setPalette({ initial: '' })} title="Go to file · Ctrl+P">
             <Icon name="search" />
@@ -937,15 +949,6 @@ function Workbench({
         }
         actions={
           <span className="wb-title-tools nodrag">
-            {onPart && (
-              <select className="control control-sm wb-part" aria-label="Part of the project" title="Which part of the project this editor shows" value={ws.partId} onChange={(e) => onPart(e.target.value)}>
-                {projectParts(project).map((pt) => (
-                  <option key={pt.id} value={pt.id}>
-                    {pt.name}
-                  </option>
-                ))}
-              </select>
-            )}
             {dirtyCount > 0 && (
               <Button size="sm" variant="ghost" icon="save" onClick={() => void ws.saveAll()} title="Save all · Ctrl+Alt+S">
                 Save {dirtyCount}
@@ -962,7 +965,7 @@ function Workbench({
       />
       <div className="wb-body nodrag nowheel nopan" ref={bodyRef}>
         <nav className="wb-activity" aria-label="Views">
-          {ACTIVITY.filter((a) => a.view !== 'laravel' || ws.laravel?.detected).map((a) => (
+          {ACTIVITY.filter((a) => a.view !== 'laravel' || ws.parts.some((pt) => pt.laravel?.detected)).map((a) => (
             <button
               key={a.view}
               type="button"
@@ -973,8 +976,8 @@ function Workbench({
               onClick={() => showView(a.view)}
             >
               <Icon name={a.icon} />
-              {a.view === 'scm' && !!ws.git?.files?.length && <span className="wb-activity-badge tabular">{ws.git.files.length}</span>}
-              {a.view === 'review' && ws.reviewCount > 0 && <span className="wb-activity-badge tabular">{ws.reviewCount}</span>}
+              {a.view === 'scm' && changedFiles > 0 && <span className="wb-activity-badge tabular">{changedFiles}</span>}
+              {a.view === 'review' && reviewCount > 0 && <span className="wb-activity-badge tabular">{reviewCount}</span>}
             </button>
           ))}
           <span className="spacer" />
@@ -1058,71 +1061,97 @@ function Workbench({
   );
 }
 
-const PART_PREF = (projectId: string) => `wb.part.${projectId}`;
+/** The board's first editor card: the one an older sender's openFile (no nodeId) goes to. */
+const firstCard = (ctl: BoardController) => ctl.nodes.find((n) => n.kind === 'editor')?.id;
 
-/** The workbench of one part of the project at a time (ROADMAP #49): the part last shown, per browser. */
+/**
+ * The workbench of the card's placement (v0.9.0-beta.2): data.part names a part, else (absent, "",
+ * a part that went) the card is at the Root, one tree of every part. A single-part project has one
+ * placement, so every card shows its folder as before.
+ */
 export default function CodeStudio(props: Props) {
-  const parts = projectParts(props.project);
-  const [partId, setPartId] = useState(() => prefs.get(PART_PREF(props.project.id)) ?? '');
-  const part = parts.find((p) => p.id === partId) ?? parts[0];
-  const choose = (id: string) => {
-    prefs.set(PART_PREF(props.project.id), id);
-    setPartId(id);
-  };
-  // a file in another part (the lead's editor.open, a file card): show that part first
-  const openFile = useUi((s) => s.openFile);
+  // only data.part matters here: the rest of the board changing does not re-render the editor
+  const part = useSyncExternalStore(props.ctl.sync.subscribe, () => {
+    const v = props.ctl.node(props.nodeId)?.data.part;
+    return typeof v === 'string' ? v : '';
+  });
+  const placement = placementOf({ part }, props.project);
+  const key = viewKey(props.project.id, projectParts(props.project).length, placement);
+  // the per-browser part switch of before (beta.1) is not read any more
+  const atRoot = projectParts(props.project).length > 1 && isRoot(placement);
   useEffect(() => {
-    if (!openFile || parts.length < 2) return;
-    const holder = partHolding(props.project, openFile.path);
-    if (holder && holder.id !== part.id) choose(holder.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openFile]);
-  return <CodeStudioPart key={`${part.id}:${part.machineId}:${part.path}`} {...props} part={part} onPart={parts.length > 1 ? choose : undefined} />;
+    if (atRoot) dropPref(`wb.part.${props.project.id}`);
+  }, [props.project.id, atRoot]);
+  return <CodeStudioView key={key} {...props} placement={placement} />;
 }
 
-function CodeStudioPart({ project, ctl, ui, nodeId, viewCenter, filled, part, onPart }: Props & { part: ProjectPart; onPart?: (id: string) => void }) {
+function dropPref(key: string) {
+  try {
+    window.localStorage.removeItem(`nb.${key}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+function CodeStudioView({ project, ctl, ui, nodeId, viewCenter, filled, placement }: Props & { placement: Placement }) {
   setupMonaco();
-  registerOpener();
-  const [ws] = useState(() => Workspace.get(project, part));
-  openerWs = ws;
+  // Blade and the Laravel helpers (the editor opener itself is nativeExt's)
+  registerLaravel();
+  const [ws] = useState(() => Workspace.get(project, placement));
+  // the project changed (a part renamed, added, moved): the view follows, its tabs stay
+  useEffect(() => {
+    Workspace.get(project, placement);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- placement is fixed for this view (keyed)
+  }, [project]);
 
   useEffect(() => {
     ws.ide.connect(ctl.workspaceId);
     return () => ws.ide.disconnect();
   }, [ws, ctl.workspaceId]);
 
+  /** An openFile this card takes: its own (nodeId), or an older sender's when it is the first card. */
+  const mine = useCallback((o: OpenFileRequest | null) => !!o && (o.nodeId ? o.nodeId === nodeId : firstCard(ctl) === nodeId), [ctl, nodeId]);
+
   useEffect(() => {
     ws.mount();
-    openerWs = ws;
     registerInlineAi(ws);
     registerDebugHover(ws.debug);
     void ws.debug.refreshAdapters();
     void loadExtensions();
-    if (!ws.groups.some((g) => g.tabs.length) && !ui.get().openFile) void openFirst(ws);
+    if (!ws.groups.some((g) => g.tabs.length) && !mine(ui.get().openFile)) void openFirst(ws);
     return () => ws.unmount();
     // once per card
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws]);
 
-  // "open this file" from elsewhere on the board: a file card, the planner
+  // "open this file" from elsewhere on the board (a file card, the lead, a commit): the board picks
+  // the card by placement, and the file is (machine, path)
   const openFile = useUi((s) => s.openFile);
   useEffect(() => {
-    if (!openFile) return;
-    const holder = partHolding(project, openFile.path);
-    if (holder && holder.id !== ws.partId) return; // the card shows that part first
-    ws.open(openFile.path, { pin: true, source: true, line: openFile.line });
+    if (!openFile || !mine(openFile)) return;
+    const key = openFile.machineId ? fileKey(openFile.machineId, openFile.path) : ws.toKey(openFile.path);
+    if (key) ws.open(key, { pin: true, source: true, line: openFile.line });
     ui.set({ openFile: null });
-  }, [ws, ui, openFile]);
+  }, [ws, ui, openFile, mine]);
 
-  return <Workbench ws={ws} project={project} ctl={ctl} nodeId={nodeId} viewCenter={viewCenter} filled={filled} onPart={onPart} />;
+  return <Workbench ws={ws} project={project} ctl={ctl} nodeId={nodeId} viewCenter={viewCenter} filled={filled} />;
 }
 
-/** First visit: the README if there is one, as a preview tab. */
+/** Every part's tasks of the card, with their part (the palette's Tasks: Run Task…). */
+async function partTasks(ws: Workspace) {
+  const lists = await Promise.all(ws.parts.map((part) => taskApi.list(part.gitTarget).then((list) => list.map((task) => ({ part, task })))));
+  return lists.flat();
+}
+
+/** First visit: the README if there is one, as a preview tab (a card of one part; a Root card opens none). */
 async function openFirst(ws: Workspace) {
+  if (ws.paths.multi) return;
+  const part = ws.parts[0];
+  if (!part) return;
   try {
-    const list = await ws.fileList();
+    const list = await part.fileList();
     const rel = (list.items ?? []).find((p) => /^readme(\.|$)/i.test(p));
-    if (rel && !ws.groups.some((g) => g.tabs.length)) ws.open(ws.abs(rel));
+    if (rel && !ws.groups.some((g) => g.tabs.length)) ws.open(part.keyOf(rel));
   } catch {
     /* the tree still works */
   }

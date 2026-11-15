@@ -24,6 +24,7 @@ import { MarkdownView } from '../MarkdownView';
 import { studioStore, jobActive, useJob, useJobOutput, useStudio } from '../store';
 import { DOC_TYPES, type DocStats, type DocType, type DocVersion, type Effort, type StudioDocument } from '../types';
 import { DOC_HINT, DOC_LABEL, EFFORT_LABEL, EFFORT_WORDS, PHASE_TEXT, docLabel, download, durationText, fileSafe, printDocUrl, type Paper } from './model';
+import { PlacePicker, usePartChoice } from '../../board/PlacePicker';
 import '../../styles/studio.css';
 
 interface Props {
@@ -139,7 +140,10 @@ function useAgentAvailable(machineId: string) {
 function Generator({ project, onStarted, regenerate }: { project: Project; onStarted: (d: StudioDocument) => void; regenerate?: StudioDocument }) {
   const settings = useEffectiveSettings();
   const runnerDefault = ((settings.runner as { defaultAgent?: string } | undefined)?.defaultAgent ?? 'claude') as string;
-  const available = useAgentAvailable(project.machineId);
+  // several parts: the run reads one part's folder, on its machine (v0.9.0-beta.2)
+  const where = usePartChoice(project);
+  const machineId = where.part.machineId || 'local';
+  const available = useAgentAvailable(machineId);
   const [type, setType] = useState<DocType>((regenerate?.type as DocType) ?? 'overview');
   const [ask, setAsk] = useState(regenerate?.ask ?? '');
   const [effort, setEffort] = useState<Effort>('balanced');
@@ -150,18 +154,18 @@ function Generator({ project, onStarted, regenerate }: { project: Project; onSta
   useEffect(() => {
     let stop = false;
     docApi
-      .stats(project.machineId, agent)
+      .stats(machineId, agent)
       .then((s) => !stop && setStats(s))
       .catch(() => !stop && setStats(null));
     return () => {
       stop = true;
     };
-  }, [project.machineId, agent]);
+  }, [machineId, agent]);
 
   const go = async () => {
     setBusy(true);
     try {
-      const r = await docApi.generate(project.id, { type, ask: type === 'custom' ? ask.trim() : undefined, effort, agent, documentId: regenerate?.id });
+      const r = await docApi.generate(where.ref, { type, ask: type === 'custom' ? ask.trim() : undefined, effort, agent, documentId: regenerate?.id });
       orchStore.upsertJob(r.job);
       studioStore.upsertDocument(project.id, r.document);
       onStarted(r.document);
@@ -225,8 +229,9 @@ function Generator({ project, onStarted, regenerate }: { project: Project; onSta
           </div>
         </div>
       </div>
+      <PlacePicker project={project} value={where.part.id} onChange={where.setPartId} label="Read in" noRoot hint={false} />
       <p className="fs-xs text-3">
-        A hidden, read-only run of your CLI in {project.path} (it can read files but not change them or run commands). It uses your own CLI login and plan. Written in
+        A hidden, read-only run of your CLI in {where.part.path} (it can read files but not change them or run commands). It uses your own CLI login and plan. Written in
         English.
       </p>
       <div className="row-gap">

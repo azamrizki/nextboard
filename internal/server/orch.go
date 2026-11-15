@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"path"
 	"strings"
 	"time"
 
@@ -172,16 +171,15 @@ func (h hubAdapter) AgentOnMachine(machineID, agentID string) bool {
 }
 
 func (h hubAdapter) CreateSession(req session.CreateRequest) (session.Info, error) {
-	// a console started in a part's folder works in that part (ROADMAP #49)
-	if req.PartID == "" && req.ProjectID != "" && strings.HasPrefix(req.Cwd, "/") {
-		if pr, ok := h.s.projects.Get(req.ProjectID); ok {
-			mid := req.MachineID
-			if mid == "" {
-				mid = machine.LocalID
-			}
-			if pt, ok := pr.PartAt(mid, path.Clean(req.Cwd)); ok {
-				req.PartID = pt.ID
-			}
+	// placed by the same rule as POST /api/sessions: the root, a part (its machine and folder),
+	// or the part a folder is in (ROADMAP #49, v0.9.0-beta.2)
+	if req.ProjectID != "" {
+		pr, ok := h.s.projects.Get(req.ProjectID)
+		if !ok {
+			return session.Info{}, orch.ErrProjectNotFound
+		}
+		if err := h.s.placeSession(pr, &req); err != nil {
+			return session.Info{}, err
 		}
 	}
 	in, err := h.s.sessions.Create(req)

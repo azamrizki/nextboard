@@ -357,7 +357,7 @@ func TestLayoutsAndDeploy(t *testing.T) {
 	for _, in := range h.Sessions() {
 		sess[in.ID] = in
 	}
-	l := LayoutFromBoard(b, nil, sess)
+	l := LayoutFromBoard(b, nil, sess, p)
 	saved, err := s.Layouts.Add(l, time.Now())
 	if err != nil || saved.Name != "Set 1" || len(saved.Lanes) != 6 || len(saved.Groups) != 4 {
 		t.Fatalf("%v %+v", err, saved)

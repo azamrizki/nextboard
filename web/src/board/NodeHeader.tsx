@@ -26,7 +26,7 @@ import { projectParts } from '../lib/parts';
 import { store, useProfile, useProject, useSettings } from '../store';
 import { splitAccount } from '../providers/AccountOptions';
 import { ProviderBadge } from '../providers/ProviderBadge';
-import { rectOf } from './controller';
+import { placeOfSession, rectOf } from './controller';
 import { DisplayButton } from './DisplayButton';
 import { FocusButton } from './FocusButton';
 import { placeNear } from './layout';
@@ -128,9 +128,10 @@ export function useConsoleActions(nodeId: string, session: Session, machine: Mac
     const base = n ? rectOf(n) : { x: 0, y: 0, w: 720, h: 440 };
     const rect = placeNear(ctl.nodes.map(rectOf), { x: base.x + base.w * 1.5 + 40, y: base.y + base.h / 2 }, base.w, base.h);
     const s = await ctl.spawn({
-      machineId: session.machineId,
+      // where this one works: its root or part, and for an agent of a server or read-only part
+      // that machine and folder (not the hub's work folder on This PC)
+      ...placeOfSession(session),
       preset: session.agent || session.preset,
-      cwd: session.cwd,
       name: '',
       rect,
       profileId: session.profileId || undefined,
@@ -291,12 +292,23 @@ interface NodeHeaderProps {
   textScale: number;
 }
 
-/** The part of a project in several parts the console works in (ROADMAP #49). */
+/**
+ * The part of a project in several parts the console works in (ROADMAP #49), or "Root" for one at
+ * the project root (v0.9.0-beta.2). A console in no part's folder shows none: no first-part guess.
+ */
 function PartLabel({ session }: { session: Session }) {
   const project = useProject(session.projectId);
   if (!project) return null;
   const parts = projectParts(project);
-  const part = parts.length > 1 ? parts.find((p) => p.id === (session.partId || parts[0].id)) : parts[0]?.readOnly ? parts[0] : undefined;
+  if (session.root && parts.length > 1)
+    return (
+      <span className="node-part" title={`Works at the root of ${project.name}: every part, from This PC`}>
+        <Icon name="layers" />
+        Root
+      </span>
+    );
+  // one part: only a read-only one is worth a chip (as before)
+  const part = parts.length > 1 ? (session.partId ? parts.find((p) => p.id === session.partId) : undefined) : parts[0]?.readOnly ? parts[0] : undefined;
   if (!part) return null;
   return (
     <span className="node-part" title={`Works in ${part.name} of ${project.name}${part.readOnly ? ', read only' : ''}`}>

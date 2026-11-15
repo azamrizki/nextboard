@@ -1,12 +1,15 @@
 // GitLens: who last changed a line at its end, the file's authors above it, blame for the whole
-// file, and the history of a file or a line, all from the machine's git.
+// file, and the history of a file or a line, all from the git of the part holding the file, on
+// that part's machine.
 
 import { errorMessage } from '../../api';
 import { timeAgo } from '../../lib/format';
 import { toast } from '../../components/Toast';
 import { gitApi, type GitBlame, type GitBlameCommit } from '../api';
 import { monaco } from './monaco';
-import { hasNative, modelOwners, onNativeChange } from './nativeExt';
+import { docStore } from './docs';
+import { hasNative, modelOwners, onNativeChange, viewOfModel } from './nativeExt';
+import { keyOfUri, type FileKey } from './paths';
 import { nameOf, type Workspace } from './workspace';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
@@ -27,18 +30,24 @@ const lensChanged = new monaco.Emitter<monaco.languages.CodeLensProvider>();
 
 export const isUncommitted = (c: GitBlameCommit) => /^0+$/.test(c.hash);
 
-const blameKey = (ws: Workspace, model: Model) => `${ws.gitVersion}:${model.getVersionId()}`;
+/** The part whose git knows a model's file, and the file's key. */
+function partOfModel(ws: Workspace, model: Model) {
+  const file = keyOfUri(model.uri);
+  return { file, part: file ? ws.partOf(file) : null };
+}
 
 function blameOf(ws: Workspace, model: Model): Promise<GitBlame | null> {
-  const key = blameKey(ws, model);
+  const { file, part } = partOfModel(ws, model);
+  if (!file || !part) return Promise.resolve(null);
+  const key = `${part.ref}:${part.gitVersion}:${model.getVersionId()}`;
   const old = cache.get(model);
   if (old?.key === key) return old.blame;
-  const rel = ws.repoRel(model.uri.path);
+  const rel = part.repoRel(file);
   if (!rel) return Promise.resolve(null);
-  const dirty = ws.docs.get(model.uri.path)?.dirty;
+  const dirty = docStore.get(file)?.dirty;
   const entry: Cached = { key, latest: old?.latest ?? null, blame: Promise.resolve(null) };
   entry.blame = gitApi
-    .blame(ws.gitTarget, rel, dirty ? model.getValue() : undefined)
+    .blame(part.gitTarget, rel, dirty ? model.getValue() : undefined)
     .then((b) => {
       entry.latest = b;
       lensChanged.fire(lensProvider);
@@ -57,9 +66,10 @@ export function whoAndWhen(c: GitBlameCommit, me: string): string {
   return `${c.email && c.email === me ? 'You' : c.author}, ${timeAgo(c.at)}`;
 }
 
-function hoverOf(c: GitBlameCommit, me: string, path: string): monaco.IMarkdownString {
+/** uri: the model's (it names the machine, so the same path on two machines stays two files). */
+function hoverOf(c: GitBlameCommit, me: string, uri: string): monaco.IMarkdownString {
   if (isUncommitted(c)) return { value: 'Not committed yet' };
-  const args = encodeURIComponent(JSON.stringify([path, c.hash]));
+  const args = encodeURIComponent(JSON.stringify([uri, c.hash]));
   return {
     value: `**${plainMarkdown(c.author)}**${c.email && c.email === me ? ' (you)' : ''}, ${plainMarkdown(new Date(c.at).toLocaleString())}\n\n${plainMarkdown(c.summary)}\n\n\`${c.hash.slice(0, 8)}\` · [Open changes](command:nb.gitlens.openDiff?${args})`,
     isTrusted: { enabledCommands: ['nb.gitlens.openDiff'] },
@@ -94,7 +104,7 @@ export function watchGitLens(ed: Editor, ws: Workspace): monaco.IDisposable {
         range: new monaco.Range(line, end, line, end),
         options: {
           showIfCollapsed: true,
-          hoverMessage: hoverOf(c, blame.me, model.uri.path),
+          hoverMessage: hoverOf(c, blame.me, model.uri.toString()),
           after: { content: text.length > 160 ? `${text.slice(0, 160)}…` : text, inlineClassName: 'wb-blame-text', cursorStops: monaco.editor.InjectedTextCursorStops.None },
         },
       },
@@ -114,10 +124,17 @@ export function watchGitLens(ed: Editor, ws: Workspace): monaco.IDisposable {
       later(TYPING_MS);
     }),
   ];
-  let gitVersion = ws.gitVersion;
+  // the git of the shown file's part moved: blame again
+  const versionOf = () => {
+    const m = ed.getModel();
+    const part = m ? partOfModel(ws, m).part : null;
+    return part ? `${part.ref}:${part.gitVersion}` : '';
+  };
+  let gitVersion = versionOf();
   const offWs = ws.subscribe(() => {
-    if (gitVersion === ws.gitVersion) return;
-    gitVersion = ws.gitVersion;
+    const v = versionOf();
+    if (gitVersion === v) return;
+    gitVersion = v;
     later(CURSOR_MS);
   });
   const off = onNativeChange(() => later(0));
@@ -195,13 +212,15 @@ export async function toggleFileBlame(ws: Workspace, ed: Editor) {
 // ---- history ------------------------------------------------------------------------
 
 export async function showHistory(ws: Workspace, path: string, line?: number) {
-  const rel = ws.repoRel(path);
-  if (!rel) {
+  const file: FileKey | null = ws.toKey(path);
+  const part = file ? ws.partOf(file) : null;
+  const rel = file && part ? part.repoRel(file) : null;
+  if (!file || !part || !rel) {
     toast.info('This file is not in the selected Git repository.');
     return;
   }
   try {
-    const items = await gitApi.fileLog(ws.gitTarget, rel, line);
+    const items = await gitApi.fileLog(part.gitTarget, rel, line);
     if (!items.length) {
       toast.info('Git has no history for this yet.');
       return;
@@ -211,7 +230,7 @@ export async function showHistory(ws: Workspace, path: string, line?: number) {
       items.map((c) => ({
         label: c.subject,
         detail: `${c.short} · ${c.author} · ${timeAgo(c.at)}`,
-        run: () => ws.openDiff(path, `commit:${c.hash}`),
+        run: () => ws.openDiff(file, `commit:${c.hash}`),
       })),
     );
   } catch (err) {
@@ -235,7 +254,8 @@ const lensProvider: monaco.languages.CodeLensProvider = {
     const ws = modelOwners.get(model);
     if (!ws || !hasNative('gitlens') || model.uri.scheme !== 'file') return none;
     // while unsaved, the last answer will do: this runs on every pause in typing
-    if (!ws.docs.get(model.uri.path)?.dirty) void blameOf(ws, model);
+    const file = keyOfUri(model.uri);
+    if (file && !docStore.get(file)?.dirty) void blameOf(ws, model);
     const blame = cache.get(model)?.latest;
     const sum = blame && fileSummary(blame);
     if (!sum) return none;
@@ -253,13 +273,16 @@ export function registerGitLens() {
   monaco.languages.registerCodeLensProvider('*', lensProvider);
   monaco.editor.registerCommand('nb.gitlens.history', (_acc, uri: string) => {
     const model = monaco.editor.getModel(monaco.Uri.parse(uri));
-    const ws = model && modelOwners.get(model);
-    if (ws) void showHistory(ws, model.uri.path);
+    const ws = model && (viewOfModel(model) ?? modelOwners.get(model));
+    const file = model && keyOfUri(model.uri);
+    if (ws && file) void showHistory(ws, file);
   });
-  monaco.editor.registerCommand('nb.gitlens.openDiff', (_acc, path: string, hash: string) => {
-    const model = monaco.editor.getModels().find((m) => m.uri.path === path);
-    const ws = model && modelOwners.get(model);
-    if (ws && /^[0-9a-f]{7,64}$/.test(hash)) ws.openDiff(path, `commit:${hash}`);
+  // the hover's link names the model's URI: its machine and path
+  monaco.editor.registerCommand('nb.gitlens.openDiff', (_acc, uri: string, hash: string) => {
+    const model = monaco.editor.getModel(monaco.Uri.parse(uri));
+    const ws = model && (viewOfModel(model) ?? modelOwners.get(model));
+    const file = model && keyOfUri(model.uri);
+    if (ws && file && /^[0-9a-f]{7,64}$/.test(hash)) ws.openDiff(file, `commit:${hash}`);
   });
   onNativeChange(() => lensChanged.fire(lensProvider));
 }

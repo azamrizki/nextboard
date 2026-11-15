@@ -9,6 +9,7 @@
 import { api, errorMessage } from '../api';
 import { toast } from '../components/Toast';
 import { newId } from '../lib/ids';
+import { projectParts } from '../lib/parts';
 import type { BoardNode, LaunchMode, NodeLayout, NodePatch, Op, Project, Session } from '../lib/types';
 import { store } from '../store';
 import { guiApi } from '../gui/api';
@@ -25,9 +26,17 @@ const MERGE_MS = 1500;
 /** What is needed to start a terminal like an existing one. */
 export interface TerminalSpec {
   nodeId: string;
+  /** Where it works: for an agent of a server or read-only part, that part's machine, not This PC. */
   machineId: string;
   preset: string;
+  /** Where it works on that machine (an agent's remoteCwd, not the hub's work folder). */
   cwd: string;
+  /**
+   * Its place in the project (v0.9.0-beta.2): at the root (no machine or folder then), or in this
+   * part of ctl.project. Neither: the hub finds the part from machineId and cwd, as before.
+   */
+  root?: boolean;
+  partId?: string;
   name: string;
   rect: NodeLayout;
   /** Phase 5: undefined = hub default (settings.agents.yoloDefault). */
@@ -78,6 +87,22 @@ export function boardRejection(msg: string, code = ''): string {
 export function sessionOf(n: BoardNode): Session | undefined {
   const id = typeof n.data?.sessionId === 'string' ? n.data.sessionId : '';
   return id ? store.getState().sessions[id] : undefined;
+}
+
+/**
+ * Where a console works, to start another one there (undo, paste, "Resume in a new console"):
+ * its root or part, and the machine and folder of the work. An agent of a server or read-only
+ * part runs on This PC in the hub's empty work folder; what counts is remoteMachineId and
+ * remoteCwd, so a copy does not come back as a plain This PC console in that folder.
+ */
+export function placeOfSession(s: Session): Pick<TerminalSpec, 'machineId' | 'cwd' | 'root' | 'partId'> {
+  if (s.root) return { machineId: 'local', cwd: '', root: true };
+  const remote = !!s.remoteMachineId;
+  return {
+    machineId: remote ? s.remoteMachineId! : s.machineId,
+    cwd: remote ? (s.remoteCwd ?? '') : s.cwd,
+    partId: s.partId || undefined,
+  };
 }
 
 export function isRunning(s: Session | undefined): boolean {
@@ -391,9 +416,8 @@ export class BoardController {
     if (!s) return null;
     return {
       nodeId: n.id,
-      machineId: s.machineId,
+      ...placeOfSession(s),
       preset: s.agent || s.preset,
-      cwd: s.cwd,
       // a re-created console gets a fresh handle; keep a custom title only
       name: s.name,
       rect: rectOf(n),
@@ -408,10 +432,18 @@ export class BoardController {
   /** Start a terminal on this workspace; the hub adds its node at `rect`. */
   async spawn(spec: Omit<TerminalSpec, 'nodeId'>, replacesNodeId?: string): Promise<Session | null> {
     const { cols, rows } = guessTermSize(spec.rect.w, spec.rect.h);
+    // a part this project no longer has (or never had: pasted from another one) is not sent; the
+    // hub then places the console by its machine and folder
+    const part = spec.partId ? projectParts(this.project).find((p) => p.id === spec.partId) : undefined;
+    const partId = part?.id;
+    const root = !!spec.root;
+    // a part moved to another machine since: its folder there, not the old machine's (part_machine)
+    const moved = !!part && !!spec.machineId && (part.machineId || 'local') !== spec.machineId;
     try {
       const s = await api.createSession({
         workspaceId: this.workspaceId,
-        machineId: spec.machineId || undefined,
+        ...(root ? { root: true } : partId ? { partId } : {}),
+        machineId: root || moved ? undefined : spec.machineId || undefined,
         preset: spec.preset,
         agent: spec.preset,
         yolo: spec.yolo,
@@ -421,7 +453,7 @@ export class BoardController {
         effort: spec.effort,
         launch: spec.launch,
         name: spec.name || undefined,
-        cwd: spec.cwd || undefined,
+        cwd: root || moved ? undefined : spec.cwd || undefined,
         cols,
         rows,
         node: {

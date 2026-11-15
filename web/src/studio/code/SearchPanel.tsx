@@ -1,6 +1,7 @@
 // Search and replace in files (Ctrl+Shift+F): match case, whole word, regular expression
-// (Alt+C, Alt+W, Alt+R), files to include and exclude. The hub searches on the project's
-// machine and skips ignored and binary files. The toggles and the query are remembered.
+// (Alt+C, Alt+W, Alt+R), files to include and exclude. The hub searches on each part's machine
+// and skips ignored and binary files; a Root card searches every part ("admin/**" only admin) and
+// shows the results under each part's name. The toggles and the query are remembered.
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage, isCode } from '../../api';
@@ -8,23 +9,23 @@ import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Icon } from '../../components/Icon';
 import { toast } from '../../components/Toast';
-import { filesApi, type SearchResponse } from '../api';
 import { FileIcon } from './Explorer';
+import type { FileKey } from './paths';
 import { useWs } from './useWs';
-import { nameOf, type SearchState, type Workspace } from './workspace';
+import { nameOf, type SearchState, type ViewSearch, type Workspace } from './workspace';
 
 const DEBOUNCE_MS = 300;
 
 export function SearchPanel({ ws, focusTick }: { ws: Workspace; focusTick: number }) {
   useWs(ws);
   const s = ws.search;
-  const [res, setRes] = useState<SearchResponse | null>(null);
+  const [res, setRes] = useState<ViewSearch | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const [showReplace, setShowReplace] = useState(!!s.replace);
   const [showFilters, setShowFilters] = useState(!!(s.include || s.exclude));
-  const [confirm, setConfirm] = useState<string[] | null>(null);
+  const [confirm, setConfirm] = useState<FileKey[] | null>(null);
   const [rev, setRev] = useState(0);
   const queryRef = useRef<HTMLInputElement>(null);
 
@@ -48,8 +49,8 @@ export function SearchPanel({ ws, focusTick }: { ws: Workspace; focusTick: numbe
     const ctl = new AbortController();
     const t = window.setTimeout(() => {
       setBusy(true);
-      filesApi
-        .search(ws.pid, { query: s.query, matchCase: s.matchCase, wholeWord: s.wholeWord, regex: s.regex, include: s.include, exclude: s.exclude }, ctl.signal)
+      ws
+        .searchParts({ query: s.query, matchCase: s.matchCase, wholeWord: s.wholeWord, regex: s.regex, include: s.include, exclude: s.exclude }, ctl.signal)
         .then((r) => {
           setRes(r);
           setError('');
@@ -78,38 +79,33 @@ export function SearchPanel({ ws, focusTick }: { ws: Workspace; focusTick: numbe
     e.preventDefault();
   };
 
-  const toggle = (rel: string) => {
+  const toggle = (key: string) => {
     setClosed((cur) => {
       const n = new Set(cur);
-      if (n.has(rel)) n.delete(rel);
-      else n.add(rel);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
       return n;
     });
   };
 
-  /** Files with unsaved edits stay out: the hub writes to disk, the edits live here. */
-  const replaceIn = async (rels: string[]) => {
-    const dirty = rels.filter((r) => ws.docs.get(ws.abs(r))?.dirty);
-    const paths = rels.filter((r) => !dirty.includes(r));
-    if (dirty.length) toast.notify('warning', 'Skipped files with unsaved edits', dirty.join(', '));
-    if (!paths.length) return;
+  /** Files with unsaved edits stay out: the hub writes to disk, the edits live here. Each part gets its own files. */
+  const replaceIn = async (keys: FileKey[]) => {
     try {
-      const body = { query: s.query, matchCase: s.matchCase, wholeWord: s.wholeWord, regex: s.regex, replacement: s.replace, paths };
-      const r = await ws.run((c) => filesApi.replace(ws.pid, { ...body, ...c }));
+      const r = await ws.replaceParts({ query: s.query, matchCase: s.matchCase, wholeWord: s.wholeWord, regex: s.regex, replacement: s.replace }, keys);
       if (!r) return;
-      const failed = (r.files ?? []).filter((f) => f.error);
-      if (failed.length) toast.error(`${failed[0].rel}: ${failed[0].error}${failed.length > 1 ? ` (and ${failed.length - 1} more)` : ''}`);
-      toast.success(`Replaced ${r.count} ${r.count === 1 ? 'match' : 'matches'}.`);
-      for (const f of r.files ?? []) if (f.count) void ws.reload(ws.abs(f.rel));
-      ws.gitSoon();
+      if (r.skipped.length) toast.notify('warning', 'Skipped files with unsaved edits', r.skipped.map((k) => ws.relLabel(k)).join(', '));
+      if (r.failed.length) toast.error(`${ws.relLabel(r.failed[0].key)}: ${r.failed[0].error}${r.failed.length > 1 ? ` (and ${r.failed.length - 1} more)` : ''}`);
+      if (r.skipped.length < keys.length) toast.success(`Replaced ${r.count} ${r.count === 1 ? 'match' : 'matches'}.`);
       setRev((n) => n + 1);
     } catch (err) {
       toast.error(`Replace failed: ${errorMessage(err)}`);
     }
   };
 
-  const files = res?.files ?? [];
+  const sections = res?.parts ?? [];
+  const files = sections.flatMap((p) => p.files);
   const count = res?.count ?? 0;
+  const multi = ws.paths.multi;
 
   return (
     <div className="wb-view">
@@ -141,14 +137,14 @@ export function SearchPanel({ ws, focusTick }: { ws: Workspace; focusTick: numbe
             <div className="wb-search-input">
               <input aria-label="Replace" placeholder="Replace" spellCheck={false} value={s.replace} onChange={(e) => set({ replace: e.target.value })} onKeyDown={onAlt} />
             </div>
-            <Button size="sm" variant="ghost" iconOnly icon="check" aria-label="Replace all" title="Replace all" disabled={!count} onClick={() => setConfirm(files.map((f) => f.rel))} />
+            <Button size="sm" variant="ghost" iconOnly icon="check" aria-label="Replace all" title="Replace all" disabled={!count} onClick={() => setConfirm(files.map((f) => f.key))} />
           </div>
         )}
         {showFilters && (
           <>
             <div className="wb-search-row is-indented">
               <div className="wb-search-input">
-                <input aria-label="Files to include" placeholder="Files to include (*.ts, src/**)" spellCheck={false} value={s.include} onChange={(e) => set({ include: e.target.value })} />
+                <input aria-label="Files to include" placeholder={multi ? `Files to include (*.ts, ${ws.parts[0].name}/**)` : 'Files to include (*.ts, src/**)'} spellCheck={false} value={s.include} onChange={(e) => set({ include: e.target.value })} />
               </div>
             </div>
             <div className="wb-search-row is-indented">
@@ -164,56 +160,74 @@ export function SearchPanel({ ws, focusTick }: { ws: Workspace; focusTick: numbe
         {res?.truncated && !busy && <span className="text-3"> Narrow the search to see the rest.</span>}
       </div>
       <div className="wb-results nowheel">
-        {files.map((f) => {
-          const isClosed = closed.has(f.rel);
-          const name = nameOf(f.rel);
-          const dir = f.rel.slice(0, Math.max(0, f.rel.length - name.length - 1));
-          const abs = ws.abs(f.rel);
-          return (
-            <div key={f.rel} className="wb-result-file">
-              <div className="wb-row wb-result-head" role="button" tabIndex={0} aria-expanded={!isClosed} title={f.rel} onClick={() => toggle(f.rel)} onKeyDown={(e) => e.key === 'Enter' && toggle(f.rel)}>
-                <Icon name={isClosed ? 'chevronRight' : 'chevronDown'} className="wb-chev" />
-                <FileIcon name={name} />
-                <span className="wb-row-name truncate">{name}</span>
-                {dir && <span className="wb-result-dir truncate">{dir}</span>}
-                {showReplace && (
-                  <button
-                    type="button"
-                    className="wb-result-act"
-                    aria-label={`Replace in ${name}`}
-                    title="Replace in this file"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void replaceIn([f.rel]);
-                    }}
-                  >
-                    <Icon name="check" />
-                  </button>
-                )}
-                <span className="wb-result-count tabular">{f.matches.length}</span>
+        {sections.map((sec) => (
+          <div key={sec.part.partId} className="wb-result-part">
+            {/* a Root card: the results of each part under its name */}
+            {multi && (
+              <div className="wb-section-title wb-part-head" title={`${sec.part.name}: ${sec.part.root}`}>
+                <Icon name="folder" className="wb-icon" />
+                <span className="truncate">{sec.part.name}</span>
+                {sec.error !== undefined && <span className="is-error truncate">{errorMessage(sec.error)}</span>}
+                <span className="spacer" />
+                <span className="wb-result-count tabular">
+                  {sec.count.toLocaleString()}
+                  {sec.truncated ? '+' : ''}
+                </span>
               </div>
-              {!isClosed &&
-                f.matches.map((m, i) => (
-                  <button
-                    key={`${m.line}:${m.col}:${i}`}
-                    type="button"
-                    className="wb-hit"
-                    title={`Line ${m.line}`}
-                    onClick={() => ws.open(abs, { line: m.line, col: m.col + 1, endCol: m.col + m.len + 1, source: true })}
-                    onDoubleClick={() => ws.open(abs, { pin: true, line: m.line, col: m.col + 1, endCol: m.col + m.len + 1, source: true })}
-                  >
-                    <span className="wb-hit-line tabular">{m.line}</span>
-                    <span className="wb-hit-text mono truncate">
-                      {m.text.slice(0, m.textCol).trimStart()}
-                      <mark className={showReplace && s.replace ? 'is-old' : undefined}>{m.text.slice(m.textCol, m.textCol + m.len)}</mark>
-                      {showReplace && s.replace && !s.regex && <mark className="is-new">{s.replace}</mark>}
-                      {m.text.slice(m.textCol + m.len)}
-                    </span>
-                  </button>
-                ))}
-            </div>
-          );
-        })}
+            )}
+            {!multi && sec.error !== undefined && <div className="wb-row-msg is-error">{errorMessage(sec.error)}</div>}
+            {sec.files.map((f) => {
+              const isClosed = closed.has(f.key);
+              const name = nameOf(f.rel);
+              const dir = f.rel.slice(0, Math.max(0, f.rel.length - name.length - 1));
+              const abs = f.key;
+              return (
+                <div key={f.key} className="wb-result-file">
+                  <div className="wb-row wb-result-head" role="button" tabIndex={0} aria-expanded={!isClosed} title={ws.relLabel(f.key)} onClick={() => toggle(f.key)} onKeyDown={(e) => e.key === 'Enter' && toggle(f.key)}>
+                    <Icon name={isClosed ? 'chevronRight' : 'chevronDown'} className="wb-chev" />
+                    <FileIcon name={name} />
+                    <span className="wb-row-name truncate">{name}</span>
+                    {dir && <span className="wb-result-dir truncate">{dir}</span>}
+                    {showReplace && (
+                      <button
+                        type="button"
+                        className="wb-result-act"
+                        aria-label={`Replace in ${name}`}
+                        title="Replace in this file"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void replaceIn([f.key]);
+                        }}
+                      >
+                        <Icon name="check" />
+                      </button>
+                    )}
+                    <span className="wb-result-count tabular">{f.matches.length}</span>
+                  </div>
+                  {!isClosed &&
+                    f.matches.map((m, i) => (
+                      <button
+                        key={`${m.line}:${m.col}:${i}`}
+                        type="button"
+                        className="wb-hit"
+                        title={`Line ${m.line}`}
+                        onClick={() => ws.open(abs, { line: m.line, col: m.col + 1, endCol: m.col + m.len + 1, source: true })}
+                        onDoubleClick={() => ws.open(abs, { pin: true, line: m.line, col: m.col + 1, endCol: m.col + m.len + 1, source: true })}
+                      >
+                        <span className="wb-hit-line tabular">{m.line}</span>
+                        <span className="wb-hit-text mono truncate">
+                          {m.text.slice(0, m.textCol).trimStart()}
+                          <mark className={showReplace && s.replace ? 'is-old' : undefined}>{m.text.slice(m.textCol, m.textCol + m.len)}</mark>
+                          {showReplace && s.replace && !s.regex && <mark className="is-new">{s.replace}</mark>}
+                          {m.text.slice(m.textCol + m.len)}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
       {confirm && (
         <ConfirmDialog

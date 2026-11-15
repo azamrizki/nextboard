@@ -13,8 +13,9 @@ import { Icon, type IconName } from '../components/Icon';
 import { agentById, useAgentCatalog } from '../agents/catalog';
 import { agentPill } from '../agents/state';
 import { prefs } from '../lib/format';
-import type { BoardNode } from '../lib/types';
-import { useNeedsYou, useSessions } from '../store';
+import { isMultiPart, placementOfNode, placeShort } from '../lib/placement';
+import type { BoardNode, Project } from '../lib/types';
+import { store, useNeedsYou, useSessions } from '../store';
 import { sessionOf } from './controller';
 import { cardOrder } from './focus';
 import { nodeLabel } from './kinds';
@@ -87,11 +88,17 @@ export function CardList({
   onOpen,
   onNewConsole,
   onAdd,
+  project,
+  newConsoleWhere,
 }: {
   nodes: BoardNode[];
   onOpen: (id: string) => void;
   onNewConsole: () => void;
   onAdd: () => void;
+  /** A project of several parts: each card's root or part is in its sub line (v0.9.0-beta.2). */
+  project?: Project;
+  /** Where New console starts, in a project of several parts ("Root", "admin"): shown on the button. */
+  newConsoleWhere?: string;
 }) {
   useSessions(); // a console's state lives in the store: show it as it changes
   useAgentCatalog(); // and its agent's name in the catalog
@@ -100,8 +107,8 @@ export function CardList({
   return (
     <section className="card-list" aria-label="Cards">
       <div className="card-list-actions">
-        <Button variant="primary" icon="terminal" onClick={onNewConsole}>
-          New console
+        <Button variant="primary" icon="terminal" onClick={onNewConsole} title={newConsoleWhere ? `A new console in ${newConsoleWhere === 'Root' ? 'the project root' : newConsoleWhere}: change it in the command bar’s agent chip` : undefined}>
+          {newConsoleWhere ? `New console · ${newConsoleWhere}` : 'New console'}
         </Button>
         <Button icon="plus" onClick={onAdd}>
           Add a card
@@ -115,7 +122,9 @@ export function CardList({
             const s = n.kind === 'terminal' ? sessionOf(n) : undefined;
             const pill = s ? agentPill(s) : null;
             const name = s ? (s.handle ? `@${s.handle}` : s.name || 'Console') : nodeLabel(n);
-            const sub = s ? [agentById(s.agent || s.preset)?.name ?? s.agent, pill?.activity || pill?.label].filter(Boolean).join(' · ') : n.kind === 'terminal' ? 'Console' : '';
+            const placed = project && isMultiPart(project) ? placementOfNode(n, project, store.getState().sessions, nodes) : null;
+            const where = placed && project ? placeShort(project, placed) : '';
+            const sub = s ? [agentById(s.agent || s.preset)?.name ?? s.agent, where, pill?.activity || pill?.label].filter(Boolean).join(' · ') : n.kind === 'terminal' ? 'Console' : where;
             const needsYou = !!s && needs.has(s.id);
             return (
               <li key={n.id}>

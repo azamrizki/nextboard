@@ -8,6 +8,7 @@ import (
 
 	"github.com/azamrizki/nextboard/internal/auth"
 	"github.com/azamrizki/nextboard/internal/board"
+	"github.com/azamrizki/nextboard/internal/project"
 )
 
 // Board control (docs/API-orchestration.md §3.6): what lets the planner act on
@@ -109,6 +110,8 @@ func (sc *scope) findTile(ref string) (*board.Node, string, string) {
 		return out
 	}
 	handle := strings.TrimPrefix(want, "@")
+	// "editor admin", "admin editor", "code at the root": the editor card of that placement
+	edPlace, edNamed := sc.editorNamed(want)
 	rules := []func(n *board.Node) bool{
 		func(n *board.Node) bool { return strings.ToLower(n.ID) == want },
 		func(n *board.Node) bool {
@@ -116,6 +119,7 @@ func (sc *scope) findTile(ref string) (*board.Node, string, string) {
 			return ok && strings.ToLower(sc.handle(sid)) == handle
 		},
 		func(n *board.Node) bool { return n.Kind == KindGroup && strings.ToLower(GroupOf(n).Name) == handle },
+		func(n *board.Node) bool { return edNamed && n.Kind == KindEditor && editorPlace(sc.proj, n) == edPlace },
 		func(n *board.Node) bool {
 			return n.Kind == want || (n.Kind == KindEditor && (want == "code editor" || want == "code"))
 		},
@@ -137,9 +141,26 @@ func (sc *scope) findTile(ref string) (*board.Node, string, string) {
 		if len(onThis) > 0 {
 			hits = onThis
 		}
-		// a copy of the editor card only points to the first one, which is the live one
+		// Several editor cards: a copy of one points to the first card of its placement, which
+		// is the live one, and "the editor" is the Root card when there is one.
 		if len(hits) > 1 && hits[0].n.Kind == KindEditor {
-			hits = hits[:1]
+			seen := map[string]bool{}
+			first := hits[:0:0]
+			for _, h := range hits {
+				if at := editorPlace(sc.proj, h.n); h.n.Kind == KindEditor && !seen[at] {
+					seen[at] = true
+					first = append(first, h)
+				}
+			}
+			hits = first
+			if len(hits) > 1 {
+				for _, h := range hits {
+					if editorPlace(sc.proj, h.n) == "" {
+						hits = []hit{h}
+						break
+					}
+				}
+			}
 		}
 		if len(hits) > 1 {
 			return nil, "", fmt.Sprintf("Planner named %q, which fits %d tiles; step dropped.", ref, len(hits))
@@ -147,6 +168,52 @@ func (sc *scope) findTile(ref string) (*board.Node, string, string) {
 		return hits[0].n, hits[0].wid, ""
 	}
 	return nil, "", fmt.Sprintf("Planner named %q, which is not on any board; step dropped.", ref)
+}
+
+// projectPath resolves a path the planner names (editor.open, a file card) to a part and an
+// absolute path in it. In order: the part named (a relative path is in its folder); in a project
+// of several parts, a relative path whose first segment is a part's name ("admin/src/x.ts"); an
+// absolute path, in the one part whose folder holds it ("/admin/x" names part admin when no
+// folder holds it); else a relative path is in the first part (compat), and an absolute one is
+// in no part (pt.ID ""). problem: the part named is not in the project.
+func projectPath(proj project.Project, part, p string) (project.Part, string, string) {
+	p = strings.TrimSpace(p)
+	if strings.TrimSpace(part) != "" {
+		pt, ok := proj.PartNamed(part)
+		if !ok {
+			return project.Part{}, "", fmt.Sprintf("The project has no part %q; step dropped.", part)
+		}
+		if !strings.HasPrefix(p, "/") {
+			p = path.Join(pt.Path, p)
+		}
+		return pt, path.Clean(p), ""
+	}
+	multi := len(proj.Parts) > 1
+	if !strings.HasPrefix(p, "/") {
+		if first, rest, _ := strings.Cut(strings.TrimPrefix(p, "./"), "/"); multi {
+			if pt, ok := proj.PartNamed(first); ok {
+				return pt, path.Join(pt.Path, rest), ""
+			}
+		}
+		pt := proj.DefaultPart() // compat: a path relative to the project is in its first part
+		return pt, path.Join(pt.Path, p), ""
+	}
+	p = path.Clean(p)
+	var holds []project.Part
+	for _, pt := range proj.Parts {
+		if pt.Path == p || strings.HasPrefix(p, strings.TrimSuffix(pt.Path, "/")+"/") {
+			holds = append(holds, pt)
+		}
+	}
+	if len(holds) == 1 {
+		return holds[0], p, ""
+	}
+	if first, rest, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/"); multi && len(holds) == 0 {
+		if pt, ok := proj.PartNamed(first); ok {
+			return pt, path.Join(pt.Path, rest), ""
+		}
+	}
+	return project.Part{}, p, ""
 }
 
 // planGeom turns coordinates of the plan into a step's geometry.
@@ -302,14 +369,12 @@ func (s *Service) translateBoardStep(sc *scope, ps plannerStep, st Step) (Step, 
 		if p == "" {
 			return st, "Planner editor.open has no path; step dropped."
 		}
-		if !strings.HasPrefix(p, "/") {
-			base := sc.proj.Path
-			if pt, ok := partNamed(sc.proj, ps.Part); ok && ps.Part != "" {
-				base = pt.Path // the editor shows that part (ROADMAP #49)
-			}
-			p = path.Join(base, p)
+		pt, abs, problem := projectPath(sc.proj, ps.Part, p)
+		if problem != "" {
+			return st, problem
 		}
-		st.UIAction = &UIAction{Action: "openFile", Path: p, Line: ps.Line}
+		// the part decides which editor card opens it: that part's, else the root's
+		st.UIAction = &UIAction{Action: "openFile", Path: abs, Line: ps.Line, Part: pt.ID}
 		st.Op = "ui"
 	case "console.rename":
 		r := sc.resolve(ps.Targets)
@@ -556,6 +621,43 @@ func firstString(v any, fallback string) string {
 		return s
 	}
 	return fallback
+}
+
+// editorNamed reads "editor admin", "admin editor", "code editor admin", "editor at the root",
+// "root editor": the placement of the editor card it names ("" = the Root card), in a project
+// of several parts. named is false for anything else.
+func (sc *scope) editorNamed(want string) (string, bool) {
+	if len(sc.proj.Parts) < 2 {
+		return "", false
+	}
+	rest := ""
+	for _, w := range []string{"code editor", "editor", "code"} {
+		if r, ok := strings.CutPrefix(want, w+" "); ok {
+			rest = r
+			break
+		}
+		if r, ok := strings.CutSuffix(want, " "+w); ok {
+			rest = r
+			break
+		}
+	}
+	rest = strings.TrimSpace(rest)
+	for _, prep := range []string{"in ", "of ", "at ", "for ", "di ", "untuk "} {
+		rest = strings.TrimPrefix(rest, prep)
+	}
+	rest = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(rest, " part"), " bagian"))
+	if rest == "" {
+		return "", false
+	}
+	if pt, ok := sc.proj.PartNamed(rest); ok {
+		return pt.ID, true
+	}
+	for _, w := range rootWords {
+		if rest == w {
+			return "", true
+		}
+	}
+	return "", false
 }
 
 // tileIDOf is the id of a console's tile ("" when it has none).

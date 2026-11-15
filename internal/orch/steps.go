@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/store"
 )
 
@@ -23,8 +24,12 @@ type Step struct {
 	Agent   string   `json:"agent,omitempty"`
 	// Account: spawn on this API provider (its name or id), or "login"; "" = settings lead.providers.
 	Account string `json:"account,omitempty"`
-	// Part: spawn in this part of the project, by name or id (ROADMAP #49).
-	Part           string         `json:"part,omitempty"`
+	// Part: spawn in this part of the project, by name or id (ROADMAP #49); also the part of a
+	// handoff's next console and of an editor card (node.add).
+	Part string `json:"part,omitempty"`
+	// Root: spawn at the project root, reaching every part (v0.9.0-beta.2). Neither Part nor
+	// Root: the command's place, else the root, the lead's level.
+	Root           bool           `json:"root,omitempty"`
 	Role           string         `json:"role,omitempty"`
 	GroupID        string         `json:"groupId,omitempty"`
 	NewGroup       *NewGroup      `json:"newGroup,omitempty"`
@@ -123,6 +128,9 @@ func (s Step) Validate() error {
 			}
 		}
 		return nil
+	}
+	if s.Root && strings.TrimSpace(s.Part) != "" {
+		return badStep("%s: root or part, not both", s.Op)
 	}
 	switch s.Op {
 	case "send":
@@ -373,6 +381,8 @@ type savedCtx struct {
 	PlannerMode string    `json:"plannerMode,omitempty"`
 	Planned     bool      `json:"planned,omitempty"`
 	Reply       *ReplyRef `json:"reply,omitempty"`
+	// Place is the command's place for consoles it starts (CommandRequest.Place).
+	Place project.Place `json:"place,omitzero"`
 }
 
 func newConfirms(st *store.Store) *Confirms {
@@ -386,7 +396,7 @@ func newConfirms(st *store.Store) *Confirms {
 		if x := saved.Ctx; x != nil {
 			cf.ctx = &execCtx{commandID: x.CommandID, threadID: x.ThreadID, projectID: x.ProjectID, workspaceID: x.WorkspaceID,
 				cardID: x.CardID, clientID: x.ClientID, source: x.Source, by: x.By, selection: x.Selection,
-				plannerMode: x.PlannerMode, planned: x.Planned, reply: x.Reply}
+				plannerMode: x.PlannerMode, planned: x.Planned, reply: x.Reply, place: x.Place}
 		}
 		c.byID[cf.ID] = &cf
 		if cf.State == ConfPending {
@@ -404,7 +414,7 @@ func (c *Confirms) saveLocked() {
 		if x := cf.ctx; x != nil {
 			saved.Ctx = &savedCtx{CommandID: x.commandID, ThreadID: x.threadID, ProjectID: x.projectID, WorkspaceID: x.workspaceID,
 				CardID: x.cardID, ClientID: x.clientID, Source: x.source, By: x.by, Selection: x.selection,
-				PlannerMode: x.plannerMode, Planned: x.planned, Reply: x.reply}
+				PlannerMode: x.plannerMode, Planned: x.planned, Reply: x.reply, Place: x.place}
 		}
 		list = append(list, saved)
 	}

@@ -622,15 +622,16 @@ func TestReviewAPI(t *testing.T) {
 		}
 		t.Fatal("timed out: " + what)
 	}
-	if err := h.srv.review.Snapshot(pr.ID); err != nil {
+	key := h.srv.reviewKeyOf(pr.ID, "") // its one part: <project>~<part>
+	if err := h.srv.review.Snapshot(key); err != nil {
 		t.Fatal(err)
 	}
 	rv := h.srv.review
-	rv.SessionChanged(pr.ID, "s_one", "@Ash", "claude", true, true)
+	rv.SessionChanged(key, "s_one", "@Ash", "claude", true, true)
 	time.Sleep(300 * time.Millisecond)
 	write("a.txt", "one\ntwo\n")
 	write("b.txt", "bee!\n")
-	rv.SessionChanged(pr.ID, "s_one", "", "", false, false)
+	rv.SessionChanged(key, "s_one", "", "", false, false)
 
 	var sum struct {
 		Supported bool `json:"supported"`

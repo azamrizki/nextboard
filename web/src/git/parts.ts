@@ -1,20 +1,12 @@
 // The parts of a project in the board's Git panel (docs/API-board.md §1, ROADMAP #49). Each part
 // has its own git: the hub reads it through the project ref "<project>~<part>", and the studio
-// store keeps its repositories, summary and events under the same key.
+// store keeps its repositories, summary and gitPart events under the same key, for every part.
 
-import type { Project, ProjectPart } from '../lib/types';
-import { projectParts } from '../lib/parts';
+import type { ProjectPart } from '../lib/types';
 import type { GitRepoInfo, GitSummary } from '../studio/types';
 
-/**
- * What the hub and the studio store call a part's git: the project id for the first part.
- * @deprecated The old rule. v0.9.0-beta.2 keys every part "<project>~<part>" (lib/parts.ts
- * partRef); callers move to it in the same change as the hub's review and git keys.
- */
-export function partRef(project: Project, part: ProjectPart): string {
-  const first = projectParts(project)[0];
-  return !first || part.id === first.id ? project.id : `${project.id}~${part.id}`;
-}
+/** What the hub and the studio store call a part's git: "<project>~<part>" for every part (lib/parts.ts). */
+export { partRef } from '../lib/parts';
 
 /** A part's repositories added up, for its header. Repositories that could not be read do not count. */
 export function sumRepos(items: GitRepoInfo[] | undefined): GitSummary & { repos: number; unread: number } {

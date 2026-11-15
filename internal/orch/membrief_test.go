@@ -677,7 +677,7 @@ func TestMemoryTileInALayout(t *testing.T) {
 			t.Fatal(err)
 		}
 		b, _ := h.Board(wid)
-		l := LayoutFromBoard(b, nil, map[string]session.Info{ash.ID: ash})
+		l := LayoutFromBoard(b, nil, map[string]session.Info{ash.ID: ash}, p)
 		l.Name = "With a stack"
 		var kept []MemoryBlock
 		for _, n := range l.Nodes {

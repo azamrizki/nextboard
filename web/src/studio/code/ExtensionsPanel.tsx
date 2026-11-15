@@ -36,24 +36,33 @@ const NATIVE_TEXT: Record<string, string> = {
   vim: 'Vim keys are on in every editor, with :w, :q and search. Uninstall to turn them off.',
 };
 
-/** A language server's state, for an extension that relies on one. */
-function ServerRow({ ws, id, onInstall }: { ws: Workspace; id: string; onInstall: (command: string) => void }) {
-  const s = ws.lsp.servers.find((x) => x.id === id);
-  if (!s) return <p className="wb-ext-meta">Checking this machine for its language server…</p>;
-  if (s.available) return <p className="wb-ext-meta">IntelliSense comes from {s.name} on this machine.</p>;
+/** A language server's state, for an extension that relies on one: per part, each on its machine. */
+function ServerRow({ ws, id, onInstall }: { ws: Workspace; id: string; onInstall: (command: string, dir?: string) => void }) {
   return (
-    <p className="wb-ext-meta wb-ext-server">
-      <span className="grow">IntelliSense needs {s.name}, which this machine does not have.</span>
-      <Button size="sm" variant="ghost" title={s.install} onClick={() => onInstall(s.install)}>
-        Install…
-      </Button>
-    </p>
+    <>
+      {ws.parts.map((part) => {
+        const s = part.lsp.servers.find((x) => x.id === id);
+        const where = ws.paths.multi ? `${part.name}: ` : '';
+        if (!s) return <p key={part.partId} className="wb-ext-meta">{where}Checking this machine for its language server…</p>;
+        if (s.available) return <p key={part.partId} className="wb-ext-meta">{where}IntelliSense comes from {s.name} on this machine.</p>;
+        return (
+          <p key={part.partId} className="wb-ext-meta wb-ext-server">
+            <span className="grow">
+              {where}IntelliSense needs {s.name}, which this machine does not have.
+            </span>
+            <Button size="sm" variant="ghost" title={s.install} onClick={() => onInstall(s.install, part.rootKey)}>
+              Install…
+            </Button>
+          </p>
+        );
+      })}
+    </>
   );
 }
 
 const downloads = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : String(n));
 
-export function ExtensionsPanel({ ws, onInstall }: { ws: Workspace; onInstall: (command: string) => void }) {
+export function ExtensionsPanel({ ws, onInstall }: { ws: Workspace; onInstall: (command: string, dir?: string) => void }) {
   useWs(ws);
   useIconTheme();
   const [query, setQuery] = useState('');

@@ -8,15 +8,17 @@ import type { HubEvent } from '../lib/types';
 import { orchStore, useOrch } from '../orch/store';
 import type { Job } from '../orch/types';
 import { prefs } from '../lib/format';
+import { refOf } from '../lib/parts';
 import { store } from '../store';
 import { docApi, gitApi, jobApi, previewApi, usageApi } from './api';
 import type { GitHubStatus, GitRepoInfo, GitRepoList, GitSummary, GitTarget, Preview, PreviewLogEntry, StudioDocument, StudioEvent, UsageReport } from './types';
 
 export interface StudioState {
-  /** projectId → summary of the selected repository. */
+  /** Part ref "<project>~<part>" (or a bare project id, the first part, for old views) → summary of the selected repository. */
   git: Record<string, GitSummary>;
-  /** projectId → bumped on every git event (open panels refetch the full status). */
+  /** The same keys → bumped on every git event (open panels refetch the full status). */
   gitRev: Record<string, number>;
+  /** Part ref → bumped on every review event of that part. */
   reviewRev: Record<string, number>;
   /** projectId → the repositories in its folder (absent until scanned). */
   gitRepos: Record<string, GitRepoList>;
@@ -128,8 +130,11 @@ class StudioStore {
       case 'gitRepo':
       case 'gitPart': {
         const repo = e.type === 'git' ? '' : e.repo;
-        // a part other than the first is kept under its project ref, as its workbench asks for it
-        const key = e.type === 'gitPart' ? `${e.projectId}~${e.part}` : e.projectId;
+        // Every part's status comes as gitPart and is kept under its ref "<project>~<part>"
+        // (lib/parts.ts refOf), so a reorder changes no key. git/gitRepo are the old events the hub
+        // also sends for the first part in display order: kept under the bare project id, which the
+        // hub reads as that part, for the views that still ask by it (a one-part project's panel).
+        const key = e.type === 'gitPart' ? refOf(e.projectId, e.part) : e.projectId;
         const list = this.state.gitRepos[key];
         this.set({
           git: (this.state.gitRepo[key] ?? '') === repo ? { ...this.state.git, [key]: e.status } : this.state.git,
@@ -139,6 +144,7 @@ class StudioStore {
         break;
       }
       case 'review':
+        // projectId is the part key "<project>~<part>" for every part; the editor's parts listen by it (partsvc.ts)
         this.set({ reviewRev: { ...this.state.reviewRev, [e.projectId]: (this.state.reviewRev[e.projectId] ?? 0) + 1 } });
         break;
       case 'reviewOverlap':

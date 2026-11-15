@@ -1,6 +1,8 @@
 // Add a project (ROADMAP #49): a name and its parts, each a folder on one of the machines (browsed
 // with the folder picker) named for its role. One part or several, the form is the same: a project
-// in one folder is a list of one. Adding a folder that is already a project just opens it.
+// in one folder is a list of one. Adding a folder that is already a project just opens it. Every
+// part is equal (v0.9.0-beta.2): an unnamed one takes its folder's name, which is also its folder's
+// name in the project root.
 
 import { useRef, useState, type FormEvent } from 'react';
 import { ApiError, api, errorMessage } from '../api';
@@ -12,7 +14,7 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { NAME_MAX } from '../components/ProjectBar';
 import { toast } from '../components/Toast';
-import { MAX_PARTS } from '../lib/parts';
+import { MAX_PARTS, partErrorText, partNameProblem } from '../lib/parts';
 import type { Machine, Project } from '../lib/types';
 import { store, useMachines } from '../store';
 
@@ -20,8 +22,8 @@ type Draft = { key: number; name: string; machineId: string; path: string };
 type DraftError = { name?: string; folder?: string };
 
 const folderName = (path: string) => path.trim().split('/').filter(Boolean).pop() ?? '';
-// examples of part names, by place; an unnamed part takes its folder's name (the first: Main)
-const EXAMPLES = ['Main', 'Frontend', 'Api', 'Worker', 'Admin', 'Docs', 'Mobile', 'Infra'];
+// examples of part names, by place; an unnamed part takes its folder's name
+const EXAMPLES = ['web', 'frontend', 'api', 'worker', 'admin', 'docs', 'mobile', 'infra'];
 
 export function AddProjectDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (p: Project, existed: boolean) => void }) {
   const machines = useMachines();
@@ -51,7 +53,15 @@ export function AddProjectDialog({ onClose, onAdded }: { onClose: () => void; on
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     const found: Record<number, DraftError> = {};
-    for (const pt of parts) if (!pt.path.trim()) found[pt.key] = { folder: 'Choose a folder.' };
+    const taken = new Set<string>();
+    for (const pt of parts) {
+      // a name given is a folder name in the project root: path-safe and one of a kind
+      const n = pt.name.trim();
+      const problem = n ? partNameProblem(n) || (taken.has(n.toLowerCase()) ? 'Another part already has that name.' : '') : '';
+      if (n) taken.add(n.toLowerCase());
+      if (problem) found[pt.key] = { name: problem };
+      if (!pt.path.trim()) found[pt.key] = { ...found[pt.key], folder: 'Choose a folder.' };
+    }
     setErrors(found);
     setNameError('');
     if (Object.keys(found).length) return;
@@ -71,10 +81,10 @@ export function AddProjectDialog({ onClose, onAdded }: { onClose: () => void; on
       if (existed) toast.info(`${p.name} is already a project — opening it.`);
       onAdded(p, existed);
     } catch (err) {
-      const msg = errorMessage(err);
+      const msg = err instanceof ApiError ? partErrorText(err.code === 'name_conflict' ? '' : err.code, errorMessage(err)) : errorMessage(err);
       // an error about one folder says which, by its place in the list
       const at = err instanceof ApiError && typeof err.body.part === 'number' ? err.body.part : -1;
-      const onName = err instanceof ApiError && (err.code === 'name_conflict' || (err.status === 400 && /\bname\b/i.test(msg)));
+      const onName = err instanceof ApiError && (err.code === 'name_conflict' || err.code === 'bad_part_name' || (err.status === 400 && /\bname\b/i.test(msg)));
       if (at >= 0 && at < parts.length) setErrors({ [parts[at].key]: onName ? { name: msg } : { folder: msg } });
       else if (onName) setNameError(msg);
       else setErrors({ [own.key]: { folder: msg } });
@@ -138,7 +148,8 @@ export function AddProjectDialog({ onClose, onAdded }: { onClose: () => void; on
                     optional
                     value={pt.name}
                     maxLength={NAME_MAX}
-                    placeholder={i === 0 ? 'Main' : folderName(pt.path) || EXAMPLES[i]}
+                    placeholder={folderName(pt.path) || EXAMPLES[i]}
+                    hint={i === 0 && parts.length === 1 ? undefined : 'Its folder’s name when empty. It names the part’s folder in the project root.'}
                     autoFocus={pt.key === added}
                     error={errors[pt.key]?.name}
                     onChange={(e) => change(pt.key, { name: e.target.value })}

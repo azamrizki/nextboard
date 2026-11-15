@@ -19,7 +19,8 @@ type MergePlan struct {
 	Parts []Part `json:"parts"`
 	// Workspaces: its boards with the names they will have.
 	Workspaces []Workspace `json:"workspaces"`
-	// PartIDs maps each of its part ids to the new one; "" stands for a session or monitor with none.
+	// PartIDs maps each of its part ids to the new one; "" stands for a session or monitor with none
+	// (the first part of from, what "" meant before part ids were stamped).
 	PartIDs map[string]string `json:"-"`
 }
 
@@ -55,7 +56,8 @@ func (s *Store) planMergeLocked(into, from *Project) (MergePlan, error) {
 		if len(from.Parts) > 1 {
 			name = from.Name + " · " + pt.Name
 		}
-		name = uniqueName(truncName(name), taken)
+		// a project's name may hold "/": a part's is also its folder's name at the root
+		name = uniqueName(sanitizePartName(name), taken)
 		np := pt
 		np.ID, np.Name = randomID("pt_"), name
 		np.Blocked = slices.Clone(pt.Blocked)
@@ -155,7 +157,8 @@ func (s *Store) Merge(into, from string) (Project, Project, MergePlan, error) {
 }
 
 // Split makes a part a project of its own, with one empty board, in the same group and with the
-// same tags. The first part stays.
+// same tags. Any part may go while another is left (else ErrLastPart). The new project keeps the
+// part as it was, its id and name too, so its review key is <new project>~<part id>.
 func (s *Store) Split(projectID, partID string) (Project, Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -167,20 +170,22 @@ func (s *Store) Split(projectID, partID string) (Project, Project, error) {
 	switch {
 	case i < 0:
 		return Project{}, Project{}, ErrPartNotFound
-	case i == 0:
-		return Project{}, Project{}, ErrMainPart
+	case len(p.Parts) == 1:
+		return Project{}, Project{}, ErrLastPart
 	}
 	pt := p.Parts[i]
+	pt.Blocked = slices.Clone(pt.Blocked)
 	now := time.Now().UTC()
 	np := &Project{ID: randomID("p_"), Name: pt.Name, CreatedAt: now, LastOpenedAt: now, GroupID: p.GroupID, Tags: slices.Clone(p.Tags),
-		Parts: []Part{{ID: MainPart, Name: "Main", MachineID: pt.MachineID, Path: pt.Path, ReadOnly: pt.ReadOnly, Blocked: slices.Clone(pt.Blocked)}}}
+		Parts: []Part{pt}}
 	np.normParts()
 	np.Workspaces = []Workspace{{ID: randomID("w_"), ProjectID: np.ID, Name: "Main", CreatedAt: now}}
-	old := p.Parts
+	old := *p
 	p.Parts = append(p.Parts[:i:i], p.Parts[i+1:]...)
+	p.normParts()
 	s.list = append(s.list, np)
 	if err := s.saveLocked(); err != nil {
-		p.Parts = old
+		*p = old
 		s.list = s.list[:len(s.list)-1]
 		return Project{}, Project{}, err
 	}

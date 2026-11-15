@@ -54,6 +54,7 @@ func (s *Server) emitProject(id string) {
 	if id == "" {
 		return
 	}
+	s.roots.Changed(id) // its root folder, when it has one, follows parts and access
 	if p, ok := s.projects.Get(id); ok {
 		s.events.Publish(map[string]any{"type": "project", "project": s.projectView(p)})
 	}

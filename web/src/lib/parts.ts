@@ -7,8 +7,19 @@ import type { Project, ProjectPart, Session } from './types';
 /** The most parts a project has (the hub's project.MaxParts). */
 export const MAX_PARTS = 8;
 
+/**
+ * A project's parts in display order. A hub from before parts sends none: its project is one part,
+ * named after its folder, with the id that hub's data gets when it moves on (project.normParts:
+ * "main", old data only). No part is special: no "Main".
+ */
 export function projectParts(p: Project): ProjectPart[] {
-  return p.parts?.length ? p.parts : [{ id: 'main', name: 'Main', machineId: p.machineId, path: p.path }];
+  return p.parts?.length ? p.parts : [{ id: 'main', name: folderOf(p.path), machineId: p.machineId, path: p.path }];
+}
+
+/** The last segment of a folder, "Part" for "/" or nothing (the hub's partNameFrom). */
+function folderOf(path: string): string {
+  const seg = path.replace(/\/+$/, '').split('/').pop() ?? '';
+  return seg && seg !== '.' && seg !== '..' ? seg.replace(/^\.+/, '') || 'Part' : 'Part';
 }
 
 /** The first part on a machine: where a terminal there opens by default. */
@@ -25,6 +36,41 @@ export function partNamesOn(p: Project, machineId: string): string {
         .map((pt) => pt.name)
         .join(', ')
     : '';
+}
+
+/** The most characters a part's name has (the hub's project.MaxName). */
+export const PART_NAME_MAX = 24;
+
+/**
+ * Why a part's name would be refused, or "" (the hub's CleanPartName, 400 bad_part_name): a part's
+ * name is its folder's name in the project root, so it must be safe as one path segment.
+ */
+export function partNameProblem(name: string): string {
+  const n = name.trim();
+  if (!n) return 'Name the part, such as Backend or Frontend.';
+  if ([...n].length > PART_NAME_MAX) return `A part’s name has up to ${PART_NAME_MAX} characters.`;
+  if (/[/\\]/.test(n) || [...n].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)) return 'A part’s name is a folder name in the project root: no / or \\.';
+  if (n.startsWith('.')) return 'A part’s name cannot start with a dot.';
+  if (/^(agents|claude)\.md$/i.test(n)) return `${n} is the root’s own instruction file: pick another name.`;
+  return '';
+}
+
+/** The hub's part errors, said plainly (docs/API-board.md §1). */
+export function partErrorText(code: string, fallback: string): string {
+  switch (code) {
+    case 'last_part':
+      return 'A project keeps at least one part. Add another part before removing or splitting off this one.';
+    case 'bad_part_name':
+      return 'A part’s name is its folder name in the project root: up to 24 characters, no / or \\, not starting with a dot, and not AGENTS.md or CLAUDE.md.';
+    case 'name_conflict':
+      return 'Another part of this project already has that name.';
+    case 'part_busy':
+      return 'Close the consoles that work in that part first.';
+    case 'part_overlap':
+      return 'That folder is inside another part of this project, or holds one.';
+    default:
+      return fallback;
+  }
 }
 
 /** The part whose folder holds an absolute path: the deepest one. */

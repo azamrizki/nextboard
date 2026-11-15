@@ -13,8 +13,8 @@ import (
 // v0.9.0-beta.2, to that part's key, review/<projectId>~<first part id> (project.PartKey). Then
 // every part is keyed the same way, and moving or removing the first part moves nothing.
 //
-// It runs once at start, before setupReview, in the same change that makes reviewKey return
-// project.KeyOf for every part; until that change it is not called. dir is the review folder
+// It runs at every start, before setupReview (reviewKey returns project.KeyOf for every part).
+// dir is the review folder
 // (s.st.Path("review")), projects every project, archived ones too (Store.ListAll). It is
 // idempotent: a project with nothing under its bare id is skipped, and so is one whose part key
 // already has data (both folders are kept, and it is logged: the bare one cannot be told apart).

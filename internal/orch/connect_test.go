@@ -504,7 +504,7 @@ func TestLayoutKeepsTheEditor(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := h.Board(wid)
-	l := LayoutFromBoard(b, nil, map[string]session.Info{a.ID: a})
+	l := LayoutFromBoard(b, nil, map[string]session.Info{a.ID: a}, p)
 	l.Name = "With editor"
 	if len(l.Wires) != 1 || l.Wires[0].Kind != EdgeWire {
 		t.Fatalf("wires %+v", l.Wires)

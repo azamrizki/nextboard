@@ -168,7 +168,7 @@ func (s *Server) handleMerge(w http.ResponseWriter, r *http.Request, p *principa
 		loops = s.orch.Loops.MoveProject(b.ID, a.ID)
 		s.mergeMemory(a, b, req.Critical == "append")
 	}
-	// review: each of its parts keeps its history under the name it has now
+	// review: each of its parts keeps its history, from <from>~<part> to <this>~<its new part>
 	for _, pt := range b.Parts {
 		s.review.Rename(reviewKey(b, pt.ID), reviewKey(a, part(pt.ID)))
 	}
@@ -265,17 +265,12 @@ func (s *Server) mergeMemory(a, b project.Project, critical bool) {
 	}
 }
 
-// handleSplit makes a part a project of its own. Terminals in it must be closed first.
+// handleSplit makes a part a project of its own: any part, the first one too, while another is
+// left (409 last_part). Terminals in it must be closed first. The new project keeps the part's
+// id, so its review and Local History move from <project>~<part> to <new project>~<part>.
 func (s *Server) handleSplit(w http.ResponseWriter, r *http.Request, p *principal) {
 	pid, partID := r.PathValue("id"), r.PathValue("part")
-	n := 0
-	for _, pl := range s.sessions.AllPlacements() {
-		if pl.ProjectID == pid && pl.PartID == partID && partID != "" {
-			n++
-		}
-	}
-	if n > 0 {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "close the terminals in that part first", "code": "part_busy", "sessions": n})
+	if lastPart(w, s.projects, pid, partID) || partBusy(w, s.sessions.AllPlacements(), pid, partID) {
 		return
 	}
 	before, _ := s.projects.Get(pid)
@@ -284,7 +279,8 @@ func (s *Server) handleSplit(w http.ResponseWriter, r *http.Request, p *principa
 		partErr(w, err)
 		return
 	}
-	s.review.Rename(reviewKey(before, partID), np.ID)
+	s.review.Rename(reviewKey(before, partID), reviewKey(np, partID))
+	s.unlabelMonitors(pid, partID)
 	s.emitProject(pr.ID)
 	s.emitProject(np.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"project": s.projectView(np), "from": s.projectView(pr)})

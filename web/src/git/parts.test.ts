@@ -17,14 +17,19 @@ const project = {
 const repo = (path: string, o: Partial<GitRepoInfo> = {}): GitRepoInfo => ({ path, name: path || 'shop', branch: 'main', ahead: 0, behind: 0, changed: 0, ...o });
 
 describe('the git of each part', () => {
-  it('is the project for the first part and project~part for the others, as the hub and its events name them', () => {
-    expect(partRef(project, project.parts![0])).toBe('p_shop');
+  it('is project~part for every part, the first one too, as the hub and its gitPart events name them', () => {
+    expect(partRef(project, project.parts![0])).toBe('p_shop~pt_api');
     expect(partRef(project, project.parts![1])).toBe('p_shop~pt_web');
   });
 
-  it('a project from before parts has one, under its own id', () => {
+  it('keeps its key when the parts are reordered', () => {
+    const moved = { ...project, parts: [project.parts![1], project.parts![0]] } as Project;
+    expect(partRef(moved, moved.parts![1])).toBe('p_shop~pt_api');
+  });
+
+  it('an old part keeps its id main', () => {
     const old = { ...project, parts: undefined } as Project;
-    expect(partRef(old, { id: 'main', name: 'Main', machineId: 'local', path: '/w/shop' })).toBe('p_shop');
+    expect(partRef(old, { id: 'main', name: 'Main', machineId: 'local', path: '/w/shop' })).toBe('p_shop~main');
   });
 });
 

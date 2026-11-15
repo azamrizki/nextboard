@@ -74,6 +74,8 @@ func newTestHub(t *testing.T) *testHub {
 		// before t.TempDir goes: a snapshot still running would write the folder back
 		srv.review.Close()
 		srv.boards.Close()
+		srv.roots.Close()
+		srv.roots.openForCleanup() // a root's note folders are 0555
 		ts.Close()
 	})
 	jar, _ := cookiejar.New(nil)

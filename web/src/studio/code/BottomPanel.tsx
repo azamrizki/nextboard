@@ -1,6 +1,7 @@
 // Bottom panel of the Code workbench: terminals of this project (shell sessions with no
 // board node, kept when the workbench closes), Problems from the language services and
-// Output from commands on save and language servers.
+// Output from commands on save and language servers. A terminal starts in the card's part, on
+// that part's machine; a Root card asks: at the project root (every part) or in one part.
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useConsoleThemeAttr } from '../../lib/theme';
@@ -8,10 +9,16 @@ import { api, errorMessage } from '../../api';
 import { useTerminal } from '../../board/useTerminal';
 import { Button } from '../../components/Button';
 import { Icon, type IconName } from '../../components/Icon';
+import { Menu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
-import { useSession, useStoreReady } from '../../store';
+import { isRoot, type Placement } from '../../lib/parts';
+import { lastPlacement, placeValue, rememberPlacement } from '../../lib/placement';
+import { store, useSession, useStoreReady } from '../../store';
 import { DebugConsole } from './DebugPanel';
 import { monaco } from './monaco';
+import { byPart, defaultPlace, placeChoices, placeDir } from './partGroups';
+import { mountedPart } from './partGit';
+import { asFileKey, isRootKey, LOCAL_MACHINE, splitKey, type FileKey } from './paths';
 import { PortsPanel } from './PortsPanel';
 import { TasksPanel } from './TasksPanel';
 import { useWs } from './useWs';
@@ -24,10 +31,64 @@ export const TerminalView = memo(function TerminalView({ sessionId }: { sessionI
   return <div className="wb-terminal" ref={ref} data-keep-escape="" data-theme={consoleTheme} data-session={sessionId} />;
 });
 
-/** Start a terminal in the project (or a folder of it). */
-export async function newTerminal(ws: Workspace, workspaceId: string, cwd?: string, input?: string) {
+/** The file or row the card works on now, for the default place of a terminal or an agent. */
+export function activeKey(ws: Workspace): FileKey | null {
+  const t = ws.activeTab;
+  if (t?.path) return t.path;
+  const part = mountedPart(ws, t?.commit?.part ?? t?.view?.part);
+  if (part) return part.rootKey;
+  return ws.selected ? asFileKey(ws.selected) : null;
+}
+
+/** Where a new terminal or agent of the card starts unless told: its part, or in a Root card the part in use, else the last choice, else the root. */
+export function defaultPlaceOf(ws: Workspace): Placement {
+  const project = store.getState().projects[ws.projectId];
+  return defaultPlace(ws.paths, activeKey(ws), project ? lastPlacement(project) : null);
+}
+
+/** A choice made in a Root card's picker: the next default when nothing else says. */
+export function rememberPlace(ws: Workspace, p: Placement) {
+  const project = store.getState().projects[ws.projectId];
+  if (project) rememberPlacement(project, p);
+}
+
+/** A machine's name for a tooltip: This PC, else its name in the hub's list. */
+export const machineLabel = (id: string) => (id === LOCAL_MACHINE || !id ? 'This PC' : (store.getState().machines[id]?.name ?? id));
+
+/** "Root (all parts)" and the card's parts, the default checked: what a Root card's "New terminal" and agent menus offer. */
+export function placeItems(ws: Workspace, start: (p: Placement) => void): MenuEntry[] {
+  const def = placeValue(defaultPlaceOf(ws));
+  return [
+    { type: 'heading', label: 'Start in' },
+    ...placeChoices(ws.paths).map<MenuEntry>((p) => {
+      const part = isRoot(p) ? null : mountedPart(ws, p.partId);
+      return {
+        label: part ? part.name : 'Root (all parts)',
+        icon: part ? 'folder' : 'layers',
+        checked: placeValue(p) === def,
+        title: part ? `${part.root} on ${machineLabel(part.machineId)}` : 'On This PC, in a folder with one entry per part: it reaches every part.',
+        onSelect: () => {
+          rememberPlace(ws, p);
+          start(p);
+        },
+      };
+    }),
+  ];
+}
+
+/**
+ * Start a terminal of the card: in a folder (its part, on that part's machine), else at a place
+ * chosen in a Root card's picker, else at the card's default (defaultPlaceOf). The project root
+ * (ROOT_KEY, or Root chosen) is a root terminal on This PC that reaches every part.
+ */
+export async function newTerminal(ws: Workspace, workspaceId: string, cwd?: string, input?: string, place?: Placement) {
+  const dir = cwd ? (ws.toKey(cwd) ?? undefined) : undefined;
+  const at = place ?? (dir ? null : defaultPlaceOf(ws));
+  const where = dir ? ws.placeOf(dir) : ws.placeOf(at ? placeDir(ws.paths, at) : undefined);
+  const part = at && !isRoot(at) ? mountedPart(ws, at.partId) : null;
+  const name = dir ? (isRootKey(dir) ? 'Root' : nameOf(splitKey(dir).abs) || 'Terminal') : ws.paths.multi ? (part?.name ?? 'Root') : 'Terminal';
   try {
-    const s = await api.createSession({ workspaceId, preset: 'shell', panel: true, name: cwd ? nameOf(cwd) : 'Terminal', cwd: cwd ?? ws.root });
+    const s = await api.createSession({ workspaceId, preset: 'shell', panel: true, name, ...where });
     ws.terminals = [...ws.terminals, s.id];
     ws.activeTerminal = s.id;
     ws.panelOpen = true;
@@ -91,9 +152,14 @@ function Terminals({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) 
     <div className="wb-terms">
       <div className="wb-term-body">{active && <TerminalView key={active} sessionId={active} />}</div>
       <div className="wb-term-list">
-        <Button size="sm" variant="ghost" icon="plus" onClick={() => void newTerminal(ws, workspaceId)}>
-          New terminal
-        </Button>
+        {ws.paths.multi ? (
+          // a Root card asks where: the root (every part) or one part
+          <Menu label="New terminal in…" icon="plus" triggerLabel="New terminal" items={() => placeItems(ws, (p) => void newTerminal(ws, workspaceId, undefined, undefined, p))} />
+        ) : (
+          <Button size="sm" variant="ghost" icon="plus" onClick={() => void newTerminal(ws, workspaceId)}>
+            New terminal
+          </Button>
+        )}
         {ws.terminals.map((id, i) => (
           <TerminalTab key={id} ws={ws} id={id} index={i} />
         ))}
@@ -102,27 +168,20 @@ function Terminals({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) 
   );
 }
 
-interface Problem {
-  path: string;
-  line: number;
-  col: number;
-  message: string;
-  severity: number;
-  source?: string;
-}
-
+/** The problems of the files this card shows or holds (every mounted part's servers), by file, and how many. */
 export function useProblems(ws: Workspace) {
   const version = ws.version;
   return useMemo(() => {
-    const list: Problem[] = [];
-    for (const m of monaco.editor.getModelMarkers({})) {
-      if (m.resource.scheme !== 'file') continue;
-      list.push({ path: m.resource.path, line: m.startLineNumber, col: m.startColumn, message: m.message, severity: m.severity, source: m.source });
+    const files = ws.problems();
+    let errors = 0;
+    let warnings = 0;
+    for (const f of files) {
+      for (const p of f.items) {
+        if (p.severity === monaco.MarkerSeverity.Error) errors++;
+        else if (p.severity === monaco.MarkerSeverity.Warning) warnings++;
+      }
     }
-    for (const f of ws.lsp.closedDiagnostics()) for (const d of f.items) list.push({ path: f.path, ...d });
-    const errors = list.filter((p) => p.severity === monaco.MarkerSeverity.Error).length;
-    const warnings = list.filter((p) => p.severity === monaco.MarkerSeverity.Warning).length;
-    return { list, errors, warnings };
+    return { files, errors, warnings };
     // the workspace mutates in place: its version is the dependency
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws, version]);
@@ -132,56 +191,71 @@ const SEVERITY_ICON = (s: number): { icon: IconName; cls: string } =>
   s === monaco.MarkerSeverity.Error ? { icon: 'alertCircle', cls: 'is-error' } : s === monaco.MarkerSeverity.Warning ? { icon: 'alert', cls: 'is-warning' } : { icon: 'info', cls: 'is-info' };
 
 function Problems({ ws }: { ws: Workspace }) {
-  const { list } = useProblems(ws);
+  const { files } = useProblems(ws);
   const [closed, setClosed] = useState<Set<string>>(new Set());
-  const byFile = useMemo(() => {
-    const m = new Map<string, Problem[]>();
-    for (const p of list) m.set(p.path, [...(m.get(p.path) ?? []), p]);
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [list]);
-  if (!list.length) return <p className="wb-panel-msg">No problems have been detected in the open files.</p>;
+  // by part in a Root card (in part order, files outside the parts last), by path inside each
+  const sections = useMemo(() => byPart(ws.paths, [...files].sort((a, b) => a.label.localeCompare(b.label)), (f) => f.key), [files, ws.paths]);
+  /** The folder a file is in, as the card shows it: inside its part, else on its machine. */
+  const folderOf = (key: FileKey) => {
+    const pr = ws.partRel(key);
+    const d = dirOf(pr ? pr.rel : splitKey(key).abs);
+    return pr ? (d === '/' ? '' : d) : d;
+  };
+  if (!files.length) return <p className="wb-panel-msg">No problems have been detected in the open files.</p>;
   return (
     <div className="wb-problems nowheel">
-      {byFile.map(([path, items]) => {
-        const isClosed = closed.has(path);
-        return (
-          <div key={path}>
-            <button
-              type="button"
-              className="wb-row wb-problem-file"
-              aria-expanded={!isClosed}
-              onClick={() =>
-                setClosed((cur) => {
-                  const n = new Set(cur);
-                  if (n.has(path)) n.delete(path);
-                  else n.add(path);
-                  return n;
-                })
-              }
-            >
-              <Icon name={isClosed ? 'chevronRight' : 'chevronDown'} className="wb-chev" />
-              <Icon name="file" className="wb-icon" />
-              <span className="wb-row-name truncate">{nameOf(path)}</span>
-              <span className="wb-result-dir truncate">{dirOf(path) === ws.root ? '' : ws.rel(dirOf(path))}</span>
-              <span className="wb-result-count tabular">{items.length}</span>
-            </button>
-            {!isClosed &&
-              items.map((p, i) => {
-                const sev = SEVERITY_ICON(p.severity);
-                return (
-                  <button key={i} type="button" className="wb-problem" onClick={() => ws.open(path, { pin: true, line: p.line, col: p.col, source: true })}>
-                    <Icon name={sev.icon} className={`wb-problem-icon ${sev.cls}`} />
-                    <span className="wb-problem-msg">{p.message}</span>
-                    {p.source && <span className="wb-result-dir">{p.source}</span>}
-                    <span className="wb-result-dir tabular">
-                      {p.line}:{p.col}
-                    </span>
-                  </button>
-                );
-              })}
-          </div>
-        );
-      })}
+      {sections.map((sec) => (
+        <div key={sec.mount?.partId ?? '@outside'}>
+          {ws.paths.multi && (
+            <div className="wb-section-title wb-part-head">
+              <Icon name="folder" className="wb-icon" />
+              <span className="truncate">{sec.mount ? sec.mount.name : 'Outside the parts'}</span>
+              <span className="spacer" />
+              <span className="wb-result-count tabular">{sec.items.reduce((n, f) => n + f.items.length, 0)}</span>
+            </div>
+          )}
+          {sec.items.map(({ key: path, label, items }) => {
+            const isClosed = closed.has(path);
+            return (
+              <div key={path} title={label}>
+                <button
+                  type="button"
+                  className="wb-row wb-problem-file"
+                  aria-expanded={!isClosed}
+                  onClick={() =>
+                    setClosed((cur) => {
+                      const n = new Set(cur);
+                      if (n.has(path)) n.delete(path);
+                      else n.add(path);
+                      return n;
+                    })
+                  }
+                >
+                  <Icon name={isClosed ? 'chevronRight' : 'chevronDown'} className="wb-chev" />
+                  <Icon name="file" className="wb-icon" />
+                  <span className="wb-row-name truncate">{nameOf(path)}</span>
+                  <span className="wb-result-dir truncate">{folderOf(path)}</span>
+                  <span className="wb-result-count tabular">{items.length}</span>
+                </button>
+                {!isClosed &&
+                  items.map((p, i) => {
+                    const sev = SEVERITY_ICON(p.severity);
+                    return (
+                      <button key={i} type="button" className="wb-problem" onClick={() => ws.open(path, { pin: true, line: p.line, col: p.col, source: true })}>
+                        <Icon name={sev.icon} className={`wb-problem-icon ${sev.cls}`} />
+                        <span className="wb-problem-msg">{p.message}</span>
+                        {p.source && <span className="wb-result-dir">{p.source}</span>}
+                        <span className="wb-result-dir tabular">
+                          {p.line}:{p.col}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

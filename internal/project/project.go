@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log"
 	"path"
 	"slices"
 	"strings"
@@ -43,10 +44,11 @@ type Workspace struct {
 type Project struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-	// MachineID and Path are those of the first part.
+	// MachineID and Path are those of the first part, kept only for clients that know nothing
+	// of parts: no part is special (DefaultPart).
 	MachineID string `json:"machineId"`
 	Path      string `json:"path"`
-	// Parts are the folders the project spans, the first one being MachineID and Path (#49).
+	// Parts are the folders the project spans, in display order (#49).
 	Parts        []Part      `json:"parts"`
 	CreatedAt    time.Time   `json:"createdAt"`
 	LastOpenedAt time.Time   `json:"lastOpenedAt"`
@@ -133,6 +135,8 @@ type Store struct {
 	mu     sync.Mutex
 	list   []*Project
 	groups []*Group
+	// renamed are the parts Open renamed (TakePartRenames).
+	renamed []PartRename
 }
 
 // Open loads projects.json.
@@ -143,6 +147,11 @@ func Open(st *store.Store) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{st: st, existed: found}
+	var done migrations
+	if _, err := st.Load(migrationsFile, &done); err != nil {
+		log.Printf("projects: %s unreadable, its migrations run again: %v", migrationsFile, err)
+	}
+	changed := false
 	for _, p := range list {
 		if p == nil || p.ID == "" {
 			continue
@@ -150,13 +159,40 @@ func Open(st *store.Store) (*Store, error) {
 		for i := range p.Workspaces {
 			p.Workspaces[i].ProjectID = p.ID
 		}
+		before := len(p.Parts) == 0
 		p.normParts()
+		// equal parts (v0.9.0-beta.2): names safe as folder names at the project root, and a
+		// one-part project's old "Main" named after its folder, once
+		renamed := p.migratePartNames(!done.PartNames)
+		s.renamed = append(s.renamed, renamed...)
+		changed = changed || before || len(renamed) > 0
 		s.list = append(s.list, p)
+	}
+	saved := true
+	if changed {
+		if err := s.saveLocked(); err != nil {
+			log.Printf("projects: saving the migrated parts: %v", err)
+			saved = false
+		}
+	}
+	if !done.PartNames && saved {
+		if err := st.Save(migrationsFile, migrations{PartNames: true}); err != nil {
+			log.Printf("projects: %v", err)
+		}
 	}
 	if err := s.openGroups(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// migrationsFile records the one-time migrations of projects.json that ran.
+const migrationsFile = "projects-migrated.json"
+
+type migrations struct {
+	// PartNames: a one-part project's {main, "Main"} part was named after its folder
+	// (v0.9.0-beta.2). An owner who names it "Main" again later keeps that name.
+	PartNames bool `json:"partNames,omitempty"`
 }
 
 // Existed reports whether projects.json was present at Open (migration).
@@ -209,9 +245,9 @@ func (s *Store) Get(id string) (Project, bool) {
 	return p.clone(), true
 }
 
-// Create adds a project with one "Main" workspace. path must already be an
-// absolute, cleaned path that was verified to be a folder. A folder that is already a project,
-// or a part of one, returns that project (created=false).
+// Create adds a project with one "Main" workspace and one part, named after its folder. path
+// must already be an absolute, cleaned path that was verified to be a folder. A folder that is
+// already a project, or a part of one, returns that project (created=false).
 func (s *Store) Create(machineID, dir, name string) (p Project, created bool, err error) {
 	if name != "" {
 		if name, err = CleanName(name); err != nil {
@@ -232,7 +268,7 @@ func (s *Store) Create(machineID, dir, name string) (p Project, created bool, er
 	now := time.Now().UTC()
 	np := &Project{
 		ID: randomID("p_"), Name: name, CreatedAt: now, LastOpenedAt: now,
-		Parts: []Part{{ID: MainPart, Name: "Main", MachineID: machineID, Path: dir}},
+		Parts: []Part{{ID: randomID("pt_"), Name: partNameFrom(dir), MachineID: machineID, Path: dir}},
 	}
 	np.normParts()
 	np.Workspaces = []Workspace{{ID: randomID("w_"), ProjectID: np.ID, Name: "Main", CreatedAt: now}}

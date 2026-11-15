@@ -11,6 +11,7 @@ import { formatDateTime, timeAgo } from '../../lib/format';
 import { gitApi } from '../api';
 import { MarkdownView } from '../MarkdownView';
 import type { GitPullCheck, GitPullComment, GitPullDetail, GitTarget } from '../types';
+import type { PartService } from './partsvc';
 import type { Workspace } from './workspace';
 
 const MAX_LINES = 6000;
@@ -59,8 +60,9 @@ function CommentRow({ c }: { c: GitPullComment }) {
   );
 }
 
-export function PullRequestView({ ws, number, repo }: { ws: Workspace; number: number; repo: string }) {
-  const target = useMemo<GitTarget>(() => ({ pid: ws.pid, repo }), [ws.pid, repo]);
+/** A pull request of a part's repository (the tab names the part). */
+export function PullRequestView({ ws, part, number, repo }: { ws: Workspace; part: PartService; number: number; repo: string }) {
+  const target = useMemo<GitTarget>(() => ({ pid: part.ref, repo }), [part.ref, repo]);
   const [pr, setPr] = useState<GitPullDetail | null>(null);
   const [diff, setDiff] = useState('');
   const [error, setError] = useState('');
@@ -93,7 +95,7 @@ export function PullRequestView({ ws, number, repo }: { ws: Workspace; number: n
       toast.success(done);
       load();
       ws.pullsTick++;
-      void ws.refreshGit();
+      void part.refreshGit();
       return true;
     } catch (err) {
       toast.error(gitError(err));
@@ -245,7 +247,7 @@ export function PullRequestView({ ws, number, repo }: { ws: Workspace; number: n
             toast.success('Merged.');
             load();
             ws.pullsTick++;
-            void ws.refreshGit();
+            void part.refreshGit();
           }}
         >
           <label className="field">

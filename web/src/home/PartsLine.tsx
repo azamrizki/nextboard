@@ -9,15 +9,12 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Popover } from '../components/Popover';
 import { machineReady } from '../board/sessionStatus';
-import { projectParts } from '../lib/parts';
-import type { Machine, Project, ProjectPart } from '../lib/types';
+import { partRef, projectParts } from '../lib/parts';
+import type { Machine, Project } from '../lib/types';
 import { useMachines } from '../store';
 import { gitApi } from '../studio/api';
 import { FolderPath } from './FolderPath';
 import { fitCount, partsGit, partsGitText, partsSummary, type PartGit } from './partsCard';
-
-/** What the hub calls a part's git: the project for the first part, "<project>~<part>" for the others. */
-const partRef = (p: Project, pt: ProjectPart, i: number) => (i === 0 ? p.id : `${p.id}~${pt.id}`);
 
 // briefly kept, as the one-part cards keep theirs: going back to Home is instant
 const cache = new Map<string, { at: number; git: PartGit }>();
@@ -33,7 +30,8 @@ export function usePartsGit(p: Project, enabled = true): (PartGit | undefined)[]
     return !!m && !machineReady(m);
   });
   const downKey = down.join(',');
-  const read = () => parts.map((pt, i): PartGit | undefined => (down[i] ? { offline: true } : cache.get(partRef(p, pt, i))?.git));
+  // keyed by "<project>~<part>" (lib/parts.ts partRef): a part keeps its entry when the parts are reordered
+  const read = () => parts.map((pt, i): PartGit | undefined => (down[i] ? { offline: true } : cache.get(partRef(p, pt))?.git));
   const [list, setList] = useState(read);
 
   useEffect(() => {
@@ -42,7 +40,7 @@ export function usePartsGit(p: Project, enabled = true): (PartGit | undefined)[]
     let on = true;
     parts.forEach((pt, i) => {
       if (down[i]) return;
-      const ref = partRef(p, pt, i);
+      const ref = partRef(p, pt);
       const c = cache.get(ref);
       if (c && Date.now() - c.at < TTL) return;
       gitApi

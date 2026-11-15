@@ -19,6 +19,7 @@ import type { Project } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { store } from '../store';
 import { decide, isAgentSession, killSessions, pauseAll, resumeAll, sendCommand, UNSUPPORTED, orchError } from './actions';
+import { orchPlace, placeLabel } from '../lib/placement';
 import { useVoice } from '../voice/useVoice';
 import { VoiceCaption, VoiceStatus } from '../voice/VoiceBar';
 import { noteOrderSent } from '../voice/tts';
@@ -169,7 +170,8 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
     setSending(true);
     try {
       noteOrderSent();
-      await sendCommand(project.id, replyText(att.compose(t), reply), { workspaceId: ctl.workspaceId, selection: [...ctl.selection], source, replyTo: reply?.id });
+      // several parts: "buat 3 claude" without a part goes where the next console would (the chip's place)
+      await sendCommand(project.id, replyText(att.compose(t), reply), { workspaceId: ctl.workspaceId, selection: [...ctl.selection], source, replyTo: reply?.id, ...(nt.multi && nt.place ? { place: orchPlace(nt.place) } : {}) });
       setText('');
       att.clear();
       setReply(null);
@@ -216,7 +218,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
   };
 
   const chips: Chip[] = [
-    { id: 'new', label: 'New console', title: `Start ${nt.agent?.name ?? 'a console'} next to the others (or press ${shortcuts.spawn.toUpperCase()} and click)`, onClick: () => void nt.create() },
+    { id: 'new', label: 'New console', title: `Start ${nt.agent?.name ?? 'a console'}${nt.place ? ` in ${placeLabel(project, nt.place)}` : ''} next to the others (or press ${shortcuts.spawn.toUpperCase()} and click)`, onClick: () => void nt.create() },
     { id: 'spawn4', label: 'Spawn 4', title: 'Start four consoles at once', onClick: () => ui.set({ composer: { slots: 4, group: false } }) },
     { id: 'group', label: 'Group', title: 'Compose a team with a name and a role', onClick: () => ui.set({ composer: { slots: 6, group: true } }) },
     { id: 'layouts', label: 'Layouts', onClick: () => ui.set({ panel: ui.get().panel === 'layouts' ? null : 'layouts' }) },

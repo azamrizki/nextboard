@@ -1,9 +1,11 @@
 // The parts of a project (docs/API-board.md §1, ROADMAP #49): the folders one project spans on
 // one machine or several, such as a backend on one server and a frontend on another. Each change
-// is saved as it is made; folders on disk are never touched.
+// is saved as it is made; folders on disk are never touched. Every part is equal (v0.9.0-beta.2):
+// any one can be renamed, moved, split off or removed while one is left; the order is only the
+// order they are shown in. A part's name is its folder's name in the project root.
 
 import { useEffect, useId, useState, type FormEvent } from 'react';
-import { api, errorMessage } from '../api';
+import { ApiError, api, errorMessage } from '../api';
 import { machineReady, machineStatus } from '../board/sessionStatus';
 import { Button } from '../components/Button';
 import { FolderBrowser } from '../components/FolderBrowser';
@@ -12,12 +14,17 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { NAME_MAX } from '../components/ProjectBar';
 import { toast } from '../components/Toast';
-import { projectParts } from '../lib/parts';
+import { partErrorText, partNameProblem, projectParts } from '../lib/parts';
 import type { Project, ProjectPart } from '../lib/types';
 import { store, useMachines } from '../store';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { FolderPath } from './FolderPath';
 import { MergeDialog } from './MergeDialog';
+
+/** A part change refused by the hub, said plainly: last_part, bad_part_name, name_conflict, part_busy… */
+export function partError(err: unknown): string {
+  return err instanceof ApiError ? partErrorText(err.code, errorMessage(err)) : errorMessage(err);
+}
 
 export function PartsDialog({ project, onClose }: { project: Project; onClose: () => void }) {
   const machines = useMachines();
@@ -34,7 +41,7 @@ export function PartsDialog({ project, onClose }: { project: Project; onClose: (
       store.upsertProject(await run());
       return true;
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(partError(err));
       return false;
     } finally {
       setBusy('');
@@ -55,7 +62,7 @@ export function PartsDialog({ project, onClose }: { project: Project; onClose: (
       }
     >
       <p className="parts-intro">
-        One project can span folders on several machines: a backend on one server, a frontend on another. A terminal opens in the part on the machine you pick. In a read-only part agents only read and search.
+        One project can span folders on several machines: a backend on one server, a frontend on another. A console works in one part, or at the project root, where it reaches every part. In a read-only part agents only read and search.
       </p>
       {parts.length > 1 && (
         <SelectField
@@ -76,6 +83,7 @@ export function PartsDialog({ project, onClose }: { project: Project; onClose: (
             part={pt}
             first={i === 0}
             last={i === parts.length - 1}
+            only={parts.length === 1}
             busy={!!busy}
             machine={machineName(pt.machineId)}
             onRename={(name) => change('rename', () => api.updatePart(project.id, pt.id, { name }))}
@@ -101,10 +109,14 @@ export function PartsDialog({ project, onClose }: { project: Project; onClose: (
           confirmLabel="Split it off"
           onClose={() => setSplitting(null)}
           onConfirm={async () => {
-            const r = await api.splitPart(project.id, splitting.id);
-            store.upsertProject(r.from);
-            store.upsertProject(r.project);
-            toast.success(`${r.project.name} is a project of its own now.`);
+            try {
+              const r = await api.splitPart(project.id, splitting.id);
+              store.upsertProject(r.from);
+              store.upsertProject(r.project);
+              toast.success(`${r.project.name} is a project of its own now.`);
+            } catch (err) {
+              throw new Error(partError(err));
+            }
           }}
         >
           <p>
@@ -120,6 +132,7 @@ function PartRow({
   part,
   first,
   last,
+  only,
   busy,
   machine,
   index,
@@ -133,6 +146,8 @@ function PartRow({
   part: ProjectPart;
   first: boolean;
   last: boolean;
+  /** The project's one part: it stays (a project keeps at least one). */
+  only: boolean;
   busy: boolean;
   machine: string;
   index: number;
@@ -157,9 +172,20 @@ function PartRow({
     setReadOnly(on);
     if (!(await onReadOnly(on))) setReadOnly(!on);
   };
+  const [nameError, setNameError] = useState('');
   const save = async () => {
     const v = name.trim().slice(0, NAME_MAX);
-    if (!v || v === part.name) return setName(part.name);
+    if (!v || v === part.name) {
+      setNameError('');
+      return setName(part.name);
+    }
+    // a part's name is a folder name in the project root: said here, before the hub refuses it
+    const problem = partNameProblem(v);
+    if (problem) {
+      setNameError(problem);
+      return;
+    }
+    setNameError('');
     if (!(await onRename(v))) setName(part.name);
   };
   return (
@@ -170,24 +196,35 @@ function PartRow({
           value={name}
           maxLength={NAME_MAX}
           aria-label={`Name of part ${part.name}`}
-          onChange={(e) => setName(e.target.value)}
+          aria-invalid={nameError ? true : undefined}
+          aria-describedby={nameError ? `part-name-err-${part.id}` : undefined}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (nameError) setNameError('');
+          }}
           onBlur={() => void save()}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             if (e.key === 'Escape') {
               e.stopPropagation();
               setName(part.name);
+              setNameError('');
             }
           }}
         />
         <FolderPath lead={`${machine} · `} path={part.path} />
-        {first && <span className="part-first">The project's own folder</span>}
+        {nameError && (
+          <span className="field-error" id={`part-name-err-${part.id}`}>
+            <Icon name="alertCircle" />
+            {nameError}
+          </span>
+        )}
       </div>
       <div className="part-actions">
         <span title="Agents only read and search here. Your own terminals can do anything.">
           <Checkbox label="Read-only" checked={readOnly} disabled={busy} onChange={(on) => void toggleReadOnly(on)} />
         </span>
-        <Button variant="ghost" size="sm" icon="arrowUp" iconOnly aria-label={`Move ${part.name} up`} title={index === 1 ? `Make ${part.name} the project's own folder` : `Move ${part.name} up`} disabled={busy || first} onClick={() => onMove(index - 1)} />
+        <Button variant="ghost" size="sm" icon="arrowUp" iconOnly aria-label={`Move ${part.name} up`} title={`Move ${part.name} up: the order is only how parts are shown`} disabled={busy || first} onClick={() => onMove(index - 1)} />
         <Button variant="ghost" size="sm" icon="chevronDown" iconOnly aria-label={`Move ${part.name} down`} disabled={busy || last} onClick={() => onMove(index + 1)} />
         <Button
           variant={blocked.length ? 'secondary' : 'ghost'}
@@ -203,15 +240,15 @@ function PartRow({
             setEditing(!editing);
           }}
         />
-        <Button variant="ghost" size="sm" icon="arrowUpRight" iconOnly aria-label={`Split ${part.name} off`} title={first ? "The project's own folder stays" : `Make ${part.name} a project of its own`} disabled={busy || first} onClick={onSplit} />
+        <Button variant="ghost" size="sm" icon="arrowUpRight" iconOnly aria-label={`Split ${part.name} off`} title={only ? 'A project keeps at least one part' : `Make ${part.name} a project of its own`} disabled={busy || only} onClick={onSplit} />
         <Button
           variant="danger-ghost"
           size="sm"
           icon="trash"
           iconOnly
           aria-label={`Remove part ${part.name}`}
-          title={first ? "The project's own folder stays: move another part up first" : `Remove ${part.name} from the project. Its folder stays on disk.`}
-          disabled={busy || first}
+          title={only ? 'A project keeps at least one part: add another first' : `Remove ${part.name} from the project. Its folder stays on disk.`}
+          disabled={busy || only}
           onClick={onRemove}
         />
       </div>
@@ -256,7 +293,8 @@ function AddPart({ project, onAdded }: { project: Project; onAdded: (p: Project)
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
-    if (!name.trim()) return setError('Name the part, such as Backend or Frontend.');
+    const problem = partNameProblem(name);
+    if (problem) return setError(problem);
     if (!path.trim()) return setError('Choose a folder.');
     setBusy(true);
     setError('');
@@ -266,7 +304,7 @@ function AddPart({ project, onAdded }: { project: Project; onAdded: (p: Project)
       setName('');
       setPath('');
     } catch (err) {
-      setError(errorMessage(err));
+      setError(partError(err));
     } finally {
       setBusy(false);
     }

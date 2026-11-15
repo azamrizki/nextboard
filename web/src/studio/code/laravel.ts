@@ -1,11 +1,13 @@
 // What the editor knows about a Laravel project (docs/API-studio.md §7.14): route, view, config,
 // translation, env and component names complete, jump to where they are set, and say what they
-// are. Everything comes from the hub's reading of the project's files; nothing runs for it.
+// are. Everything comes from the hub's reading of the project's files; nothing runs for it. The
+// index is the part's that holds the file: two parts with Laravel each answer for their own files.
 
 import type { LaravelIndex, LaravelKey, LaravelRoute, LaravelView } from '../api';
+import { docStore } from './docs';
 import { monaco } from './monaco';
-import { modelOwners } from './nativeExt';
-import type { Workspace } from './workspace';
+import { PartService } from './partsvc';
+import { keyOfUri } from './paths';
 
 type Kind = 'route' | 'view' | 'config' | 'lang' | 'env' | 'component';
 
@@ -32,10 +34,12 @@ const WHOLE: { re: RegExp; kind: Kind }[] = [
   { re: /<x-([\w.:-]+)/g, kind: 'component' },
 ];
 
-function indexOf(model: monaco.editor.ITextModel): { ws: Workspace; idx: LaravelIndex } | null {
-  const ws = modelOwners.get(model);
-  const idx = ws?.laravel;
-  return ws && idx?.detected ? { ws, idx } : null;
+/** The Laravel index of the part holding the model's file (any card's, mounted first). */
+function indexOf(model: monaco.editor.ITextModel): { part: PartService; idx: LaravelIndex } | null {
+  const key = keyOfUri(model.uri);
+  const part = key ? PartService.holding(key) : null;
+  const idx = part?.laravel;
+  return part && idx?.detected ? { part, idx } : null;
 }
 
 const under = (model: monaco.editor.ITextModel, pos: monaco.Position) => {
@@ -51,8 +55,8 @@ const under = (model: monaco.editor.ITextModel, pos: monaco.Position) => {
   return null;
 };
 
-/** Where a project-relative file of the index really is. */
-const fileOf = (ws: Workspace, idx: LaravelIndex, file: string) => ws.abs(idx.root ? `${idx.root}/${file}` : file);
+/** Where a file of the index (inside the part, under the application's folder) is: its model's URI. */
+const uriOf = (part: PartService, idx: LaravelIndex, file: string) => docStore.uriOf(part.keyOf(idx.root ? `${idx.root}/${file}` : file));
 
 const findRoute = (idx: LaravelIndex, name: string): LaravelRoute | undefined => idx.routes.find((r) => r.name === name);
 const findKey = (list: LaravelKey[], key: string) => list.find((k) => k.key === key);
@@ -166,8 +170,8 @@ export function registerLaravel() {
       const found = indexOf(model);
       const at = found && under(model, pos);
       if (!found || !at) return null;
-      const { ws, idx } = found;
-      const go = (file: string, line = 1) => ({ uri: monaco.Uri.file(fileOf(ws, idx, file)), range: new monaco.Range(line, 1, line, 1) });
+      const { part, idx } = found;
+      const go = (file: string, line = 1) => ({ uri: uriOf(part, idx, file), range: new monaco.Range(line, 1, line, 1) });
       switch (at.kind) {
         case 'route': {
           const r = findRoute(idx, at.name);

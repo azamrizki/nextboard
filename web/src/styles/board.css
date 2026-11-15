@@ -388,3 +388,21 @@
 :root[data-input='touch'] .board-canvas .react-flow__minimap {
   display: none;
 }
+
+/* "Place in: Root (all parts) / <part>" (board/PlacePicker.tsx, v0.9.0-beta.2): part names
+   truncate inside the segmented control rather than widening the form */
+.place-picker .place-seg .segmented-item {
+  min-width: 0;
+  flex: 1 1 0;
+}
+.place-picker .place-seg .segmented-item .truncate {
+  min-width: 0;
+}
+.place-picker .field-hint {
+  display: block;
+  max-width: 100%;
+}
+/* "File from project" in a project of several parts: the part above the path bar */
+.fb-part {
+  margin-bottom: var(--s-3);
+}

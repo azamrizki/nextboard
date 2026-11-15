@@ -1,6 +1,7 @@
 // Agents inside the editor (docs/API-studio.md §7.8): a console or the orchestrator as a pane,
 // in the right side bar or as an editor tab. A console here is a normal session without a tile
 // on the board, so its status, its needs-you and the link to the editor work as for any other.
+// It starts in the card's part; a Root card asks: at the project root (every part) or in a part.
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { api, errorMessage } from '../../api';
@@ -27,8 +28,14 @@ import { replyDraftOf, replyText, useLeadName, useTalkFirst, type ReplyDraft } f
 import { AgentChip, GENERAL_IDEAS, LeadAvatar, OrderWelcome, ReplyChip } from '../../orch/OrderBits';
 import { orchStore, useOrch } from '../../orch/store';
 import { ConfirmationCard, ThreadList } from '../../orch/ThreadView';
-import { store, useSession, useSessions, useStoreReady } from '../../store';
-import { TerminalView } from './BottomPanel';
+import { store, useProject, useSession, useSessions, useStoreReady } from '../../store';
+import { PlacePicker } from '../../board/PlacePicker';
+import { isMultiPart, placeFromValue, placeValue } from '../../lib/placement';
+import { isRoot, type Placement } from '../../lib/parts';
+import { activeKey, defaultPlaceOf, rememberPlace, TerminalView } from './BottomPanel';
+import { fitsCard, offered, placeChoices, placeDir } from './partGroups';
+import { mountedPart } from './partGit';
+import { keyOfUri, LOCAL_MACHINE, type FileKey } from './paths';
 import { orderText, type AgentContext } from './SidePanels';
 import { useWs } from './useWs';
 import { nameOf, ORCHESTRATOR_PANE, type Workspace } from './workspace';
@@ -38,10 +45,49 @@ export const PaneEnv = createContext<{ project: Project; ctl: BoardController } 
 
 type Where = 'side' | 'tab';
 
-/** Start an agent for this editor: a console with no tile on the board. */
-export async function startAgentPane(ws: Workspace, workspaceId: string, agent: Agent, where: Where) {
+/** A place picked in a Root card's agent menu: it holds while the card works on the same file. */
+const picked = new WeakMap<Workspace, { place: Placement; at: FileKey | null }>();
+
+/** Where the card's next agent starts: what was picked for the file in use, else the default. */
+export function agentPlace(ws: Workspace): Placement {
+  const c = picked.get(ws);
+  return c && c.at === activeKey(ws) && offered(ws.paths, c.place) ? c.place : defaultPlaceOf(ws);
+}
+
+const placeName = (ws: Workspace, p: Placement) => (isRoot(p) ? 'the project root (every part)' : (mountedPart(ws, p.partId)?.name ?? 'the part'));
+
+/** "Start in: Root | admin | frontend", a row of the agent menus of a Root card. */
+function placeChoice(ws: Workspace): MenuEntry {
+  return {
+    type: 'choice',
+    label: 'Start in',
+    value: placeValue(agentPlace(ws)),
+    options: placeChoices(ws.paths).map((p) => ({
+      value: placeValue(p),
+      label: isRoot(p) ? 'Root' : (mountedPart(ws, p.partId)?.name ?? p.partId),
+      title: isRoot(p) ? 'Root (all parts): on This PC, it reaches every part' : placeName(ws, p),
+    })),
+    onSelect: (v) => pickPlace(ws, v),
+  };
+}
+
+/** Pick where the card's next agent starts (placeValue form). */
+function pickPlace(ws: Workspace, v: string) {
+  const place = placeFromValue(v);
+  picked.set(ws, { place, at: activeKey(ws) });
+  rememberPlace(ws, place);
+  ws.changed();
+}
+
+/**
+ * Start an agent for this editor: a console with no tile on the board, in the card's part (on
+ * that part's machine, or on This PC for a server part, as the hub decides), or in a Root card at
+ * the place picked in its agent menu, else the card's default (BottomPanel defaultPlaceOf).
+ */
+export async function startAgentPane(ws: Workspace, workspaceId: string, agent: Agent, where: Where, place?: Placement) {
   try {
-    const s = await api.createSession({ workspaceId, preset: agent.id, agent: agent.id, panel: true, cols: 100, rows: 30 });
+    const at = place ?? agentPlace(ws);
+    const s = await api.createSession({ workspaceId, preset: agent.id, agent: agent.id, panel: true, cols: 100, rows: 30, ...ws.placeOf(placeDir(ws.paths, at)) });
     store.upsertSession(s);
     ws.placePane(s.id, where);
   } catch (err) {
@@ -59,13 +105,19 @@ export interface PaneChoices {
 }
 
 export function usePaneChoices(ws: Workspace, workspaceId: string): PaneChoices {
-  const { agents } = useMachineAgents(ws.mid);
+  // agents run on the part's machine, or on This PC (a root, or a server part through the hub)
+  const { agents } = useMachineAgents(ws.paths.multi ? LOCAL_MACHINE : ws.parts[0].machineId);
   const sessions = useSessions();
+  const project = useProject(ws.projectId);
+  const multiPart = !!project && isMultiPart(project);
   const remote = !!useEffectiveSettings().agents?.remoteTools;
   const sorted = useMemo(() => agents.filter((a) => a.kind === 'agent' && a.available !== false).sort(byPriority), [agents]);
   const placed = ws.paneConsoles;
-  const unplaced = sessions.filter((s) => s.panel && s.agentKind === 'agent' && s.workspaceId === workspaceId && s.status !== 'exited' && !placed.includes(s.id));
-  const serverOff = ws.mid !== 'local' && !remote ? () => navigate('/settings/agents') : null;
+  // a card of one part offers its own part's agents; a Root card every one
+  const unplaced = sessions.filter((s) => s.panel && s.agentKind === 'agent' && s.workspaceId === workspaceId && s.status !== 'exited' && !placed.includes(s.id) && fitsCard(s, ws.paths, multiPart));
+  // a part on a server (a Root card: any) while agents on servers are off
+  const onServer = ws.paths.multi ? ws.parts.some((p) => p.machineId !== LOCAL_MACHINE) : ws.parts[0].machineId !== LOCAL_MACHINE;
+  const serverOff = onServer && !remote ? () => navigate('/settings/agents') : null;
   return { agents: sorted, unplaced, serverOff };
 }
 
@@ -79,11 +131,13 @@ export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced
           'sep',
         ] as MenuEntry[])
       : []),
+    // a Root card asks where the agent starts: the root (every part) or one part
+    ...(ws.paths.multi && agents.length ? ([placeChoice(ws)] as MenuEntry[]) : []),
     ...agents.map<MenuEntry>((a) => ({
       label: a.name,
       icon: 'bot',
-      title: `Start ${a.name} in the project folder`,
-      onSelect: () => void startAgentPane(ws, workspaceId, a, where),
+      title: ws.paths.multi ? `Start ${a.name} in ${placeName(ws, agentPlace(ws))}` : `Start ${a.name} in the project folder`,
+      onSelect: () => void startAgentPane(ws, workspaceId, a, where, agentPlace(ws)),
     })),
     ...(agents.length ? (['sep'] as MenuEntry[]) : []),
     { label: 'Orchestrator', icon: 'orchestrator', title: 'Give orders to the agents of this board', onSelect: () => ws.placePane(ORCHESTRATOR_PANE, where) },
@@ -166,9 +220,11 @@ function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
 function currentContext(ws: Workspace): AgentContext | null {
   const ed = ws.activeEditor() ?? [...ws.editors.values()][0];
   const model = ed?.getModel();
-  if (!ed || !model || model.uri.scheme !== 'file') return null;
-  const rel = ws.rel(model.uri.path);
-  const name = nameOf(model.uri.path);
+  const key = model ? keyOfUri(model.uri) : null;
+  if (!ed || !model || !key) return null;
+  // as the card shows it: "admin/src/x.ts" in a Root card (the lead is at the root)
+  const rel = ws.relLabel(key);
+  const name = nameOf(key);
   const language = model.getLanguageId();
   const sel = ed.getSelection();
   if (!sel || sel.isEmpty()) return { label: name, rel, language, code: '', startLine: 0, endLine: 0 };
@@ -356,6 +412,7 @@ export function PaneBody({ ws, id }: { ws: Workspace; id: string }) {
 export function AgentSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) {
   useWs(ws);
   const choices = usePaneChoices(ws, workspaceId);
+  const project = useProject(ws.projectId);
   const active = ws.rightPanes.includes(ws.rightActive) ? ws.rightActive : ws.rightPanes[0];
   return (
     <aside className="wb-right" style={{ width: ws.rightW }} aria-label="Agents">
@@ -405,6 +462,7 @@ export function AgentSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: 
         <div className="wb-right-empty">
           <h2>Open an agent</h2>
           <p className="text-3">It works in this project and sees what you select in the editor where the CLI supports it. No tile is added to the board.</p>
+          {project && ws.paths.multi && <PlacePicker project={project} value={placeValue(agentPlace(ws))} onChange={(v) => pickPlace(ws, v)} label="Start in" />}
           <div className="wb-right-list">
             {choices.unplaced.map((s) => (
               <Button key={s.id} variant="ghost" icon="terminal" onClick={() => ws.placePane(s.id, 'side')}>

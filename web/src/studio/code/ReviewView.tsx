@@ -10,11 +10,13 @@ import { reviewApi } from '../api';
 import type { ReviewFile } from '../types';
 import { currentTheme, FONT, languageFor, monaco } from './monaco';
 import { baseWithChange, currentWithoutChange, type LineChange } from './reviewHunks';
+import type { PartService } from './partsvc';
 import type { Tab, Workspace } from './workspace';
 
 const SIDE_BY_SIDE_FROM = 900;
 
-export function ReviewView({ ws, tab, session, path, agent }: { ws: Workspace; tab: Tab; session: string; path: string; agent: string }) {
+/** One file an agent changed in a part (path inside the part, as the hub reports it). */
+export function ReviewView({ ws, part, tab, session, path, agent }: { ws: Workspace; part: PartService; tab: Tab; session: string; path: string; agent: string }) {
   const host = useRef<HTMLDivElement>(null);
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const models = useRef<{ original: monaco.editor.ITextModel; modified: monaco.editor.ITextModel } | null>(null);
@@ -26,11 +28,11 @@ export function ReviewView({ ws, tab, session, path, agent }: { ws: Workspace; t
   const [sideBySide, setSideBySide] = useState(true);
   const [busy, setBusy] = useState(false);
   const language = useMemo(() => languageFor(path) ?? 'plaintext', [path]);
-  const pending = ws.review?.agents.find((a) => a.sessionId === session)?.files.find((f) => f.path === path);
+  const pending = part.review?.agents.find((a) => a.sessionId === session)?.files.find((f) => f.path === path);
 
   const load = useCallback(async () => {
     try {
-      const f = await reviewApi.file(ws.pid, session, path);
+      const f = await reviewApi.file(part.ref, session, path);
       setFile(f);
       setError('');
       const diff = diffRef.current;
@@ -47,7 +49,7 @@ export function ReviewView({ ws, tab, session, path, agent }: { ws: Workspace; t
       if (isCode(err, 'no_change')) ws.closeSpecial(tab.id);
       else setError(errorMessage(err));
     }
-  }, [ws, session, path, language, tab.id]);
+  }, [ws, part, session, path, language, tab.id]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -114,7 +116,7 @@ export function ReviewView({ ws, tab, session, path, agent }: { ws: Workspace; t
     try {
       await fn();
       if (done) toast.success(done);
-      await ws.refreshReview();
+      await part.refreshReview();
       await load();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -125,8 +127,8 @@ export function ReviewView({ ws, tab, session, path, agent }: { ws: Workspace; t
 
   const whole = (keep: boolean) =>
     act(async () => {
-      if (keep) await reviewApi.accept(ws.pid, { session, path });
-      else await reviewApi.reject(ws.pid, { session, path });
+      if (keep) await reviewApi.accept(part.ref, { session, path });
+      else await reviewApi.reject(part.ref, { session, path });
       ws.closeSpecial(tab.id);
     }, keep ? 'Kept.' : 'Undone. The text stays in Local History.');
 
@@ -136,8 +138,8 @@ export function ReviewView({ ws, tab, session, path, agent }: { ws: Workspace; t
     const base = m.original.getValue();
     const now = m.modified.getValue();
     void act(async () => {
-      if (keep) await reviewApi.accept(ws.pid, { session, path, base: baseWithChange(base, now, current) });
-      else await reviewApi.reject(ws.pid, { session, path, text: currentWithoutChange(base, now, current) });
+      if (keep) await reviewApi.accept(part.ref, { session, path, base: baseWithChange(base, now, current) });
+      else await reviewApi.reject(part.ref, { session, path, text: currentWithoutChange(base, now, current) });
     });
   };
 
@@ -145,8 +147,8 @@ export function ReviewView({ ws, tab, session, path, agent }: { ws: Workspace; t
   return (
     <div className="wb-diff wb-rv-view nowheel">
       <div className="wb-diff-bar wb-rv-bar">
-        <span className="truncate" title={path}>
-          <strong>{agent}</strong> · {path}
+        <span className="truncate" title={ws.relLabel(part.keyOf(path))}>
+          <strong>{agent}</strong> · {ws.relLabel(part.keyOf(path))}
         </span>
         {!!pending?.also?.length && (
           <span className="wb-rv-also" role="status">

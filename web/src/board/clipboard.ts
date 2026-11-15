@@ -1,7 +1,7 @@
 // Board clipboard: copy / cut / paste / duplicate of nodes, within and across workspaces
 // (and browser tabs, through the system clipboard as JSON text). A copied terminal is
-// pasted as a NEW session of the same preset / machine / cwd — the conversation is not
-// copied.
+// pasted as a NEW session of the same preset / machine / cwd, and in the same project its
+// root or part — the conversation is not copied.
 
 import { newId } from '../lib/ids';
 import type { BoardEdge, BoardNode, NodeLayout, Op } from '../lib/types';
@@ -20,6 +20,8 @@ export interface ClipPayload {
   nodes: BoardNode[];
   /** Terminal node id → how to start a terminal like it. */
   terminals: Record<string, Omit<TerminalSpec, 'nodeId'>>;
+  /** The project copied from: a console's root or part only means something there (v0.9.0-beta.2). */
+  projectId?: string;
   /**
    * Connections between the copied tiles. One that leaves the selection stays behind: a
    * copy of a console does not start taking orders or forwarding by itself.
@@ -40,13 +42,14 @@ export function makePayload(ctl: BoardController, ids: Iterable<string>): ClipPa
     if (n.kind === 'terminal') {
       const spec = ctl.specOf(n);
       if (!spec) continue;
-      terminals[n.id] = { machineId: spec.machineId, preset: spec.preset, cwd: spec.cwd, name: spec.name, rect: spec.rect };
+      // where it works, as undo restores it: root or part, and the machine and folder of the work
+      terminals[n.id] = { machineId: spec.machineId, preset: spec.preset, cwd: spec.cwd, name: spec.name, rect: spec.rect, root: spec.root, partId: spec.partId };
     }
     plain.push(n);
   }
   const kept = new Set(plain.map((n) => n.id));
   const edges = ctl.sync.state.edges.filter((e) => COPIED_EDGES.has(e.kind) && kept.has(e.source) && kept.has(e.target));
-  return { type: MARK, v: 1, nodes: plain, terminals, edges };
+  return { type: MARK, v: 1, nodes: plain, terminals, edges, projectId: ctl.project.id };
 }
 
 export function remember(p: ClipPayload) {
@@ -85,10 +88,14 @@ export function pastePayload(ctl: BoardController, p: ClipPayload, at?: { x: num
   const fresh: BoardNode[] = [];
   const spawns: { from: string; spec: Omit<TerminalSpec, 'nodeId'>; rect: NodeLayout }[] = [];
   const ids = new Map<string, string>();
+  // a console from another project keeps its machine and folder (the hub finds the part there),
+  // not a part of that project; one at the root goes to this project's root
+  const here = p.projectId === ctl.project.id;
   for (const n of p.nodes) {
     if (n.kind === 'terminal') {
       const spec = p.terminals[n.id];
-      if (spec) spawns.push({ from: n.id, spec, rect: { x: n.x + dx, y: n.y + dy, w: n.w, h: n.h } });
+      const placed = spec && !here ? { ...spec, partId: undefined } : spec;
+      if (placed) spawns.push({ from: n.id, spec: placed, rect: { x: n.x + dx, y: n.y + dy, w: n.w, h: n.h } });
       continue;
     }
     // a group frame belongs to its members: it comes back around their copies, below

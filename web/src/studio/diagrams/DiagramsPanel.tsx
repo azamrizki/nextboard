@@ -22,6 +22,7 @@ import { DIAGRAM_SUBJECTS, type ArrowColor, type ArrowStyle, type DiagramListIte
 import { diagramExcalidraw, diagramPng } from './export';
 import { landDiagram, type Reveal } from './land';
 import { diagramRuns } from './runs';
+import { PlacePicker, usePartChoice } from '../../board/PlacePicker';
 import { STARTERS } from './starters';
 
 export const SUBJECT_LABEL: Record<DiagramSubject, string> = {
@@ -58,6 +59,7 @@ export default function DiagramsPanel({ ctl, project, viewCenter, reveal, onClos
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState<DiagramListItem[] | null>(null);
   const rev = useStudio((s) => s.diagramRev[project.id] ?? 0);
+  const where = usePartChoice(project);
 
   const load = useCallback(() => {
     diagramApi
@@ -79,9 +81,10 @@ export default function DiagramsPanel({ ctl, project, viewCenter, reveal, onClos
     setBusy(true);
     const request = { subject, ask: subject === 'custom' ? ask.trim() : undefined, effort, style, agent };
     try {
-      const r = await diagramApi.generate(project.id, request);
+      // several parts: the run reads the part picked below (its folder, on its machine)
+      const r = await diagramApi.generate(where.ref, request);
       orchStore.upsertJob(r.job);
-      diagramRuns.add({ diagramId: r.diagramId, jobId: r.job.id, projectId: project.id, workspaceId: ctl.workspaceId, style, look, label: SUBJECT_LABEL[subject], request });
+      diagramRuns.add({ diagramId: r.diagramId, jobId: r.job.id, projectId: project.id, ref: where.ref, workspaceId: ctl.workspaceId, style, look, label: SUBJECT_LABEL[subject], request });
       toast.info('Drawing… the diagram lands on the board when it is ready.');
       load();
     } catch (err) {
@@ -206,6 +209,7 @@ export default function DiagramsPanel({ ctl, project, viewCenter, reveal, onClos
             <option value="codex">Codex</option>
           </select>
         </div>
+        <PlacePicker project={project} value={where.part.id} onChange={where.setPartId} label="Read in" noRoot hint={false} />
         <div>
           <Button size="sm" variant="primary" icon="sparkle" loading={busy} disabled={subject === 'custom' && !ask.trim()} onClick={() => void generate()}>
             Draw diagram

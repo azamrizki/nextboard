@@ -685,6 +685,22 @@ func (s *Session) launch(mode string) {
 		return
 	}
 	s.setStatus(StatusStarting, 0, "")
+	// A root console's folder lists the project's parts as they are now (Manager.RootDir).
+	if spec.Root {
+		var err error
+		if s.m.RootDir == nil {
+			err = errors.New("this hub has no project root folders")
+		} else {
+			_, err = s.m.RootDir(spec.ProjectID)
+		}
+		if err != nil {
+			s.mu.Lock()
+			s.writeLocked(fmt.Sprintf("\r\n\x1b[1;31mnextboard: the project's root folder could not be made: %s\x1b[0m\r\n", err))
+			s.mu.Unlock()
+			s.setStatus(StatusError, -1, "root_unavailable: "+err.Error())
+			return
+		}
+	}
 
 	a := s.m.agentFor(spec)
 	ss := machine.StartSpec{

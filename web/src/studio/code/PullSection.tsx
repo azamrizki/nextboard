@@ -9,11 +9,13 @@ import { gitError } from '../../git/common';
 import { isCode } from '../../api';
 import { gitApi } from '../api';
 import type { GitPullSummary } from '../types';
+import type { PartService } from './partsvc';
 import type { Workspace } from './workspace';
 
-export function PullSection({ ws }: { ws: Workspace }) {
-  const target = ws.gitTarget;
-  const st = ws.git;
+/** The pull requests of a part's selected repository; a pull request opens in a tab of the card, naming the part. */
+export function PullSection({ ws, part }: { ws: Workspace; part: PartService }) {
+  const target = part.gitTarget;
+  const st = part.git;
   const [items, setItems] = useState<GitPullSummary[] | null>(null);
   const [problem, setProblem] = useState('');
   const [hidden, setHidden] = useState(false);
@@ -45,7 +47,7 @@ export function PullSection({ ws }: { ws: Workspace }) {
     if (github) void load();
     // reloads after a push or a switch of branch
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, github, target.repo, st?.branch, st?.ahead, ws.pullsTick]);
+  }, [ws, part, github, target.repo, st?.branch, st?.ahead, ws.pullsTick]);
 
   if (!github || hidden) return null;
   const mine = items?.find((p) => p.headRefName === st?.branch);
@@ -80,10 +82,10 @@ export function PullSection({ ws }: { ws: Workspace }) {
           <button
             key={p.number}
             type="button"
-            className={`wb-row wb-pull ${ws.activeTab?.view?.kind === 'pr' && ws.activeTab.view.number === p.number ? 'is-selected' : ''}`}
+            className={`wb-row wb-pull ${ws.activeTab?.view?.kind === 'pr' && ws.activeTab.view.part === part.partId && ws.activeTab.view.number === p.number ? 'is-selected' : ''}`}
             title={`${p.title}\n#${p.number} · ${p.author.login} · ${p.headRefName} → ${p.baseRefName}`}
-            onClick={() => ws.openView({ kind: 'pr', number: p.number, title: p.title, repo: target.repo })}
-            onDoubleClick={() => ws.openView({ kind: 'pr', number: p.number, title: p.title, repo: target.repo }, { pin: true })}
+            onClick={() => ws.openView({ kind: 'pr', part: part.partId, number: p.number, title: p.title, repo: target.repo })}
+            onDoubleClick={() => ws.openView({ kind: 'pr', part: part.partId, number: p.number, title: p.title, repo: target.repo }, { pin: true })}
           >
             <Icon name="branch" className="wb-icon" />
             <span className="wb-row-name truncate">{p.title}</span>
@@ -111,7 +113,7 @@ export function PullSection({ ws }: { ws: Workspace }) {
                     toast.success(`Opened ${r.url}`);
                     setCreating(false);
                     void load();
-                    void ws.refreshGit();
+                    void part.refreshGit();
                   } catch (err) {
                     toast.error(gitError(err));
                   } finally {

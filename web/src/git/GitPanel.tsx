@@ -65,9 +65,9 @@ export default function GitPanel(props: GitPanelProps) {
   return parts.length < 2 ? <OnePart {...props} part={parts[0]} /> : <AllParts {...props} parts={parts} />;
 }
 
-/** A project in one folder: the panel as it always was. */
+/** A project in one folder: the panel as it always was, keyed "<project>~<part>" as every part is. */
 function OnePart(props: GitPanelProps & { part: ProjectPart }) {
-  const pref = props.project.id;
+  const pref = partRef(props.project, props.part);
   const repos = useStudio((s) => s.gitRepos[pref]?.items);
   const repo = useStudio((s) => s.gitRepo[pref] ?? '');
 

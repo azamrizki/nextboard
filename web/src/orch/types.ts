@@ -275,6 +275,8 @@ export interface SpawnSlot {
   machineId?: string;
   /** The part of the project, by id or name: its machine and folder. */
   part?: string;
+  /** At the project root, reaching every part (v0.9.0-beta.2); not with part (400 bad_placement). */
+  root?: true;
   profileId?: string;
   /** An API provider instead of a login (docs/API-agents.md §10.2). */
   providerId?: string;
@@ -289,6 +291,8 @@ export interface SpawnRequest {
   agent?: string;
   /** The part of the project the consoles work in, by id or name (ROADMAP #49). */
   part?: string;
+  /** Every slot without its own placement works at the project root (v0.9.0-beta.2). */
+  root?: true;
   group?: { name?: string; role?: Role; color?: GroupColor } | { id: string };
   orchestratorId?: string;
   at?: { x: number; y: number };
@@ -358,6 +362,12 @@ export interface Handoff {
 }
 export interface HandoffRequest {
   agent: string;
+  /**
+   * Where the next console works (v0.9.0-beta.2): at the root, or in a part (id or name). Neither:
+   * the source console's placement. inPlace ignores both.
+   */
+  root?: true;
+  part?: string;
   machineId?: string;
   profileId?: string;
   /** An API provider instead of a login (docs/API-agents.md §10.2). */
@@ -508,6 +518,12 @@ export interface LayoutLane {
   agent?: string;
   role?: Role | string;
   group?: string;
+  /**
+   * Where the lane's console worked when the template was saved from a project of several parts
+   * (v0.9.0-beta.2): at the root, or in the part of this **name** (deploy matches it by name).
+   */
+  root?: boolean;
+  part?: string;
   x: number;
   y: number;
   w: number;
@@ -542,6 +558,9 @@ export interface Layout {
 }
 export interface LaneOverride {
   agent?: string;
+  /** Its placement on this board (v0.9.0-beta.2): the root, or a part by id or name. */
+  root?: true;
+  part?: string;
   machineId?: string;
   profileId?: string;
   /** An API provider instead of a login (docs/API-agents.md §10.2). */
@@ -555,6 +574,24 @@ export interface DeployRequest {
   laneOverrides?: Record<string, LaneOverride>;
   /** How many consoles a group has, by group key, where it differs from the template. */
   groupSizes?: Record<string, number>;
+  /**
+   * Where each group or lane works, by group key or lane key (v0.9.0-beta.2): a lane override,
+   * then its lane key, then its group key, then the template's saved placement matched by part
+   * name. A saved part name this project lacks and nothing here covers: 409 place_unmatched.
+   */
+  places?: Record<string, Place>;
+}
+
+/** project.Place (contracts.md §1.3): the root, or a part by id or name. */
+export interface Place {
+  root?: true;
+  part?: string;
+}
+
+/** 409 place_unmatched: the template's saved part names this project lacks, by group or lane key. */
+export interface UnmatchedPlace {
+  key: string;
+  part: string;
 }
 
 // ---- §14 events ---------------------------------------------------------------------------

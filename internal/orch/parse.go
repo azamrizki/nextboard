@@ -93,7 +93,9 @@ type Intent struct {
 	Agent    string
 	Role     string
 	// Part: "spawn 2 claude in Backend", a part of the project (ROADMAP #49)
-	Part     string
+	Part string
+	// Root: "spawn 2 claude at the root" / "buat 2 claude di semua part" (v0.9.0-beta.2)
+	Root     bool
 	Name     string
 	All      bool // "kill all", "pause" without who
 	Select   bool // "group these"
@@ -117,20 +119,40 @@ type ParseContext struct {
 	Parts  []string // the names of the project's parts, when it has more than one
 }
 
-// cutPart takes "in Backend" (on, di, pada; "part" after it may follow) off the end of a spawn,
-// when Backend is one of the parts.
-func cutPart(rest string, parts []string) (string, string) {
+// placePreps come before a part or the root at the end of a spawn.
+var placePreps = []string{" in ", " on ", " at ", " di ", " pada ", " ke "}
+
+// rootWords name the project root at the end of a spawn ("at the root", "di semua part").
+var rootWords = []string{"the project root", "project root", "the root", "root", "all the parts", "all parts", "every part",
+	"semua part", "semua bagian", "seluruh part", "seluruh bagian"}
+
+// cutPart takes "in Backend" (on, at, di, pada, ke; "part" or "bagian" after it may follow) off
+// the end of a spawn when Backend is one of the parts, or "at the root" ("in all parts", "di
+// semua part"…), which places it at the project root. A part named like one of those words
+// wins: a part may well be called "root". rest is what is left.
+func cutPart(rest string, parts []string) (part string, root bool, left string) {
 	low := strings.ToLower(strings.TrimSpace(rest))
-	low = strings.TrimSuffix(strings.TrimSuffix(low, " part"), " bagian")
-	for _, name := range parts {
-		for _, prep := range []string{" in ", " on ", " di ", " pada ", " ke "} {
+	bare := strings.TrimSuffix(strings.TrimSuffix(low, " part"), " bagian")
+	cut := func(s, name string) (string, bool) {
+		for _, prep := range placePreps {
 			suffix := prep + strings.ToLower(name)
-			if strings.HasSuffix(" "+low, suffix) {
-				return name, strings.TrimSpace(low[:max(0, len(low)-len(suffix)+1)])
+			if strings.HasSuffix(" "+s, suffix) {
+				return strings.TrimSpace(s[:max(0, len(s)-len(suffix)+1)]), true
 			}
 		}
+		return "", false
 	}
-	return "", rest
+	for _, name := range parts {
+		if l, ok := cut(bare, name); ok {
+			return name, false, l
+		}
+	}
+	for _, w := range rootWords {
+		if l, ok := cut(low, w); ok {
+			return "", true, l
+		}
+	}
+	return "", false, rest
 }
 
 var numberWords = map[string]int{"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
@@ -479,16 +501,17 @@ func parse(text string, ctx ParseContext, tryIndonesian bool) Intent {
 		return in
 	}
 	if m := reSpawn.FindStringSubmatch(t); m != nil {
-		part, rest := cutPart(m[1], ctx.Parts)
+		part, root, rest := cutPart(m[1], ctx.Parts)
 		if n, a, r, ok := spawnTokens(rest, ctx); ok {
-			return Intent{Kind: IntentSpawn, Count: n, Agent: a, Role: r, Part: part}
+			return Intent{Kind: IntentSpawn, Count: n, Agent: a, Role: r, Part: part, Root: root}
 		}
 	}
 	if m := reGroupOf.FindStringSubmatch(t); m != nil {
 		if n := Number(m[1]); n > 0 {
-			if c, a, r, ok := spawnTokens(m[2], ctx); ok {
+			part, root, rest := cutPart(m[2], ctx.Parts)
+			if c, a, r, ok := spawnTokens(rest, ctx); ok {
 				_ = c
-				return Intent{Kind: IntentGroupCreate, Count: n, Agent: a, Role: r, Name: m[3]}
+				return Intent{Kind: IntentGroupCreate, Count: n, Agent: a, Role: r, Name: m[3], Part: part, Root: root}
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 // ESLint: the hub runs the project's own eslint over a file as it is in the editor, and the
 // answers become markers and quick fixes. Its config is code from the project, so nothing runs
-// until the user has allowed it for that project (docs/API-studio.md §7.6).
+// until the user has allowed it for that project (docs/API-studio.md §7.6). Each part has its
+// own eslint and its own permission: a file is linted by the part holding it.
 
 import { errorMessage } from '../../api';
 import { prefs } from '../../lib/format';
@@ -8,6 +9,8 @@ import { toast } from '../../components/Toast';
 import { filesApi, type EslintMessage } from '../api';
 import { monaco } from './monaco';
 import { hasNative, onNativeChange } from './nativeExt';
+import type { PartService } from './partsvc';
+import { keyOfUri, type FileKey } from './paths';
 import type { Workspace } from './workspace';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
@@ -27,32 +30,42 @@ const DEBOUNCE_MS = 1000;
 const MISSING_RETRY_MS = 60_000;
 const LINTABLE = /\.(?:[cm]?[jt]sx?|vue)$/i;
 
-const states = new WeakMap<Workspace, WsState>();
-const stateOf = (ws: Workspace): WsState => {
-  let s = states.get(ws);
+const states = new WeakMap<PartService, WsState>();
+const stateOf = (part: PartService): WsState => {
+  let s = states.get(part);
   if (!s) {
     s = { state: 'ask', detail: '', asked: false, missingUntil: 0 };
-    states.set(ws, s);
+    states.set(part, s);
   }
   return s;
 };
 
-const prefKey = (ws: Workspace) => `wb.eslint.${ws.pid}`;
-const allowed = (ws: Workspace) => prefs.get(prefKey(ws)) === '1';
+/** The permission of a part, in this browser: wb.eslint.<part ref>. */
+const prefKey = (part: PartService) => `wb.eslint.${part.ref}`;
+/** "1", "0", or null (not asked). A single-part project still reads what it said before parts had refs (wb.eslint.<project>). */
+const permission = (ws: Workspace, part: PartService) => prefs.get(prefKey(part)) ?? (ws.viewKey === ws.projectId ? prefs.get(`wb.eslint.${ws.projectId}`) : null);
+const allowed = (ws: Workspace, part: PartService) => permission(ws, part) === '1';
 
-const setState = (ws: Workspace, state: EslintState, detail = '') => {
-  const s = stateOf(ws);
+const setState = (ws: Workspace, part: PartService, state: EslintState, detail = '') => {
+  const s = stateOf(part);
   if (s.state === state && s.detail === detail) return;
   s.state = state;
   s.detail = detail;
+  part.changed();
   ws.changed();
 };
+
+/** The part a file of the card is linted by: the one holding it (none outside the parts, as before). */
+const partOfKey = (ws: Workspace, key: FileKey | null) => (key ? ws.partOf(key) : null);
+const partOfModel = (ws: Workspace, m: Model) => partOfKey(ws, keyOfUri(m.uri));
 
 /** What the status bar shows for a file, or null when ESLint has no say in it. */
 export function eslintStatus(ws: Workspace, path: string | undefined): { state: EslintState; detail: string } | null {
   if (!path || !hasNative('eslint') || !LINTABLE.test(path)) return null;
-  const s = stateOf(ws);
-  if (!allowed(ws)) return { state: prefs.get(prefKey(ws)) === '0' ? 'off' : 'ask', detail: '' };
+  const part = partOfKey(ws, ws.toKey(path));
+  if (!part) return null;
+  const s = stateOf(part);
+  if (!allowed(ws, part)) return { state: permission(ws, part) === '0' ? 'off' : 'ask', detail: '' };
   return { state: s.state === 'ask' || s.state === 'off' ? 'running' : s.state, detail: s.detail };
 }
 
@@ -94,8 +107,12 @@ export function toMarkers(messages: EslintMessage[]): monaco.editor.IMarkerData[
 }
 
 async function lint(ws: Workspace, model: Model) {
-  if (model.isDisposed() || !hasNative('eslint') || !allowed(ws) || !LINTABLE.test(model.uri.path) || !ws.inside(model.uri.path)) return;
-  const wst = stateOf(ws);
+  if (model.isDisposed() || !hasNative('eslint') || !LINTABLE.test(model.uri.path)) return;
+  const key = keyOfUri(model.uri);
+  const part = partOfKey(ws, key);
+  const rel = key && part ? part.relOf(key) : null;
+  if (!part || !rel || !allowed(ws, part)) return;
+  const wst = stateOf(part);
   if (Date.now() < wst.missingUntil) return;
   const st = modelState(model);
   if (st.running) {
@@ -103,28 +120,28 @@ async function lint(ws: Workspace, model: Model) {
     return;
   }
   st.running = true;
-  setState(ws, 'running');
+  setState(ws, part, 'running');
   const version = model.getVersionId();
   try {
-    const r = await filesApi.eslint(ws.pid, ws.rel(model.uri.path), model.getValue());
+    const r = await filesApi.eslint(part.ref, rel, model.getValue());
     if (model.isDisposed()) return;
     if (!r.available) {
       wst.missingUntil = Date.now() + MISSING_RETRY_MS;
       monaco.editor.setModelMarkers(model, OWNER, []);
-      setState(ws, 'missing');
+      setState(ws, part, 'missing');
     } else if (r.error) {
       monaco.editor.setModelMarkers(model, OWNER, []);
       ws.log(`[ESLint] ${r.error}`);
-      setState(ws, 'failed', r.error);
+      setState(ws, part, 'failed', r.error);
     } else if (model.getVersionId() === version) {
       // answers to older text would land on the wrong lines, and the run below follows
       st.version = version;
       st.messages = r.messages ?? [];
       monaco.editor.setModelMarkers(model, OWNER, toMarkers(st.messages));
-      setState(ws, 'ok');
+      setState(ws, part, 'ok');
     }
   } catch (err) {
-    setState(ws, 'failed', errorMessage(err));
+    setState(ws, part, 'failed', errorMessage(err));
   } finally {
     st.running = false;
     if (st.again || (!model.isDisposed() && model.getVersionId() !== version)) {
@@ -140,38 +157,48 @@ function schedule(ws: Workspace, model: Model) {
   st.timer = window.setTimeout(() => void lint(ws, model), DEBOUNCE_MS);
 }
 
-/** Answer the question "may this project's eslint run". */
-export function allowESLint(ws: Workspace, on: boolean) {
-  prefs.set(prefKey(ws), on ? '1' : '0');
-  stateOf(ws).missingUntil = 0;
+/**
+ * Answer the question "may this project's eslint run", for a part: the one holding the file
+ * (a key or path), else the part of the active file, else the card's part in use.
+ */
+export function allowESLint(ws: Workspace, on: boolean, path?: string) {
+  const at = path ? ws.toKey(path) : (ws.activeDoc?.path ?? null);
+  const part = partOfKey(ws, at) ?? ws.activePart;
+  prefs.set(prefKey(part), on ? '1' : '0');
+  stateOf(part).missingUntil = 0;
   for (const ed of ws.editors.values()) {
     const m = ed.getModel();
-    if (!m) continue;
+    if (!m || partOfModel(ws, m) !== part) continue;
     if (on) schedule(ws, m);
     else monaco.editor.setModelMarkers(m, OWNER, []);
   }
+  part.changed();
   ws.changed();
 }
 
-function askOnce(ws: Workspace) {
-  const s = stateOf(ws);
-  if (s.asked || prefs.get(prefKey(ws)) !== null) return;
+function askOnce(ws: Workspace, part: PartService) {
+  const s = stateOf(part);
+  if (s.asked || permission(ws, part) !== null) return;
   s.asked = true;
-  toast.notify('info', 'Run this project’s ESLint?', 'It loads the project’s ESLint config, and that config is code that runs on the machine.', { label: 'Allow', onClick: () => allowESLint(ws, true) });
+  const whose = ws.paths.multi ? `${part.name}’s` : 'this project’s';
+  toast.notify('info', `Run ${whose} ESLint?`, `It loads ${whose} ESLint config, and that config is code that runs on the machine.`, { label: 'Allow', onClick: () => allowESLint(ws, true, part.rootKey) });
 }
 
 export function watchESLint(ed: Editor, ws: Workspace): monaco.IDisposable {
   const start = () => {
     const m = ed.getModel();
     if (!m || !hasNative('eslint') || !LINTABLE.test(m.uri.path)) return;
-    if (allowed(ws)) void lint(ws, m);
-    else askOnce(ws);
+    const part = partOfModel(ws, m);
+    if (!part) return;
+    if (allowed(ws, part)) void lint(ws, m);
+    else askOnce(ws, part);
   };
   const subs = [
     ed.onDidChangeModel(start),
     ed.onDidChangeModelContent(() => {
       const m = ed.getModel();
-      if (m && hasNative('eslint') && allowed(ws)) schedule(ws, m);
+      const part = m ? partOfModel(ws, m) : null;
+      if (m && part && hasNative('eslint') && allowed(ws, part)) schedule(ws, m);
     }),
   ];
   const off = onNativeChange(() => {
@@ -192,10 +219,13 @@ export function watchESLint(ed: Editor, ws: Workspace): monaco.IDisposable {
 /** Fix everything ESLint can, through its own --fix. */
 export async function eslintFixAll(ws: Workspace, ed: Editor) {
   const model = ed.getModel();
-  if (!model || !allowed(ws)) return;
+  const key = model ? keyOfUri(model.uri) : null;
+  const part = partOfKey(ws, key);
+  const rel = key && part ? part.relOf(key) : null;
+  if (!model || !part || !rel || !allowed(ws, part)) return;
   const version = model.getVersionId();
   try {
-    const r = await filesApi.eslint(ws.pid, ws.rel(model.uri.path), model.getValue(), true);
+    const r = await filesApi.eslint(part.ref, rel, model.getValue(), true);
     if (r.error) throw new Error(r.error);
     if (typeof r.output !== 'string' || model.getVersionId() !== version) return;
     ed.pushUndoStop();

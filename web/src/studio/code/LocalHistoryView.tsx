@@ -7,11 +7,13 @@ import { formatDateTime, timeAgo } from '../../lib/format';
 import { reviewApi } from '../api';
 import type { LocalVersion } from '../types';
 import { currentTheme, FONT, languageFor, monaco } from './monaco';
+import type { FileKey } from './paths';
 import type { Workspace } from './workspace';
 
 const SIDE_BY_SIDE_FROM = 900;
 
-export function LocalHistoryView({ ws, path }: { ws: Workspace; path: string }) {
+/** A file's versions, from the history of the part holding it (path: the file's key). */
+export function LocalHistoryView({ ws, path }: { ws: Workspace; path: FileKey }) {
   const host = useRef<HTMLDivElement>(null);
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const models = useRef<monaco.editor.ITextModel[]>([]);
@@ -20,12 +22,20 @@ export function LocalHistoryView({ ws, path }: { ws: Workspace; path: string }) 
   const [note, setNote] = useState('');
   const [text, setText] = useState<string | null>(null);
   const [sideBySide, setSideBySide] = useState(true);
-  const rel = ws.rel(path);
+  // the hub keeps a history per part, by the path inside it
+  const part = ws.partOf(path);
+  const rel = part?.relOf(path) ?? null;
+  const shown = ws.relLabel(path);
 
   useEffect(() => {
     let stop = false;
+    if (!part || !rel) {
+      setItems([]);
+      setNote('Local History keeps the files of the project’s parts only.');
+      return;
+    }
     reviewApi
-      .history(ws.pid, rel)
+      .history(part.ref, rel)
       .then((list) => {
         if (stop) return;
         setItems(list);
@@ -40,7 +50,7 @@ export function LocalHistoryView({ ws, path }: { ws: Workspace; path: string }) 
     return () => {
       stop = true;
     };
-  }, [ws, rel]);
+  }, [ws, part, rel]);
 
   const show = (next: monaco.editor.ITextModel[]) => {
     diffRef.current?.setModel(next.length ? { original: next[0], modified: next[1] } : null);
@@ -84,11 +94,11 @@ export function LocalHistoryView({ ws, path }: { ws: Workspace; path: string }) 
 
   const version = items?.find((v) => v.commit === picked);
   useEffect(() => {
-    if (!version) return;
+    if (!version || !part || !rel) return;
     let stop = false;
     setNote('');
     setText(null);
-    Promise.all([version.exists ? reviewApi.version(ws.pid, rel, version.commit) : Promise.resolve({ content: '', binary: false }), ws.currentText(path)])
+    Promise.all([version.exists ? reviewApi.version(part.ref, rel, version.commit) : Promise.resolve({ content: '', binary: false }), ws.currentText(path)])
       .then(([v, now]) => {
         if (stop) return;
         if (v.binary) {
@@ -110,12 +120,12 @@ export function LocalHistoryView({ ws, path }: { ws: Workspace; path: string }) 
     };
     // show only touches refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, rel, path, version?.commit, version?.exists]);
+  }, [ws, part, rel, path, version?.commit, version?.exists]);
 
   return (
     <div className="wb-cv nowheel">
       <div className="wb-cv-split">
-        <div className="wb-cv-files wb-tree" role="list" aria-label={`Versions of ${rel}`}>
+        <div className="wb-cv-files wb-tree" role="list" aria-label={`Versions of ${shown}`}>
           {items === null && <div className="wb-row-msg">Loading…</div>}
           {items && !items.length && <div className="wb-row-msg">{note || 'No versions of this file yet.'}</div>}
           {items?.map((v, i) => (
@@ -127,8 +137,8 @@ export function LocalHistoryView({ ws, path }: { ws: Workspace; path: string }) 
         </div>
         <div className="wb-diff wb-cv-diff">
           <div className="wb-diff-bar">
-            <span className="truncate" title={rel}>
-              {version ? `${formatDateTime(version.at)} ↔ now` : rel}
+            <span className="truncate" title={shown}>
+              {version ? `${formatDateTime(version.at)} ↔ now` : shown}
             </span>
             {note && <span className="text-3 truncate">{note}</span>}
             <span className="spacer" />

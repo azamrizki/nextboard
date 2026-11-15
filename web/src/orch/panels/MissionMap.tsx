@@ -19,6 +19,7 @@ import { Modal } from '../../components/Modal';
 import { timeAgo } from '../../lib/format';
 import { useLayout } from '../../lib/layout';
 import { projectParts } from '../../lib/parts';
+import { ROOT_VALUE } from '../../lib/placement';
 import type { Session } from '../../lib/types';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { killSessions, pauseSessions, resumeSessions } from '../actions';
@@ -123,9 +124,10 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
     return { consoles, directors, groups: gs, direct };
   }, [doc, sessions, hub, orders]);
 
-  // a project in several parts: which part each console works in, and a filter by part (ROADMAP #49)
+  // a project in several parts: which part each console works in, or Root (v0.9.0-beta.2), and a
+  // filter by them (ROADMAP #49); a console in no part's folder has neither, never the first part
   const parts = projectParts(ctl.project);
-  const partOf = (s: Session) => (parts.length > 1 ? parts.find((p) => p.id === (s.partId || parts[0].id)) : undefined);
+  const partOf = (s: Session) => (parts.length > 1 ? (s.root ? { id: ROOT_VALUE, name: 'Root' } : s.partId ? parts.find((p) => p.id === s.partId) : undefined) : undefined);
   const match = (c: MConsole) => {
     if (filter !== 'all' && bucket(c.session) !== filter) return false;
     if (partFilter && partOf(c.session)?.id !== partFilter) return false;
@@ -212,6 +214,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
         {parts.length > 1 && (
           <select className="control control-sm mm-part" aria-label="Part of the project" value={partFilter} onChange={(e) => setPartFilter(e.target.value)}>
             <option value="">All parts</option>
+            <option value={ROOT_VALUE}>Root</option>
             {parts.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -284,7 +287,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
                   <span className="mm-name">@{s.handle ?? s.name}</span>
                   <span className="mm-sub truncate">{agentById(s.agent || s.preset)?.name ?? s.agent}</span>
                   {partOf(s) && (
-                    <span className="cap-chip" title="The part of the project it works in">
+                    <span className="cap-chip" title={s.root ? 'At the project root: every part' : 'The part of the project it works in'}>
                       {partOf(s)!.name}
                     </span>
                   )}

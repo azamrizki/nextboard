@@ -127,6 +127,8 @@ type Server struct {
 	gui *gui.Manager
 	// art makes project covers and icons (h_art.go).
 	art *artState
+	// roots are the projects' root folders, where root consoles work (roots.go).
+	roots *rootDirs
 }
 
 // New loads all state from the data directory.
@@ -205,10 +207,16 @@ func New(opts Options) (*Server, error) {
 	s.wire()
 	s.setupOrchestration()
 	s.setupGitPreview()
+	// review is keyed <project>~<part> for every part (v0.9.0-beta.2): the first part's data
+	// moves from review/<project> before review starts
+	if n := migrateReviewKeys(s.st.Path("review"), s.projects.ListAll()); n > 0 {
+		log.Printf("review: moved %d first parts to their part keys", n)
+	}
 	s.setupReview()
 	s.setupStudio()
 	s.setupGUI()
 	s.setupAttachments()
+	s.roots.Prune()
 	s.setupVault()
 	s.passkeysAtStart()
 	if err := s.setupUptime(); err != nil {
@@ -286,6 +294,8 @@ func (s *Server) wire() {
 	}
 	s.sessions.RemoteWorkDir, s.sessions.LaunchContext = s.remoteWorkDir, s.launchContext
 	s.sessions.PartReadOnly = s.partReadOnly
+	s.roots = newRootDirs(s)
+	s.sessions.RootDir = s.roots.Sync
 	s.sessions.Providers = providerHub{s}
 	s.ide = idelink.New(idelink.Options{
 		WorkspaceOf: func(id string) string { w, _ := s.sessions.WorkspaceOf(id); return w },

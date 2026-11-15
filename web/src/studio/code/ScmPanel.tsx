@@ -16,6 +16,8 @@ import { studioStore, useStudio, waitJob } from '../store';
 import type { GitFile } from '../types';
 import { HistorySection } from './CommitGraph';
 import { FileIcon } from './Explorer';
+import { gitHostOf, repoKey } from './partGit';
+import type { PartService } from './partsvc';
 import { PullSection } from './PullSection';
 import { StashSection } from './StashSection';
 import { useWs } from './useWs';
@@ -23,11 +25,58 @@ import type { Workspace } from './workspace';
 
 const OPERATION_LABEL: Record<string, string> = { merge: 'Merge', 'cherry-pick': 'Cherry-pick', revert: 'Revert' };
 
+/** Source control of a card: its part's, or in a Root card one group per part, the active one open. */
 export function ScmPanel({ ws }: { ws: Workspace }) {
   useWs(ws);
-  const st = ws.git;
-  const target = ws.gitTarget;
-  const repos = useStudio((s) => s.gitRepos[ws.pid]?.items);
+  return ws.paths.multi ? <RootScm ws={ws} /> : <PartScm ws={ws} part={ws.parts[0]} />;
+}
+
+/** A Root card: every part's repository, each a group of its own; the part in use opens first. */
+function RootScm({ ws }: { ws: Workspace }) {
+  const [open, setOpen] = useState<Set<string>>(() => new Set([ws.activePart.partId]));
+  const toggle = (id: string) =>
+    setOpen((cur) => {
+      const n = new Set(cur);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const refreshAll = () => void Promise.all(ws.parts.map((p) => studioStore.loadGitRepos(p.ref, true).then(() => p.refreshGit())));
+  return (
+    <div className="wb-view">
+      <header className="wb-view-head">
+        <h2 className="truncate">Source control</h2>
+        <Button size="sm" variant="ghost" iconOnly icon="refresh" aria-label="Refresh every part" title="Refresh every part" onClick={refreshAll} />
+      </header>
+      <div className="wb-tree nowheel wb-scm-parts">
+        {ws.parts.map((p) => {
+          const isOpen = open.has(p.partId);
+          const changed = p.git?.files?.length ?? 0;
+          return (
+            <section key={p.partId} className={`wb-scm-part ${isOpen ? 'is-open' : ''}`} aria-label={`Source control of ${p.name}`}>
+              <button type="button" className="wb-section-title wb-section-toggle wb-part-head" aria-expanded={isOpen} title={`${p.name}: ${p.root}`} onClick={() => toggle(p.partId)}>
+                <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} className="wb-chev" />
+                <span className="truncate">{p.name}</span>
+                {p.git?.branch && <span className="wb-result-dir truncate">{p.git.branch}</span>}
+                <span className="spacer" />
+                {p.git && !p.git.isRepo ? <span className="text-3">No repository</span> : <span className="wb-result-count tabular">{changed}</span>}
+              </button>
+              {isOpen && <PartScm ws={ws} part={p} grouped />}
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** One part's source control: today's panel, or (grouped) its body inside a Root card's group. */
+function PartScm({ ws, part, grouped = false }: { ws: Workspace; part: PartService; grouped?: boolean }) {
+  useWs(ws);
+  const st = part.git;
+  const target = part.gitTarget;
+  const host = gitHostOf(ws, part);
+  const repos = useStudio((s) => s.gitRepos[part.ref]?.items);
   const useCli = useEffectiveSettings().git?.commitWithRunner !== false;
   const [message, setMessage] = useState('');
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
@@ -42,12 +91,12 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
   const hasStaged = staged.length > 0;
   const chosen = changes.filter((f) => !excluded.has(f.path)).map((f) => f.path);
   const canCommit = hasStaged || chosen.length > 0;
-  const base = st?.root?.replace(/\/+$/, '') ?? ws.root;
+  const keyOf = (rel: string) => repoKey(part, rel);
 
   useEffect(() => {
-    void studioStore.loadGitRepos(ws.pid, true);
-    void ws.refreshGit();
-  }, [ws]);
+    void studioStore.loadGitRepos(part.ref, true);
+    void part.refreshGit();
+  }, [part]);
 
   // the ticks and the draft belong to one repository
   useEffect(() => {
@@ -63,7 +112,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
       toast.error(gitError(err));
     } finally {
       setBusy('');
-      void ws.refreshGit();
+      void part.refreshGit();
     }
   };
 
@@ -93,23 +142,27 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
       }
     });
 
+  const shellClass = grouped ? 'wb-scm-body' : 'wb-view';
+
   if (st && !st.isRepo) {
     return (
-      <div className="wb-view">
-        <header className="wb-view-head">
-          <h2>Source control</h2>
-        </header>
-        <RepoPicker pid={ws.pid} className="wb-repo-picker" />
+      <div className={shellClass}>
+        {!grouped && (
+          <header className="wb-view-head">
+            <h2>Source control</h2>
+          </header>
+        )}
+        <RepoPicker pid={part.ref} className="wb-repo-picker" />
         {repos?.length ? (
           <div className="wb-view-empty">
-            <p>{target.repo || ws.name} is no longer a Git repository.</p>
-            <Button size="sm" icon="refresh" onClick={() => void studioStore.loadGitRepos(ws.pid, true)}>
+            <p>{target.repo || (grouped ? part.name : ws.name)} is no longer a Git repository.</p>
+            <Button size="sm" icon="refresh" onClick={() => void studioStore.loadGitRepos(part.ref, true)}>
               Scan again
             </Button>
           </div>
         ) : (
           <div className="wb-view-empty">
-            <p>This project is not a Git repository yet.</p>
+            <p>{grouped ? `${part.name} is not a Git repository yet.` : 'This project is not a Git repository yet.'}</p>
             <Button
               variant="primary"
               size="sm"
@@ -118,7 +171,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
               onClick={() =>
                 void act('init', async () => {
                   await gitApi.init(target);
-                  await studioStore.loadGitRepos(ws.pid, true);
+                  await studioStore.loadGitRepos(part.ref, true);
                 })
               }
             >
@@ -131,16 +184,16 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
   }
 
   return (
-    <div className="wb-view">
-      <header className="wb-view-head">
-        <h2 className="truncate">Source control</h2>
-        <Button size="sm" variant="ghost" iconOnly icon="refresh" aria-label="Refresh" title="Refresh" onClick={() => void studioStore.loadGitRepos(ws.pid, true).then(() => ws.refreshGit())} />
+    <div className={shellClass}>
+      <header className={grouped ? 'wb-scm-tools' : 'wb-view-head'}>
+        {grouped ? <span className="spacer" /> : <h2 className="truncate">Source control</h2>}
+        <Button size="sm" variant="ghost" iconOnly icon="refresh" aria-label="Refresh" title="Refresh" onClick={() => void studioStore.loadGitRepos(part.ref, true).then(() => part.refreshGit())} />
         <Button size="sm" variant="ghost" iconOnly icon="arrowDown" aria-label="Pull" title="Pull" loading={busy === 'pull'} disabled={!!busy || !st?.hasRemote} onClick={() => void job('pull', () => gitApi.pull(target))} />
         <Button size="sm" variant="ghost" iconOnly icon="arrowUp" aria-label="Push" title={st?.ahead ? `Push ${st.ahead} commit${st.ahead === 1 ? '' : 's'}` : 'Push'} loading={busy === 'push'} disabled={!!busy || !st?.hasRemote} onClick={() => void job('push', () => gitApi.push(target, !st?.upstream))} />
         <Button size="sm" variant="ghost" iconOnly icon="download" aria-label="Fetch" title="Fetch" loading={busy === 'fetch'} disabled={!!busy || !st?.hasRemote} onClick={() => void job('fetch', () => gitApi.fetch(target))} />
       </header>
-      <RepoPicker pid={ws.pid} className="wb-repo-picker" disabled={!!busy} />
-      <LargeInCommits key={target.repo ?? ''} target={target} unpushed={st?.ahead ?? 0} rescan={largeRescan} disabled={!!busy} onStatus={() => void ws.refreshGit()} />
+      <RepoPicker pid={part.ref} className="wb-repo-picker" disabled={!!busy} />
+      <LargeInCommits key={target.repo ?? ''} target={target} unpushed={st?.ahead ?? 0} rescan={largeRescan} disabled={!!busy} onStatus={() => void part.refreshGit()} />
       <div className="wb-commit">
         <textarea
           className="control prose"
@@ -196,7 +249,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
           </Button>
         </div>
       )}
-      <div className="wb-tree nowheel">
+      <div className={grouped ? 'wb-scm-list' : 'wb-tree nowheel'}>
         {conflicts.length > 0 && (
           <>
             <div className="wb-section-title">
@@ -206,7 +259,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
             {conflicts.map((f) => {
               const { dir, name } = splitPath(f.path);
               return (
-                <div key={f.path} className="wb-row wb-change git-deleted" title={`${f.path} · Accept Current, Incoming or Both above each conflict, then mark it resolved.`} onClick={() => ws.open(`${base}/${f.path}`, { pin: true, source: true })}>
+                <div key={f.path} className="wb-row wb-change git-deleted" title={`${f.path} · Accept Current, Incoming or Both above each conflict, then mark it resolved.`} onClick={() => ws.open(keyOf(f.path), { pin: true, source: true })}>
                   <FileIcon name={name} />
                   <span className="wb-row-name truncate">{name}</span>
                   {dir && <span className="wb-result-dir truncate">{dir}</span>}
@@ -242,9 +295,9 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
             </div>
             {staged.map((f) => {
               const { dir, name } = splitPath(f.path);
-              const abs = `${base}/${f.path}`;
+              const key = keyOf(f.path);
               return (
-                <div key={f.path} className={`wb-row wb-change git-${STATUS_TONE[f.status] ?? 'modified'}`} title={`${f.path} · staged`} onClick={() => (f.status === 'deleted' ? undefined : ws.openDiff(abs, 'staged'))}>
+                <div key={f.path} className={`wb-row wb-change git-${STATUS_TONE[f.status] ?? 'modified'}`} title={`${f.path} · staged`} onClick={() => (f.status === 'deleted' ? undefined : ws.openDiff(key, 'staged'))}>
                   <FileIcon name={name} />
                   <span className="wb-row-name truncate">{name}</span>
                   {dir && <span className="wb-result-dir truncate">{dir}</span>}
@@ -279,10 +332,10 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
         {st && !changes.length && <div className="wb-row-msg">No changes in the working tree.</div>}
         {changes.map((f) => {
           const { dir, name } = splitPath(f.path);
-          const abs = `${base}/${f.path}`;
+          const key = keyOf(f.path);
           const tone = STATUS_TONE[f.status] ?? 'modified';
           return (
-            <div key={f.path} className={`wb-row wb-change git-${tone}`} title={`${f.path} · ${STATUS_LABEL[f.status] ?? f.status}`} onClick={() => (f.status === 'deleted' ? undefined : ws.openDiff(abs, 'index'))}>
+            <div key={f.path} className={`wb-row wb-change git-${tone}`} title={`${f.path} · ${STATUS_LABEL[f.status] ?? f.status}`} onClick={() => (f.status === 'deleted' ? undefined : ws.openDiff(key, 'index'))}>
               {!hasStaged && (
                 <input
                   type="checkbox"
@@ -310,7 +363,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
                   title="Open file"
                   onClick={(e) => {
                     e.stopPropagation();
-                    ws.open(abs, { pin: true, source: true });
+                    ws.open(key, { pin: true, source: true });
                   }}
                 >
                   <Icon name="file" />
@@ -350,9 +403,9 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
         {/* each asks git for its list: only once the status says this is a repository */}
         {st?.isRepo && (
           <>
-            <PullSection ws={ws} />
-            <StashSection ws={ws} />
-            <HistorySection ws={ws} />
+            <PullSection ws={ws} part={part} />
+            <StashSection ws={host} />
+            <HistorySection ws={host} />
           </>
         )}
       </div>
@@ -366,7 +419,7 @@ export function ScmPanel({ ws }: { ws: Workspace }) {
             await act('discard', async () => {
               const r = await gitApi.discard(target, [discard.path]);
               toast.success(`A copy of the edits is in ${r.trashedTo}.`);
-              void ws.reload(`${base}/${discard.path}`);
+              void ws.reload(keyOf(discard.path));
             });
           }}
         >

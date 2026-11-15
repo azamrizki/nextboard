@@ -75,6 +75,13 @@ type LaunchContext struct {
 	Blocked []string
 	// Sandbox limits what the CLI's commands may do; nil = what the CLI does by itself.
 	Sandbox *Sandbox
+	// AddDirs are folders outside WorkDir the CLI may change as if they were in it: at a project
+	// root (docs/API-agents.md §21.2) the real folders behind its symlinks to the parts on This
+	// PC, since the CLIs check permissions, and their sandboxes act, on the resolved path.
+	AddDirs []string
+	// TrustDir: WorkDir is a folder the hub made, which the CLI may trust without asking (Codex:
+	// a trusted project for this launch). "" = none.
+	TrustDir string
 }
 
 // Sandbox is a project's limit on an agent's commands (docs/API-agents.md §27): they write only
@@ -155,6 +162,11 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		if c.AttachDir != "" {
 			p.args = append(p.args, "--add-dir", c.AttachDir)
 		}
+		if !c.Remote {
+			for _, d := range c.AddDirs {
+				p.args = append(p.args, "--add-dir", d)
+			}
+		}
 		mcpTool := func(names []string) string {
 			out := make([]string, len(names))
 			for i, n := range names {
@@ -195,6 +207,15 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			p.args = append(p.args, "-c", "$"+name)
 			p.env = append(p.env, name+"="+kv)
 		}
+		if !c.Remote {
+			for _, d := range c.AddDirs {
+				p.args = append(p.args, "--add-dir", d)
+			}
+			if c.TrustDir != "" {
+				trusted, _ := json.Marshal(c.TrustDir)
+				p.args = append(p.args, "-c", "projects={"+string(trusted)+`={trust_level="trusted"}}`)
+			}
+		}
 		if sb := c.Sandbox; sb != nil && !c.Remote {
 			roots, _ := json.Marshal(append([]string{}, sb.Write...)) // a JSON array of strings is a TOML one
 			p.args = append(p.args, "--sandbox", "workspace-write",
@@ -216,6 +237,15 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		}
 		for _, tool := range slices.Concat(MemoryReadTools, CredentialTools) {
 			perm["nextboard_"+tool] = "allow"
+		}
+		if len(c.AddDirs) > 0 && !c.Remote {
+			// the folders behind the root's links: as if inside the project, whichever path is used
+			ext := map[string]any{}
+			for _, d := range c.AddDirs {
+				ext[d] = "allow"
+				ext[strings.TrimSuffix(d, "/")+"/*"] = "allow"
+			}
+			perm["external_directory"] = ext
 		}
 		if c.Remote {
 			for _, tool := range []string{"bash", "edit", "read", "glob", "grep", "list", "webfetch", "websearch", "task", "todowrite", "lsp", "external_directory"} {

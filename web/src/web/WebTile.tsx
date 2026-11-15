@@ -19,6 +19,8 @@ import { previewApi } from '../studio/api';
 import { studioStore, usePreview, useStudio } from '../studio/store';
 import type { PortProbe, Preview } from '../studio/types';
 import { errorMessage } from '../api';
+import { projectParts } from '../lib/parts';
+import type { ProjectPart } from '../lib/types';
 import { FillButton, type FillResult, type FillSink, type FillValues } from '../vault/FillDialog';
 import { BrowserTile, requestBrowserOpen } from './BrowserTile';
 import {
@@ -76,7 +78,9 @@ function DevServerTile({ id, data, selected }: NodeProps<FlowNode>) {
   const { ctl, project } = useBoardEnv();
   const node = data.node;
   const d = readWeb(node);
-  const machineId = d.machineId || project.machineId;
+  // its machine, else its part's (v0.9.0-beta.2), else the project's (compat: the first part's)
+  const part = d.partId ? projectParts(project).find((p) => p.id === d.partId) : undefined;
+  const machineId = d.machineId || part?.machineId || project.machineId;
   const target = useMemo(() => (d.tailnet ? siteTarget(d.url) : localTarget(d.url)), [d.url, d.tailnet]);
   const preview = usePreview(d.previewId || undefined);
   const previewsLoaded = useStudio((s) => s.previewsLoaded);
@@ -484,7 +488,13 @@ function DevServerTile({ id, data, selected }: NodeProps<FlowNode>) {
       )}
       <div className={`web-body ${selected ? 'is-live' : ''}`} ref={bodyRef}>
         {!d.url ? (
-          <PortDial machineId={machineId} onPick={(u) => go(u)} />
+          <PortDial
+            machineId={machineId}
+            onPick={(u) => go(u)}
+            parts={projectParts(project).length > 1 ? projectParts(project) : undefined}
+            partId={part?.id ?? projectParts(project).find((p) => (p.machineId || 'local') === machineId)?.id ?? ''}
+            onPart={(p) => patch({ partId: p.id, machineId: p.machineId || 'local' })}
+          />
         ) : failed ? (
           <div className="web-msg" role="alert">
             <Icon name="alertCircle" />
@@ -591,8 +601,23 @@ function DevServerTile({ id, data, selected }: NodeProps<FlowNode>) {
 
 export const WebTile = memo(WebTileImpl);
 
-/** Empty tile: dial of common dev ports on the project's machine + an address bar. */
-function PortDial({ machineId, onPick }: { machineId: string; onPick: (url: string) => void }) {
+/**
+ * Empty tile: dial of common dev ports on the project's machine + an address bar. In a project of
+ * several parts it asks which part's dev server (its machine is probed).
+ */
+function PortDial({
+  machineId,
+  onPick,
+  parts,
+  partId,
+  onPart,
+}: {
+  machineId: string;
+  onPick: (url: string) => void;
+  parts?: ProjectPart[];
+  partId?: string;
+  onPart?: (p: ProjectPart) => void;
+}) {
   const [probe, setProbe] = useState<PortProbe[] | null>(null);
   const [addr, setAddr] = useState('');
   const box = useRef<HTMLDivElement>(null);
@@ -625,6 +650,27 @@ function PortDial({ machineId, onPick }: { machineId: string; onPick: (url: stri
   return (
     <div className="web-dial nodrag nowheel" ref={box}>
       <p className="web-dial-title">Open a dev server</p>
+      {parts && onPart && (
+        <label className="web-dial-part">
+          <span className="fs-xs text-3">In</span>
+          <select
+            className="control control-sm"
+            aria-label="Part whose dev server to open"
+            value={partId ?? ''}
+            onChange={(e) => {
+              const p = parts.find((x) => x.id === e.target.value);
+              if (p) onPart(p);
+            }}
+          >
+            {!partId && <option value="">Pick a part</option>}
+            {parts.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="web-ports" role="list">
         {DIAL_PORTS.map((p) => {
           const st = open.get(p);

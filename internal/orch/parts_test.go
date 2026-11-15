@@ -28,7 +28,8 @@ func TestLeadKnowsParts(t *testing.T) {
 
 	say(t, s, wid, "fix the checkout across the backend and the frontend please")
 	pr := h.lastRun(t, "planner").Prompt
-	for _, want := range []string{`"parts":[{"machine":"This PC","name":"Main","path":"/work/shop"}`, `"name":"Frontend"`, `"handle":"Ayu"`, `"part":"Frontend"`, `A spawn step for one part sets "part"`} {
+	first := `"parts":[{"machine":"This PC","name":"` + p.Parts[0].Name + `","path":"/work/shop"}`
+	for _, want := range []string{first, `"name":"Frontend"`, `"handle":"Ayu"`, `"part":"Frontend"`, `A spawn step for one part sets "part"`} {
 		if !strings.Contains(pr, want) {
 			t.Fatalf("no %s in the planner prompt", want)
 		}

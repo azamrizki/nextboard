@@ -3148,3 +3148,54 @@
   width: auto;
   max-width: 10rem;
 }
+
+/* ---- a Root card: panels by part (v0.9.0-beta.2, docs/API-studio.md §7) ---- */
+.wb-part-head {
+  margin-top: var(--s-1);
+  color: var(--text-1);
+}
+.wb-part-head .wb-icon {
+  flex: 0 0 auto;
+}
+.wb-part-head .is-error {
+  min-width: 0;
+  color: var(--c-danger-300);
+  font-weight: normal;
+}
+.wb-part-machine {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.wb-scm-part + .wb-scm-part {
+  border-top: var(--hairline) solid var(--wb-line);
+}
+.wb-scm-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-bottom: var(--s-2);
+}
+.wb-scm-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--nudge);
+  padding: 0 var(--s-1);
+}
+.wb-lsp-part + .wb-lsp-part {
+  margin-top: var(--s-2);
+}
+.wb-lsp-part-name {
+  margin: 0 0 var(--nudge);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+}
+.wb-laravel-parts {
+  padding: 0 var(--s-2) var(--s-2);
+}
+.wb-ports-machine + .wb-ports-machine {
+  border-top: var(--hairline) solid var(--wb-line);
+}

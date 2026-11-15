@@ -15,6 +15,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/board"
 	"github.com/azamrizki/nextboard/internal/delivery"
 	"github.com/azamrizki/nextboard/internal/jobs"
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
 )
 
@@ -50,8 +51,10 @@ func (s *Service) runStep(c *execCtx, st Step) error {
 	case "task.add", "task.update", "task.delete":
 		return s.applyTaskEdit(c, st)
 	case "spawn", "group.add":
+		// a step that names no placement: the group's, for group.add, else the command's, else the root
 		req := SpawnRequest{WorkspaceID: firstNonEmpty(st.WorkspaceID, c.workspaceID), Count: st.Count, Agent: st.Agent, Role: st.Role,
-			OrchestratorID: st.OrchestratorID, MachineID: st.MachineID, ByLead: true, Account: st.Account, Part: st.Part}
+			OrchestratorID: st.OrchestratorID, MachineID: st.MachineID, ByLead: true, Account: st.Account, Part: st.Part, Root: st.Root,
+			Fallback: c.spawnFallback()}
 		if st.NewGroup != nil {
 			req.Group = &SpawnGroup{Name: st.NewGroup.Name, Role: st.NewGroup.Role}
 		}
@@ -132,7 +135,7 @@ func (s *Service) runStep(c *execCtx, st Step) error {
 			s.note(c, msg)
 		}
 	case "handoff":
-		h, err := s.StartHandoff(st.Source, HandoffRequest{Agent: st.Agent, MachineID: st.MachineID, ThreadID: c.threadID})
+		h, err := s.StartHandoff(st.Source, HandoffRequest{Agent: st.Agent, MachineID: st.MachineID, Root: st.Root, Part: st.Part, ThreadID: c.threadID})
 		if err != nil {
 			return err
 		}
@@ -225,7 +228,7 @@ func (s *Service) runStep(c *execCtx, st Step) error {
 		s.note(c, "Scanning the project for memory (job "+j.ID+"). Review the suggestions in the Memory panel.")
 		c.ui = append(c.ui, UIAction{Action: "openPanel", Panel: "memory"})
 	case "layout.deploy":
-		res, err := s.Deploy(c.workspaceID, DeployRequest{LayoutID: st.LayoutID})
+		res, err := s.Deploy(c.workspaceID, DeployRequest{LayoutID: st.LayoutID, Fallback: c.spawnFallback()})
 		if err != nil {
 			return err
 		}
@@ -642,10 +645,21 @@ func (s *Service) addNode(c *execCtx, st Step) error {
 		w, h = 1024, 700
 		s.webTileData(c, data)
 	}
-	// the one editor card of a board is brought into view, not doubled
+	// An editor card is placed like a console (the root, or one part): the board's card of that
+	// placement is brought into view, not doubled; a new one carries its part's id in data.part.
+	editorAt := ""
 	if st.Kind == KindEditor {
+		proj, _ := s.hub.Project(c.projectID)
+		pl := project.Place{Root: st.Root, Part: st.Part}
+		if named, _ := st.Data["part"].(string); pl.IsZero() && named != "" {
+			pl.Part = named
+		}
+		var err error
+		if editorAt, err = editorKey(proj, pl); err != nil {
+			return err
+		}
 		for _, n := range b.Nodes {
-			if n.Kind == KindEditor {
+			if n.Kind == KindEditor && editorPlace(proj, n) == editorAt {
 				c.ui = append(c.ui, UIAction{Action: "focus", Target: n.ID})
 				return nil
 			}
@@ -657,6 +671,12 @@ func (s *Service) addNode(c *execCtx, st Step) error {
 	// what the plan says wins over each kind's defaults above
 	for k, v := range st.Data {
 		data[k] = v
+	}
+	if st.Kind == KindEditor {
+		delete(data, "part") // a name, or an id: the card keeps the id, or none at the root
+		if editorAt != "" {
+			data["part"] = editorAt
+		}
 	}
 	x, y := rightOf(b.Nodes)
 	if c.cardID != "" {

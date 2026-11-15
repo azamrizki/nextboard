@@ -33,7 +33,7 @@ function AppTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
     setOpening(true);
     setFailed('');
     try {
-      const s = await openApp(appLaunchBody(appId, project, true, node.w, node.h));
+      const s = await openApp(appLaunchBody(appId, project, true, node.w, node.h, str(node.data.partId) || undefined));
       ctl.apply([{ op: 'patch', id, set: { data: { sessionId: s.id } } }], { history: false });
     } catch (err) {
       setFailed(errorMessage(err));

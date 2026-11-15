@@ -51,16 +51,17 @@ func TestReviewOnAServer(t *testing.T) {
 	}
 
 	const sess = "s_agent"
-	h.srv.review.SessionChanged(pid, sess, "@agent", "claude", true, false)
+	rkey := h.srv.reviewKeyOf(pid, "") // its one part: <project>~<part>
+	h.srv.review.SessionChanged(rkey, sess, "@agent", "claude", true, false)
 	waitTrue(t, "the first copy", 30*time.Second, func() bool {
-		m, _ := filepath.Glob(filepath.Join(h.srv.st.Path("review"), pid, "mirror", "*", "app", "User.php"))
+		m, _ := filepath.Glob(filepath.Join(h.srv.st.Path("review"), rkey, "mirror", "*", "app", "User.php"))
 		return len(m) == 1
 	})
 	// give the turn-start snapshot time to record the agent
 	time.Sleep(500 * time.Millisecond)
 
 	// the agent's file tool, through the same call the MCP server makes
-	h.srv.noteRemoteChange(remoteTarget{machineID: mid, cwd: dir, projectID: pid, sessionID: sess}, "write_file", json.RawMessage(`{"path":"app/User.php"}`))
+	h.srv.noteRemoteChange(remoteTarget{machineID: mid, cwd: dir, projectID: pid, sessionID: sess, reviewKey: rkey}, "write_file", json.RawMessage(`{"path":"app/User.php"}`))
 	write("app/User.php", "<?php // after\n")
 	write("-odd name.php", "<?php // changed\n")
 
@@ -93,7 +94,7 @@ func TestReviewOnAServer(t *testing.T) {
 	if got := read("-odd name.php"); got != "<?php // odd\n" {
 		t.Fatalf("server holds %q", got)
 	}
-	h.srv.review.SessionChanged(pid, sess, "", "", false, false)
+	h.srv.review.SessionChanged(rkey, sess, "", "", false, false)
 
 	// Local History over the same copy.
 	write("app/User.php", "<?php // third\n")

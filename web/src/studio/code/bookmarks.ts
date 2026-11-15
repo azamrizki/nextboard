@@ -1,7 +1,9 @@
-// Bookmarks: lines to come back to, per project. A bookmark follows its line while the file is edited.
+// Bookmarks: lines to come back to, per editor card (its place: the project, a part, or the root).
+// A bookmark follows its line while the file is edited. Paths are file keys.
 
 import { prefs } from '../../lib/format';
 import { monaco } from './monaco';
+import { asFileKey, keyOfUri } from './paths';
 import { nameOf, type Workspace } from './workspace';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
@@ -11,9 +13,10 @@ export interface Bookmark {
   line: number;
 }
 
-export const bookmarksKey = (pid: string) => `wb.bookmarks.${pid}`;
+/** Where a card's bookmarks are kept: wb.bookmarks.<viewKey> (a single-part project: its id, as before). */
+export const bookmarksKey = (viewKey: string) => `wb.bookmarks.${viewKey}`;
 
-const save = (ws: Workspace) => prefs.set(bookmarksKey(ws.pid), JSON.stringify(ws.bookmarks));
+const save = (ws: Workspace) => prefs.set(bookmarksKey(ws.viewKey), JSON.stringify(ws.bookmarks));
 
 export function toggleBookmark(ws: Workspace, path: string, line: number) {
   const at = ws.bookmarks.findIndex((b) => b.path === path && b.line === line);
@@ -33,12 +36,18 @@ export function jumpBookmark(ws: Workspace, path: string | undefined, line: numb
   ws.open(next.path, { pin: true, source: true, line: next.line });
 }
 
+/** A bookmark's file as the card shows it ("admin/src/x.ts" in a Root card). */
+const shown = (ws: Workspace, path: string) => {
+  const k = asFileKey(path);
+  return k ? ws.relLabel(k) : path;
+};
+
 export function listBookmarks(ws: Workspace) {
   ws.actions.pick?.(
     'Bookmarks',
     inOrder(ws.bookmarks).map((b) => ({
       label: `${nameOf(b.path)}:${b.line}`,
-      detail: ws.rel(b.path),
+      detail: shown(ws, b.path),
       run: () => ws.open(b.path, { pin: true, source: true, line: b.line }),
     })),
   );
@@ -47,8 +56,12 @@ export function listBookmarks(ws: Workspace) {
 export function watchBookmarks(ed: Editor, ws: Workspace): monaco.IDisposable {
   const coll = ed.createDecorationsCollection();
   let shown = '';
+  const keyOf = () => {
+    const m = ed.getModel();
+    return m ? keyOfUri(m.uri) : null;
+  };
   const paint = () => {
-    const path = ed.getModel()?.uri.path;
+    const path = keyOf();
     const lines = path ? ws.bookmarks.filter((b) => b.path === path).map((b) => b.line) : [];
     const print = `${path}:${lines.join()}`;
     if (print === shown) return;
@@ -59,7 +72,7 @@ export function watchBookmarks(ed: Editor, ws: Workspace): monaco.IDisposable {
     ed.onDidChangeModel(paint),
     // the marks moved with the text: the bookmarks go along
     ed.onDidChangeModelContent(() => {
-      const path = ed.getModel()?.uri.path;
+      const path = keyOf();
       if (!path) return;
       const lines = coll.getRanges().map((r) => r.startLineNumber);
       const mine = ws.bookmarks.filter((b) => b.path === path);

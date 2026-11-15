@@ -20,9 +20,12 @@ import { SelectField } from '../../components/form';
 import { Icon } from '../../components/Icon';
 import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
-import { projectParts } from '../../lib/parts';
+import { normalPlacement } from '../../lib/parts';
+import { defaultPlacement, focusedPlacement, isMultiPart, lastPlacement, machineOfPlace, orchPlace, partOfPlace, placeFromValue, placementOfNode, placeValue, rememberPlacement } from '../../lib/placement';
+import { FOCUS_PARAM } from '../../board/focus';
+import { PlacePicker } from '../../board/PlacePicker';
 import type { Agent, ModelChoice, Project } from '../../lib/types';
-import { useMachines } from '../../store';
+import { store, useMachines } from '../../store';
 import { orchError } from '../actions';
 import { orchApi } from '../api';
 import { is404 } from '../store';
@@ -45,15 +48,22 @@ export interface ComposeFormProps {
 export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned }: ComposeFormProps) {
   const settings = useEffectiveSettings();
   const machines = useMachines();
-  // a project in several parts: the part decides the machine and folder (ROADMAP #49)
-  const parts = projectParts(project);
-  const [partId, setPartId] = useState(parts[0].id);
-  const part = parts.length > 1 ? (parts.find((p) => p.id === partId) ?? parts[0]) : undefined;
-  const [chosenMachine, setMachineId] = useState(project.machineId || 'local');
-  const machineId = part ? part.machineId : chosenMachine;
-  const ma = useMachineAgents(machineId);
   const existing = opts.groupId ? ctl.node(opts.groupId) : undefined;
   const card = opts.orchestratorId ? ctl.node(opts.orchestratorId) : undefined;
+  // a project in several parts: "Place in" Root (all parts) or a part decides the machine and
+  // folder (v0.9.0-beta.2); by default the group's own, else the focused tile's, else the last used
+  const multi = isMultiPart(project);
+  const [placeVal, setPlaceVal] = useState(() => {
+    if (!multi) return '';
+    const sessions = store.getState().sessions;
+    const own = existing ? placementOfNode(existing, project, sessions, ctl.nodes) : null;
+    const focusId = new URLSearchParams(window.location.search).get(FOCUS_PARAM);
+    return placeValue(defaultPlacement(project, own ?? focusedPlacement(project, ctl.nodes, ctl.selection, focusId, sessions), lastPlacement(project)));
+  });
+  const place = multi ? normalPlacement(project, placeFromValue(placeVal)) : null;
+  const [chosenMachine, setMachineId] = useState(project.machineId || 'local');
+  const machineId = place ? machineOfPlace(project, place) : chosenMachine;
+  const ma = useMachineAgents(machineId);
   const [grouped, setGrouped] = useState(opts.group);
   const [name, setName] = useState(() => nextGroupName(ctl.nodes));
   const [role, setRole] = useState<Role>(existing ? readGroup(existing).role : 'general');
@@ -104,16 +114,18 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
       const r = await orchApi.spawn(ctl.workspaceId, {
         slots: Array.from({ length: count }, (_, i) => ({
           agent: slotAgent(i),
-          machineId: !part && machineId !== project.machineId ? machineId : undefined,
-          part: part?.id,
+          machineId: !place && machineId !== project.machineId ? machineId : undefined,
           model: modelOf(slotAgent(i)).model ?? '',
           effort: modelOf(slotAgent(i)).effort ?? '',
         })),
+        // every slot: at the root (root: true) or in the part (part: id)
+        ...(place ? orchPlace(place) : {}),
         ...(existing ? { group: { id: existing.id } } : grouped ? { group: { name: name.trim(), role, color: shownColor } } : {}),
         ...(card ? { orchestratorId: card.id } : {}),
         ...(at ? { at } : {}),
       });
       const n = r.sessions?.length ?? 0;
+      if (place) rememberPlacement(project, place);
       toast.success(`Started ${n === 1 ? '1 console' : `${n} consoles`}${grouped && !existing ? ` in ${name.trim()}` : existing ? ` in ${readGroup(existing).name}` : ''}.`);
       onSpawned((r.sessions ?? []).map((s) => s.id));
       onClose();
@@ -234,17 +246,9 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
           ))}
         </div>
       )}
-      {part && (
-        <SelectField label="Part" value={part.id} onChange={(e) => setPartId(e.target.value)} hint={part.readOnly ? 'Read only: agents there only read and investigate.' : undefined}>
-          {parts.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} · {machines.find((m) => m.id === p.machineId)?.name ?? p.machineId}
-              {p.readOnly ? ' (read only)' : ''}
-            </option>
-          ))}
-        </SelectField>
-      )}
-      {!part && machines.length > 1 && (
+      {place && <PlacePicker project={project} value={placeValue(place)} onChange={setPlaceVal} />}
+      {place && partOfPlace(project, place)?.readOnly && <p className="fs-xs text-3">Read only: agents there only read and investigate.</p>}
+      {!place && machines.length > 1 && (
         <SelectField label="Machine" value={machineId} onChange={(e) => setMachineId(e.target.value)}>
           {machines.map((m) => (
             <option key={m.id} value={m.id} disabled={!machineReady(m)}>

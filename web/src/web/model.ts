@@ -36,6 +36,8 @@ export interface WebData {
   url: string;
   previewId: string;
   machineId: string;
+  /** The part of the project whose dev server it shows (v0.9.0-beta.2): its machine when machineId is empty. */
+  partId: string;
   port: number;
   device: DeviceId;
   zoom: number;
@@ -71,6 +73,7 @@ export function readWeb(n: BoardNode): WebData {
     url: str(d.url),
     previewId: str(d.previewId),
     machineId: str(d.machineId),
+    partId: str(d.partId),
     port: typeof d.port === 'number' ? d.port : 0,
     device,
     zoom,
@@ -170,9 +173,13 @@ export function toDevUrl(href: string, listenPort: number, scheme: string, port:
 
 export const DEFAULT_WEB_SIZE = { w: 960, h: 640 };
 
-/** A web tile (empty = the port dial). */
-export function webNode(ctl: BoardController, rect: { x: number; y: number; w: number; h: number }, url = ''): BoardNode {
-  return ctl.make('web', rect, { url, device: 'fit', zoom: 100, auto: false });
+/**
+ * A web tile (empty = the port dial). `on`: the machine whose localhost it shows and the part it
+ * belongs to (a project of several parts, the editor's Ports panel); without, the project's
+ * machine, as before.
+ */
+export function webNode(ctl: BoardController, rect: { x: number; y: number; w: number; h: number }, url = '', on?: { machineId?: string; partId?: string }): BoardNode {
+  return ctl.make('web', rect, { url, device: 'fit', zoom: 100, auto: false, ...(on?.machineId ? { machineId: on.machineId } : {}), ...(on?.partId ? { partId: on.partId } : {}) });
 }
 
 /** Add (or find) the console-log card of a web tile, wired with a "log" edge. */

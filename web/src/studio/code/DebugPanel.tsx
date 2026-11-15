@@ -8,7 +8,9 @@ import { Checkbox } from '../../components/form';
 import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { monaco } from './monaco';
-import type { Breakpoint, DapVariable, Debugger, LaunchConfig } from './debug';
+import { Debugger, type Breakpoint, type DapVariable, type LaunchConfig } from './debug';
+import { viewOfModel } from './nativeExt';
+import { keyOfUri, splitKey, type FileKey } from './paths';
 import { useWs } from './useWs';
 import { nameOf, type Workspace } from './workspace';
 
@@ -143,14 +145,15 @@ export function DebugView({ ws, onInstall }: { ws: Workspace; onInstall: (comman
   }, [dbg]);
 
   // launch.json may have just been edited, and the automatic entries follow the file
-  const launchMtime = ws.docs.get(ws.abs('.vscode/launch.json'))?.mtime;
+  const part = dbg.part;
+  const launchMtime = ws.docs.at(part.keyOf('.vscode/launch.json'))?.mtime;
   useEffect(() => {
     let stop = false;
     void dbg.configurations().then((c) => !stop && setConfigs(c));
     return () => {
       stop = true;
     };
-  }, [dbg, activePath, launchMtime]);
+  }, [dbg, activePath, launchMtime, part]);
 
   const selected = configs.find((c) => c.name === dbg.configName) ?? configs[0];
 
@@ -160,6 +163,18 @@ export function DebugView({ ws, onInstall }: { ws: Workspace; onInstall: (comman
         <h2>Run and debug</h2>
         <Button size="sm" variant="ghost" iconOnly icon="sliders" aria-label="Open launch.json" title="Open launch.json" onClick={() => void dbg.openLaunchJson()} />
       </header>
+      {ws.paths.multi && (
+        <div className="wb-dbg-start">
+          <select className="control control-sm grow" aria-label="Run in part" title="The part the debugger runs in: its launch.json, folder and machine" value={dbg.partId} disabled={dbg.active} onChange={(e) => dbg.choosePart(e.target.value)}>
+            <option value="">Run in: the active file’s part ({ws.activePart.name})</option>
+            {ws.parts.map((p) => (
+              <option key={p.partId} value={p.partId}>
+                Run in: {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="wb-dbg-start">
         <select
           className="control control-sm grow"
@@ -244,7 +259,7 @@ export function DebugView({ ws, onInstall }: { ws: Workspace; onInstall: (comman
             </select>
           )}
           {dbg.frames.map((f) => (
-            <button key={f.id} type="button" className={`wb-frame ${dbg.frameId === f.id ? 'is-active' : ''}`} disabled={!f.path} title={f.path ?? f.label} onClick={() => void dbg.selectFrame(f)}>
+            <button key={f.id} type="button" className={`wb-frame ${dbg.frameId === f.id ? 'is-active' : ''}`} disabled={!f.path} title={f.path ? ws.label(f.path as FileKey) : f.label} onClick={() => void dbg.selectFrame(f)}>
               <span className="wb-frame-name truncate">{f.name}</span>
               <span className="wb-result-dir tabular truncate">
                 {f.path ? nameOf(f.path) : (f.label ?? '')}
@@ -266,7 +281,7 @@ export function DebugView({ ws, onInstall }: { ws: Workspace; onInstall: (comman
           {dbg.breakpoints.map((b) => (
             <div key={b.id} className="wb-bp-row">
               <input type="checkbox" aria-label={`Enable the breakpoint at ${nameOf(b.path)}:${b.line}`} checked={b.enabled} onChange={(e) => dbg.updateBreakpoint(b, { enabled: e.target.checked })} />
-              <button type="button" className="wb-bp-loc truncate" title={b.message ?? b.path} onClick={() => ws.open(b.path, { line: b.line, source: true })}>
+              <button type="button" className="wb-bp-loc truncate" title={b.message ?? ws.label(b.path as FileKey)} onClick={() => ws.open(b.path, { line: b.line, source: true })}>
                 <span className={`wb-bp-dot ${b.logMessage ? 'is-log' : ''} ${b.condition || b.hitCondition ? 'is-cond' : ''} ${b.verified === false ? 'is-unverified' : ''}`} aria-hidden="true" />
                 {nameOf(b.path)}
                 <span className="wb-result-dir tabular"> {b.line}</span>
@@ -458,16 +473,28 @@ export function useDebugEditor(edRef: RefObject<Editor | null>, ws: Workspace, p
 }
 
 let hoverDone = false;
-let hoverDebugger: Debugger | null = null;
 
-/** Values under the mouse while paused, in any language. */
-export function registerDebugHover(dbg: Debugger) {
-  hoverDebugger = dbg;
+/**
+ * The debugger a hovered model asks: one stopped on the model's machine; of several, the one of
+ * the card that shows the model. Not "the card opened last".
+ */
+function hoverDebuggerOf(model: monaco.editor.ITextModel): Debugger | null {
+  const key = keyOfUri(model.uri);
+  if (!key) return null;
+  const machine = splitKey(key).machineId;
+  const stopped = [...Debugger.live].filter((d) => d.state === 'stopped' && d.part.machineId === machine);
+  if (stopped.length < 2) return stopped[0] ?? null;
+  const owner = viewOfModel(model);
+  return stopped.find((d) => d.view === owner) ?? stopped[0];
+}
+
+/** Values under the mouse while paused, in any language (once; the debugger is found per model). */
+export function registerDebugHover(_dbg?: Debugger) {
   if (hoverDone) return;
   hoverDone = true;
   monaco.languages.registerHoverProvider('*', {
     async provideHover(model, position) {
-      const d = hoverDebugger;
+      const d = hoverDebuggerOf(model);
       if (!d || d.state !== 'stopped') return null;
       const word = model.getWordAtPosition(position);
       if (!word) return null;

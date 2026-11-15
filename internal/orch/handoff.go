@@ -15,6 +15,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/delivery"
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
 )
 
@@ -42,7 +43,11 @@ var (
 
 // HandoffRequest is the body of POST /api/sessions/{id}/handoff.
 type HandoffRequest struct {
-	Agent       string `json:"agent"`
+	Agent string `json:"agent"`
+	// Root and Part place the next console (v0.9.0-beta.2): the project root, or a part by id or
+	// name. Neither, and no machineId: where the source works. InPlace ignores them.
+	Root        bool   `json:"root,omitempty"`
+	Part        string `json:"part,omitempty"`
 	MachineID   string `json:"machineId,omitempty"`
 	ProfileID   string `json:"profileId,omitempty"`
 	ProviderID  string `json:"providerId,omitempty"`
@@ -267,12 +272,24 @@ func (s *Service) StartHandoff(sourceID string, req HandoffRequest) (*Handoff, e
 		if !s.hub.AgentOnMachine(in.MachineID, a.ID) {
 			return nil, ErrHandoffAgent
 		}
-		req.MachineID, req.WorkspaceID = "", ""
+		req.MachineID, req.WorkspaceID, req.Root, req.Part = "", "", false, ""
 	}
-	// The next agent works where this one works.
+	// The next agent works where this one works: at the root, or in its part. A console from
+	// before parts that works on a server goes on in its folder there.
 	remoteCwd := ""
-	if in.RemoteMachineID != "" && req.MachineID == "" {
-		req.MachineID, remoteCwd = in.RemoteMachineID, in.RemoteCwd
+	if !req.InPlace {
+		proj, _ := s.hub.Project(in.ProjectID)
+		pl := project.Place{Root: req.Root, Part: req.Part}
+		if pl.IsZero() && req.MachineID == "" {
+			pl = placeOfSession(proj, in)
+			req.Root, req.Part = pl.Root, pl.Part
+		}
+		if _, _, err := placeIn(proj, pl); err != nil {
+			return nil, err
+		}
+		if pl.IsZero() && in.RemoteMachineID != "" && req.MachineID == "" {
+			req.MachineID, remoteCwd = in.RemoteMachineID, in.RemoteCwd
+		}
 	}
 	wid := in.WorkspaceID
 	if req.WorkspaceID != "" {
@@ -399,14 +416,18 @@ func (s *Service) collect(id string) {
 		r := []rune(text)
 		text = string(r[len(r)-handoffCollect:])
 	}
+	// The summary runs where the source works, when a logged-in CLI is there, else on This PC.
+	home, homeCwd := s.workPlace(in)
 	machineID, runAgent := machine.LocalID, "claude"
-	if p, ok := s.hub.Project(h.projectID); ok {
-		switch {
-		case s.hub.AgentOnMachine(p.MachineID, "claude"):
-			machineID, runAgent = p.MachineID, "claude"
-		case s.hub.AgentOnMachine(p.MachineID, "codex"):
-			machineID, runAgent = p.MachineID, "codex"
-		}
+	switch {
+	case s.hub.AgentOnMachine(home, "claude"):
+		machineID, runAgent = home, "claude"
+	case s.hub.AgentOnMachine(home, "codex"):
+		machineID, runAgent = home, "codex"
+	}
+	cwd := ""
+	if machineID == home {
+		cwd = homeCwd
 	}
 	if machineID == machine.LocalID && !s.hub.AgentOnMachine(machine.LocalID, "claude") && s.hub.AgentOnMachine(machine.LocalID, "codex") {
 		runAgent = "codex"
@@ -423,7 +444,7 @@ func (s *Service) collect(id string) {
 		cmd = s.cliCommand("claude")
 	}
 	j, err := s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "handoff-summary", ProjectID: h.projectID, MachineID: machineID,
-		Agent: runAgent, Command: cmd, Prompt: prompt, Cwd: projectCwd(s, h.projectID, machineID),
+		Agent: runAgent, Command: cmd, Prompt: prompt, Cwd: cwd,
 		OnFinish: func(j jobs.Job) { s.summarised(id, j, text) }})
 	if err != nil {
 		s.summarised(id, jobs.Job{State: jobs.StateFailed, Error: err.Error()}, text)
@@ -436,11 +457,25 @@ func (s *Service) collect(id string) {
 	})
 }
 
-func projectCwd(s *Service, pid, machineID string) string {
-	if p, ok := s.hub.Project(pid); ok && p.MachineID == machineID {
-		return p.Path
+// workPlace is the machine and folder a console works in, for a hidden run about its work: its
+// part's, This PC and the root folder at the root, its server folder for a console from before
+// parts, else (in no part) the project's first part, as before parts.
+func (s *Service) workPlace(in session.Info) (string, string) {
+	p, _ := s.hub.Project(in.ProjectID)
+	if pt, ok := p.PartByID(in.PartID); ok {
+		return pt.MachineID, pt.Path
 	}
-	return ""
+	switch {
+	case in.Root:
+		return machine.LocalID, in.Cwd
+	case in.RemoteMachineID != "":
+		return in.RemoteMachineID, in.RemoteCwd
+	}
+	pt := p.DefaultPart() // compat: a console in no part
+	if pt.MachineID == "" {
+		return machine.LocalID, ""
+	}
+	return pt.MachineID, pt.Path
 }
 
 // summarised takes the brief (or the raw tail on failure) and spawns.
@@ -487,7 +522,8 @@ func (s *Service) spawnTarget(id string) {
 	if !ok {
 		return
 	}
-	req := SpawnRequest{WorkspaceID: h.workspaceID, Slots: []SpawnSlot{{Agent: h.Agent, Model: h.req.Model, Effort: h.req.Effort, MachineID: h.req.MachineID, ProfileID: h.req.ProfileID, ProviderID: h.req.ProviderID, Cwd: h.remoteCwd}}}
+	req := SpawnRequest{WorkspaceID: h.workspaceID, Slots: []SpawnSlot{{Agent: h.Agent, Root: h.req.Root, Part: h.req.Part, Model: h.req.Model, Effort: h.req.Effort,
+		MachineID: h.req.MachineID, ProfileID: h.req.ProfileID, ProviderID: h.req.ProviderID, Cwd: h.remoteCwd}}}
 	if b, err := s.hub.Board(h.workspaceID); err == nil {
 		for _, n := range b.Nodes {
 			if n.Kind == board.KindTerminal && n.SessionID() == h.SourceSessionID {

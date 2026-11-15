@@ -1,6 +1,7 @@
 // Files dropped from the browser have no path on any machine, so we ask: copy them into
 // the project folder (never overwrites: name-2.ext, …) or keep them on the board only
-// (images become board assets, text files a snapshot card). Dismissing drops nothing.
+// (images become board assets, text files a snapshot card). Dismissing drops nothing. A project of
+// several parts asks which part's folder (v0.9.0-beta.2): the focused tile's by default.
 
 import { useState } from 'react';
 import { api, errorMessage } from '../api';
@@ -11,7 +12,9 @@ import { Modal } from '../components/Modal';
 import { toast } from '../components/Toast';
 import { packUpload } from '../lib/pack';
 import type { BoardNode, Project } from '../lib/types';
+import { projectParts } from '../lib/parts';
 import type { BoardController } from './controller';
+import { PlacePicker } from './PlacePicker';
 import { ASSET_TYPES, imageNodeFromBlob, looksLikeText, MAX_UPLOAD, nodeForPath, snapshotNodeFromFile } from './files';
 import { joinPath } from './kinds';
 import { formatBytes } from './tiles/FileTile';
@@ -24,13 +27,21 @@ export function DropDialog({
   ctl,
   project,
   onClose,
+  partId,
 }: {
   files: File[];
   at: { x: number; y: number };
   ctl: BoardController;
   project: Project;
   onClose: () => void;
+  /** Several parts: the part to copy into unless another is picked (the focused tile's, else the last used). */
+  partId?: string;
 }) {
+  const parts = projectParts(project);
+  // a visible choice: the part asked for, else one on This PC, else the first shown
+  const [partPick, setPartPick] = useState(() => (parts.find((p) => p.id === partId) ?? parts.find((p) => (p.machineId || 'local') === 'local') ?? parts[0]).id);
+  const part = parts.find((p) => p.id === partPick) ?? parts[0];
+  const where = parts.length > 1 ? `${project.name} · ${part.name}` : project.name;
   const keepable = files.filter((f) => ASSET_TYPES.has(f.type) || looksLikeText(f));
   const [mode, setMode] = useState<Mode>('copy');
   const [busy, setBusy] = useState(false);
@@ -48,8 +59,9 @@ export function DropDialog({
         const pos = { x, y: at.y };
         let node: BoardNode | null = null;
         if (mode === 'copy') {
-          const stat = await api.fsUpload(project.machineId, await packUpload(f), { path: joinPath(project.path, f.name), unique: true });
-          node = await nodeForPath(ctl, project.machineId, stat.path, pos, { centre: false });
+          const mid = part.machineId || 'local';
+          const stat = await api.fsUpload(mid, await packUpload(f), { path: joinPath(part.path, f.name), unique: true });
+          node = await nodeForPath(ctl, mid, stat.path, pos, { centre: false });
         } else if (ASSET_TYPES.has(f.type)) {
           node = await imageNodeFromBlob(ctl, f, pos, f.name, false);
         } else if (looksLikeText(f)) {
@@ -62,7 +74,7 @@ export function DropDialog({
       }
       if (created.length) ctl.addNodes(created);
       if (mode === 'copy' && created.length) {
-        toast.success(`${created.length === 1 ? '1 file' : `${created.length} files`} copied into ${project.name}.`);
+        toast.success(`${created.length === 1 ? '1 file' : `${created.length} files`} copied into ${where}.`);
       }
       onClose();
     } catch (err) {
@@ -75,8 +87,8 @@ export function DropDialog({
   const options = [
     {
       value: 'copy' as const,
-      title: `Copy into ${project.name}`,
-      description: `Writes to ${project.path} on the project’s machine and adds a card that points at the copy.`,
+      title: `Copy into ${where}`,
+      description: `Writes to ${part.path} on ${parts.length > 1 ? 'that part’s' : 'the project’s'} machine and adds a card that points at the copy.`,
     },
     {
       value: 'board' as const,
@@ -118,6 +130,7 @@ export function DropDialog({
           ))}
         </ul>
         <RadioCards<Mode> label="Where should the files go?" value={mode} onChange={setMode} options={options} columns={1} disabled={busy} />
+        {mode === 'copy' && <PlacePicker project={project} value={part.id} onChange={setPartPick} label="Into the part" noRoot hint={false} disabled={busy} />}
         {tooBig.length > 0 && (
           <div className="warning-panel">
             <Icon name="alert" />

@@ -154,6 +154,9 @@ func stateOf(c Console) session.DeliveryView {
 type Engine struct {
 	Source   func(sessionID string) (Console, bool)
 	Settings func() settings.Delivery
+	// Prepare may change the text of a delivery before it is queued, e.g. with copies of the
+	// order's attachments for a console that works on a server. nil = as it is.
+	Prepare func(sessionID, text string) string
 	// OnChange receives every state / waitReason change (outside locks).
 	OnChange func(Delivery)
 	Now      func() time.Time
@@ -252,6 +255,11 @@ func (e *Engine) Submit(sessionID string, req Request) (Delivery, error) {
 	src := req.Source
 	if src == "" {
 		src = "api"
+	}
+	if e.Prepare != nil {
+		if t := e.Prepare(sessionID, text); utf8.RuneCountInString(t) <= MaxText && strings.TrimSpace(t) != "" {
+			text = t
+		}
 	}
 	now := e.Now()
 	dl := defaultDeadline

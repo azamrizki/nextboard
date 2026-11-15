@@ -120,17 +120,20 @@ export function readChecklist(n: BoardNode): ChecklistData {
 
 export interface TaskFields {
   assignee?: string;
-  /** The part of the project the task is about (ROADMAP #49): handed out to its consoles. */
+  /** The part of the project the task is about (ROADMAP #49), by name: handed out to its consoles. */
   part?: string;
+  /** The same part's id, when the hub wrote it (a rename keeps the task on its part). */
+  partId?: string;
   sessionId?: string;
   orderId?: string;
   state?: string;
   error?: string;
 }
 
+/** The hub-written task fields, kept as they are when a tile saves (part and partId included). */
 function taskFields(o: Record<string, unknown>): TaskFields {
   const out: TaskFields = {};
-  for (const k of ['assignee', 'sessionId', 'orderId', 'state', 'error'] as const) {
+  for (const k of ['assignee', 'part', 'partId', 'sessionId', 'orderId', 'state', 'error'] as const) {
     if (typeof o[k] === 'string' && o[k]) out[k] = o[k];
   }
   return out;

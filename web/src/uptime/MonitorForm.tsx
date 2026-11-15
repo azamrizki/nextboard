@@ -5,7 +5,8 @@ import { errorMessage } from '../api';
 import { Button } from '../components/Button';
 import { Checkbox, Field, FormSection, SelectField, TextField } from '../components/form';
 import { Modal } from '../components/Modal';
-import { projectParts } from '../lib/parts';
+import { isRoot, projectParts } from '../lib/parts';
+import { lastPlacement } from '../lib/placement';
 import { useMachines, useProject } from '../store';
 import { uptimeApi, type JsonOp, type Monitor, type MonitorConfig, type MonitorType } from './api';
 import { putMonitor } from './store';
@@ -68,7 +69,13 @@ export function MonitorForm({ projectId, monitor: m, onClose, onSaved }: Props) 
   // a project in several parts: which one this watches
   const project = useProject(projectId);
   const parts = project ? projectParts(project) : [];
-  const [partId, setPartId] = useState(m?.partId ?? '');
+  // a new monitor: the part last placed in (v0.9.0-beta.2); a part that went is none
+  const [chosenPart, setPartId] = useState(() => {
+    if (m) return m.partId ?? '';
+    const last = project ? lastPlacement(project) : null;
+    return last && !isRoot(last) ? last.partId : '';
+  });
+  const partId = parts.some((x) => x.id === chosenPart) ? chosenPart : '';
   const [url, setUrl] = useState(m?.url ?? '');
   const [method, setMethod] = useState(m?.method ?? 'GET');
   const [accepted, setAccepted] = useState(m?.accepted ?? '200-299');

@@ -98,10 +98,10 @@ func TestProjectArchiveRestoreDelete(t *testing.T) {
 	if st, _, _ := h.doRaw("POST", "/api/projects/"+pid+"/attach?name=notes.txt", "text/plain", []byte("pasted")); st != 200 {
 		t.Fatalf("attach %d", st)
 	}
-	if err := h.srv.review.Snapshot(pid); err != nil {
+	if err := h.srv.review.Snapshot(h.srv.reviewKeyOf(pid, "")); err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
-	if !exists(h.srv.st.Path("review", pid)) || !exists(h.srv.st.Path("attachments", "project-"+pid)) || len(h.srv.boards.ListArchive()) != 1 {
+	if !exists(h.srv.st.Path("review", h.srv.reviewKeyOf(pid, ""))) || !exists(h.srv.st.Path("attachments", "project-"+pid)) || len(h.srv.boards.ListArchive()) != 1 {
 		t.Fatal("setup incomplete")
 	}
 
@@ -215,7 +215,8 @@ func TestProjectRestoreAndPermanentDelete(t *testing.T) {
 		}
 	}
 	h.doRaw("POST", "/api/projects/"+pid+"/attach?name=notes.txt", "text/plain", []byte("pasted"))
-	if err := h.srv.review.Snapshot(pid); err != nil {
+	reviewDir := h.srv.st.Path("review", h.srv.reviewKeyOf(pid, ""))
+	if err := h.srv.review.Snapshot(h.srv.reviewKeyOf(pid, "")); err != nil {
 		t.Fatal(err)
 	}
 	// a closed board of each project in the archive
@@ -277,7 +278,7 @@ func TestProjectRestoreAndPermanentDelete(t *testing.T) {
 		"subs":        h.srv.st.Path("memory", "subs", pid),
 		"thread":      h.srv.st.Path("threads", pid+".jsonl"),
 		"card thread": h.srv.st.Path("threads", "n_orchcard01.jsonl"),
-		"review":      h.srv.st.Path("review", pid),
+		"review":      reviewDir,
 		"attachments": h.srv.st.Path("attachments", "project-"+pid),
 		"monitor":     h.srv.st.Path("uptime", mon["id"].(string)),
 	}

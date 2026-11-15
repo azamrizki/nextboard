@@ -68,7 +68,7 @@ function DrawingCard({ run, ctl, viewCenter, reveal }: { run: DiagramRun; ctl: B
   };
   const retry = async () => {
     try {
-      const r = await diagramApi.generate(run.projectId, { ...run.request, subject: run.request.subject as DiagramSubject, effort: run.request.effort as Effort });
+      const r = await diagramApi.generate(run.ref ?? run.projectId, { ...run.request, subject: run.request.subject as DiagramSubject, effort: run.request.effort as Effort });
       orchStore.upsertJob(r.job);
       diagramRuns.remove(run.diagramId);
       diagramRuns.add({ ...run, diagramId: r.diagramId, jobId: r.job.id });

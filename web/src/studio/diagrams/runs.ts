@@ -9,6 +9,8 @@ export interface DiagramRun {
   diagramId: string;
   jobId: string;
   projectId: string;
+  /** The project ref it ran in: "<project>~<part>" in a project of several parts (Try again runs there too). */
+  ref?: string;
   workspaceId: string;
   style: DiagramStyle;
   look: DiagramLook;
