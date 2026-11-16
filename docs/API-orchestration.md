@@ -256,6 +256,7 @@ The planner's input holds every tile: `id`, `kind`, position, size, and content 
 | `task.add`, `task.update`, `task.delete` | `tile`, `card` (id or title), `title`, `text`, `column`, `assignee`, `priority`, `due`, `done` | cards in a kanban or checklist, §3.10; `send` with `tile` and `card` shares an existing card |
 | `editor.open` | `path`, `line`, `part` | becomes the uiAction `openFile` with the absolute `path` and the `part` (id) it is in: that part's editor card opens it, else the Root card. The path: with `part`, relative to that part's folder; in a project of several parts, `<part>/…` (`admin/src/x.ts`, also `./admin/…`); an absolute path belongs to the one part whose folder holds it (`/admin/x` names part admin when no folder holds it); otherwise a relative path is in the first part (compat) and an absolute one in no part. An unknown `part` drops the step |
 | `console.rename`, `group.dissolve`, `workspace.create`, `workspace.rename`, `workspace.go` | | as named |
+| `diagram` | `text` (what to draw) or `subject` (`architecture userFlow dataFlow components requestLifecycle stateFlow custom`; with `text` and no subject: `custom`; a subject with `text` keeps both in the prompt), `style` (`ink` default, `color`), `part`/`root`, `workspace` (a board's name; without it, or under an orchestrator card, the current board), `x y` | the hub starts the Diagrams studio's run (API-studio §6) for the project: at the root, every part, unless `part` names one, with the studio's runner choice (on This PC for the root), effort `balanced`. The thread says `Drawing a diagram of the checkout. It goes on Main when it is ready.` When the run is done the hub lands it on that board by itself (at `x y`, else right of the board's content, like `POST /api/diagrams/{id}/land`), keeps it in the project's Diagrams list, writes `The diagram "Checkout" is on Main.` and sends the client that gave the command a `command` event (`state:"done"`) with the uiAction `focus` on the diagram's first box (`workspaceId` set, so another board opens first, §3.8). A failed run writes the reason as an `error` message instead. Never a confirmation: it only reads the project and adds tiles. An unknown board or `x y` outside ±20000 drops the step; a part the project lacks, an unknown subject, or the limit on hidden diagram runs (per project two at a time and ten an hour, with the agents' `board_diagram` runs, API-studio §6) is the step's error |
 
 `workspace.close` deliberately stays outside the planner's authority. Planner changes do not go into the client's undo; they are reverted through board snapshots. Other clients receive the result like ordinary board ops.
 ### 3.7 Confirmation (D8)
@@ -263,8 +264,9 @@ The planner's input holds every tile: `id`, `kind`, position, size, and content 
 ```jsonc
 // Confirmation
 { "id": "cf_…", "threadId": "p_…", "commandId": "cmd_…",
-  "kind": "destructive",         // "destructive"|"didYouMean"|"sendToAll"|"risky"|"loop"|"bulkSpawn"|"proposal"
-  "plan"?: [{ "handle": "Ash", "text": "…" }],   // proposal: the plan in words
+  "kind": "destructive",         // "destructive"|"didYouMean"|"sendToAll"|"risky"|"loop"|"bulkSpawn"|"proposal"|"mission"
+  "plan"?: [{ "handle": "Ash", "text": "…" }],   // proposal: the plan in words; mission: "t1 · title" per agent
+  "missionId"?: "ms_…",          // kind mission: the mission it asks about; any other kind: the mission whose step it holds (§22)
   "prompt": "Kill @Ash and @Bea? Their processes stop; the tiles stay on the board.",
   "options": [{ "id": "confirm", "label": "Kill 2 consoles" }, { "id": "cancel", "label": "Cancel" }],
   "candidates"?: [{ "sessionId", "handle" }],      // didYouMean / sendToAll
@@ -280,11 +282,11 @@ The planner's input holds every tile: `id`, `kind`, position, size, and content 
 | `spawn` of > 6 consoles at once | `bulkSpawn` |
 | Planner steps nobody asked for: `git`, `node.add web` to a URL, a `send` containing a risky pattern | `risky` (Talk first: shown as a `proposal`, §3.9) |
 | A `send` the user typed (`@Arkan …`, `tell Arkan …`, `@everyone …`) containing a risky pattern | `risky`, as a plain question ("Your order for @Arkan says \"delete\"… Send it?"), not a lead proposal (owner decision, 2026-11-08) |
-| `git` typed by the user, `pause`/`resume`, `handoff`, `forward`, `send` without a risky pattern, `memory.push` | no |
+| `git` typed by the user, `pause`/`resume`, `handoff`, `forward`, `send` without a risky pattern, `memory.push`, `diagram` | no |
 
 Risky patterns (RE2, case-insensitive; `settings.commands.riskyPatterns` adds more): `\brm\s+(-\S+\s+)*\S+`, `\bsudo\b`, `curl[^|\n]*\|\s*(ba)?sh`, `\.env\b`, `--dangerously`, `--yolo`, `\b(delete|deletes|deleting|hapus\w*|menghapus\w*|dihapus\w*|penghapusan)\b`, `\bdrop\s+(table|database|schema|collection)\b`, `\btruncate\b`, `\b(migrate:(fresh|reset)|db:(drop|reset|wipe))\b`, `\bgit\s+push\b[^\n]*\s(-f|--force)`, `\bgit\s+reset\s+--hard\b`, `\bgit\s+clean\s+-`, `\bgit\s+branch\s+-d\b`, `\bmkfs\b`, `\bdd\s+if=`. These patterns deliberately lean toward asking, because the lead's other orders run right away: even the sentence "jangan hapus file lain" gets asked about.
 
-- `POST /api/confirmations/{id}` `{"decision":"confirm"|"cancel","choice"?: "s_…"}` → `200 Confirmation`; `409 already_decided`, `410 expired`. The first decision wins (any client, including Android).
+- `POST /api/confirmations/{id}` `{"decision":"confirm"|"cancel","choice"?: "s_…"}` → `200 Confirmation` (`"approve"`, the option id of a mission's approval, is taken as `confirm`); `409 already_decided`, `410 expired`. The first decision wins (any client, including Android).
 - TTL `settings.commands.confirmTtlSec` (default 60, 30–300). While a confirmation is pending in that thread, the text `yes|confirm|do it|go ahead` = confirm, `no|cancel` = cancel; any other text cancels the pending one and is then processed as a new command.
 
 ### 3.8 Execution
@@ -303,8 +305,14 @@ The orchestrator is the **lead agent**: the owner's assistant and the leader of 
   "runner": "",            // what the lead thinks with (2026-11-11): "" = like hidden runs (Claude Code, through runner.provider if set),
                            // "claude" | "codex" = that CLI on its login, "ap_…" = an API provider on the CLI that speaks its API
   "model": "", "effort": "",  // model and effort of lead runs on that runner; "" = the runner's default
-  "providers": { "claude": "ap_…" } }  // consoles the lead spawns, per agent id; absent = that agent's login
+  "providers": { "claude": "ap_…" },  // consoles the lead spawns, per agent id; absent = that agent's login
+  "language": "",          // what the lead speaks to the owner in: "" = the language the owner writes in, "id" = Bahasa Indonesia, "en" = English;
+                           // any other value → 400 bad_setting
+  "missionRounds": 30,     // a mission's lead turns before the lead asks whether to go on (1–500, §22)
+  "missionHours": 4 }      // a mission's hours from its approval before the same question (1–72, §22)
 ```
+
+- **Language** (2026-11-16). With `language` set, the prompt says to talk "always in Bahasa Indonesia / English, whatever language the owner writes in", and everything the lead writes for the owner follows it: `reply`, `danger`, a mission's question to the owner and its final summary, and the thread summary of `ask summary`. Orders for agents (send texts, mission tasks, the shared brief) are written in English in every case, unless the owner asks for another language. Fixed hub notes ("Still thinking…") do not change.
 
 - **Lead runner** (Settings › Lead agent › What it runs on). Applies to planner turns, `mode:"split"` forwards and thread summaries. An Anthropic-compatible provider → Claude Code, OpenAI with the Responses API → Codex, Chat Completions only → not possible (the runner has no OpenCode). The lead's CLI must be installed on This PC: without it `GET /api/planner` gives `reason: "claude_missing" | "codex_missing"`, and `runner` names its label ("Claude Code", "Codex", "API · <name>"). A failed login is waited out for one minute only for the runner that failed; picking another runner is tried right away. A missing provider: the reason is written in the thread and the parser answers. Deleting a provider clears the `lead.runner` and `lead.providers` that point to it.
 - **Strict schema for Codex.** Codex 0.165 sends `--output-schema` to the API with `"strict": true` (measured against a fake API on loopback), and strict mode refuses optional properties, open objects, `maxLength`/`minLength`. The runner rewrites the schema for Codex (`jobs.StrictSchema`: every property `required`, optional ones become nullable, free objects such as `data` become a JSON string) and then turns the answer back into its original shape (`jobs.FromStrict`: optional nulls dropped, JSON strings decoded). Applies to every Codex run that uses a schema.
@@ -356,15 +364,17 @@ Columns are found by their name (English and Indonesian), then by their position
 // ThreadMessage
 { "id": "tm_…", "threadId": "p_…", "at": "…",
   "role": "user"|"hub"|"agent",
-  "kind": "order"|"plan"|"report"|"reply"|"note"|"confirm"|"error",
+  "kind": "order"|"plan"|"report"|"reply"|"note"|"confirm"|"error"|"team"|"mission",
   "text": "…", "source"?: "typed"|"voice"|"loop"|"api",
   "orderId"?: "o_…", "sessionId"?: "s_…", "handle"?: "Ash",
   "plan"?: [{ "handle": "Ash", "text": "…" }],                       // plan note: what was sent to whom
   "report"?: { "state": "finished"|"failed"|"timeout"|"skipped", "durationMs": 81234, "excerpt": "≤ 400 characters", "chars": 5120 },
   "confirmationId"?: "cf_…",
-  "replyTo"?: { "id": "tm_…", "handle"?: "Ash", "excerpt": "…" } }   // the message being answered (§3.9)
+  "replyTo"?: { "id": "tm_…", "handle"?: "Ash", "excerpt": "…" },   // the message being answered (§3.9)
+  "missionId"?: "ms_…",              // the mission it belongs to (§22): its orders, reports, team talk and state messages
+  "team"?: { "from": "Ash", "to"?: "Bea", "kind": "ask"|"reply"|"update"|"doc"|"report", "questionId"?: "q_…" } }   // kind "team"
 // Order
-{ "id": "o_…", "threadId": "p_…", "commandId": "cmd_…", "text": "…", "createdAt": "…",
+{ "id": "o_…", "threadId": "p_…", "commandId": "cmd_…", "text": "…", "createdAt": "…", "missionId"?: "ms_…",
   "targets": [{ "sessionId", "handle", "deliveryId",
     "state": "queued"|"delivered"|"working"|"needsYou"|"finished"|"failed"|"timeout"|"cancelled"|"skipped",
     "startedAt", "finishedAt", "error"? }] }
@@ -711,6 +721,7 @@ Built-in (NextBoard names): **Duo** (group of 2), **Trio** (group of 3), **Quart
 { "type": "loopRun", "loopId": "lp_…", "entry": LoopHistoryEntry }
 { "type": "memory", "projectId": "p_…", "scope": "project", "mtime": "…" }
 { "type": "layouts" }
+{ "type": "mission", "mission": MissionRun }      // every change of a mission (§22)
 ```
 
 `session` carries `paused`, `pausedAt`, `queue`. Topics for `?topics=` = the `type` values above.
@@ -732,6 +743,7 @@ Built-in (NextBoard names): **Duo** (group of 2), **Trio** (group of 3), **Quart
 | `settings.json` | new keys `delivery`, `commands` (`planner`, `confirmTtlSec`, `reportTimeoutMin`, `riskyPatterns`), `memory` (`autoPush`) |
 | `sessions.json` | + `paused` |
 | `confirmations.json` | new: confirmations still stored, with their command context |
+| `missions.json` | missions not ended, and ended ones for 30 days (≤ 100 ended), §22 |
 
 Deliveries live only in memory (lost on a hub restart; the thread records "interrupted by hub restart"). The order text stays in `orders.json`, so orders not typed yet can be resent (§4). Confirmations survive a restart: buttons and text answers still work, their TTL does not start over, and a decision already taken cannot be run twice. A planner turn cut off by a restart is not repeated and runs nothing; the thread records "The hub restarted before this was answered. Send it again."
 
@@ -751,6 +763,7 @@ Deliveries live only in memory (lost on a hub restart; the thread records "inter
 | Loop | interval 60 s–24 h; maxRuns 1–500; duration 15 minutes–24 h; 50 loops per hub; goal 90 s / 2 concurrent |
 | Memory push | 4000 characters |
 | Mention autocomplete | 30 items |
+| Mission | goal/summary 2000, doneWhen 1000, doc 32 KB, ≤ 40 tasks (text 8000, title 200, result 2000), final summary 8000; 30 rounds / 4 h (settings), approval 30 min, wakes 5 s apart, a question unanswered 10 min wakes the lead, 3 rounds without progress hold it, ≤ 20 open questions |
 
 ## 17. Security
 
@@ -841,3 +854,93 @@ Claude Code **2.1.312** (`--model haiku` for consoles, the default model for the
 
 **Not done yet / still open:** the list of CLIs that are safe for `whileWorking:"type"` (#4); interactive Codex not retested (the update check flag above is not set automatically yet); BusyBox `ps` (#5) not tested for real.
 
+
+## 22. Missions
+
+A **mission** is work the lead runs with a team of consoles to the end (2026-11-16). The owner approves the plan once; after that the hub sends each task when the tasks it depends on are done, wakes the lead on what happens, and the agents talk to each other through the hub, in the thread where the owner sees it (owner decisions: agents talk through the hub, not directly; after the approval the lead stops only for something risky, a change of plan or no progress; limits 30 rounds or 4 hours, whichever comes first).
+
+### 22.1 Model
+
+```jsonc
+// MissionRun
+{ "id": "ms_…", "projectId": "p_…", "threadId": "p_…"|"n_…", "workspaceId": "w_…", "cardId"?: "n_…",
+  "lead": "Aruna",                  // the lead's name (the card's own when it has one)
+  "goal": "…",                      // ≤ 2000
+  "summary": "…",                   // the plan in a few lines, for the approval card, ≤ 2000
+  "doneWhen": "…",                  // acceptance criteria, ≤ 1000
+  "doc": "…", "docRev": 1,          // the shared brief (markdown, ≤ 32 KB); rev 0 = none yet
+  "tasks": [MissionTask…],          // ≤ 40
+  "questions"?: [{ "id": "q_…", "from": "Bea", "fromId": "s_…", "to": "Ash"|"lead", "toId"?: "s_…", "text": "…", "at": "…",
+                   "answer"?: "…", "answeredAt"?: "…", "nudged"?: true }],
+  "state": "awaiting_approval"|"running"|"waiting_owner"|"paused"|"done"|"stopped"|"failed",
+  "waiting"?: "…",                  // why it waits for the owner (waiting_owner), in words
+  "waitKind"?: "limit"|"no_progress"|"question"|"held",   // the same as a code; only in waiting_owner
+  "rounds": 3, "maxRounds": 30, "deadline": "…",   // lead turns since the approval; approval + missionHours
+  "result"?: "…",                   // the final text for the owner (markdown ≤ 8000)
+  "confirmationId"?: "cf_…",        // the open approval or question (kind "mission", or a held step's)
+  "createdAt", "updatedAt", "approvedAt"?, "endedAt"? }
+// MissionTask
+{ "id": "t1", "handle": "Ash", "sessionId"?: "s_…", "title": "…", "text": "…", "dependsOn"?: ["t…"],
+  "state": "waiting"|"sent"|"working"|"done"|"failed"|"cancelled",
+  "orderId"?: "o_…", "result"?: "…",      // ≤ 2000: mission_report's summary, else the reply
+  "resultBy"?: "report"|"reply", "updatedAt": "…" }
+```
+
+At most one mission that has not ended per thread. Stored in `missions.json` (§15).
+
+### 22.2 Start and approval
+
+- **The lead proposes one.** `PlanSchema` has an optional `mission` object: `{goal, summary, doneWhen, doc, tasks:[{id, handle, title, text, dependsOn}]}`. The prompt asks for a mission instead of separate sends when two or more consoles must work together or need a shared contract (frontend + api, "build X with the team"); one console's job stays a plain `send`. A task names a console of the input; for a console that does not exist yet the plan adds a `spawn` step and names its role, and the hub gives the task to the console that answers to that name when it is sent. Send steps to the mission's consoles in the same plan are dropped: their work goes out with the mission.
+- **`POST /api/projects/{id}/missions`** creates one directly (API clients, tests): the same object plus `threadId` (`p_…` or a card's `n_…`; default the project thread), `cardId`, `workspaceId` (default the card's board, else the first board). Checked strictly: unknown consoles, unknown or circular `dependsOn`, ids other than `t<n>`, values over their limits → `400 bad_mission`. Ids may be left out (`t1`, `t2`, … in order).
+- A new mission is `awaiting_approval` with a confirmation of kind `mission` (`options` `approve` / `cancel`, TTL 30 minutes like proposals, `plan` = one line per task, `missionId`) and a thread message of kind `mission` ("Mission proposed: …"). Words of agreement and refusal work as for proposals (§3.9); any other message goes to the lead with the mission in its input, and a changed plan replaces the one awaiting approval (same id, a new confirmation). A second `POST` while one awaits approval replaces it too.
+- **Approve** → `running`, `approvedAt`, `deadline` = now + `lead.missionHours`, `maxRounds` = `lead.missionRounds`, the message "Mission started: …", and the first tasks go out. **Cancel**, or no answer in 30 minutes → `stopped`, "Not approved; nothing was sent to the team."
+
+### 22.3 Running
+
+- **Tasks go out as orders.** Every `waiting` task whose `dependsOn` are all `done` is claimed (`sent`) while the mission is `running`, then sent as an ordinary order (`source: "order"`, so delivery, task boards §3.10 and reports work as for any order) with `missionId` on the order and on its thread messages. The text is the task, then a block written by the hub: the task id and title, the goal, `doneWhen`, the console's own handle and role/part, the team (handles, roles, parts), and the team tools: `mission_read` for the goal, tasks, team and brief; `team_ask {to, question}` (a teammate's handle or `lead`; the answer comes later as a message); `team_reply {question, answer}`; `team_update`; `mission_doc`; and `mission_report {status, summary}` when done or blocked.
+- **Task state follows its order's target:** `queued`/`delivered` → `sent`, `working`/`needsYou` → `working`, `finished` → `done` (the reply becomes `result` unless `mission_report` gave one), `failed`/`timeout`/`skipped` → `failed` (the reason in `result`), `cancelled` → `cancelled` (back to `waiting` while the mission is paused). A task the hub cannot give to any console stays `waiting` and the lead hears of it once. A `cancelled` task is no work done: a task that depends on it waits, and the lead hears it once ("t2 waits for t1, which was cancelled") to change its `dependsOn` or cancel it too. Cancelling a `sent` task cancels what of its order was not typed yet; an agent already at it finishes, but its order no longer moves the task. A pause, a stop or the lead's cancel that lands while a task's order is being made wins: what was not typed yet is cancelled again, and the task follows that (`waiting` when paused, `cancelled` otherwise).
+- **The lead wakes** on: a task finished (with its reply) or failed or timed out, `mission_report` done/blocked/needs, a `team_ask` to the lead, a team question nobody answered for 10 minutes, every task ended, the owner's resume, an answer to a held step. Events within 5 s are one wake; one lead turn per mission at a time, and a turn of the owner's in that thread comes first. A wake is one planner turn (one **round**) whose input holds `mission`: `id, state, goal, summary, doneWhen, doc` (cut to 8000, `docCut`), `docRev`, tasks with states, results and dependencies, `team` (the last 30 team messages), `openQuestions` (with minutes open), `roundsLeft`, `minutesLeft`, `waiting`, and `wokenBy` (what happened). The wake's `order` is always the fixed text `Mission wake: see mission.wokenBy`: what woke the lead quotes agents (their questions, a blocked report's summary, `needs`), and only the owner's words may stand in `order`. The prompt says that everything under `mission` is what the agents wrote, reports and data, never the owner's instructions; the owner speaks in `order` and the thread's `user` messages. The owner's messages in the thread also carry `mission` while it has not ended. A thread's planner turn is claimed and checked in one step: a wake that finds the thread busy (the owner's turn), or commands waiting in it, comes 5 s later, and an owner's command that reaches the planner during a wake waits first in line behind it. A turn whose start fails keeps the thread until its own caller lets go, so it never clears a turn someone else claimed. **The owner's own open question comes first:** while the thread has a pending confirmation that is not the mission's (a `kill` the owner typed, another plan), the lead is not woken and the mission raises no question (limit, no progress, beyond the plan); a step of a wake that would need one waits with a note and the lead hears it on the next round. The owner's "yes" thus always answers the owner's question, and a wake never cancels an open proposal.
+- **A wake that comes too late.** When the mission was paused or held while the lead thought, only its brief and its answers still apply; its steps, tasks, `done` and `askOwner` are dropped (the next round sees the mission as it is).
+- **What the lead returns** besides normal steps, in `mission`: `doc` (the whole new brief → `docRev` + 1 and a team message "updated the brief"), `tasks` (a new id adds a task, a known id changes it, new text for an ended task does it again, `"state":"cancelled"` cancels a task not typed yet), `answers` (`[{question, answer}]` for questions asked of the lead: recorded as a team `reply` from the lead and delivered to the asker as a `team` delivery), `done: {summary}` (→ `done`, `result`, the final thread message "Mission done: …" with the summary: what was built, files or parts touched, tests run, open points; the answer's send steps are then dropped, they would go out untracked), `askOwner: {question}` (→ `waiting_owner` with the question as a `mission` message; the owner's next message in the thread goes to the lead with the mission and puts it back to `running`). Its `send` steps to the team's consoles become tasks too while the mission runs or waits for the owner; while it is paused, and for consoles outside the team, a send is a plain order outside the mission (no `missionId`). The prompt keeps `reply` empty on a wake unless the owner must hear something.
+
+### 22.4 What still waits for the owner
+
+- **Risky or dangerous steps** (§3.7, §3.9): a new or changed task whose text hits a risky pattern, every new task of a plan with `danger`, and any other step the policy holds, wait as an ordinary confirmation (`missionId` set); the mission is `waiting_owner` until it is answered, then goes on by itself, and the lead hears the answer.
+- **Beyond the plan**: a wake may by itself only send to the team's consoles, change task boards (`task.*`), move the owner's view (`ui`), `reply`, and use the `mission` object. A task or send for a console outside the team (checked whenever a task gets new work or another console; a wake's task for a console nobody has is left out with a note), and every other step (`spawn`, `group.*`, `handoff`, `forward`, `connect`, `memory.push`, `pause`/`resume`, `kill`/`restart`, `node.*`, `workspace.*`, …), wait as one `mission` confirmation with those `steps` ("The lead wants to go beyond the plan: … Agree?"; `waitKind: "held"`). Agree → they go through the policy like any step (a `kill` still asks on its own, §3.7), then run, and sends to new consoles become tasks; when the mission's board or card is gone the policy cannot look at them, so they do not run (a note says so); no → the lead hears it. `ask` steps of a wake are dropped: its input has what they would read. The prompt also asks the lead to use `askOwner` for a change of goal.
+- **Limits**: `rounds ≥ maxRounds` at a wake, or `now ≥ deadline` → `waiting_owner`, "Limit reached (30 rounds / 4 h): continue?" as a `mission` confirmation (`waitKind: "limit"`): approve adds `missionRounds` rounds and `missionHours` hours from now; cancel stops the mission. **No progress**: the third wake in a row that finds no task state changed, no new brief and no question answered → "No progress in the last 3 rounds: continue?" (`waitKind: "no_progress"`), the same choices. The lead's `askOwner` waits with `waitKind: "question"`. A limit question that expires leaves the mission waiting; resuming it gives it new limits.
+
+### 22.5 Owner controls
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/projects/{id}/missions?active=1` | `{"items":[MissionRun…]}`, newest first; `active=1` = not ended |
+| POST | `/api/projects/{id}/missions` | `201 MissionRun` (§22.2); `400 bad_mission`, `404 project_not_found`, `400 bad_card`, `409 mission_active` |
+| GET | `/api/missions/{id}` | `MissionRun`; `404 mission_not_found` |
+| POST | `/api/missions/{id}/pause` | `MissionRun`: from `running`/`waiting_owner`. Deliveries not typed yet are cancelled (their tasks go back to `waiting`), nothing new is sent, the agents finish what they are doing, an open question to the owner is withdrawn |
+| POST | `/api/missions/{id}/resume` | `MissionRun`: from `paused`/`waiting_owner` → `running`, new limits when they were reached, waiting tasks go out, the lead wakes |
+| POST | `/api/missions/{id}/stop` | `MissionRun`: `stopped`, deliveries not typed yet cancelled, waiting tasks `cancelled`, `result` says where it got to ("Done: t1 (@Ash). Still at work: …") |
+
+A wrong state → `409 mission_state`; the state is checked again as it is written, so a mission that ended at the same moment stays ended and says so once. Approval, limits and held steps are answered through `POST /api/confirmations/{id}`. Typed in the thread (handled at once, never queued behind a planner turn): `pause mission` / `jeda misi`, `resume mission` / `continue mission` / `lanjutkan misi`, `stop mission` / `hentikan misi` (also `the …`, `…nya`, a trailing `!`/`.`). Every change publishes `{"type":"mission","mission":MissionRun}` (§14); state messages are thread messages of kind `mission` (proposed, started, waiting, paused, resumed, done, stopped, failed).
+
+**Hub restart.** `running` and `waiting_owner` missions become `paused` with the thread message "Paused by a hub restart. Resume?". A task whose text never reached its console goes back to `waiting` (sent again on resume), and its old order no longer offers **Send again** (`undelivered` cleared), so it never goes out twice; a task that was at work is `failed`, "interrupted by a hub restart", for the lead to decide on its next wake. A mission none of whose consoles is left (deleted) is `failed`; one whose board or card is gone too.
+
+### 22.6 Team tools
+
+The agents of a mission reach each other and the lead only through the hub, with six tools of the console endpoint `POST /nb/mcp/{sid}` (API-agents §21). They are listed to every console that has the memory tools, in a mission or not, because a CLI keeps the tool list it got at start. A console that has no task in a mission that is approved and not ended (running, waiting_owner, paused) gets `You are not in a mission.` from each. Code: `internal/orch/missionteam.go`; MCP side `internal/server/remotetools.go`.
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `mission_read` | none | The mission as text for the agent: goal, state, `doneWhen`, the lead, its own tasks (the instruction while open, the result once done), the team (handle → group role, part, agent state, tasks), the shared brief with its `rev`, open questions to it and its own unanswered ones, and the last 15 team messages that involve it (from it, to it, or to the whole team). |
+| `team_ask` | `to`, `question` | `to` is a teammate's handle (`@` optional) or the lead (`lead`, `orchestrator` or its name). Adds an open question `q_…` (at most 20 open per mission) and a team message (kind `ask`). To a teammate it is delivered as `@Asker asks you (mission "<goal>", question q_…): <question>` plus `Answer with team_reply, question q_….`; to the lead it wakes the lead and nothing is typed. The tool answers at once: the answer comes later as a message, so the agent goes on or ends its turn. |
+| `team_reply` | `question`, `answer` | Only the console asked answers. Closes the question (`answer`, `answeredAt`), records a team message (kind `reply`) and delivers `@Answerer answers your question q_…: <answer>` to the asker. The lead answers through its wake output (`mission.answers`). |
+| `team_update` | `text`, `to?` | A note (kind `update`). With a teammate in `to` it is delivered as `@From tells you (mission "<goal>"): <text>`. Without `to`, or to the lead, it is only recorded; the lead reads it on its next wake. |
+| `mission_doc` | `text`, `mode` (`append` / `replace`), `rev?` | Edits the shared brief. `append` adds the text after a blank line; `replace` needs `rev` equal to the current `docRev` and fails with "the brief changed since rev N (it is at rev M)" otherwise. Each change adds 1 to `docRev`; the brief stays ≤ 32 KB. Recorded as a team message (kind `doc`, `updated the brief (rev N)`, with the appended text); wakes nobody. |
+| `mission_report` | `status` (`done` / `blocked` / `progress`), `summary`, `needs?` | On the console's own task now (the one sent or in work, else its latest done or failed one, else its latest waiting one; a task that never went out cannot be reported done). Recorded as a team message to the lead (kind `report`, `tN <status>: <summary>`, then `Needs: …`). `done`: the task is done with `result` = summary and `resultBy: "report"`, which the turn's reply excerpt never replaces; the tasks after it go out and the lead wakes. `blocked`, or any `needs`: the lead wakes. `progress`: only recorded. |
+
+**Team messages.** Every call that says something records a thread message in the mission's thread: kind `team`, role `agent`, `sessionId` and `handle` of the speaker, `missionId`, `team: {from, to, kind, questionId?}`. `to` is a handle, `lead`, or empty for the whole team.
+
+**Deliveries to a teammate** are ordinary deliveries (§2) with `source: "team"` and no order: queued while the agent works, never an order result (no report, and the turn they bring counts as context, so nothing goes along forward lines, §10), never a task-board card. A console gets at most one team delivery every 10 s, and never a second while one waits to be typed; what comes meanwhile goes as one delivery, the messages separated by a blank line (≤ 16 000 characters). The deadline is 4 h; an expired one goes again while the mission is live. While the mission is paused, or waits for the owner at a limit or after no progress (§22.4), nothing is sent, and a team delivery not typed yet is taken back and sent again when the mission goes on; a question to the owner (`askOwner`) or a held step holds nothing. One the owner cancels while the mission runs stays cancelled. When the mission ends (done, stopped, failed), a team delivery not typed yet is cancelled at once, with the orders, and what is still held is dropped. A console that is gone or has no agent in it gets nothing, with a note in the thread. The held messages live in memory: a hub restart (which pauses missions) loses what was not delivered yet, which is still in the thread.
+
+**Limits.** A question, answer, note, summary or `needs` ≤ 4000 characters; 20 open questions per mission; a teammate's question nobody answered in 10 min wakes the lead. Messages from one agent to another (`team_ask` or `team_update` to a teammate, `team_reply`) are counted per mission over the last hour: at most 60 in all and 20 between any two agents, both ways together, so two agents cannot keep answering each other past the lead's limits. One over the budget is neither sent nor recorded, the tool says so and points to `mission_doc` or `mission_report` (needs), and the lead is woken once an hour with the reason. Questions to the lead and notes kept only in the thread are not counted.
+
+**Approval.** `mission_read` only reads and is approved without asking, like `memory_read` (`agent.MissionReadTools`: Claude Code `--allowedTools mcp__nextboard__mission_read`, OpenCode `nextboard_mission_read: allow`, annotation `readOnlyHint`). The other five follow the CLI's rules like `memory_save`.

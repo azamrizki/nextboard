@@ -72,7 +72,7 @@ func (s *Service) OnDelivery(d delivery.Delivery) {
 	for _, t := range o.Targets {
 		if t.DeliveryID == d.ID && t.State == TFailed {
 			s.Threads.Add(ThreadMessage{ThreadID: o.ThreadID, Role: "hub", Kind: "report", OrderID: o.ID, SessionID: t.SessionID,
-				Handle: t.Handle, Text: "@" + t.Handle + " did not get the order: " + t.Error, Report: &Report{State: TFailed}})
+				Handle: t.Handle, Text: "@" + t.Handle + " did not get the order: " + t.Error, Report: &Report{State: TFailed}, MissionID: o.MissionID})
 		}
 	}
 }
@@ -82,6 +82,7 @@ func (s *Service) orderChanged(o Order) {
 	s.Orders.Save(s.Now())
 	s.forwardOrderChanged(o)
 	s.syncTasks(o)
+	s.missionOrderChanged(o)
 }
 
 // OnAgentEvent follows engine events of a console (attention callback).
@@ -150,6 +151,7 @@ func (s *Service) SessionRemoved(id string) {
 		t.State, t.Error, t.FinishedAt = TFailed, "console deleted", &now
 		return true
 	})
+	s.missionSessionGone(id)
 }
 
 // setTargets applies f to every non-final target of a session.
@@ -270,10 +272,10 @@ func (s *Service) report(o Order, t OrderTarget, turn agentstate.LastTurn, prev 
 	}
 	id := auth.RandomID("tm_")
 	if s.replyFresh(t.SessionID, turn, prev) {
-		s.Threads.Add(s.reportMessage(id, o, t, turn, true))
+		s.missionReplied(o, t, s.Threads.Add(s.reportMessage(id, o, t, turn, true)), true)
 		return
 	}
-	s.Threads.Add(s.reportMessage(id, o, t, turn, false))
+	s.missionReplied(o, t, s.Threads.Add(s.reportMessage(id, o, t, turn, false)), true)
 	for range replyLateTries {
 		select {
 		case <-s.stop:
@@ -281,7 +283,9 @@ func (s *Service) report(o Order, t OrderTarget, turn agentstate.LastTurn, prev 
 		case <-time.After(time.Second):
 		}
 		if s.replyFresh(t.SessionID, turn, prev) {
-			s.Threads.Update(s.reportMessage(id, o, t, turn, true))
+			m := s.reportMessage(id, o, t, turn, true)
+			s.Threads.Update(m)
+			s.missionReplied(o, t, m, false)
 			return
 		}
 	}
@@ -304,7 +308,7 @@ func (s *Service) reportMessage(id string, o Order, t OrderTarget, turn agentsta
 		body = "@" + t.Handle + " finished (no reply text)."
 	}
 	return ThreadMessage{ID: id, ThreadID: o.ThreadID, Role: "agent", Kind: "report", OrderID: o.ID, SessionID: t.SessionID,
-		Handle: t.Handle, Text: body, Report: rep}
+		Handle: t.Handle, Text: body, Report: rep, MissionID: o.MissionID}
 }
 
 // ordersTick applies the report timeout (settings.commands.reportTimeoutMin).
@@ -335,7 +339,7 @@ func (s *Service) ordersTick(now time.Time) {
 		s.orderChanged(x)
 		for _, t := range timedOut {
 			s.Threads.Add(ThreadMessage{ThreadID: x.ThreadID, Role: "hub", Kind: "report", OrderID: x.ID, SessionID: t.SessionID, Handle: t.Handle,
-				Text: "No reply from @" + t.Handle + " after " + itoa(int(lim/time.Minute)) + " min.", Report: &Report{State: TTimeout}})
+				Text: "No reply from @" + t.Handle + " after " + itoa(int(lim/time.Minute)) + " min.", Report: &Report{State: TTimeout}, MissionID: x.MissionID})
 		}
 	}
 }

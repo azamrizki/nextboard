@@ -87,6 +87,7 @@ func (s *Server) orchRoutes(authed func(string, handler)) {
 	authed("DELETE /api/layouts/{id}", s.handleLayoutDelete)
 	authed("POST /api/workspaces/{id}/deploy", s.handleDeploy)
 	authed("POST /api/workspaces/{id}/tiles/{nodeId}/push", s.handleTilePush)
+	s.missionRoutes(authed)
 }
 
 func by(p *principal) string {

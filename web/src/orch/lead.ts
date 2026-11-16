@@ -17,6 +17,20 @@ export function useLeadName(cardTitle?: string): string {
   return leadNameOf(useEffectiveSettings(), cardTitle);
 }
 
+/** What the lead writes to the owner in (replies, questions, summaries); orders to agents stay English. */
+export const LEAD_LANGUAGES: { value: string; label: string }[] = [
+  { value: '', label: 'Automatic (follow my messages)' },
+  { value: 'id', label: 'Bahasa Indonesia' },
+  { value: 'en', label: 'English' },
+];
+
+/** The choices for the Language select: a value set elsewhere that the list lacks is kept, by its code. */
+export function leadLanguageOptions(current: string | undefined): { value: string; label: string }[] {
+  const v = (current ?? '').trim();
+  if (!v || LEAD_LANGUAGES.some((o) => o.value === v)) return LEAD_LANGUAGES;
+  return [...LEAD_LANGUAGES, { value: v, label: `Other (${v})` }];
+}
+
 export function useTalkFirst(): boolean {
   return useEffectiveSettings().lead?.talkFirst !== false;
 }

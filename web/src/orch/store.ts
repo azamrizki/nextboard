@@ -8,6 +8,7 @@ import { CLIENT_ID } from '../lib/ids';
 import type { HubEvent } from '../lib/types';
 import { store } from '../store';
 import { orchApi } from './api';
+import { activeMissionOf } from './mission';
 import type {
   Confirmation,
   Delivery,
@@ -16,6 +17,7 @@ import type {
   Job,
   LoopDef,
   LoopHistoryEntry,
+  MissionRun,
   OrchEvent,
   Order,
   PlannerStatus,
@@ -42,6 +44,9 @@ export interface OrchState {
   handoffs: Record<string, Handoff>;
   forwards: Record<string, Forward>;
   jobs: Record<string, Job>;
+  /** Missions by id: the active ones of each project opened, and any a thread names. */
+  missions: Record<string, MissionRun>;
+  missionsLoaded: Record<string, 'loading' | 'ready' | 'error' | 'unsupported'>;
   /** commandId → state for commands this client sent ("Still thinking…"). */
   pending: Record<string, { state: string; threadId: string; at: number }>;
   planner: PlannerStatus | null;
@@ -66,6 +71,8 @@ const INITIAL: OrchState = {
   handoffs: {},
   forwards: {},
   jobs: {},
+  missions: {},
+  missionsLoaded: {},
   pending: {},
   planner: null,
   layoutsRev: 0,
@@ -141,6 +148,7 @@ class OrchStore {
 
   reset() {
     this.state = INITIAL;
+    this.missionAsked.clear();
     this.listeners.forEach((l) => l());
   }
 
@@ -169,6 +177,7 @@ class OrchStore {
       case 'snapshot':
         // reconnected: refresh what is open (events may have been missed)
         for (const tid of Object.keys(this.state.threads)) if (this.state.threads[tid].status === 'ready') void this.loadThread(tid, true);
+        for (const pid of Object.keys(this.state.missionsLoaded)) if (this.state.missionsLoaded[pid] === 'ready') void this.loadMissions(pid, true);
         break;
       case 'thread':
         this.addMessages(e.threadId, [e.message]);
@@ -230,6 +239,9 @@ class OrchStore {
       case 'job':
         this.upsertJob(e.job);
         break;
+      case 'mission':
+        this.upsertMission(e.mission);
+        break;
       default:
         break;
     }
@@ -272,6 +284,12 @@ class OrchStore {
   }
   upsertJob(j: Job) {
     this.set({ jobs: withRecord(this.state.jobs, j) });
+  }
+  upsertMission(m: MissionRun) {
+    // events can pass a REST answer on the way: the newer one stays
+    const cur = this.state.missions[m.id];
+    if (cur && cur.updatedAt > m.updatedAt) return;
+    this.set({ missions: withRecord(this.state.missions, m) });
   }
   setPlanner(p: PlannerStatus | null) {
     this.set({ planner: p });
@@ -358,6 +376,48 @@ class OrchStore {
     }
   }
 
+  /** The project's active missions (a thread pins its own). */
+  async loadMissions(projectId: string, force = false) {
+    const st = this.state.missionsLoaded[projectId];
+    if (!force && (st === 'loading' || st === 'ready' || st === 'unsupported')) return;
+    this.set({ missionsLoaded: { ...this.state.missionsLoaded, [projectId]: 'loading' } });
+    try {
+      const list = await orchApi.missionRuns(projectId);
+      const missions = { ...this.state.missions };
+      const fresh = new Set(list.map((m) => m.id));
+      // an active one that is no longer listed ended while this tab was away: ask for it
+      const gone = Object.values(missions).filter((m) => m.projectId === projectId && !fresh.has(m.id) && m.state !== 'done' && m.state !== 'stopped' && m.state !== 'failed');
+      for (const m of list) if (!missions[m.id] || missions[m.id].updatedAt <= m.updatedAt) missions[m.id] = m;
+      this.set({ missions, missionsLoaded: { ...this.state.missionsLoaded, [projectId]: 'ready' } });
+      // forced: a thread showing it has asked for it once already
+      for (const m of gone) void this.loadMission(m.id, true);
+    } catch (err) {
+      this.set({ missionsLoaded: { ...this.state.missionsLoaded, [projectId]: is404(err) ? 'unsupported' : 'error' } });
+    }
+  }
+
+  private missionAsked = new Set<string>();
+  /** One mission a thread names, once per tab (an ended one is not in the active list). */
+  async loadMission(id: string, force = false) {
+    if (!force && this.missionAsked.has(id)) return;
+    this.missionAsked.add(id);
+    try {
+      this.upsertMission(await orchApi.missionRun(id));
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'mission_not_found') {
+        // deleted on the hub: nothing of it is left to pin or control
+        if (id in this.state.missions) {
+          const missions = { ...this.state.missions };
+          delete missions[id];
+          this.set({ missions });
+        }
+        return;
+      }
+      // the hub could not be asked (offline, an older hub): ask again next time
+      this.missionAsked.delete(id);
+    }
+  }
+
   async loadPlanner() {
     try {
       this.setPlanner(await orchApi.planner());
@@ -373,6 +433,11 @@ export const orchStore = new OrchStore();
 
 export function useOrch<T>(select: (s: OrchState) => T): T {
   return useSyncExternalStore(orchStore.subscribe, () => select(orchStore.get()));
+}
+
+/** The mission holding a thread now (pinned at its top), if any. */
+export function useActiveMission(threadId: string | null | undefined): MissionRun | undefined {
+  return useOrch((s) => (threadId ? activeMissionOf(s.missions, threadId) : undefined));
 }
 
 export function useThread(threadId: string | null | undefined): ThreadState {

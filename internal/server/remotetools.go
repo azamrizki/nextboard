@@ -311,6 +311,11 @@ func (t remoteTarget) tools() []map[string]any {
 		} else {
 			list = append(list, memoryToolsOnePart...)
 		}
+		// listed whether or not a mission runs: CLIs keep the list they got at start
+		if t.sessionID != "" {
+			list = append(list, missionToolList...)
+			list = append(list, boardToolList...)
+		}
 	}
 	if t.credentials && t.sessionID != "" && t.projectID != "" {
 		list = append(list, credentialToolList...)
@@ -421,6 +426,16 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 		}
 		if strings.HasPrefix(p.Name, "credential_") {
 			return remoteAnswer(s.credentialTool(ctx, t, p.Name, p.Arguments)), nil
+		}
+		if missionTools[p.Name] {
+			text, err := s.runMissionTool(t, p.Name, p.Arguments)
+			if err != nil {
+				return remoteAnswer(err.Error(), true), nil
+			}
+			return remoteAnswer(text, false), nil
+		}
+		if p.Name == "board_diagram" {
+			return remoteAnswer(s.boardDiagramTool(t, p.Arguments)), nil
 		}
 		// a command started in the background is the console's, wherever it runs
 		if p.Name == "bash_output" || p.Name == "bash_kill" {
@@ -839,6 +854,83 @@ func (s *Server) runMemoryTool(t remoteTarget, name string, raw json.RawMessage)
 			fmt.Fprintf(&b, " Not found in %s, so not moved: %s.", res.From, strings.Join(res.Missing, "; "))
 		}
 		return b.String(), nil
+	}
+	return "", fmt.Errorf("unknown tool %q", name)
+}
+
+// missionToolList are a team's tools on a mission (docs/API-orchestration.md §22): agents reach
+// each other only through the hub, and every message stands in the thread for the owner to see.
+var missionToolList = []map[string]any{
+	{"name": "mission_read", "description": "Read the mission you are part of: its goal, when it counts as done, your own tasks, your teammates (handle, role, part and state), the shared brief with its rev, and the latest team messages to or from you. Read it before you start, and again when a teammate says the brief changed.",
+		"annotations": map[string]any{"readOnlyHint": true},
+		"inputSchema": toolSchema([]string{}, map[string]any{})},
+	{"name": "team_ask", "description": "Ask a teammate in your mission, or the lead, something you need from them, for example the exact shape of an endpoint. The hub delivers the question when they are ready and keeps it in the mission's thread. Their answer comes to you later as a message, never as the result of this tool: go on with what does not depend on it, or end your turn.",
+		"inputSchema": toolSchema([]string{"to", "question"}, map[string]any{
+			"to":       map[string]any{"type": "string", "description": "A teammate's handle as mission_read lists it, or \"lead\"."},
+			"question": map[string]any{"type": "string", "description": "The question, complete on its own: they do not see your conversation. At most 4000 characters."}})},
+	{"name": "team_reply", "description": "Answer a question a teammate asked you (a message saying \"@Name asks you … question q_…\"). The hub delivers your answer to them and closes the question.",
+		"inputSchema": toolSchema([]string{"question", "answer"}, map[string]any{
+			"question": map[string]any{"type": "string", "description": "The question's id, q_… as the message gave it."},
+			"answer":   map[string]any{"type": "string", "description": "Your answer, complete on its own. At most 4000 characters."}})},
+	{"name": "team_update", "description": "Tell the team something without asking anything: the contract changed, you pushed a change, an endpoint is ready. With to, the note is delivered to that teammate; without, it is only kept in the thread, and the lead reads it on its next turn.",
+		"inputSchema": toolSchema([]string{"text"}, map[string]any{
+			"text": map[string]any{"type": "string", "description": "The note, at most 4000 characters."},
+			"to":   map[string]any{"type": "string", "description": "A teammate's handle, to deliver it to them."}})},
+	{"name": "mission_doc", "description": "Change the mission's shared brief: the contract the team works to (endpoints, data shapes, who does what). append adds your text at the end. replace sets the whole brief and needs the rev mission_read showed, so a newer change by a teammate is never overwritten; read again and redo yours when it says the brief changed. Tell the teammates a change affects with team_update.",
+		"inputSchema": toolSchema([]string{"text", "mode"}, map[string]any{
+			"text": map[string]any{"type": "string", "description": "Markdown. With append, only what you add."},
+			"mode": map[string]any{"type": "string", "enum": []string{"append", "replace"}},
+			"rev":  map[string]any{"type": "integer", "description": "The brief's rev as mission_read showed it. Needed for replace."}})},
+	{"name": "mission_report", "description": "Report on your own task in the mission to the lead. done: your task is finished; summary says what you built or changed, the files or parts it touched and the tests you ran. blocked: you cannot go on; summary says why, and the lead is told at once. progress: where you are, only kept in the thread. Add needs when you need something from the lead or the owner; the lead is told at once.",
+		"inputSchema": toolSchema([]string{"status", "summary"}, map[string]any{
+			"status":  map[string]any{"type": "string", "enum": []string{"done", "blocked", "progress"}},
+			"summary": map[string]any{"type": "string", "description": "At most 4000 characters."},
+			"needs":   map[string]any{"type": "string", "description": "What you need, and from whom."}})},
+}
+
+// missionTools are the names of missionToolList.
+var missionTools = func() map[string]bool {
+	out := map[string]bool{}
+	for _, x := range missionToolList {
+		out[x["name"].(string)] = true
+	}
+	return out
+}()
+
+// runMissionTool answers a team tool for the console of t.
+func (s *Server) runMissionTool(t remoteTarget, name string, raw json.RawMessage) (string, error) {
+	if t.sessionID == "" || s.orch == nil {
+		return "", orch.ErrNotInMission
+	}
+	var a struct {
+		To       string `json:"to"`
+		Question string `json:"question"`
+		Answer   string `json:"answer"`
+		Text     string `json:"text"`
+		Mode     string `json:"mode"`
+		Rev      *int   `json:"rev"`
+		Status   string `json:"status"`
+		Summary  string `json:"summary"`
+		Needs    string `json:"needs"`
+	}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return "", fmt.Errorf("invalid arguments: %v", err)
+		}
+	}
+	switch name {
+	case "mission_read":
+		return s.orch.MissionReadText(t.sessionID)
+	case "team_ask":
+		return s.orch.TeamAsk(t.sessionID, a.To, a.Question)
+	case "team_reply":
+		return s.orch.TeamReply(t.sessionID, a.Question, a.Answer)
+	case "team_update":
+		return s.orch.TeamUpdate(t.sessionID, a.Text, a.To)
+	case "mission_doc":
+		return s.orch.MissionDocEdit(t.sessionID, a.Text, a.Mode, a.Rev)
+	case "mission_report":
+		return s.orch.MissionReport(t.sessionID, a.Status, a.Summary, a.Needs)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

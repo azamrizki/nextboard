@@ -48,6 +48,10 @@ const CODE_TEXT: Record<string, string> = {
   group_not_found: 'That group no longer exists.',
   loop_not_found: 'That loop no longer exists.',
   pid_unknown: 'NextBoard cannot find the agent’s process to pause it. Restart the console to pause it later.',
+  // missions
+  mission_not_found: 'That mission no longer exists.',
+  mission_active: 'This thread already has a mission. Stop it or let it finish first.',
+  mission_state: 'The mission has moved on since: look at its card for where it is now.',
   signal_refused: 'The process could not be paused safely.',
 };
 

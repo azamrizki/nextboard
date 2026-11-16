@@ -90,6 +90,19 @@ type ThreadMessage struct {
 	ReplyTo        *ReplyRef  `json:"replyTo,omitempty"`
 	// Resend: the client offers to send OrderID again while a target is Undelivered.
 	Resend bool `json:"resend,omitempty"`
+	// MissionID: the message belongs to a mission (§22): its orders, reports, team talk and
+	// state messages.
+	MissionID string `json:"missionId,omitempty"`
+	// Team: who said what to whom in a mission's team (kind "team").
+	Team *TeamRef `json:"team,omitempty"`
+}
+
+// TeamRef is the team side of a team message (§22).
+type TeamRef struct {
+	From       string `json:"from"`
+	To         string `json:"to,omitempty"`
+	Kind       string `json:"kind"` // ask | reply | update | doc | report
+	QuestionID string `json:"questionId,omitempty"`
 }
 
 type thread struct {
@@ -434,6 +447,8 @@ type Order struct {
 	Source    string        `json:"source,omitempty"`
 	CreatedAt time.Time     `json:"createdAt"`
 	Targets   []OrderTarget `json:"targets"`
+	// MissionID: the order carries a task of this mission (§22).
+	MissionID string `json:"missionId,omitempty"`
 }
 
 // Active reports whether a target still runs.

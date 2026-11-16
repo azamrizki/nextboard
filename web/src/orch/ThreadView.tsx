@@ -1,6 +1,7 @@
 // Thread rendering (docs/API-orchestration.md §4, D3/D15): orders, plan notes with live
 // per-target progress, team reports with "See output", confirmations with a countdown,
-// hub replies and notes. Shared by the command-bar drawer and orchestrator cards.
+// hub replies and notes, and a mission's card, team messages and summary (MissionCard).
+// Shared by the command-bar drawer and orchestrator cards.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { OutputViewer } from '../agents/OutputViewer';
@@ -13,11 +14,13 @@ import { decide, orchError } from './actions';
 import { orchApi } from './api';
 import { AttachedFiles, splitAttached } from './Attachments';
 import { useNow } from './hooks';
-import { orchStore, useOrch, useThread } from './store';
+import { orchStore, useActiveMission, useOrch, useThread } from './store';
 import { useMarkdown } from '../board/lazy';
 import { MarkdownView } from '../studio/MarkdownView';
 import { messageAuthor, messageText, useLeadName } from './lead';
 import { CopyButton, LeadAvatar } from './OrderBits';
+import { MissionCard, MissionMessage, MissionPlan, TeamRow, TeamRun } from './MissionCard';
+import { missionMarks, missionTaskText, threadItems } from './mission';
 import { ORDER_DONE, type Confirmation, type Order, type OrderTarget, type ThreadMessage } from './types';
 
 const TARGET_LABEL: Record<string, string> = {
@@ -109,6 +112,15 @@ function TargetChip({ t }: { t: OrderTarget }) {
 
 export function ConfirmationCard({ c, compact }: { c: Confirmation; compact?: boolean }) {
   const proposal = c.kind === 'proposal';
+  // a mission's approval, a limit or a held step: not urgent either, and its plan is the mission's
+  const missionKind = c.kind === 'mission';
+  const mission = useOrch((s) => {
+    if (!missionKind) return undefined;
+    if (c.missionId && s.missions[c.missionId]) return s.missions[c.missionId];
+    for (const id in s.missions) if (s.missions[id].confirmationId === c.id) return s.missions[id];
+    return undefined;
+  });
+  const showPlan = missionKind && !!mission && c.state === 'pending' && mission.state === 'awaiting_approval';
   const now = useNow(500, c.state === 'pending');
   const left = Date.parse(c.expiresAt) - now;
   const expired = c.state === 'pending' && left <= 0;
@@ -125,11 +137,13 @@ export function ConfirmationCard({ c, compact }: { c: Confirmation; compact?: bo
   return (
     <div className={`confirm-card kind-${c.kind} ${state !== 'pending' ? 'is-decided' : ''} ${compact ? 'is-compact' : ''}`} role="group" aria-label="Confirmation">
       <div className="confirm-prompt">
-        <Icon name={proposal ? 'workflow' : danger ? 'alert' : c.kind === 'loop' ? 'loop' : 'info'} />
+        <Icon name={proposal ? 'workflow' : missionKind ? 'flag' : danger ? 'alert' : c.kind === 'loop' ? 'loop' : 'info'} />
         <span>{c.prompt}</span>
         {proposal && !!c.plan?.length && <CopyButton text={c.plan.map((p) => `@${p.handle}: ${p.text}`).join('\n')} label="Copy the plan" className="confirm-copy" />}
+        {showPlan && <CopyButton text={(mission.tasks ?? []).map((t) => `@${t.handle} · ${t.title}: ${t.text}`).join('\n')} label="Copy the plan" className="confirm-copy" />}
       </div>
-      {proposal && !!c.plan?.length && (
+      {showPlan && <MissionPlan mission={mission} />}
+      {(proposal || (missionKind && !showPlan && c.state === 'pending')) && !!c.plan?.length && (
         <ol className="plan-list">
           {c.plan.map((p, i) => (
             <li key={i}>
@@ -150,7 +164,7 @@ export function ConfirmationCard({ c, compact }: { c: Confirmation; compact?: bo
       )}
       {state === 'pending' ? (
         <div className="confirm-actions">
-          {!proposal && (
+          {!proposal && !missionKind && (
             <span className="confirm-timer tabular" aria-live="off" title="Answer before it expires">
               <Icon name="clock" />
               {formatCountdown(left)}
@@ -173,7 +187,7 @@ export function ConfirmationCard({ c, compact }: { c: Confirmation; compact?: bo
       ) : (
         <div className="confirm-state">
           <Icon name={state === 'confirmed' ? 'check' : 'close'} />
-          {state === 'confirmed' ? (proposal ? 'Agreed' : 'Confirmed') : state === 'cancelled' ? (proposal ? 'Not sent' : 'Cancelled') : 'Expired — nothing was done'}
+          {state === 'confirmed' ? (proposal ? 'Agreed' : missionKind ? 'Approved' : 'Confirmed') : state === 'cancelled' ? (proposal ? 'Not sent' : 'Cancelled') : 'Expired — nothing was done'}
           {c.decidedBy && c.decidedBy !== 'admin' ? ' on another device' : ''}
         </div>
       )}
@@ -278,7 +292,13 @@ function ResendOrder({ orderId }: { orderId: string }) {
   );
 }
 
-function MessageViewImpl({ m, onOutput, compact, lead, actions, onGoTo }: { m: ThreadMessage; onOutput: (m: ThreadMessage) => void; compact?: boolean; lead: string; actions?: ThreadActions; onGoTo: (id: string) => void }) {
+function MessageViewImpl({ m, onOutput, compact, lead, actions, onGoTo, mark = '' }: { m: ThreadMessage; onOutput: (m: ThreadMessage) => void; compact?: boolean; lead: string; actions?: ThreadActions; onGoTo: (id: string) => void; mark?: string }) {
+  if (m.kind === 'team') return <TeamRow m={m} lead={lead} />;
+  if (m.kind === 'mission') return <MissionMessage m={m} lead={lead} first={mark.includes('first')} last={mark.includes('last')} />;
+  return <PlainMessage m={m} onOutput={onOutput} compact={compact} lead={lead} actions={actions} onGoTo={onGoTo} />;
+}
+
+function PlainMessage({ m, onOutput, compact, lead, actions, onGoTo }: { m: ThreadMessage; onOutput: (m: ThreadMessage) => void; compact?: boolean; lead: string; actions?: ThreadActions; onGoTo: (id: string) => void }) {
   const order = useOrch((s) => (m.orderId ? s.orders[m.orderId] : undefined));
   const conf = useOrch((s) => (m.confirmationId ? s.confirmations[m.confirmationId] : undefined));
   const time = <time className="msg-time" dateTime={m.at} title={formatDateTime(m.at)}>{timeOf(m.at)}</time>;
@@ -329,7 +349,7 @@ function MessageViewImpl({ m, onOutput, compact, lead, actions, onGoTo }: { m: T
             {m.plan.map((p, i) => (
               <li key={i}>
                 <span className="plan-handle">@{p.handle}</span>
-                <FoldText className="plan-text" text={p.text} fold={compact} />
+                <FoldText className="plan-text" text={m.missionId ? missionTaskText(p.text) : p.text} fold={compact || !!m.missionId} />
               </li>
             ))}
           </ol>
@@ -407,10 +427,32 @@ function MessageViewImpl({ m, onOutput, compact, lead, actions, onGoTo }: { m: T
 // with stable props (see ThreadList) only a message that changed renders again.
 const MessageView = memo(MessageViewImpl);
 
-export function ThreadList({ threadId, compact, empty, lead, actions }: { threadId: string; compact?: boolean; empty: ReactNode; lead?: string; actions?: ThreadActions }) {
+export function ThreadList({
+  threadId,
+  projectId,
+  compact,
+  empty,
+  lead,
+  actions,
+}: {
+  threadId: string;
+  /** The project the thread is in (a card's thread id does not say): its active missions are loaded. */
+  projectId?: string;
+  compact?: boolean;
+  empty: ReactNode;
+  lead?: string;
+  actions?: ThreadActions;
+}) {
   const hubLead = useLeadName();
   const who = lead ?? hubLead;
   const thread = useThread(threadId);
+  const mission = useActiveMission(threadId);
+  const items = useMemo(() => threadItems(thread.messages), [thread.messages]);
+  const marks = useMemo(() => missionMarks(thread.messages), [thread.messages]);
+  const pid = projectId ?? (threadId.startsWith('p_') ? threadId : '');
+  useEffect(() => {
+    if (pid) void orchStore.loadMissions(pid);
+  }, [pid]);
   // a primitive (command id), so the store snapshot stays stable between renders
   const pending = useOrch((s) => {
     for (const id in s.pending) if (s.pending[id].threadId === threadId && s.pending[id].state === 'planning') return id;
@@ -449,59 +491,75 @@ export function ThreadList({ threadId, compact, empty, lead, actions }: { thread
   }, [thread.messages.length, pending]);
 
   return (
-    <div
-      className={`thread-list ${compact ? 'is-compact' : ''}`}
-      ref={ref}
-      tabIndex={0}
-      aria-label="Thread"
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-      }}
-    >
-      {thread.hasMore && (
-        <Button size="sm" variant="ghost" icon="arrowUp" className="thread-older" onClick={() => void orchStore.loadOlder(threadId)}>
-          Show older messages
-        </Button>
-      )}
-      {thread.status === 'loading' && !thread.messages.length && (
-        <div className="list-msg" role="status">
-          <span className="spinner" aria-hidden="true" /> Loading the thread…
-        </div>
-      )}
-      {thread.status === 'unsupported' && <div className="list-msg">This hub does not keep threads yet. Update NextBoard on the hub to send orders.</div>}
-      {thread.status === 'error' && (
-        <div className="alert" role="alert">
-          <Icon name="alertCircle" />
-          <span>Could not load the thread: {thread.error}</span>
-        </div>
-      )}
-      {thread.status === 'ready' && !thread.messages.length && !pending && (typeof empty === 'string' ? <p className="thread-empty">{empty}</p> : empty)}
-      <ol className="msgs" aria-live="polite">
-        {thread.messages.map((m) => (
-          <MessageView key={m.id} m={m} onOutput={setOutput} compact={compact} lead={who} actions={msgActions} onGoTo={goTo} />
-        ))}
-        {pending && !thread.messages.some((m) => /still thinking/i.test(m.text)) && (
-          <li className="msg msg-hub kind-thinking">
-            <div className="msg-hub-body">
-              <LeadAvatar name={who} />
-              <span className="msg-text">{who} is thinking</span>
-              <span className="lead-dots" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </span>
-            </div>
-          </li>
+    <>
+      {mission && <MissionCard mission={mission} lead={who} pinned compact={compact} />}
+      <div
+        className={`thread-list ${compact ? 'is-compact' : ''}`}
+        ref={ref}
+        tabIndex={0}
+        aria-label="Thread"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+      >
+        {thread.hasMore && (
+          <Button size="sm" variant="ghost" icon="arrowUp" className="thread-older" onClick={() => void orchStore.loadOlder(threadId)}>
+            Show older messages
+          </Button>
         )}
-      </ol>
-      {output && (
-        <OutputViewer
-          message={output}
-          onClose={() => setOutput(null)}
-          onAnswer={actions?.answer && output.role !== 'user' ? (t) => actions.answer!(output, t) : undefined}
-        />
-      )}
-    </div>
+        {thread.status === 'loading' && !thread.messages.length && (
+          <div className="list-msg" role="status">
+            <span className="spinner" aria-hidden="true" /> Loading the thread…
+          </div>
+        )}
+        {thread.status === 'unsupported' && <div className="list-msg">This hub does not keep threads yet. Update NextBoard on the hub to send orders.</div>}
+        {thread.status === 'error' && (
+          <div className="alert" role="alert">
+            <Icon name="alertCircle" />
+            <span>Could not load the thread: {thread.error}</span>
+          </div>
+        )}
+        {thread.status === 'ready' && !thread.messages.length && !pending && (typeof empty === 'string' ? <p className="thread-empty">{empty}</p> : empty)}
+        <ol className="msgs" aria-live="polite">
+          {items.map((it) =>
+            it.kind === 'team' ? (
+              <TeamRun key={it.key} msgs={it.msgs} lead={who} />
+            ) : (
+              <MessageView
+                key={it.m.id}
+                m={it.m}
+                onOutput={setOutput}
+                compact={compact}
+                lead={who}
+                actions={msgActions}
+                onGoTo={goTo}
+                mark={it.m.kind === 'mission' ? `${marks.first.has(it.m.id) ? 'first ' : ''}${marks.last.has(it.m.id) ? 'last' : ''}` : ''}
+              />
+            ),
+          )}
+          {pending && !thread.messages.some((m) => /still thinking/i.test(m.text)) && (
+            <li className="msg msg-hub kind-thinking">
+              <div className="msg-hub-body">
+                <LeadAvatar name={who} />
+                <span className="msg-text">{who} is thinking</span>
+                <span className="lead-dots" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </div>
+            </li>
+          )}
+        </ol>
+        {output && (
+          <OutputViewer
+            message={output}
+            onClose={() => setOutput(null)}
+            onAnswer={actions?.answer && output.role !== 'user' ? (t) => actions.answer!(output, t) : undefined}
+          />
+        )}
+      </div>
+    </>
   );
 }

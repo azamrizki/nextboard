@@ -314,6 +314,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
           </header>
           <ThreadList
             threadId={threadId}
+            projectId={project.id}
             lead={leadName}
             actions={{
               reply: (m, toLead) => {

@@ -119,6 +119,7 @@ type Service struct {
 	Loops    *Loops
 	Memory   *Memory
 	Layouts  *Layouts
+	Missions *Missions
 	// Git runs command-bar git steps (Phase 7, git.go); set by the hub.
 	Git GitActions
 	// Previews opens hub previews for "open localhost <port>" (optional).
@@ -141,18 +142,21 @@ type Service struct {
 	handoffFile sync.Mutex      // one writer of handoffs.json at a time
 	seen        *memorySeen     // what each console has of the memory
 	blocked     *blockedLists   // commands that need the owner's approval
+	team        teamPace        // team messages held back per console (missionteam.go)
 	stop        chan struct{}
 	once        sync.Once
 	wg          sync.WaitGroup
 	bgMu        sync.Mutex // guards bgClosed and every wg.Add of goBackground
 	bgClosed    bool
+	// mwake: by mission id, the lead's pending wake and what it remembers between wakes.
+	mwake map[string]*missionWakeState
 }
 
 // New loads threads, orders, loops, forwards, memory and layouts.
 func New(hub Hub, st *store.Store) *Service {
 	s := &Service{hub: hub, st: st, Now: time.Now,
 		thread: map[string]*threadQueue{}, forwards: map[string]*Forward{}, handoffs: map[string]*Handoff{},
-		edgeFired: map[string]time.Time{}, edgeQueue: map[string]*edgeQueued{}, turnDepth: map[string]int{}, turnOrder: map[string]string{},
+		edgeFired: map[string]time.Time{}, edgeQueue: map[string]*edgeQueued{}, mwake: map[string]*missionWakeState{}, turnDepth: map[string]int{}, turnOrder: map[string]string{},
 		turnContext: map[string][]string{}, briefed: map[string]bool{},
 		stop: make(chan struct{})}
 	s.Threads = newThreads(st)
@@ -165,6 +169,7 @@ func New(hub Hub, st *store.Store) *Service {
 	s.seen = newMemorySeen(st)
 	s.blocked = newBlockedLists(st)
 	s.Layouts = newLayouts(st)
+	s.Missions = newMissions(st)
 	s.Loops = newLoops(st, s)
 	s.loadForwards()
 	s.loadHandoffs()
@@ -189,6 +194,7 @@ func (s *Service) Start() {
 		s.Threads.Add(ThreadMessage{ThreadID: o.ThreadID, Role: "hub", Kind: "note", OrderID: o.ID, Text: text, Resend: len(missed) > 0})
 	}
 	s.Orders.Save(now)
+	s.missionsAfterRestart(now)
 	s.Loops.Restart(now)
 	s.recoverHandoffs(now)
 	s.wg.Add(1)
@@ -239,7 +245,10 @@ func (s *Service) goBackground(fn func()) {
 func (s *Service) Tick(now time.Time) {
 	for _, cf := range s.Confirms.Expire(now) {
 		s.publishConfirm(cf)
-		s.Threads.Add(ThreadMessage{ThreadID: cf.ThreadID, Role: "hub", Kind: "note", ConfirmationID: cf.ID, Text: "Confirmation expired; nothing was done."})
+		s.Threads.Add(ThreadMessage{ThreadID: cf.ThreadID, Role: "hub", Kind: "note", ConfirmationID: cf.ID, Text: "Confirmation expired; nothing was done.", MissionID: cf.MissionID})
+		if cf.MissionID != "" {
+			s.missionConfirmGone(cf, "not answered in time")
+		}
 	}
 	s.plannerTick(now)
 	s.ordersTick(now)
@@ -247,6 +256,8 @@ func (s *Service) Tick(now time.Time) {
 	s.forwardsTick(now)
 	s.handoffsTick(now)
 	s.Loops.Tick(now)
+	s.missionsTick(now)
+	s.teamTick(now)
 }
 
 func (s *Service) publishConfirm(cf Confirmation) {

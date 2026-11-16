@@ -142,7 +142,17 @@ type Lead struct {
 	// Providers is the API provider the consoles the lead starts run on, by agent id; absent = the
 	// agent's login. An order that names an account wins.
 	Providers map[string]string `json:"providers,omitempty"`
+	// Language the lead speaks to the owner in: "" = the language the owner writes in, "id" =
+	// Bahasa Indonesia, "en" = English. Orders for agents stay in English.
+	Language string `json:"language"`
+	// MissionRounds and MissionHours limit a mission (docs/API-orchestration.md §22): lead
+	// turns, and hours since its approval, before the lead asks the owner whether to go on.
+	MissionRounds int `json:"missionRounds"`
+	MissionHours  int `json:"missionHours"`
 }
+
+// LeadLanguages are the languages lead.language may name, by code.
+var LeadLanguages = map[string]string{"id": "Bahasa Indonesia", "en": "English"}
 
 // Memory configures project memory (§12).
 type Memory struct {
@@ -202,7 +212,7 @@ func Defaults() Settings {
 		Shortcuts: Shortcuts{Select: "v", Hand: "h", Spawn: "t", Pen: "p", Eraser: "e", Git: "g", Memory: "m",
 			Skills: "s", Loops: "l", Markdown: "d", NeedsYou: "n"},
 		Runner: Runner{DefaultAgent: "claude"},
-		Lead:   Lead{Name: DefaultLeadName, TalkFirst: true},
+		Lead:   Lead{Name: DefaultLeadName, TalkFirst: true, MissionRounds: 30, MissionHours: 4},
 		Delivery: Delivery{WhileWorking: "queue", StartingTimeoutSec: 60, NeedsYouTimeoutSec: 900, WorkingTimeoutSec: 1800,
 			ReconnectTimeoutSec: 300, SubmitDelayMs: 200, HumanTypingGuardSec: 2, PromptTimeoutSec: 120},
 		Commands: Commands{Planner: "auto", ConfirmTTLSec: 60, ReportTimeoutMin: 30, RiskyPatterns: []string{}},
@@ -397,6 +407,15 @@ func validate(s *Settings) error {
 	}
 	if e := s.Lead.Effort; e != "" && !effortRe.MatchString(e) {
 		return badSetting("lead.effort: an effort level")
+	}
+	if l := s.Lead.Language; l != "" && LeadLanguages[l] == "" {
+		return badSetting(`lead.language must be "", "id" or "en"`)
+	}
+	if n := s.Lead.MissionRounds; n < 1 || n > 500 {
+		return badSetting("lead.missionRounds: 1 to 500")
+	}
+	if n := s.Lead.MissionHours; n < 1 || n > 72 {
+		return badSetting("lead.missionHours: 1 to 72")
 	}
 	if len(s.Lead.Providers) > 64 {
 		return badSetting("lead.providers: at most 64 agents")

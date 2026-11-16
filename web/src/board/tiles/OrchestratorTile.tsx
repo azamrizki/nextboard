@@ -28,7 +28,8 @@ import { orchApi } from '../../orch/api';
 import { replyDraftOf, replyText, useLeadName, useTalkFirst, messageAuthor, messageText, type ReplyDraft } from '../../orch/lead';
 import { AgentChip, GENERAL_IDEAS, LeadAvatar, LeadProfileDialog, OrderWelcome, ReplyChip } from '../../orch/OrderBits';
 import { copyText } from '../../lib/clipboard';
-import { orchStore, useThread } from '../../orch/store';
+import { orchStore, useActiveMission, useThread } from '../../orch/store';
+import { missionChip, missionStateLabel, missionTone } from '../../orch/mission';
 import { ThreadList, type ThreadActions } from '../../orch/ThreadView';
 import { restartConsole } from '../../agents/actions';
 import type { FlowNode } from '../flow';
@@ -57,6 +58,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const doc = useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
   const connecting = useUi((s) => s.connectFrom === id);
   const thread = useThread(id);
+  const mission = useActiveMission(id);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const att = useAttachments(project.id);
@@ -265,6 +267,11 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         }
         actions={
           <>
+            {mission && (
+              <span className={`mission-chip tone-${missionTone(mission.state)}`} title={`Mission · ${missionStateLabel(mission.state)}: ${mission.goal}`}>
+                {missionChip(mission)}
+              </span>
+            )}
             {team.running.length > 0 &&
               (team.resume ? (
                 <Button size="sm" variant="ghost" iconOnly icon="play" className="nodrag" aria-label="Resume all" title={`Resume all ${team.running.length}`} onClick={() => void resumeSessions(team.running)} />
@@ -458,6 +465,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         )}
         <ThreadList
           threadId={id}
+          projectId={project.id}
           compact
           lead={name}
           actions={threadActions}

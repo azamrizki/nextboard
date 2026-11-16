@@ -119,6 +119,10 @@ var RemoteToolNames = []string{"read_file", "write_file", "edit_file", "grep", "
 // MemoryReadTools are the hub's tools that only read, approved without asking.
 var MemoryReadTools = []string{"memory_search", "memory_read"}
 
+// MissionReadTools only read a team's mission (docs/API-orchestration.md §22), approved without
+// asking as well; the team's other tools follow the CLI's rules like memory_save.
+var MissionReadTools = []string{"mission_read"}
+
 // CredentialTools are approved without the CLI asking as well: the hub asks the owner in the
 // browser for every command that gets a value (docs/API-vault.md), so a second prompt in the
 // console would only be a click more.
@@ -192,7 +196,7 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			p.env = append(p.env, "NB_MCP="+ClaudeMCPConfig(hub, c.MCP))
 		}
 		if c.MemoryDir != "" {
-			p.args = append(p.args, "--allowedTools", mcpTool(slices.Concat(MemoryReadTools, CredentialTools)))
+			p.args = append(p.args, "--allowedTools", mcpTool(slices.Concat(MemoryReadTools, MissionReadTools, CredentialTools)))
 		}
 	case "codex":
 		p.args = append(p.args, "-c", "mcp_servers.nextboard.url="+tomlString(c.MCPURL),
@@ -236,7 +240,7 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		if len(c.Blocked) > 0 && !c.Remote {
 			perm["bash"] = OpenCodeBash(c.Blocked)
 		}
-		for _, tool := range slices.Concat(MemoryReadTools, CredentialTools) {
+		for _, tool := range slices.Concat(MemoryReadTools, MissionReadTools, CredentialTools) {
 			perm["nextboard_"+tool] = "allow"
 		}
 		if len(c.AddDirs) > 0 && !c.Remote {

@@ -59,6 +59,9 @@ type Step struct {
 	// Task: a task board change, or the card a send hands out (§3.10).
 	Task  *TaskEdit       `json:"task,omitempty"`
 	Extra map[string]bool `json:"-"`
+
+	// Diagram: what a diagram step draws, besides Text and its place (diagram.go).
+	Diagram *DiagramAsk `json:"diagram,omitempty"`
 }
 
 // TileGeom is a tile's position and size; only what is set changes.
@@ -84,6 +87,7 @@ var stepOps = map[string]bool{
 	"loop.create": true, "git": true, "memory.push": true, "memory.scan": true, "layout.deploy": true, "reply": true,
 	"node.update": true, "node.delete": true, "connect": true, "disconnect": true, "console.rename": true,
 	"task.add": true, "task.update": true, "task.delete": true,
+	"diagram": true,
 }
 
 // PlannerOps is the subset the planner may emit (§3.5).
@@ -95,6 +99,7 @@ var PlannerOps = map[string]bool{
 	"console.rename": true, "group.dissolve": true,
 	"workspace.create": true, "workspace.rename": true, "workspace.go": true,
 	"task.add": true, "task.update": true, "task.delete": true,
+	"diagram": true,
 }
 
 var idRe = regexp.MustCompile(`^[a-z]{1,3}_[A-Za-z0-9]{4,32}$`)
@@ -248,6 +253,8 @@ func (s Step) Validate() error {
 		if s.LayoutID == "" {
 			return badStep("layout.deploy: layoutId")
 		}
+	case "diagram":
+		return validateDiagramStep(s)
 	case "reply":
 		if strings.TrimSpace(s.Text) == "" {
 			return badStep("reply: text")
@@ -305,6 +312,7 @@ const (
 	ConfLoop        = "loop"
 	ConfBulkSpawn   = "bulkSpawn"
 	ConfProposal    = "proposal" // the lead's dangerous plan, held until the owner agrees
+	ConfMission     = "mission"  // a mission's plan, or going on past a limit (§22)
 
 	ConfPending   = "pending"
 	ConfConfirmed = "confirmed"
@@ -346,6 +354,8 @@ type Confirmation struct {
 	State      string      `json:"state"`
 	DecidedBy  string      `json:"decidedBy,omitempty"`
 	Choice     string      `json:"choice,omitempty"`
+	// MissionID: the mission this asks about (kind "mission"), or whose step it holds (§22).
+	MissionID string `json:"missionId,omitempty"`
 	// hub-side context to execute the steps later
 	ctx *execCtx
 }
@@ -383,6 +393,10 @@ type savedCtx struct {
 	Reply       *ReplyRef `json:"reply,omitempty"`
 	// Place is the command's place for consoles it starts (CommandRequest.Place).
 	Place project.Place `json:"place,omitzero"`
+	// MissionID: the lead ran this mission; its sends become the mission's tasks. TeamOK: the
+	// owner agreed to those sends adding consoles to its team.
+	MissionID string `json:"missionId,omitempty"`
+	TeamOK    bool   `json:"teamOk,omitempty"`
 }
 
 func newConfirms(st *store.Store) *Confirms {
@@ -396,7 +410,7 @@ func newConfirms(st *store.Store) *Confirms {
 		if x := saved.Ctx; x != nil {
 			cf.ctx = &execCtx{commandID: x.CommandID, threadID: x.ThreadID, projectID: x.ProjectID, workspaceID: x.WorkspaceID,
 				cardID: x.CardID, clientID: x.ClientID, source: x.Source, by: x.By, selection: x.Selection,
-				plannerMode: x.PlannerMode, planned: x.Planned, reply: x.Reply, place: x.Place}
+				plannerMode: x.PlannerMode, planned: x.Planned, reply: x.Reply, place: x.Place, missionID: x.MissionID, teamOK: x.TeamOK}
 		}
 		c.byID[cf.ID] = &cf
 		if cf.State == ConfPending {
@@ -414,7 +428,7 @@ func (c *Confirms) saveLocked() {
 		if x := cf.ctx; x != nil {
 			saved.Ctx = &savedCtx{CommandID: x.commandID, ThreadID: x.threadID, ProjectID: x.projectID, WorkspaceID: x.workspaceID,
 				CardID: x.cardID, ClientID: x.clientID, Source: x.source, By: x.by, Selection: x.selection,
-				PlannerMode: x.plannerMode, Planned: x.planned, Reply: x.reply, Place: x.place}
+				PlannerMode: x.plannerMode, Planned: x.planned, Reply: x.reply, Place: x.place, MissionID: x.missionID, TeamOK: x.teamOK}
 		}
 		list = append(list, saved)
 	}

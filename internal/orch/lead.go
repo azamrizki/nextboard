@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/azamrizki/nextboard/internal/settings"
 )
 
 // The lead (docs/API-orchestration.md §3.9): the orchestrator as a person, the
@@ -31,13 +33,15 @@ var (
 type leadProfile struct {
 	name, personality string
 	talkFirst         bool
+	// language the lead speaks to the owner in, by name ("" = the owner's own)
+	language string
 }
 
 // leadOf is who speaks in this scope: the hub's lead, or a card with a name and
 // a personality of its own.
 func (s *Service) leadOf(sc *scope) leadProfile {
 	l := s.hub.Settings().Lead
-	p := leadProfile{name: l.Name, personality: l.Personality, talkFirst: l.TalkFirst}
+	p := leadProfile{name: l.Name, personality: l.Personality, talkFirst: l.TalkFirst, language: settings.LeadLanguages[l.Language]}
 	if sc.card != nil {
 		var d OrchestratorData
 		_ = json.Unmarshal(sc.card.Data, &d)
@@ -57,7 +61,11 @@ func leadPrompt(p leadProfile) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are %s, the lead agent of this project's team on NextBoard, a board of AI coding agent consoles (Claude Code, Codex, …).\n", p.name)
 	b.WriteString("You are the owner's assistant and the one who leads the other agents: you talk with the owner, think the work through with them, then hand it out and keep track of it. You write no code yourself; the consoles do that.\n")
-	b.WriteString("Talk like a capable colleague: warm, direct, no filler, in the language the owner writes in. You may have opinions and say when you would do something differently. The owner is \"the user\" below.\n")
+	fmt.Fprintf(&b, "Talk like a capable colleague: warm, direct, no filler, %s. You may have opinions and say when you would do something differently. The owner is \"the user\" below.\n", p.ownerLanguage())
+	if p.language != "" {
+		fmt.Fprintf(&b, "Everything you write for the owner is in %s: \"reply\", \"danger\", a mission's question to the owner and its final summary.\n", p.language)
+	}
+	b.WriteString("Write instructions for agents (the text of send steps, mission tasks and the shared brief) in English, unless the owner asks for another language.\n")
 	if p.personality != "" {
 		fmt.Fprintf(&b, "Your personality, as the owner describes it:\n%s\n", p.personality)
 	}
@@ -66,13 +74,28 @@ func leadPrompt(p leadProfile) string {
 - A greeting, a question, an idea or anything not yet decided gets an answer in "reply" and no steps.
 - When the owner wants work done and something important is unclear, ask in "reply" (one or two questions, only what you cannot decide yourself) and return no steps yet.
 - When the work is clear, say in "reply" in a line or two who gets what, and put it in "steps". Steps run as soon as you return them, so do not ask whether to go ahead. Say who gets what, not that it is done: the hub may still hold a step that looks dangerous.
-- Only when a step can destroy or lose something (deleting files or data, dropping or resetting a database, overwriting git history, changing production, exposing a secret), also set "danger" to what could be lost, in one short sentence in the owner's language. The hub then holds all the steps until the owner agrees, so say in "reply" that you are waiting for their OK.
+- Only when a step can destroy or lose something (deleting files or data, dropping or resetting a database, overwriting git history, changing production, exposing a secret), also set "danger" to what could be lost, in one short sentence in ` + p.dangerLanguage() + `. The hub then holds all the steps until the owner agrees, so say in "reply" that you are waiting for their OK.
 - "pendingPlan" is a dangerous plan waiting for the owner's answer. If they change something, return the whole new plan in "steps", with "danger" if it still applies. If they only ask about it, answer and return no steps: it stays as it is.
 `)
 	} else {
 		b.WriteString("Steps run as soon as you return them, so carry out what the owner asks right away.\n")
 	}
 	return b.String()
+}
+
+// ownerLanguage is how the lead picks the language it talks to the owner in.
+func (p leadProfile) ownerLanguage() string {
+	if p.language == "" {
+		return "in the language the owner writes in"
+	}
+	return "always in " + p.language + ", whatever language the owner writes in"
+}
+
+func (p leadProfile) dangerLanguage() string {
+	if p.language == "" {
+		return "the owner's language"
+	}
+	return p.language
 }
 
 // addressedToLead: "@Aruna what do you think" is for the lead herself, unless a
@@ -116,8 +139,9 @@ func (s *Service) runPlan(c *execCtx, sc *scope, steps []Step, danger string) {
 		s.addConfirm(c, cf)
 		return
 	}
-	// New work replaces a plan the owner was still looking at, or it could run as well.
-	if handsOutWork(steps) {
+	// New work replaces a plan the owner was still looking at, or it could run as well. A
+	// mission's wake is not the owner talking: their plan stays (§22).
+	if handsOutWork(steps) && !c.wake {
 		if old, ok := s.Confirms.Pending(c.threadID, s.Now()); ok && old.Kind == ConfProposal {
 			if d, err := s.Confirms.Decide(old.ID, "cancel", "", c.by, s.Now()); err == nil {
 				s.publishConfirm(d)
@@ -199,6 +223,8 @@ func describePlan(sc *scope, steps []Step) []PlanNote {
 			line("Update task %s", st.Task.Card)
 		case "task.delete":
 			line("Remove task %s", st.Task.Card)
+		case "diagram":
+			line("Draw a diagram: %s", firstNonEmpty(st.Text, st.Diagram.Subject))
 		case "ui", "reply", "ask":
 			// nothing the owner has to agree on
 		default:

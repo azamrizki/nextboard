@@ -402,6 +402,7 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
         <ThreadList
           key={threadId}
           threadId={threadId}
+          projectId={project.id}
           compact
           lead={name}
           actions={{
@@ -420,7 +421,7 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
         />
       </div>
       <div className="wb-orch-foot">
-        {pending && pending.kind !== 'proposal' && <ConfirmationCard c={pending} compact />}
+        {pending && pending.kind !== 'proposal' && pending.kind !== 'mission' && <ConfirmationCard c={pending} compact />}
         {reply && <ReplyChip reply={reply} onClear={() => setReply(null)} />}
         {(attached || shownTeam.length > 0) && (
           <div className="wb-orch-chips">

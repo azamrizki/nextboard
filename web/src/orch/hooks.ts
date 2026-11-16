@@ -1,7 +1,8 @@
 // Small React hooks over the live stores for orchestration UI.
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import type { Session } from '../lib/types';
+import { tickWhileVisible } from '../lib/visibleTick';
 import { store } from '../store';
 
 /** All sessions (re-renders on any session change). */
@@ -55,4 +56,14 @@ export function useNow(ms = 1000, enabled = true): number {
     return () => window.clearInterval(t);
   }, [ms, enabled]);
   return now;
+}
+
+/** Renders again every `ms` while the element is on screen and the tab is shown (a live countdown). */
+export function useVisibleTick(ref: RefObject<Element | null>, enabled: boolean, ms = 1000): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!enabled || !el) return;
+    return tickWhileVisible(el, ms, () => setTick((n) => n + 1));
+  }, [ref, enabled, ms]);
 }

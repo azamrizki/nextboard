@@ -345,6 +345,26 @@ func leadEvalCases(providerID, providerName, runner string) []evalCase {
 			},
 		},
 		{
+			// Work two consoles must do together is a mission (§22), proposed and not sent.
+			name: "mission-frontend-api", consoles: 2,
+			run: func(e *evalBoard) (string, bool) {
+				a, b := e.handles[0], e.handles[1]
+				e.say(fmt.Sprintf("Bangun fitur daftar pesanan: %s mengerjakan halaman frontend-nya, %s API GET /api/orders-nya. Mereka harus sepakat soal bentuk datanya dan kerja bareng sampai selesai.", a, b))
+				_, l := e.h.do("GET", "/api/projects/"+e.pid+"/missions?active=1", nil, nil)
+				items, _ := l["items"].([]any)
+				if len(items) != 1 {
+					return fmt.Sprintf("missions=%d sent=%d", len(items), len(e.orders())), false
+				}
+				m := items[0].(map[string]any)
+				who := map[string]bool{}
+				for _, x := range m["tasks"].([]any) {
+					who[x.(map[string]any)["handle"].(string)] = true
+				}
+				ok := m["state"] == "awaiting_approval" && who[a] && who[b] && strings.TrimSpace(fmt.Sprint(m["doc"])) != "" && len(e.orders()) == 0
+				return fmt.Sprintf("state=%v tasks=%d doc=%q sent=%d", m["state"], len(m["tasks"].([]any)), clip(fmt.Sprint(m["doc"]), 80), len(e.orders())), ok
+			},
+		},
+		{
 			// The lead forwards a result with mode split: each target gets only its own part.
 			name: "split-result", consoles: 3,
 			setup: func(e *evalBoard) {

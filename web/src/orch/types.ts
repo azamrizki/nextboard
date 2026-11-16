@@ -183,7 +183,7 @@ export interface Step {
   [k: string]: unknown;
 }
 
-export type ConfirmationKind = 'destructive' | 'didYouMean' | 'sendToAll' | 'risky' | 'loop' | 'bulkSpawn' | 'proposal';
+export type ConfirmationKind = 'destructive' | 'didYouMean' | 'sendToAll' | 'risky' | 'loop' | 'bulkSpawn' | 'proposal' | 'mission';
 export interface Confirmation {
   id: string;
   threadId: string;
@@ -198,6 +198,8 @@ export interface Confirmation {
   expiresAt: string;
   state: 'pending' | 'confirmed' | 'cancelled' | 'expired' | string;
   decidedBy?: string;
+  /** Kind "mission": the mission it approves or asks about (else found by its confirmationId). */
+  missionId?: string;
 }
 
 export interface PlannerStatus {
@@ -210,7 +212,7 @@ export interface PlannerStatus {
 
 // ---- §4 threads & orders ----------------------------------------------------------
 
-export type MessageKind = 'order' | 'plan' | 'report' | 'reply' | 'note' | 'confirm' | 'error';
+export type MessageKind = 'order' | 'plan' | 'report' | 'reply' | 'note' | 'confirm' | 'error' | 'team' | 'mission';
 export interface ThreadMessage {
   id: string;
   threadId: string;
@@ -229,6 +231,19 @@ export interface ThreadMessage {
   replyTo?: { id: string; handle?: string; excerpt: string } | null;
   /** Offer to send orderId again while one of its targets is undelivered. */
   resend?: boolean;
+  /** The mission this message belongs to (its orders, team messages and state notes). */
+  missionId?: string;
+  /** Kind "team": who wrote to whom inside a mission. */
+  team?: TeamRef | null;
+}
+
+export type TeamKind = 'ask' | 'reply' | 'update' | 'doc' | 'report';
+/** A team message's sender and receiver: handles, or the lead (its name or "lead"). */
+export interface TeamRef {
+  from: string;
+  to?: string;
+  kind: TeamKind | string;
+  questionId?: string;
 }
 
 /** The reply a report message stands for (GET /api/threads/{tid}/messages/{id}/output). */
@@ -340,6 +355,72 @@ export interface Mission {
   groups: MissionGroup[] | null;
   consoles: MissionConsole[] | null;
   counts: { working: number; needsYou: number; idle: number; done: number; asleep?: number };
+}
+
+// ---- missions: orchestrated teamwork ------------------------------------------------------
+
+export type MissionState = 'awaiting_approval' | 'running' | 'waiting_owner' | 'paused' | 'done' | 'stopped' | 'failed';
+export type MissionTaskState = 'waiting' | 'sent' | 'working' | 'done' | 'failed' | 'cancelled';
+
+export interface MissionTask {
+  /** "t1", "t2", … stable within the mission. */
+  id: string;
+  /** The console that does it. */
+  handle: string;
+  sessionId?: string;
+  title: string;
+  text: string;
+  dependsOn?: string[] | null;
+  state: MissionTaskState | string;
+  orderId?: string;
+  /** What the agent reported, else the excerpt of its reply. */
+  result?: string;
+  updatedAt?: string;
+}
+
+/** A mission: one goal, a plan per agent, run by the lead to the end once the owner approves. */
+export interface MissionRun {
+  id: string;
+  projectId: string;
+  /** The project thread p_… or an orchestrator card n_…. */
+  threadId: string;
+  workspaceId: string;
+  cardId?: string;
+  /** The lead's name. */
+  lead: string;
+  goal: string;
+  /** The plan in a few lines. */
+  summary: string;
+  doneWhen: string;
+  /** The shared brief (markdown). */
+  doc: string;
+  docRev: number;
+  tasks: MissionTask[] | null;
+  state: MissionState | string;
+  /** Why it waits for the owner (state waiting_owner). */
+  waiting?: string;
+  rounds: number;
+  maxRounds: number;
+  deadline?: string | null;
+  /** The final summary for the owner (markdown). */
+  result?: string;
+  /** The open approval or question. */
+  confirmationId?: string;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string | null;
+  endedAt?: string | null;
+}
+
+/** POST /api/projects/{id}/missions: what the planner proposes, and the thread it runs in. */
+export interface MissionInput {
+  goal: string;
+  summary?: string;
+  doneWhen?: string;
+  doc?: string;
+  tasks: { id: string; handle: string; title: string; text: string; dependsOn?: string[] }[];
+  threadId?: string;
+  cardId?: string;
 }
 
 // ---- §9 handoff / §10 forward -----------------------------------------------------------
@@ -629,4 +710,5 @@ export type OrchEvent =
   | { type: 'memory'; projectId: string; scope: 'project' | 'global'; mtime: string }
   | { type: 'layouts' }
   | { type: 'job'; job: Job }
+  | { type: 'mission'; mission: MissionRun }
   | { type: 'jobOutput'; jobId: string; seq: number; text: string };

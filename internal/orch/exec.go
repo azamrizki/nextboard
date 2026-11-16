@@ -17,6 +17,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/session"
+	"github.com/azamrizki/nextboard/internal/settings"
 )
 
 // execute runs steps in order; a failing step is recorded and later
@@ -41,6 +42,16 @@ func (s *Service) runStep(c *execCtx, st Step) error {
 		mode := st.Mode
 		if mode == "" {
 			mode = "verbatim"
+		}
+		// the lead runs a mission here: its sends to the team are tasks the hub sends when they
+		// are ready; the rest is a plain order, outside the mission
+		if c.missionID != "" {
+			if st.Targets = s.missionSend(c, st); len(st.Targets) == 0 {
+				return nil
+			}
+			mid := c.missionID
+			c.missionID = ""
+			defer func() { c.missionID = mid }()
 		}
 		if st.Task != nil {
 			o := s.sendOrder(c, st.Targets, st.Text, sourceTask, 0)
@@ -233,6 +244,8 @@ func (s *Service) runStep(c *execCtx, st Step) error {
 			return err
 		}
 		s.note(c, fmt.Sprintf("Deployed the layout: %d console(s).", len(res.Sessions)))
+	case "diagram":
+		return s.diagramStep(c, st)
 	case "reply":
 		s.say(c, ThreadMessage{Kind: "reply", Text: st.Text})
 	}
@@ -278,7 +291,7 @@ func (s *Service) handlesOf(sids []string) string {
 func (s *Service) sendOrder(c *execCtx, targets []string, text, source string, depth int) Order {
 	now := s.Now()
 	o := Order{ID: auth.RandomID("o_"), ThreadID: c.threadID, ProjectID: c.projectID, CommandID: c.commandID,
-		Text: text, Source: source, CreatedAt: now.UTC()}
+		Text: text, Source: source, CreatedAt: now.UTC(), MissionID: c.missionID}
 	var plan []PlanNote
 	for _, sid := range uniq(targets) {
 		in, _ := s.hub.SessionInfo(sid)
@@ -576,8 +589,12 @@ func (sc *scope) perBoard(agents []session.Info) string {
 // excerpts are the fallback.
 func (s *Service) summarise(c *execCtx, raw string) {
 	tid := c.threadID
+	ask := "Summarise these agent reports for the user in at most 5 short sentences"
+	if l := settings.LeadLanguages[s.hub.Settings().Lead.Language]; l != "" {
+		ask += ", in " + l // the language the owner chose for the lead
+	}
 	req, err := s.leadRequest(jobs.RunnerRequest{Purpose: "thread-summary", ProjectID: c.projectID,
-		Prompt: "Summarise these agent reports for the user in at most 5 short sentences:\n\n" + raw,
+		Prompt: ask + ":\n\n" + raw,
 		OnFinish: func(j jobs.Job) {
 			text := raw
 			if j.State == jobs.StateDone {

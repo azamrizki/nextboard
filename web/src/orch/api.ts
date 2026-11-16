@@ -27,6 +27,8 @@ import type {
   MemoryDoc,
   Mention,
   Mission,
+  MissionInput,
+  MissionRun,
   Order,
   PlannerStatus,
   MemoryBlock,
@@ -126,6 +128,15 @@ export const orchApi = {
   // §7 mission
   mission: (workspaceId: string, scope?: 'project') =>
     call<Mission>('GET', `/api/workspaces/${enc(workspaceId)}/mission${scope ? `?scope=${scope}` : ''}`),
+
+  // missions: orchestrated teamwork
+  missionRuns: (projectId: string, active = true) =>
+    call<{ items: MissionRun[] | null }>('GET', `/api/projects/${enc(projectId)}/missions${active ? '?active=1' : ''}`).then(items),
+  missionRun: (id: string) => call<MissionRun>('GET', `/api/missions/${enc(id)}`),
+  createMission: (projectId: string, body: MissionInput) => call<MissionRun>('POST', `/api/projects/${enc(projectId)}/missions`, body),
+  pauseMission: (id: string) => call<MissionRun>('POST', `/api/missions/${enc(id)}/pause`),
+  resumeMission: (id: string) => call<MissionRun>('POST', `/api/missions/${enc(id)}/resume`),
+  stopMission: (id: string) => call<MissionRun>('POST', `/api/missions/${enc(id)}/stop`),
 
   // §8 pause / resume
   pause: (sessionId: string) => call<Session>('POST', `/api/sessions/${enc(sessionId)}/pause`),

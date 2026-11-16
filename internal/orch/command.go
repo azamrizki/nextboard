@@ -72,6 +72,14 @@ type execCtx struct {
 	// place is where consoles the command starts go when it names no placement (the UI's
 	// default); zero = the root, the lead's level (§3.10).
 	place project.Place
+	// missionID: the lead runs this mission here (§22): its sends become the mission's
+	// tasks, its messages carry the mission. wake: a lead turn the mission woke, for
+	// wakeReasons.
+	missionID   string
+	wake        bool
+	wakeReasons []string
+	// teamOK: the owner agreed to these steps adding consoles to the mission's team.
+	teamOK bool
 }
 
 // spawnFallback is where a command's spawns go when they name no placement: the command's
@@ -88,6 +96,9 @@ func (s *Service) say(c *execCtx, m ThreadMessage) ThreadMessage {
 	if m.Role == "" {
 		m.Role = "hub"
 	}
+	if m.MissionID == "" {
+		m.MissionID = c.missionID
+	}
 	m = s.Threads.Add(m)
 	c.msgs = append(c.msgs, m)
 	return m
@@ -98,6 +109,8 @@ func (s *Service) note(c *execCtx, text string) { s.say(c, ThreadMessage{Kind: "
 type queuedCmd struct {
 	ctx  *execCtx
 	text string
+	// plan: it reached the planner while another turn held the thread (a mission's wake)
+	plan bool
 }
 
 // threadQueue serialises a thread while a planner turn runs.
@@ -153,6 +166,14 @@ func (s *Service) Command(req CommandRequest) (CommandResponse, error) {
 	c := &execCtx{commandID: auth.RandomID("cmd_"), threadID: tid, projectID: proj.ID, workspaceID: ws.ID,
 		cardID: req.CardID, clientID: req.ClientID, source: src, by: req.By, selection: req.Selection, plannerMode: req.Planner,
 		reply: s.replyRef(tid, req.ReplyTo), place: place}
+	// "stop mission" does not wait behind a planner turn: it is for now (§22)
+	if what := missionControl(text); what != "" {
+		if ms, ok := s.Missions.Active(tid); ok {
+			s.say(c, ThreadMessage{Role: "user", Kind: "order", Text: text, Source: src, ReplyTo: c.reply})
+			s.missionCommand(c, ms, what)
+			return s.response(c, "parser", nil), nil
+		}
+	}
 	s.mu.Lock()
 	tq := s.thread[tid]
 	if tq == nil {
@@ -178,6 +199,9 @@ func (s *Service) Command(req CommandRequest) (CommandResponse, error) {
 		s.note(c, placeNote)
 	}
 	handled, cf := s.process(c, text)
+	if handled != "pending" {
+		s.drain(tid, c) // a planner start of its that failed holds the thread until here
+	}
 	return s.response(c, handled, cf), nil
 }
 
@@ -205,8 +229,15 @@ func (s *Service) response(c *execCtx, handled string, cf *Confirmation) Command
 // a new confirmation, if any.
 func (s *Service) process(c *execCtx, text string) (string, *Confirmation) {
 	now := s.Now()
+	// "pause mission", "jeda misi", … (§22)
+	if what := missionControl(text); what != "" {
+		if ms, ok := s.Missions.Active(c.threadID); ok {
+			s.missionCommand(c, ms, what)
+			return "parser", nil
+		}
+	}
 	if cf, ok := s.Confirms.Pending(c.threadID, now); ok {
-		proposal := cf.Kind == ConfProposal
+		proposal := cf.Kind == ConfProposal || cf.Kind == ConfMission
 		switch {
 		case confirmWords.MatchString(text) || (proposal && agreeWords.MatchString(text)):
 			s.decide(cf.ID, "confirm", "", c.by, c)
@@ -232,6 +263,10 @@ func (s *Service) process(c *execCtx, text string) (string, *Confirmation) {
 	said, toLead := addressedToLead(sc, lead, text)
 	if toLead {
 		text = said
+	}
+	// the lead asked the owner something about the mission: what the owner writes is the answer
+	if ms, ok := s.Missions.Active(c.threadID); ok && ms.State == MissionWaiting && ms.ConfirmationID == "" {
+		toLead = true
 	}
 	in := Parse(text, ParseContext{Agents: agentIDs(s.hub.Agents()), Parts: partNames(sc.proj)})
 	in.Text = withReply(in.Text, c.reply)
@@ -294,16 +329,42 @@ func (s *Service) addConfirm(c *execCtx, cf *Confirmation) *Confirmation {
 	if cf.Kind == ConfProposal {
 		ttl = proposalTTL // a conversation takes longer than a yes or no
 	}
+	if cf.Kind == ConfMission {
+		ttl = proposalTTL
+	}
+	// a step held while the lead runs a mission holds the mission too (§22)
+	held := c.missionID != "" && cf.Kind != ConfMission
+	if held {
+		cf.MissionID = c.missionID
+	}
+	// a wake does not set the owner's own open question aside: what it wanted waits
+	if c.wake && c.missionID != "" {
+		if old, ok := s.Confirms.Pending(c.threadID, s.Now()); ok && old.MissionID != c.missionID {
+			s.note(c, "Not done yet: answer the open question in the thread first ("+clipText(cf.Prompt, 160)+").")
+			s.MissionEvent(c.missionID, "not done, the owner had another question open: "+clipText(cf.Prompt, 200))
+			return cf
+		}
+	}
 	if old := s.Confirms.Add(cf, s.Now(), ttl); old != nil {
 		s.publishConfirm(*old)
+		// a thread has one open question: a mission's that gives way is not left hanging
+		if old.MissionID != "" && old.MissionID != cf.MissionID {
+			s.missionConfirmGone(*old, "set aside by another question in the thread")
+		}
 	}
-	s.say(c, ThreadMessage{Kind: "confirm", Text: cf.Prompt, ConfirmationID: cf.ID})
+	s.say(c, ThreadMessage{Kind: "confirm", Text: cf.Prompt, ConfirmationID: cf.ID, MissionID: cf.MissionID})
 	s.publishConfirm(*cf)
+	if held {
+		s.missionHeld(c.missionID, cf)
+	}
 	return cf
 }
 
 // Decide is POST /api/confirmations/{id}: the first decision wins.
 func (s *Service) Decide(id, decision, choice, by string) (Confirmation, error) {
+	if decision == "approve" { // the option id of a mission's approval (§22)
+		decision = "confirm"
+	}
 	return s.decide(id, decision, choice, by, nil)
 }
 
@@ -318,6 +379,15 @@ func (s *Service) decide(id, decision, choice, by string, in *execCtx) (Confirma
 		return cf, err
 	}
 	s.publishConfirm(cf)
+	if cf.Kind == ConfMission {
+		s.missionDecided(cf, decision, ctx)
+		cf.ctx = nil
+		return cf, nil
+	}
+	if cf.MissionID != "" {
+		// the mission runs again first, so the steps' sends become its tasks
+		s.missionStepDecided(cf, decision)
+	}
 	if ctx == nil {
 		return cf, nil
 	}

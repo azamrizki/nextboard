@@ -26,8 +26,9 @@ import { useMachineName } from '../../store';
 import { killSessions, pauseSessions, resumeSessions } from '../actions';
 import { orchApi } from '../api';
 import { useNow, useStoreSessions } from '../hooks';
-import { useOrch } from '../store';
-import { ROLE_LABEL, type Mission, type Role } from '../types';
+import { isMissionActive, taskStateLabel } from '../mission';
+import { orchStore, useOrch } from '../store';
+import { ROLE_LABEL, type Mission, type MissionTask, type Role } from '../types';
 
 type Filter = 'all' | 'working' | 'needs' | 'idle' | 'done';
 type Sel = { kind: 'director' | 'group' | 'console'; id: string } | null;
@@ -40,6 +41,8 @@ interface MConsole {
   directedBy: string[];
   subagents: number;
   currentOrder?: string;
+  /** Its task in an active mission of the project. */
+  mission?: { goal: string; task: MissionTask };
 }
 
 function bucket(s: Session): Filter {
@@ -54,6 +57,10 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
   const doc = useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
   const sessions = useStoreSessions();
   const orders = useOrch((s) => s.orders);
+  const missions = useOrch((s) => s.missions);
+  useEffect(() => {
+    void orchStore.loadMissions(ctl.project.id);
+  }, [ctl.project.id]);
   const narrow = useMediaQuery('(max-width: 899px)');
   const touch = useLayout().input === 'touch';
   const [filter, setFilter] = useState<Filter>('all');
@@ -90,6 +97,16 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
     const directed = new Map<string, string[]>();
     for (const c of cards) for (const t of directedTerminals(doc.nodes, doc.edges, c.id)) directed.set(t, [...(directed.get(t) ?? []), c.id]);
     const hubConsoles = new Map((hub?.consoles ?? []).map((c) => [c.sessionId, c]));
+    // each console's task in an active mission: the one it works on, else its latest
+    const missionOf = new Map<string, { goal: string; task: MissionTask }>();
+    for (const m of Object.values(missions)) {
+      if (m.projectId !== ctl.project.id || !isMissionActive(m)) continue;
+      for (const t of m.tasks ?? []) {
+        if (!t.sessionId || t.state === 'cancelled') continue;
+        const cur = missionOf.get(t.sessionId);
+        if (!cur || t.state === 'working' || t.state === 'sent' || (cur.task.state !== 'working' && cur.task.state !== 'sent')) missionOf.set(t.sessionId, { goal: m.goal, task: t });
+      }
+    }
     const consoles: MConsole[] = [];
     for (const n of doc.nodes) {
       if (n.kind !== 'terminal') continue;
@@ -106,6 +123,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
         directedBy: directed.get(n.id) ?? ['bar'],
         subagents: hc?.subagents ?? 0,
         currentOrder: cur,
+        mission: missionOf.get(s.id),
       });
     }
     const hubDirectors = new Map((hub?.directors ?? []).map((d) => [d.id, d]));
@@ -123,7 +141,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
     const direct = new Map<string, string[]>();
     for (const e of doc.edges) if (e.kind === 'wire' && byId.get(e.source)?.kind === 'orchestrator' && byId.get(e.target)?.kind === 'terminal') direct.set(e.target, [...(direct.get(e.target) ?? []), e.source]);
     return { consoles, directors, groups: gs, direct };
-  }, [doc, sessions, hub, orders]);
+  }, [doc, sessions, hub, orders, missions, ctl.project.id]);
 
   // a project in several parts: which part each console works in, or Root (v0.9.0-beta.2), and a
   // filter by them (ROADMAP #49); a console in no part's folder has neither, never the first part
@@ -293,6 +311,11 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
                     </span>
                   )}
                   <span className="spacer" />
+                  {c.mission && (
+                    <span className="cap-chip" title={`Mission: ${c.mission.goal} · ${c.mission.task.id} ${c.mission.task.title} (${taskStateLabel(c.mission.task.state)})`}>
+                      Mission · {c.mission.task.id}
+                    </span>
+                  )}
                   {c.subagents > 0 && <span className="cap-chip" title="Subagents running">{c.subagents} sub</span>}
                   <span className={`agent-pill tone-${pill.tone}`}>{pill.label}</span>
                   {(pill.activity || c.currentOrder) && <span className="mm-activity truncate">{pill.activity || `“${c.currentOrder}”`}</span>}
@@ -368,6 +391,15 @@ function ConsoleInspector({ c, now, onFocus, onKill }: { c: MConsole; now: numbe
         <dd>{pill.activity || s.activity || (s.error && s.status === 'error' ? s.error : '—')}</dd>
         <dt>Task</dt>
         <dd>{c.currentOrder || '—'}</dd>
+        {c.mission && (
+          <>
+            <dt>Mission</dt>
+            <dd>
+              {c.mission.task.title} · {taskStateLabel(c.mission.task.state)}
+              <span className="text-3 fs-xs"> — {c.mission.goal}</span>
+            </dd>
+          </>
+        )}
         <dt>Subagents</dt>
         <dd className="tabular">{c.subagents}</dd>
       </dl>

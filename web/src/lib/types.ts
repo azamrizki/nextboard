@@ -959,6 +959,11 @@ export interface Settings {
     effort?: string;
     /** agent id → API provider id for the consoles the lead starts. */
     providers?: Record<string, string>;
+    /** The language the lead writes to the owner in: "" follows the owner's messages, "id", "en". */
+    language?: string;
+    /** A mission's limits before the lead asks whether to go on (30 rounds, 4 hours). */
+    missionRounds?: number;
+    missionHours?: number;
   };
   usage?: { background: boolean; agents?: Record<string, boolean>; chime: { enabled: boolean; play: 'after100' | 'always'; sound: 'bell' | 'chime' | 'pop' | 'soft' } };
   runner?: { defaultAgent: 'claude' | 'codex' | string; /** hidden runs through this API provider; absent = the login */ provider?: string };

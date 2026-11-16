@@ -12,6 +12,7 @@ func (s *Service) ForgetProject(pid string, cards []string) {
 	}
 	s.Loops.DeleteProject(pid)
 	s.Orders.DeleteProject(pid, s.Now())
+	s.Missions.DeleteProject(pid, s.Now())
 	s.mu.Lock()
 	gone := 0
 	for id, h := range s.handoffs {

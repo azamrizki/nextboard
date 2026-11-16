@@ -1,6 +1,6 @@
 // Settings › Lead agent (docs/API-orchestration.md §3.9): the orchestrator's name, how it
 // talks and leads, and whether it talks before the team gets to work. A card can have its
-// own name and personality.
+// own name and personality. Mission limits: how long a mission runs before the lead asks.
 
 import { useEffect, useState } from 'react';
 import { errorMessage } from '../api';
@@ -10,7 +10,7 @@ import { patchSettings, useEffectiveSettings } from '../agents/settings';
 import { SettingRow, SwitchRow } from '../components/Switch';
 import { compatible, useProviders, type ApiProvider } from '../providers/providers';
 import { toast } from '../components/Toast';
-import { leadNameOf } from '../orch/lead';
+import { leadLanguageOptions, leadNameOf } from '../orch/lead';
 import { LeadAvatar } from '../orch/OrderBits';
 import '../styles/orch.css';
 
@@ -76,6 +76,21 @@ export function LeadPane() {
             }}
           />
         </div>
+        <div className="field">
+          <label className="field-label" htmlFor="lead-language">
+            Language
+          </label>
+          <select id="lead-language" className="control" aria-describedby="lead-language-hint" value={s.lead?.language ?? ''} onChange={(e) => void save({ language: e.target.value || null })}>
+            {leadLanguageOptions(s.lead?.language).map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <span id="lead-language-hint" className="field-hint">
+            What {name} writes to you: replies, questions, summaries. Orders to agents stay in English.
+          </span>
+        </div>
       </section>
       <LeadRunner />
       <section className="card settings-card" aria-labelledby="lead-how">
@@ -89,7 +104,62 @@ export function LeadPane() {
           onChange={(v) => void save({ talkFirst: v })}
         />
       </section>
+      <MissionLimits />
     </div>
+  );
+}
+
+/** What a mission may use before the lead stops and asks whether to go on (whichever comes first). */
+const ROUNDS = { min: 1, max: 500, fallback: 30 };
+const HOURS = { min: 1, max: 72, fallback: 4 };
+
+function LimitInput({ id, value, unit, limits, onCommit }: { id: string; value: number; unit: string; limits: typeof ROUNDS; onCommit: (n: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = Math.round(Number(draft));
+    if (!draft.trim() || !Number.isFinite(n)) return setDraft(String(value));
+    const v = Math.max(limits.min, Math.min(limits.max, n));
+    if (v !== value) onCommit(v);
+    setDraft(String(v));
+  };
+  return (
+    <div className="input-group has-addon min-sec lead-limit">
+      <input
+        id={id}
+        className="control control-sm tabular"
+        type="number"
+        min={limits.min}
+        max={limits.max}
+        inputMode="numeric"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && commit()}
+      />
+      <span className="ig-addon ig-text">{unit}</span>
+    </div>
+  );
+}
+
+function MissionLimits() {
+  const s = useEffectiveSettings();
+  const name = leadNameOf(s);
+  return (
+    <section className="card settings-card" aria-labelledby="lead-mission">
+      <h3 id="lead-mission" className="section-title">
+        Mission limits
+      </h3>
+      <p className="setting-hint">
+        Work that needs agents together (“build the feature with the frontend and api agents”) becomes a mission: you approve {name}’s plan once, then {name} leads the team to the end and only stops for something risky, a change of plan, or no progress. At whichever limit comes first, {name} asks you whether to go on.
+      </p>
+      <SettingRow title="Rounds" hint={`${name}’s turns in one mission, counted from your approval.`} htmlFor="lead-mission-rounds">
+        <LimitInput id="lead-mission-rounds" value={s.lead?.missionRounds ?? ROUNDS.fallback} unit="rounds" limits={ROUNDS} onCommit={(n) => void save({ missionRounds: n })} />
+      </SettingRow>
+      <SettingRow title="Time" hint="Counted from your approval." htmlFor="lead-mission-hours">
+        <LimitInput id="lead-mission-hours" value={s.lead?.missionHours ?? HOURS.fallback} unit="hours" limits={HOURS} onCommit={(n) => void save({ missionHours: n })} />
+      </SettingRow>
+    </section>
   );
 }
 

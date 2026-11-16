@@ -3131,3 +3131,477 @@ summary.memory-picker-head {
   width: auto;
   min-width: 0;
 }
+
+/* =========================================================================
+   Missions: the card pinned at the top of a thread, its plan in the approval,
+   the team's messages as compact rows, the final summary (MissionCard.tsx)
+   ========================================================================= */
+
+.mission-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-lg);
+  background: var(--surface-input);
+  border: var(--hairline) solid var(--glass-border);
+}
+/* pinned: between the thread's head and its messages, the lead's wire color as its edge */
+.mission-card.is-pinned {
+  flex: 0 0 auto;
+  margin: var(--s-3) var(--s-4) 0;
+  border-color: color-mix(in srgb, var(--wire) 45%, transparent);
+}
+.mission-card.is-pinned.is-compact {
+  margin: var(--s-2) var(--s-3) 0;
+}
+.mission-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.mission-icon {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  color: var(--c-primary-300);
+}
+.mission-kicker {
+  flex: 0 0 auto;
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+.mission-count {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.mission-expand {
+  flex: 0 0 auto;
+}
+.mission-goal {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.mission-meta {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mission-waiting {
+  display: flex;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--tint-warning-text);
+  overflow-wrap: anywhere;
+}
+.mission-waiting svg {
+  flex: 0 0 auto;
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+  margin-top: var(--nudge);
+}
+.mission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+}
+.mission-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding-top: var(--s-2);
+  border-top: var(--hairline) solid var(--glass-border);
+}
+/* the pinned card's details scroll on their own: the thread keeps its room */
+.mission-card.is-pinned .mission-details {
+  max-height: min(40vh, 340px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mission-summary-text,
+.mission-result {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mission-result {
+  font-size: var(--fs-xs);
+}
+.mission-when,
+.mission-none {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.mission-when strong {
+  color: var(--text);
+  font-weight: var(--fw-semibold);
+}
+
+/* state: a chip in the status tints, never the only sign (it says the state in words) */
+.mission-state,
+.mission-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: var(--h-badge);
+  padding: 0 var(--s-2);
+  border-radius: var(--r-pill);
+  background: var(--tint-grey-bg);
+  color: var(--tint-grey-text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.mission-chip {
+  font-variant-numeric: tabular-nums;
+}
+.mission-state.tone-success,
+.mission-chip.tone-success {
+  background: var(--tint-success-bg);
+  color: var(--tint-success-text);
+}
+.mission-state.tone-info,
+.mission-chip.tone-info {
+  background: var(--tint-info-bg);
+  color: var(--tint-info-text);
+}
+.mission-state.tone-warning,
+.mission-chip.tone-warning {
+  background: var(--tint-warning-bg);
+  color: var(--tint-warning-text);
+}
+.mission-state.tone-danger,
+.mission-chip.tone-danger {
+  background: var(--tint-danger-bg);
+  color: var(--tint-danger-text);
+}
+.mission-state.tone-needs,
+.mission-chip.tone-needs {
+  background: var(--c-warning);
+  color: var(--text-on-warning);
+}
+
+/* tasks per agent */
+.mission-agents,
+.mission-tasks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mission-agents {
+  gap: var(--s-2);
+}
+.mission-agent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nudge);
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.mission-agent > .plan-handle {
+  align-self: flex-start;
+}
+.mission-tasks {
+  gap: var(--s-1);
+  padding-left: var(--s-3);
+  border-left: var(--hairline) solid var(--glass-border);
+}
+.mission-task {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nudge);
+  min-width: 0;
+}
+.mission-task-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.mission-task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.mission-task.state-cancelled .mission-task-title {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.mission-after {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mission-task-state {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mission-task-state.tone-success {
+  color: var(--tint-success-text);
+}
+.mission-task-state.tone-info {
+  color: var(--text-2);
+}
+.mission-task-state.tone-danger {
+  color: var(--tint-danger-text);
+}
+.mission-dot {
+  flex: 0 0 auto;
+  width: var(--size-dot);
+  height: var(--size-dot);
+  border-radius: var(--r-pill);
+  background: var(--c-grey);
+}
+.mission-dot.tone-success {
+  background: var(--c-success);
+}
+.mission-dot.tone-info {
+  background: var(--c-primary-300);
+}
+.mission-dot.tone-danger {
+  background: var(--c-danger);
+}
+.mission-dot.tone-warning,
+.mission-dot.tone-needs {
+  background: var(--c-warning);
+}
+
+/* brief and team conversation: a toggle row, the content under it */
+.mission-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.mission-toggle,
+.team-run-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 28px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--s-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.mission-toggle:hover,
+.team-run-head:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.mission-toggle > svg,
+.team-run-head > svg {
+  flex: 0 0 auto;
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+}
+.mission-sub {
+  color: var(--text-3);
+  font-weight: var(--fw-regular);
+}
+.mission-chev {
+  margin-left: auto;
+}
+.mission-doc {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--surface-solid);
+  border: var(--hairline) solid var(--glass-border);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+.mission-doc.is-plain {
+  white-space: pre-wrap;
+}
+.mission-plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.confirm-card.kind-mission {
+  border-color: color-mix(in srgb, var(--wire) 45%, transparent);
+}
+/* the command bar's strip under a closed thread: the plan scrolls, the buttons stay */
+.confirm-strip .mission-plan {
+  max-height: min(40vh, 320px);
+  overflow-y: auto;
+}
+
+/* team messages: compact rows, who wrote to whom */
+.msg-team {
+  gap: var(--nudge);
+  padding: var(--s-1) var(--s-2);
+  border-left: 2px solid var(--glass-border-strong);
+}
+.msg-team.is-answer {
+  margin-left: var(--s-4);
+}
+.team-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.team-icon {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-3);
+}
+.team-icon svg {
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+}
+.team-route {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.team-route strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-weight: var(--fw-semibold);
+}
+.team-arrow {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  color: var(--text-3);
+}
+.team-verb {
+  color: var(--text-3);
+}
+.team-row .msg-time {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.team-text {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.team-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.msg-team-run {
+  gap: var(--s-1);
+}
+.team-run-who {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-3);
+  font-weight: var(--fw-regular);
+}
+
+/* a mission's state messages: a line, its card at the start, the summary at the end */
+.msg-mission {
+  align-items: stretch;
+  gap: var(--s-2);
+}
+.mission-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.mission-line > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  margin-top: var(--nudge);
+  color: var(--c-primary-300);
+}
+.mission-line .msg-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mission-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border-radius: var(--r-lg);
+  background: var(--surface-input);
+  border: var(--hairline) solid var(--c-primary-300);
+  box-shadow: var(--e-1);
+}
+.mission-summary .mission-icon {
+  color: var(--tint-success-text);
+}
+.mission-goal-line {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mission-result-md {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+:root[data-input='touch'] .mission-expand {
+  width: 40px;
+  height: 40px;
+}
+:root[data-input='touch'] .mission-toggle,
+:root[data-input='touch'] .team-run-head {
+  min-height: 40px;
+}
+.mission-line-md {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+}
+.mission-line-md.is-plain {
+  white-space: pre-wrap;
+}
+/* Settings › Lead agent › Mission limits: the two fields line up */
+.lead-limit .ig-addon {
+  min-width: calc(var(--s-12) + var(--s-4));
+  justify-content: center;
+}

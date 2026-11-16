@@ -269,7 +269,7 @@ export function AgentsPanel({
             </ol>
           </div>
         ) : (
-          <ThreadList key={target.cardId ?? ws.projectId} threadId={target.cardId ?? ws.projectId} compact empty="Orders and answers appear here. Edits your agents make show up in the tree and in open tabs." />
+          <ThreadList key={target.cardId ?? ws.projectId} threadId={target.cardId ?? ws.projectId} projectId={ws.projectId} compact empty="Orders and answers appear here. Edits your agents make show up in the tree and in open tabs." />
         )}
       </div>
       <form

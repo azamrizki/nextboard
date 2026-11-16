@@ -60,6 +60,8 @@ type fakeHub struct {
 	provs     []ProviderInfo
 	provRun   map[string]string // provider id → "claude" | "codex"
 	createReq []session.CreateRequest
+	// onDeliver runs after a delivery is made, outside the hub's lock (what happens meanwhile).
+	onDeliver func(sid string)
 }
 
 func newFakeHub(t *testing.T) (*fakeHub, *Service) {
@@ -266,6 +268,11 @@ func (h *fakeHub) Deliver(sid string, req delivery.Request) (delivery.Delivery, 
 	h.dels[d.ID] = d
 	h.delOrder = append(h.delOrder, d.ID)
 	h.delReqs = append(h.delReqs, req)
+	if f := h.onDeliver; f != nil {
+		h.mu.Unlock()
+		f(sid)
+		h.mu.Lock()
+	}
 	return *d, nil
 }
 func (h *fakeHub) Delivery(id string) (delivery.Delivery, bool) {
