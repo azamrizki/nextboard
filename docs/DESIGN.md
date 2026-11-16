@@ -385,7 +385,7 @@ light   background #FFFFFF  foreground #1F1F1F  cursor #0D0D0D  selection rgba(0
 
 **xterm patches** (`board/xtermPatches.ts`). Our own fixes for xterm.js bugs still open in @xterm/xterm 6.0.0 and @xterm/addon-webgl 0.19.0, each naming its upstream issue: a renderer set or a canvas cleared while the terminal is off screen is drawn at once (#6239), one cell grid for both renderers (#6015), disposing frees the cursor-blink timer, the paused resize, the shared atlas's scratch canvas and the WebGL context (#5817, #5818, #6068), a lost context is never restored (#6257), atlas page merges and clears no longer make every console redraw in full each frame or garble the others (#6038, #6014), texture slots past a shrunk atlas are freed (#6306), no mipmaps (#5987), and merged pages stay at 4096² (#6187). Like `followBoardZoom`, each patch checks the private names it uses; after an xterm upgrade, check the browser console: a patch whose names changed is skipped with a warning saying what goes wrong again. Delete a patch once a release has its fix.
 
-**Double click** inside card content (`.nodrag`: console, editor) belongs to the content, for example to select a word, and the board does not move. Framing a card goes through its header.
+**Double click** inside card content (`.nodrag`: console, editor) belongs to the content, for example to select a word, and the board does not move. A double click on an empty spot of a card's header (every card: consoles, groups, the Code editor's title bar, and every `TileHead`) zooms the board to that card, as Focus does. On the title it renames, and on a header button or field it stays that control's.
 
 ## 4. Accessibility (test criteria)
 

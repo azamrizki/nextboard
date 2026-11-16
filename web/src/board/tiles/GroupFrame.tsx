@@ -96,7 +96,7 @@ function GroupFrameImpl({ id, data, selected }: NodeProps<FlowNode>) {
     <div className={`group-frame ${selected ? 'selected' : ''} ${g.syncInput ? 'is-linked' : ''}`} style={style} role="group" aria-label={`Group ${g.name}`}>
       <Handle type="target" position={Position.Top} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
       <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out" title="Drag to forward this group’s results" />
-      <div className="group-head" onClick={onHeadClick} onDoubleClick={(e) => e.stopPropagation()}>
+      <div className="group-head" onClick={onHeadClick}>
         <span className="tile-mark" aria-hidden="true">
           <span className="group-dot" />
         </span>
