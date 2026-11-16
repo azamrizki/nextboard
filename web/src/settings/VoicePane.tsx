@@ -6,6 +6,7 @@ import { Button } from '../components/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SettingRow, SwitchRow } from '../components/Switch';
 import { Icon } from '../components/Icon';
+import { attentionLine, lineLang, sayIn } from '../voice/speech';
 import { DICTATION_KEYS, setVoicePrefs, speak, speechSupported, ttsSupported, useVoicePrefs } from '../voice/voice';
 
 const LANGS = [
@@ -89,7 +90,7 @@ export function VoicePane() {
           </h3>
           <SwitchRow
             title="Confirm out loud"
-            hint="Short lines only: a question about your order, who finished, who needs you. Agent replies are never read out. Uses this device’s voices."
+            hint="Short lines only: a question about your order, who finished, who needs you, one sentence when several come at once and from one tab only. Said in English, or in Bahasa Indonesia when that is the language. Agent replies are never read out. Uses this device’s voices, its own ones first."
             checked={p.ttsConfirmations}
             disabled={!p.enabled}
             onChange={(v) => setVoicePrefs({ ttsConfirmations: v })}
@@ -106,7 +107,7 @@ export function VoicePane() {
                     </option>
                   ))}
               </select>
-              <Button size="sm" variant="ghost" icon="volume" disabled={!p.enabled || !p.ttsConfirmations} onClick={() => speak('Arkan finished.')}>
+              <Button size="sm" variant="ghost" icon="volume" disabled={!p.enabled || !p.ttsConfirmations} onClick={() => speak(attentionLine('finished', ['Arkan', 'Bintang'], lineLang(p.lang)), sayIn(p.lang, lineLang(p.lang)))}>
                 Test
               </Button>
             </div>

@@ -5,6 +5,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { prefs } from '../lib/format';
+import { pickVoice } from './speech';
 
 export interface VoicePrefs {
   enabled: boolean;
@@ -157,18 +158,42 @@ export function punctuate(text: string): string {
 
 // ---- spoken replies (TTS) ----
 
-export function speak(text: string) {
+let voicesLoaded: Promise<SpeechSynthesisVoice[]> | null = null;
+
+/** The device's voices: Chrome lists none until they have loaded, and a line said before that gets whatever voice the browser picks. */
+function loadVoices(): Promise<SpeechSynthesisVoice[]> {
+  const now = window.speechSynthesis.getVoices();
+  if (now.length) return Promise.resolve(now);
+  voicesLoaded ??= new Promise((resolve) => {
+    const done = () => resolve(window.speechSynthesis.getVoices());
+    window.speechSynthesis.addEventListener?.('voiceschanged', done, { once: true });
+    window.setTimeout(done, 1000);
+  });
+  return voicesLoaded;
+}
+
+/**
+ * Says one line in `lang` (default: the voice language): with the voice picked in Settings when it
+ * speaks that language, else this device's smoothest voice for it (speech.ts pickVoice).
+ */
+export function speak(text: string, lang?: string) {
   const p = getVoicePrefs();
   if (!p.enabled || !p.ttsConfirmations || !ttsSupported() || !text.trim()) return;
-  try {
-    const u = new SpeechSynthesisUtterance(text.slice(0, 300));
-    u.lang = p.lang;
-    const v = window.speechSynthesis.getVoices().find((x) => x.voiceURI === p.ttsVoice);
-    if (v) u.voice = v;
-    window.speechSynthesis.speak(u);
-  } catch {
-    /* no voice output */
-  }
+  const want = lang ?? p.lang;
+  void loadVoices().then((voices) => {
+    try {
+      const synth = window.speechSynthesis;
+      const u = new SpeechSynthesisUtterance(text.slice(0, 300));
+      const v = pickVoice(voices, want, p.ttsVoice);
+      u.lang = v?.lang ?? want;
+      if (v) u.voice = v;
+      // a tab that slept can leave the queue paused, and the next line would wait behind it
+      if (synth.paused) synth.resume();
+      synth.speak(u);
+    } catch {
+      /* no voice output */
+    }
+  });
 }
 
 /** Key names for the dictation key setting. */
