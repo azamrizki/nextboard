@@ -72,6 +72,9 @@ type dapSession struct {
 	ws  *websocket.Conn
 	seq int
 	in  chan map[string]any
+	// messages read while waiting for another one: an event can come before the response that
+	// was asked for first (a breakpoint hits before configurationDone answers)
+	kept []map[string]any
 }
 
 func openDAP(t *testing.T, h *testHub, path string) *dapSession {
@@ -115,6 +118,12 @@ func (s *dapSession) send(cmd string, args any) int {
 
 func (s *dapSession) until(pred func(map[string]any) bool, what string) map[string]any {
 	s.t.Helper()
+	for i, m := range s.kept {
+		if pred(m) {
+			s.kept = append(s.kept[:i:i], s.kept[i+1:]...)
+			return m
+		}
+	}
 	deadline := time.After(25 * time.Second)
 	for {
 		select {
@@ -125,6 +134,7 @@ func (s *dapSession) until(pred func(map[string]any) bool, what string) map[stri
 			if pred(m) {
 				return m
 			}
+			s.kept = append(s.kept, m)
 		case <-deadline:
 			s.t.Fatalf("no %s", what)
 		}
