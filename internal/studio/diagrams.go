@@ -225,8 +225,12 @@ var (
 func DiagramPrompt(subject, ask, effort string) string {
 	r := diagramEffort[effort]
 	what := DiagramSubjects[subject]
-	if subject == "custom" {
+	switch {
+	case subject == "custom":
 		what = ask
+	case ask != "":
+		// a subject and words of the owner's (the lead's step, an agent's ask): both count
+		what += ", in particular: " + ask
 	}
 	return fmt.Sprintf("Draw a diagram of %s for the software project in the current folder.\n\n"+
 		"Explore the repository with the read-only tools only (Read, Glob, Grep); do not modify anything.\n"+
@@ -268,6 +272,9 @@ type DiagramRequest struct {
 	// and Parts are the names the prompt gives.
 	Root  bool
 	Parts []string
+	// Then is called once with the finished record (done, failed or cancelled), after the
+	// diagram event: the lead's step and an agent's ask land it on a board from here.
+	Then func(DiagramRecord)
 }
 
 // Diagrams stores diagram records and starts diagram jobs.
@@ -381,7 +388,16 @@ func (g *Diagrams) Generate(pid string, req DiagramRequest) (DiagramRecord, jobs
 				Warnings []string `json:"warnings,omitempty"`
 			}{d, warn})
 		},
-		OnFinish: func(j jobs.Job) { g.finish(pid, r.ID, j) }})
+		OnFinish: func(j jobs.Job) {
+			rec, ok := g.finish(pid, r.ID, j)
+			if !ok {
+				// Then hears of every run that ends: what waits for it (a slot, a note) must not hang
+				rec = DiagramRecord{ID: r.ID, ProjectID: pid, State: "failed", Error: "the diagram's record is gone"}
+			}
+			if req.Then != nil {
+				req.Then(rec)
+			}
+		}})
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	cur, gerr := g.getLocked(r.ID)
@@ -397,12 +413,12 @@ func (g *Diagrams) Generate(pid string, req DiagramRequest) (DiagramRecord, jobs
 	return cur, j, nil
 }
 
-func (g *Diagrams) finish(pid, id string, j jobs.Job) {
+func (g *Diagrams) finish(pid, id string, j jobs.Job) (DiagramRecord, bool) {
 	g.mu.Lock()
 	r, err := g.getLocked(id)
 	if err != nil {
 		g.mu.Unlock()
-		return
+		return DiagramRecord{}, false
 	}
 	r.JobID = j.ID
 	switch j.State {
@@ -427,6 +443,41 @@ func (g *Diagrams) finish(pid, id string, j jobs.Job) {
 	if g.Publish != nil {
 		g.Publish(map[string]any{"type": "diagram", "projectId": pid, "diagramId": id, "state": r.State})
 	}
+	return r, true
+}
+
+// Drawn keeps a diagram an agent wrote itself (board_diagram, docs/API-studio.md §6) as a
+// finished record, so it is listed and exported like a generated one: subject custom, its
+// title as the ask, agent the console's handle. raw is checked like runner output.
+func (g *Diagrams) Drawn(pid string, raw []byte, style, agent string) (DiagramRecord, error) {
+	if style == "" {
+		style = "ink"
+	}
+	if style != "ink" && style != "color" {
+		return DiagramRecord{}, ErrBadStyle
+	}
+	if !idRe.MatchString(pid) {
+		return DiagramRecord{}, ErrDiagramNotFound
+	}
+	d, warn, err := ValidateDiagram(raw)
+	if err != nil {
+		return DiagramRecord{}, err
+	}
+	if d.Title == "" {
+		return DiagramRecord{}, bad("give it a title")
+	}
+	r := DiagramRecord{ID: auth.RandomID("dg_"), ProjectID: pid, Subject: "custom", Ask: d.Title, Style: style, Agent: agent,
+		Title: d.Title, CreatedAt: time.Now().UTC(), State: "done", Warnings: warn, Diagram: d}
+	g.mu.Lock()
+	err = g.put(r)
+	g.mu.Unlock()
+	if err != nil {
+		return DiagramRecord{}, err
+	}
+	if g.Publish != nil {
+		g.Publish(map[string]any{"type": "diagram", "projectId": pid, "diagramId": r.ID, "state": r.State})
+	}
+	return r, nil
 }
 
 // extractObject returns the first {...} block of s (output wrapped in

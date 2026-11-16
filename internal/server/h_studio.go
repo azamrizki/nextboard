@@ -241,32 +241,9 @@ func (s *Server) handleDiagramLand(w http.ResponseWriter, r *http.Request, p *pr
 	if !decode(w, r, &req) {
 		return
 	}
-	if d.Diagram == nil {
-		writeErrCode(w, http.StatusConflict, "diagram_not_ready", "diagram not finished yet")
-		return
-	}
-	ws, pr, ok := s.projects.Workspace(req.WorkspaceID)
-	if !ok || pr.ID != d.ProjectID {
-		writeErrCode(w, http.StatusNotFound, "workspace_not_found", "workspace not found in the project of this diagram")
-		return
-	}
-	style := d.Style
-	if req.Style == "ink" || req.Style == "color" {
-		style = req.Style
-	}
-	x, y := 0.0, 0.0
+	var at *[2]float64
 	if req.X != nil && req.Y != nil {
-		x, y = *req.X, *req.Y
-	} else if b, err := s.boards.Get(ws.ID); err == nil {
-		// right of everything on the board
-		for i, n := range b.Nodes {
-			if i == 0 || n.X+n.W+80 > x {
-				x = n.X + n.W + 80
-			}
-			if i == 0 || n.Y < y {
-				y = n.Y
-			}
-		}
+		at = &[2]float64{*req.X, *req.Y}
 	}
 	look := studio.Look{}
 	if req.Arrows == "curved" || req.Arrows == "wiring" {
@@ -275,22 +252,21 @@ func (s *Server) handleDiagramLand(w http.ResponseWriter, r *http.Request, p *pr
 	if req.ArrowColor == "mono" || req.ArrowColor == "color" {
 		look.ArrowColor = req.ArrowColor
 	}
-	ops := studio.Land(d.Diagram, style, d.ID, x, y, look)
-	rev, err := s.boards.Apply(ws.ID, "", ops)
-	if err != nil {
-		var ve *board.ValidationError
-		if errors.As(err, &ve) {
-			writeErrCode(w, http.StatusBadRequest, "bad_ops", ve.Msg)
-			return
-		}
+	// without x/y: right of everything on the board (diagramboard.go)
+	rev, ids, _, err := s.landDiagram(d, req.WorkspaceID, at, "", req.Style, look)
+	var ve *board.ValidationError
+	switch {
+	case errors.Is(err, errDiagramNotReady):
+		writeErrCode(w, http.StatusConflict, "diagram_not_ready", err.Error())
+	case errors.Is(err, errLandWorkspace):
+		writeErrCode(w, http.StatusNotFound, "workspace_not_found", err.Error())
+	case errors.As(err, &ve):
+		writeErrCode(w, http.StatusBadRequest, "bad_ops", ve.Msg)
+	case err != nil:
 		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"rev": rev, "nodeIds": ids})
 	}
-	ids := make([]string, 0, len(ops))
-	for _, op := range ops {
-		ids = append(ids, op.Node.ID)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"rev": rev, "nodeIds": ids})
 }
 
 // ---- Code studio (§7) ----

@@ -25,6 +25,7 @@ import (
 type studioHub struct {
 	docs     *studio.Documents
 	diagrams *studio.Diagrams
+	drawing  diagramRuns // hidden diagram runs of the lead and agents (diagramboard.go)
 	vaults   *studio.Vaults
 	watcher  *studio.Watcher
 	skills   *skills.Manager

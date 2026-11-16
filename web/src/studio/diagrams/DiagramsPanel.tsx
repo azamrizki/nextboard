@@ -37,6 +37,8 @@ export const SUBJECT_LABEL: Record<DiagramSubject, string> = {
   custom: 'Ask for anything',
 };
 const EFFORT_PARTS: Record<Effort, string> = { quick: '6–10 parts', balanced: '8–14 parts', thorough: '10–16 parts' };
+/** Who drew it: the runner's CLI, or the console of an agent that wrote it itself (board_diagram). */
+const drawnBy = (agent: string) => (agent === 'codex' ? 'Codex' : !agent || agent === 'claude' ? 'Claude Code' : `@${agent}`);
 
 interface Props {
   ctl: BoardController;
@@ -255,7 +257,7 @@ export default function DiagramsPanel({ ctl, project, viewCenter, reveal, onClos
                 <div className="grow">
                   <div className="truncate fs-sm">{it.title || SUBJECT_LABEL[(it.subject as DiagramSubject) ?? 'custom'] || 'Diagram'}</div>
                   <div className="fs-xs text-3">
-                    {it.state === 'running' ? 'Drawing…' : it.state === 'failed' ? 'Failed' : it.state === 'cancelled' ? 'Stopped' : it.agent === 'codex' ? 'Codex' : 'Claude Code'} · {timeAgo(it.createdAt)}
+                    {it.state === 'running' ? 'Drawing…' : it.state === 'failed' ? 'Failed' : it.state === 'cancelled' ? 'Stopped' : drawnBy(it.agent)} · {timeAgo(it.createdAt)}
                   </div>
                 </div>
                 {(!it.state || it.state === 'done') && (
