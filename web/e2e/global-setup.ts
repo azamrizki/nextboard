@@ -37,6 +37,9 @@ export function hubEnv(root: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, CODEX_HOME: join(home, '.codex'), PATH: `${join(root, 'tools')}:${process.env.PATH ?? ''}` };
   delete env.NEXTBOARD_HOME;
   delete env.NEXTBOARD_INSTANCE;
+  // never a real model: no key, provider address or agent session of the shell running the tests
+  // reaches the hub, whose hidden runs and lead would otherwise use them
+  for (const k of Object.keys(env)) if (/^(ANTHROPIC|OPENAI|CLAUDE|CODEX|GEMINI|OPENROUTER)_/.test(k) || k === 'CLAUDECODE') delete env[k];
   return env;
 }
 
@@ -128,6 +131,10 @@ export default async function globalSetup() {
     if (!code) throw new Error(`no setup code in: ${link}`);
     const setup = await ctx.post('/api/setup', { data: { code, password: 'rahasia123', hubName: 'devbox' } });
     if (!setup.ok()) throw new Error(`setup: ${setup.status()}`);
+    // the lead never thinks in these tests: a mission's wake or a plain order would start the
+    // planner CLI, and this host may have a real one on PATH
+    const off = await ctx.patch('/api/settings', { data: { commands: { planner: 'off' } } });
+    if (!off.ok()) throw new Error(`planner off: ${off.status()}`);
     const agent = await ctx.post('/api/agents', { data: { id: 'fakecli', name: 'Fake CLI', command: FAKE_AGENT, base: 'codex' } });
     if (!agent.ok()) throw new Error(`agent: ${agent.status()}`);
     const worker = await ctx.post('/api/agents', { data: { id: 'fakeworker', name: 'Fake Worker', command: FAKE_WORKER } });
