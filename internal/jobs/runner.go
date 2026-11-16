@@ -91,6 +91,12 @@ type RunnerRequest struct {
 	// Remote, when set, gives the CLI on This PC the hub's read-only tools on
 	// a server instead of its local ones.
 	Remote *RemoteRunner
+	// Root: the server runs the job at the project root (every part of a project in several
+	// parts, docs/API-agents.md §21.2) and fills in MachineID, Cwd, AddDirs and Remote.
+	Root bool
+	// AddDirs are folders outside Cwd the CLI may read (claude --add-dir): the parts behind a
+	// project root's links. Codex reads anywhere in its read-only sandbox.
+	AddDirs []string
 	// Transform, when set, turns the runner output into the purpose's
 	// result shape (e.g. memory-scan → {"facts":[…]}); an error fails the
 	// job with code bad_output.
@@ -102,6 +108,9 @@ type RemoteRunner struct {
 	MCPConfig string
 	Tools     []string // allowed, e.g. mcp__nextboard__read_file
 	Prompt    string   // appended system prompt: where the project is
+	// Local keeps the CLI's own read tools next to the hub's: a project root, whose parts on
+	// This PC are links in the working folder and the others reached through the hub.
+	Local bool
 }
 
 // ReadsProject reports whether a purpose needs to read the project (the
@@ -209,9 +218,17 @@ func RunnerArgv(req RunnerRequest) []string {
 		argv = append(argv, "--output-format", "json")
 	}
 	argv = append(argv, "--permission-mode", "dontAsk", "--no-session-persistence")
+	for _, d := range req.AddDirs {
+		argv = append(argv, "--add-dir", d)
+	}
 	if req.Remote != nil {
-		argv = append(argv, "--tools", "", "--mcp-config", req.Remote.MCPConfig, "--strict-mcp-config",
-			"--allowedTools", strings.Join(req.Remote.Tools, ","), "--append-system-prompt", req.Remote.Prompt)
+		local, allowed := "", req.Remote.Tools
+		if req.Remote.Local && pol.readOnly {
+			local = strings.Join(readOnlyTools, ",")
+			allowed = append(append([]string{}, readOnlyTools...), req.Remote.Tools...)
+		}
+		argv = append(argv, "--tools", local, "--mcp-config", req.Remote.MCPConfig, "--strict-mcp-config",
+			"--allowedTools", strings.Join(allowed, ","), "--append-system-prompt", req.Remote.Prompt)
 	} else if pol.readOnly {
 		tools := strings.Join(readOnlyTools, ",")
 		argv = append(argv, "--tools", tools, "--allowedTools", tools)

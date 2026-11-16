@@ -346,25 +346,27 @@ func (s *Service) ScanMemory(pid, effort, agentID string) (jobs.Job, error) {
 	if !ok {
 		return jobs.Job{}, ErrProjectNotFound
 	}
-	agentID = s.runnerAgentFor(p.MachineID, agentID)
+	req, mid := memoryRun(p, jobs.RunnerRequest{Purpose: "memory-scan", ProjectID: pid})
+	agentID = s.runnerAgentFor(mid, agentID)
 	cur, _ := s.Memory.Read("project", pid)
 	prompt, _, _ := ScanPrompt(effort, cur.Content)
 	cmd := ""
 	if agentID == "claude" {
-		cmd = s.hub.Settings().Agents.Paths[p.MachineID]["claude"]
+		cmd = s.hub.Settings().Agents.Paths[mid]["claude"]
 	}
-	return s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "memory-scan", ProjectID: pid, MachineID: p.MachineID, Cwd: p.Path,
-		Agent: agentID, Command: cmd, Prompt: prompt, Schema: ScanSchema, Transform: func(text string, structured json.RawMessage) (json.RawMessage, error) {
-			raw := structured
-			if len(raw) == 0 {
-				raw = extractJSONText(text)
-			}
-			facts, err := ParseFacts(raw)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(map[string]any{"facts": facts})
-		}})
+	req.Agent, req.Command, req.Prompt, req.Schema = agentID, cmd, prompt+partsNote(p), ScanSchema
+	req.Transform = func(text string, structured json.RawMessage) (json.RawMessage, error) {
+		raw := structured
+		if len(raw) == 0 {
+			raw = extractJSONText(text)
+		}
+		facts, err := ParseFacts(raw)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"facts": facts})
+	}
+	return s.hub.SubmitRunner(req)
 }
 
 // RefreshMemory checks one fact against the repository.
@@ -375,25 +377,27 @@ func (s *Service) RefreshMemory(pid, fact string) (jobs.Job, error) {
 	}
 	agentID := s.hub.Settings().Runner.DefaultAgent
 	prompt := "Check (read-only) whether this project memory fact is still true for the repository in the current folder. " +
-		"Answer with JSON {\"verdict\":\"valid|outdated|unknown\",\"suggestion\":\"corrected fact if outdated\"}.\n\nFact: " + fact
-	return s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "memory-refresh", ProjectID: pid, MachineID: p.MachineID, Cwd: p.Path,
-		Agent: agentID, Prompt: prompt, Schema: RefreshSchema, Transform: func(text string, structured json.RawMessage) (json.RawMessage, error) {
-			raw := structured
-			if len(raw) == 0 {
-				raw = extractJSONText(text)
-			}
-			var v struct {
-				Verdict    string `json:"verdict"`
-				Suggestion string `json:"suggestion,omitempty"`
-			}
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return nil, err
-			}
-			if v.Verdict != "valid" && v.Verdict != "outdated" {
-				v.Verdict = "unknown"
-			}
-			return json.Marshal(v)
-		}})
+		"Answer with JSON {\"verdict\":\"valid|outdated|unknown\",\"suggestion\":\"corrected fact if outdated\"}." + partsNote(p) + "\n\nFact: " + fact
+	req, _ := memoryRun(p, jobs.RunnerRequest{Purpose: "memory-refresh", ProjectID: pid})
+	req.Agent, req.Prompt, req.Schema = agentID, prompt, RefreshSchema
+	req.Transform = func(text string, structured json.RawMessage) (json.RawMessage, error) {
+		raw := structured
+		if len(raw) == 0 {
+			raw = extractJSONText(text)
+		}
+		var v struct {
+			Verdict    string `json:"verdict"`
+			Suggestion string `json:"suggestion,omitempty"`
+		}
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return nil, err
+		}
+		if v.Verdict != "valid" && v.Verdict != "outdated" {
+			v.Verdict = "unknown"
+		}
+		return json.Marshal(v)
+	}
+	return s.hub.SubmitRunner(req)
 }
 
 // PushResult is the response of a memory push.

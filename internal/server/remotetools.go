@@ -526,6 +526,9 @@ func (s *Server) submitRunner(req jobs.RunnerRequest) (jobs.Job, error) {
 	if a, ok := s.agents.Get(req.Agent); ok && s.agentOff(a) {
 		return jobs.Job{}, session.ErrAgentDisabled
 	}
+	if req.Root {
+		return s.submitRootRunner(req)
+	}
 	if req.MachineID != "" && req.MachineID != machine.LocalID && s.settings.View().Agents.RemoteTools {
 		return s.submitRemoteRunner(req)
 	}

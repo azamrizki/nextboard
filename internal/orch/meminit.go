@@ -96,23 +96,25 @@ func (s *Service) InitMemory(pid, effort, agentID string) (jobs.Job, error) {
 	if !ok {
 		return jobs.Job{}, ErrProjectNotFound
 	}
-	agentID = s.runnerAgentFor(p.MachineID, agentID)
+	req, mid := memoryRun(p, jobs.RunnerRequest{Purpose: "memory-init", ProjectID: pid, Timeout: memInitTimeout})
+	agentID = s.runnerAgentFor(mid, agentID)
 	cmd := ""
 	if agentID == "claude" {
-		cmd = s.hub.Settings().Agents.Paths[p.MachineID]["claude"]
+		cmd = s.hub.Settings().Agents.Paths[mid]["claude"]
 	}
-	return s.hub.SubmitRunner(jobs.RunnerRequest{Purpose: "memory-init", ProjectID: pid, MachineID: p.MachineID, Cwd: p.Path, Timeout: memInitTimeout,
-		Agent: agentID, Command: cmd, Prompt: s.initPrompt(pid, effort), Schema: InitSchema, Transform: func(text string, structured json.RawMessage) (json.RawMessage, error) {
-			raw := structured
-			if len(raw) == 0 {
-				raw = extractJSONText(text)
-			}
-			r, err := ParseInit(raw)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(r)
-		}})
+	req.Agent, req.Command, req.Prompt, req.Schema = agentID, cmd, s.initPrompt(pid, effort)+partsNote(p), InitSchema
+	req.Transform = func(text string, structured json.RawMessage) (json.RawMessage, error) {
+		raw := structured
+		if len(raw) == 0 {
+			raw = extractJSONText(text)
+		}
+		r, err := ParseInit(raw)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(r)
+	}
+	return s.hub.SubmitRunner(req)
 }
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)

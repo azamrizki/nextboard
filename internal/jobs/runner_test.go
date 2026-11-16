@@ -154,3 +154,22 @@ func TestRealCLIRunner(t *testing.T) {
 	ents, _ := filepath.Glob(filepath.Join(cwd, "*"))
 	t.Logf("files in cwd after runs: %v", ents)
 }
+
+// A job at a project root reads the parts on This PC through the root's links (--add-dir) and
+// the others through the hub's tools, keeping its own read tools next to them.
+func TestRunnerArgvAtAProjectRoot(t *testing.T) {
+	req := RunnerRequest{Purpose: "memory-scan", Agent: "claude", Cwd: "/data/roots/p_x", AddDirs: []string{"/src/api", "/src/web"},
+		Remote: &RemoteRunner{MCPConfig: "{}", Tools: []string{"mcp__nextboard__read_file"}, Prompt: "parts", Local: true}}
+	argv := strings.Join(RunnerArgv(req), " ")
+	for _, want := range []string{"--add-dir /src/api", "--add-dir /src/web", "--tools Read,Glob,Grep", "--allowedTools Read,Glob,Grep,mcp__nextboard__read_file", "--strict-mcp-config"} {
+		if !strings.Contains(argv, want) {
+			t.Fatalf("argv lacks %q: %s", want, argv)
+		}
+	}
+	// a job on a server keeps only the hub's tools, as before
+	req.Remote.Local, req.AddDirs = false, nil
+	argv = strings.Join(RunnerArgv(req), " ")
+	if !strings.Contains(argv, "--tools  --mcp-config") || strings.Contains(argv, "--add-dir") {
+		t.Fatalf("server job: %s", argv)
+	}
+}
