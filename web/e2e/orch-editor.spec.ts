@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './hub';
+import { endConsoles } from './two-parts';
 
 // An orchestrator card wired to an editor card directs the agents opened inside that editor
 // (docs/API-studio.md §7.8). The link is made from the agent's pane, and it is the same
@@ -76,5 +77,36 @@ test('an orchestrator card directs the agent opened in an editor it is wired to'
     await expect(again.locator('.wb-pane-directed')).toHaveCount(0);
   } finally {
     if (sid) await hub.call('DELETE', `/api/sessions/${sid}`);
+  }
+});
+
+test('an orchestrator wired to several editors names each one, at text size', async ({ page, hub }) => {
+  const p = await hub.project('Crew');
+  const eds = ['n_edcard0001', 'n_edcard0002', 'n_edcard0003'];
+  await hub.ops(p.wid, [
+    { op: 'put', node: { id: 'n_orchsized1', kind: 'orchestrator', x: 0, y: 0, w: 340, h: 760, data: { title: 'Lead' } } },
+    ...eds.map((id, i) => ({ op: 'put', node: { id, kind: 'editor', x: 500 + i * 950, y: 0, w: 900, h: 600, data: {} } })),
+    ...eds.map((id, i) => ({ op: 'putEdge', edge: { id: `e_sizedwire${i}`, kind: 'wire', source: 'n_orchsized1', target: id, data: {} } })),
+  ]);
+  for (const id of eds) await hub.call('POST', '/api/sessions', { agent: 'fakecli', workspaceId: p.wid, panel: true, card: id });
+  try {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.goto(`/p/${p.id}/w/${p.wid}?card=n_orchsized1`);
+    const card = page.locator('.react-flow__node[data-id="n_orchsized1"]');
+    // chips: one short label per editor, numbered, its icon the size of the text
+    const labels = card.locator('.orch-set-label');
+    await expect(labels).toHaveText(['Editor 1', 'Editor 2', 'Editor 3'], { timeout: 20_000 });
+    for (const box of await labels.locator('svg').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width))) expect(box).toBeLessThanOrEqual(20);
+    // the full list: a row per editor with its agents under it, and the thread below, not under it
+    await card.getByRole('button', { name: 'Show the team in full' }).click();
+    const heads = card.locator('.orch-group-head');
+    await expect(heads).toHaveCount(3);
+    await expect(heads.first()).toContainText('Code editor 1');
+    for (const w of await heads.locator('svg').first().evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width))) expect(w).toBeLessThanOrEqual(20);
+    const team = (await card.locator('.orch-team').boundingBox())!;
+    const hello = (await card.getByText(/^Hi, I'm/).boundingBox())!;
+    expect(hello.y).toBeGreaterThanOrEqual(team.y + team.height - 1);
+  } finally {
+    await endConsoles(hub, p.wid);
   }
 });

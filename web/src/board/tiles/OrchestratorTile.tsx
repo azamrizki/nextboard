@@ -98,7 +98,17 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
     const ed = byId.get(nid);
     return ed?.kind === 'editor' ? editorAgents(doc.nodes, ed, directedSessions, { workspaceId: ctl.workspaceId, project }) : [];
   };
-  const editorLabel = (t: BoardNode) => cardLabel(project, placementOf(t.data, project));
+  // the editor cards wired here, numbered when two show the same place ("Code editor 2"), so that
+  // each row and chip says which card it is
+  const wiredEditors = wires.map((w) => byId.get(w.target)).filter((t): t is BoardNode => t?.kind === 'editor');
+  const baseLabel = (t: BoardNode) => cardLabel(project, placementOf(t.data, project));
+  const editorLabel = (t: BoardNode) => {
+    const base = baseLabel(t);
+    const same = wiredEditors.filter((x) => baseLabel(x) === base);
+    return same.length > 1 ? `${base} ${same.indexOf(t) + 1}` : base;
+  };
+  /** The chip's short form: "Editor 2", "Editor · web". */
+  const editorShort = (t: BoardNode) => editorLabel(t).replace(/^Code editor/, 'Editor');
   const agents = [...new Set([...directed.map(sessionOfNode), ...wires.flatMap((w) => agentsIn(w.target))])].filter((s): s is Session => !!s);
 
   const disconnect = (target: string) => {
@@ -397,7 +407,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                           onClick={() => mention(inside.map((s) => `@${s.handle}`).join(' '))}
                         >
                           <Icon name="code" />
-                          <span className="truncate">{label}</span>
+                          <span className="truncate">{editorShort(t)}</span>
                         </button>
                         {inside.map((s) => (
                           <AgentChip key={s.id} session={s} onMention={() => mention(`@${s.handle}`)} onMenu={(e) => openChipMenu(e, s, t.id, false)} />

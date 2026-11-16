@@ -1544,6 +1544,17 @@
 .orch-set-label:hover {
   color: var(--text);
 }
+/* an editor card's row and chip label: its code icon at text size, never the row's width */
+.orch-set-label > svg,
+.orch-group-head > svg {
+  flex: none;
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+.orch-set-label > svg {
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+}
 .orch-chip,
 .orch-idea {
   display: inline-flex;
