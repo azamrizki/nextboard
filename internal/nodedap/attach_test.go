@@ -48,7 +48,12 @@ func running(t *testing.T, source string, flags ...string) (*exec.Cmd, string, i
 		for s.Scan() {
 			if m := re.FindStringSubmatch(s.Text()); m != nil {
 				n, _ := strconv.Atoi(m[1])
-				port <- n
+				// only the first line is wanted; node prints the address again when a session ends,
+				// and a reader that blocked there would leave node's stderr undrained
+				select {
+				case port <- n:
+				default:
+				}
 			}
 		}
 	}()

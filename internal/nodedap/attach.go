@@ -160,6 +160,10 @@ func (a *adapter) detach() {
 	a.detachOnce.Do(func() {
 		for _, t := range a.allTargets() {
 			within(2*time.Second, func() { _, _ = t.cdp("Debugger.resume", nil) })
+			// Disabling the debugger takes out every breakpoint and lets the program run, and its
+			// answer says node is done with it. Closing the socket right after a resume could
+			// crash node (24.x, SIGSEGV), the program the owner asked us to leave running.
+			within(2*time.Second, func() { _, _ = t.cdp("Debugger.disable", nil) })
 			if closing {
 				// The inspector closes under this call, so no answer comes.
 				within(2*time.Second, func() {
