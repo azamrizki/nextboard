@@ -1,7 +1,7 @@
 // A project's public status page: an address anyone can open with no login. What it may show
 // is decided on the hub (internal/uptime/public.go); this says so before it is turned on.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { errorMessage } from '../api';
 import { Button } from '../components/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -9,27 +9,32 @@ import { Checkbox, TextField } from '../components/form';
 import { Modal } from '../components/Modal';
 import { toast } from '../components/Toast';
 import { uptimeApi, type PublicPageSettings, type UptimeSettings } from './api';
-import { setUptimeSettings } from './store';
+import { patchUptimeSettings, refreshUptimeSettings } from './store';
 
 export function PublicPageDialog({ projectId, settings, publicCount, onClose }: { projectId: string; settings: UptimeSettings; publicCount: number; onClose: () => void }) {
-  const [page, setPage] = useState<PublicPageSettings>(settings.publicPage ?? { enabled: false });
-  const [enabled, setEnabled] = useState(!!page.enabled);
-  const [title, setTitle] = useState(page.title ?? '');
+  // the page as the hub has it now (a new address made in another tab shows here at once); the
+  // fields follow it until they are changed
+  const page: PublicPageSettings = settings.publicPage ?? { enabled: false };
+  const [draft, setDraft] = useState<{ enabled?: boolean; title?: string }>({});
+  const enabled = draft.enabled ?? !!page.enabled;
+  const title = draft.title ?? page.title ?? '';
   const [busy, setBusy] = useState(false);
   const [rotating, setRotating] = useState(false);
   const [error, setError] = useState('');
   const link = page.enabled && page.token ? `${window.location.origin}/status/${page.token}` : '';
 
-  const keep = (next: PublicPageSettings) => {
-    setPage(next);
-    setUptimeSettings(projectId, { ...settings, publicPage: next });
-  };
+  useEffect(() => {
+    void refreshUptimeSettings(projectId);
+  }, [projectId]);
+
+  const keep = (next: PublicPageSettings) => patchUptimeSettings(projectId, { publicPage: next });
 
   const save = async () => {
     setBusy(true);
     setError('');
     try {
       keep(await uptimeApi.setPublicPage(projectId, { enabled, title: title.trim() }));
+      setDraft({});
       toast.success(enabled ? 'The public page is on.' : 'The public page is off.');
     } catch (err) {
       setError(errorMessage(err));
@@ -66,8 +71,8 @@ export function PublicPageDialog({ projectId, settings, publicCount, onClose }: 
             {error}
           </div>
         )}
-        <Checkbox checked={enabled} onChange={setEnabled} label="Turn on the public page" />
-        <TextField label="Title" optional placeholder="Status" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
+        <Checkbox checked={enabled} onChange={(on) => setDraft((d) => ({ ...d, enabled: on }))} label="Turn on the public page" />
+        <TextField label="Title" optional placeholder="Status" value={title} maxLength={80} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
         <p className="up-form-note" role="status">
           {publicCount === 0 ? 'No monitor is marked public yet: edit a monitor and tick "Show on the public status page".' : `${publicCount === 1 ? '1 monitor is' : `${publicCount} monitors are`} on the page.`}
         </p>

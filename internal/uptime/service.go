@@ -457,6 +457,7 @@ func (s *Service) SetMaintenance(projectID string, windows []Window) (ProjectSet
 	s.settings[projectID] = c
 	s.mu.Unlock()
 	s.saveSettings()
+	s.settingsChanged(projectID)
 	for _, e := range mine {
 		e.mu.Lock()
 		if e.status == StatusMaintenance && maintenanceFor(norm, e.m.ID, s.Now()) == nil {
@@ -900,6 +901,9 @@ func (s *Service) deleteLocked(id string, save bool) error {
 	}
 	_ = os.RemoveAll(s.dir(id))
 	s.Publish(map[string]any{"type": "uptimeRemoved", "projectId": e.m.ProjectID, "id": id})
+	if pruned {
+		s.settingsChanged(e.m.ProjectID)
+	}
 	return nil
 }
 
@@ -1039,7 +1043,15 @@ func (s *Service) SetWebhook(projectID, webhook string) (ProjectSettings, error)
 	s.settings[projectID] = c
 	s.mu.Unlock()
 	s.saveSettings()
+	s.settingsChanged(projectID)
 	return c, nil
+}
+
+// settingsChanged tells the open boards that a project's settings changed, so that a dialog
+// open in another tab does not save its old copy over them. It says only which project: the
+// settings hold the webhook URL and the public page's address, and a board fetches them itself.
+func (s *Service) settingsChanged(projectID string) {
+	s.Publish(map[string]any{"type": "uptimeSettings", "projectId": projectID})
 }
 
 // webhookBody fits the common receivers at once: Slack and Telegram read text, Discord
@@ -1121,6 +1133,7 @@ func (s *Service) noteWebhook(projectID, webhook string, err error) {
 	s.settings[projectID] = c
 	s.mu.Unlock()
 	s.saveSettings()
+	s.settingsChanged(projectID)
 }
 
 // TestWebhook sends one message and says how it went.

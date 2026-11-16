@@ -1,14 +1,16 @@
 // Maintenance windows of a project (docs/API-uptime.md): while one is on, its monitors are not
-// checked, not counted, and nobody is alerted. The list is saved as a whole.
+// checked, not counted, and nobody is alerted. The list is saved as a whole, so the dialog shows
+// the live list and changes one window by its id in the list as it is when saving: a window
+// added in another tab is never lost to a copy this one loaded earlier.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { errorMessage } from '../api';
 import { Button } from '../components/Button';
 import { Checkbox, Field, SegmentedControl, TextField } from '../components/form';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { uptimeApi, type MaintenanceWindow, type Monitor, type UptimeSettings } from './api';
-import { setUptimeSettings } from './store';
+import { currentUptimeSettings, refreshUptimeSettings, setUptimeSettings } from './store';
 
 type Mode = MaintenanceWindow['mode'];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -127,19 +129,27 @@ function WindowForm({ initial, monitors, onDone, onCancel }: { initial: Maintena
   );
 }
 
+/** A window's key in the list: its id, which the hub gives every saved window. */
+const keyOf = (w: MaintenanceWindow, i: number) => w.id ?? `#${i}`;
+
 export function MaintenanceDialog({ projectId, settings, monitors, onClose }: { projectId: string; settings: UptimeSettings; monitors: Monitor[]; onClose: () => void }) {
-  const [list, setList] = useState<MaintenanceWindow[]>(settings.maintenance ?? []);
-  const [editing, setEditing] = useState<number | 'new' | null>(null);
+  const list = settings.maintenance ?? [];
+  const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // a window being edited that was deleted elsewhere: its form goes, and Add window is back
+  const edit = editing === 'new' || list.some((w, i) => keyOf(w, i) === editing) ? editing : null;
 
-  const save = async (next: MaintenanceWindow[], close: boolean) => {
+  useEffect(() => {
+    void refreshUptimeSettings(projectId);
+  }, [projectId]);
+
+  const save = async (change: (now: MaintenanceWindow[]) => MaintenanceWindow[], close: boolean) => {
     setBusy(true);
     setError('');
     try {
-      const s = await uptimeApi.setMaintenance(projectId, next);
+      const s = await uptimeApi.setMaintenance(projectId, change(currentUptimeSettings(projectId).maintenance ?? []));
       setUptimeSettings(projectId, s);
-      setList(s.maintenance ?? []);
       setEditing(null);
       if (close) onClose();
     } catch (err) {
@@ -148,6 +158,7 @@ export function MaintenanceDialog({ projectId, settings, monitors, onClose }: { 
       setBusy(false);
     }
   };
+  const replace = (k: string, fn: (w: MaintenanceWindow) => MaintenanceWindow) => (now: MaintenanceWindow[]) => now.map((x, j) => (keyOf(x, j) === k ? fn(x) : x));
 
   return (
     <Modal
@@ -168,33 +179,33 @@ export function MaintenanceDialog({ projectId, settings, monitors, onClose }: { 
         {list.length > 0 && (
           <ul className="plain up-maint-list" aria-label="Maintenance windows">
             {list.map((w, i) =>
-              editing === i ? (
-                <li key={w.id ?? i}>
-                  <WindowForm initial={w} monitors={monitors} onCancel={() => setEditing(null)} onDone={(nw) => void save(list.map((x, j) => (j === i ? nw : x)), false)} />
+              edit === keyOf(w, i) ? (
+                <li key={keyOf(w, i)}>
+                  <WindowForm initial={w} monitors={monitors} onCancel={() => setEditing(null)} onDone={(nw) => void save(replace(keyOf(w, i), () => nw), false)} />
                 </li>
               ) : (
-                <li key={w.id ?? i} className="up-maint-row">
+                <li key={keyOf(w, i)} className="up-maint-row">
                   <Icon name="calendar" />
                   <span className="up-maint-text">
                     <span className="up-maint-title truncate">{w.title}</span>
                     <span className="up-form-note truncate">{windowSummary(w, monitors)}</span>
                   </span>
                   {w.mode === 'manual' && (
-                    <Button size="sm" disabled={busy} onClick={() => void save(list.map((x, j) => (j === i ? { ...x, active: !x.active } : x)), false)}>
+                    <Button size="sm" disabled={busy} onClick={() => void save(replace(keyOf(w, i), (x) => ({ ...x, active: !w.active })), false)}>
                       {w.active ? 'Turn off' : 'Turn on'}
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" iconOnly icon="pencil" aria-label={`Edit ${w.title}`} disabled={busy || editing !== null} onClick={() => setEditing(i)} />
-                  <Button size="sm" variant="danger-ghost" iconOnly icon="trash" aria-label={`Delete ${w.title}`} disabled={busy} onClick={() => void save(list.filter((_, j) => j !== i), false)} />
+                  <Button size="sm" variant="ghost" iconOnly icon="pencil" aria-label={`Edit ${w.title}`} disabled={busy || edit !== null} onClick={() => setEditing(keyOf(w, i))} />
+                  <Button size="sm" variant="danger-ghost" iconOnly icon="trash" aria-label={`Delete ${w.title}`} disabled={busy} onClick={() => void save((now) => now.filter((x, j) => keyOf(x, j) !== keyOf(w, i)), false)} />
                 </li>
               ),
             )}
           </ul>
         )}
-        {editing === 'new' ? (
-          <WindowForm initial={{ title: '', mode: 'manual', active: true }} monitors={monitors} onCancel={() => setEditing(null)} onDone={(w) => void save([...list, w], false)} />
+        {edit === 'new' ? (
+          <WindowForm initial={{ title: '', mode: 'manual', active: true }} monitors={monitors} onCancel={() => setEditing(null)} onDone={(w) => void save((now) => [...now, w], false)} />
         ) : (
-          <Button size="sm" icon="plus" disabled={busy || editing !== null} onClick={() => setEditing('new')}>
+          <Button size="sm" icon="plus" disabled={busy || edit !== null} onClick={() => setEditing('new')}>
             Add window
           </Button>
         )}

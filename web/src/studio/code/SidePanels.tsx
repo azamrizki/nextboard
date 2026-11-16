@@ -136,10 +136,18 @@ export function AgentsPanel({
   const [picked, setPicked] = useState(0);
   const suggestions = useMemo(() => (mention ? fuzzyTop(mention.query, files, MENTION_ROWS).map((h) => h.path) : []), [mention, files]);
 
-  // @ names a file as the card shows it: "admin/src/x.ts" in a Root card
+  // @ names a file as the card shows it: "admin/src/x.ts" in a Root card. Built again when the
+  // card's parts change (renamed, added, moved or removed elsewhere), or "admin/…" names nothing.
+  const partsKey = `${ws.paths.multi}|${ws.paths.mounts.map((m) => `${m.partId}=${m.name}@${m.rootKey}`).join('|')}`;
   useEffect(() => {
-    void ws.fileLists().then((lists) => setFiles(lists.flatMap(({ part, list }) => (list.items ?? []).map((rel) => fileLabel(ws.paths.multi, part.name, rel)))));
-  }, [ws]);
+    let live = true;
+    void ws.fileLists().then((lists) => {
+      if (live) setFiles(lists.flatMap(({ part, list }) => (list.items ?? []).map((rel) => fileLabel(ws.paths.multi, part.name, rel))));
+    });
+    return () => {
+      live = false;
+    };
+  }, [ws, partsKey]);
 
   const takeMention = (path: string) => {
     const el = inputRef.current;

@@ -46,7 +46,10 @@ type snapshotFile struct {
 
 // ArchiveMeta is one entry of GET /api/archive.
 type ArchiveMeta struct {
-	ID            string    `json:"id"`
+	ID string `json:"id"`
+	// ProjectID is the project the board was in, so deleting that project for good finds it, and
+	// a restore offers it even after a rename (absent in archives from before it was kept).
+	ProjectID     string    `json:"projectId,omitempty"`
 	ProjectName   string    `json:"projectName"`
 	WorkspaceName string    `json:"workspaceName"`
 	ArchivedAt    time.Time `json:"archivedAt"`
@@ -57,10 +60,7 @@ type ArchiveMeta struct {
 type archiveFile struct {
 	ArchiveMeta
 	WorkspaceID string `json:"workspaceId"`
-	// ProjectID is the project the board was in, so deleting that project for good finds it
-	// (absent in archives from before it was kept).
-	ProjectID string `json:"projectId,omitempty"`
-	Board     *Board `json:"board,omitempty"`
+	Board       *Board `json:"board,omitempty"`
 	// Raw keeps the bytes of an unreadable board file.
 	Raw []byte `json:"raw,omitempty"`
 }
@@ -274,10 +274,10 @@ func (m *Manager) writeArchive(b Board, projectID, projectName, workspaceName, r
 	}
 	f := archiveFile{
 		ArchiveMeta: ArchiveMeta{
-			ID: randomID("r_"), ProjectName: projectName, WorkspaceName: workspaceName,
+			ID: randomID("r_"), ProjectID: projectID, ProjectName: projectName, WorkspaceName: workspaceName,
 			ArchivedAt: m.now().UTC(), NodeCount: len(b.Nodes), Reason: reason,
 		},
-		WorkspaceID: b.WorkspaceID, ProjectID: projectID, Board: &b,
+		WorkspaceID: b.WorkspaceID, Board: &b,
 	}
 	return f.ID, m.saveArchive(&f)
 }
@@ -315,8 +315,8 @@ func (m *Manager) DeleteArchives(projectID string, workspaces []string) int {
 func (m *Manager) archiveRaw(wid string, raw []byte) {
 	pn, wn := m.names(wid)
 	f := archiveFile{
-		ArchiveMeta: ArchiveMeta{ID: randomID("r_"), ProjectName: pn, WorkspaceName: wn, ArchivedAt: m.now().UTC(), Reason: ReasonUnreadable},
-		WorkspaceID: wid, ProjectID: m.projectOf(wid), Raw: raw,
+		ArchiveMeta: ArchiveMeta{ID: randomID("r_"), ProjectID: m.projectOf(wid), ProjectName: pn, WorkspaceName: wn, ArchivedAt: m.now().UTC(), Reason: ReasonUnreadable},
+		WorkspaceID: wid, Raw: raw,
 	}
 	if err := m.saveArchive(&f); err != nil {
 		log.Printf("archive of board %s failed: %v", wid, err)

@@ -90,6 +90,7 @@ Events on `/api/events`:
 - `{"type":"uptimeMonitor","monitor":View}` when created or changed, always before its first heartbeat.
 - `{"type":"uptimeBeat","projectId","monitorId","beat","monitor":View without recent}` on each check.
 - `{"type":"uptimeRemoved","projectId","id"}`.
+- `{"type":"uptimeSettings","projectId"}` when the project's settings changed: webhook, how its last delivery went, maintenance windows, public page or its address. Only the project's id: a board fetches the settings with `GET /api/projects/{id}/uptime`, and an open dialog shows them, so that it never saves an older copy over a change made elsewhere.
 
 Planner and command bar: `add an uptime monitor` (`node.add` kind `uptime`) adds its card. Monitors themselves cannot be created through the planner yet.
 

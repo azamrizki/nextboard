@@ -1,6 +1,6 @@
 // Where a project's alerts go besides the board: a webhook reaches someone with no board open.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { errorMessage } from '../api';
 import { Button } from '../components/Button';
 import { TextField } from '../components/form';
@@ -8,12 +8,18 @@ import { Modal } from '../components/Modal';
 import { toast } from '../components/Toast';
 import { formatDateTime } from '../lib/format';
 import { uptimeApi, type UptimeSettings } from './api';
-import { setUptimeSettings } from './store';
+import { refreshUptimeSettings, setUptimeSettings } from './store';
 
 export function AlertsDialog({ projectId, settings, onClose }: { projectId: string; settings: UptimeSettings; onClose: () => void }) {
-  const [url, setUrl] = useState(settings.webhook ?? '');
+  // the webhook as the hub has it now, until it is typed in; how the last delivery went is live
+  const [typed, setTyped] = useState<string | null>(null);
+  const url = typed ?? settings.webhook ?? '';
   const [busy, setBusy] = useState<'' | 'save' | 'test'>('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    void refreshUptimeSettings(projectId);
+  }, [projectId]);
 
   const save = async () => {
     const next = await uptimeApi.setWebhook(projectId, url.trim());
@@ -68,7 +74,7 @@ export function AlertsDialog({ projectId, settings, onClose }: { projectId: stri
           placeholder="https://hooks.slack.com/services/…"
           hint="Gets a JSON POST with the message in text and in content, the fields Slack, Telegram and Discord read. Kept on the hub as written."
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => setTyped(e.target.value)}
         />
         {settings.lastError && (
           <p className="up-form-note" role="status">

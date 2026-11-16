@@ -23,7 +23,8 @@ import { toast } from '../components/Toast';
 import type { SocketState } from '../lib/socket';
 import type { Agent, Conversation, LaunchMode, Machine, Session } from '../lib/types';
 import { projectParts } from '../lib/parts';
-import { store, useProfile, useProject, useSettings } from '../store';
+import { renameTo, useRenameDraft } from '../lib/renameDraft';
+import { machineNameOf, store, useProfile, useProject, useSettings } from '../store';
 import { splitAccount } from '../providers/AccountOptions';
 import { ProviderBadge } from '../providers/ProviderBadge';
 import { placeOfSession, rectOf } from './controller';
@@ -159,7 +160,7 @@ export function useConsoleActions(nodeId: string, session: Session, machine: Mac
         return (
           <ConfirmDialog title="Close this terminal?" confirmLabel="Close terminal" danger onClose={close} onConfirm={() => ctl.deleteNodes([nodeId])}>
             <p>
-              <strong>{handleOf(session)}</strong> on {session.machineName} will be killed and removed from the board. Its scrollback is
+              <strong>{handleOf(session)}</strong> on {machineNameOf(session)} will be killed and removed from the board. Its scrollback is
               discarded. Undo (Ctrl+Z) starts a fresh terminal in its place.
             </p>
           </ConfirmDialog>
@@ -329,7 +330,8 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
     return g ? readGroup(g).syncInput : false;
   });
   const [renaming, setRenaming] = useState<'handle' | 'name' | null>(null);
-  const [draft, setDraft] = useState('');
+  // renamed in another tab while the field is open: it shows that name until typed in
+  const draft = useRenameDraft(renaming === 'handle' ? (session.handle ?? '') : session.name);
   const [draftError, setDraftError] = useState('');
   // Guards against Enter + blur both committing the same rename.
   const renamingRef = useRef(false);
@@ -352,7 +354,7 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
 
   const startRename = (what: 'handle' | 'name') => {
     if (what === 'handle' && !session.handle) what = 'name';
-    setDraft(what === 'handle' ? (session.handle ?? '') : session.name);
+    draft.reset();
     setDraftError('');
     renamingRef.current = true;
     setRenaming(what);
@@ -361,8 +363,9 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
   const commitRename = () => {
     if (!renamingRef.current || !renaming) return;
     const what = renaming;
-    const value = draft.trim();
-    if (what === 'handle' && value && value !== session.handle) {
+    // null: not typed in (a rename elsewhere stays), empty, or the name it has
+    const value = renameTo(draft.typed(), what === 'handle' ? (session.handle ?? '') : session.name);
+    if (what === 'handle' && value) {
       const problem = handleProblem(value);
       if (problem) {
         setDraftError(problem);
@@ -371,16 +374,16 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
     }
     renamingRef.current = false;
     setRenaming(null);
+    draft.reset();
     if (!value) return;
     if (what === 'handle') {
-      if (value === session.handle) return;
       api
         .setHandle(session.id, value)
         .then((s) => store.upsertSession(s))
         .catch((err) =>
           toast.error(isCode(err, 'handle_taken') ? `@${value} is already used by another console. Pick another name.` : `Could not rename ${who(session)}: ${errorMessage(err)}`),
         );
-    } else if (value !== session.name) {
+    } else {
       api
         .renameSession(session.id, value)
         .then((s) => store.upsertSession(s))
@@ -393,6 +396,7 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
     else if (e.key === 'Escape') {
       e.stopPropagation();
       renamingRef.current = false;
+      draft.reset();
       setRenaming(null);
     }
   };
@@ -524,20 +528,21 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
         <span className="node-rename-wrap nodrag">
           <input
             className="control control-sm node-rename"
-            value={draft}
+            value={draft.value}
             autoFocus
             aria-label={renaming === 'handle' ? 'Console handle' : 'Terminal title'}
             aria-invalid={draftError ? true : undefined}
             title={draftError || undefined}
             onFocus={(e) => e.currentTarget.select()}
             onChange={(e) => {
-              setDraft(e.target.value);
+              draft.set(e.target.value);
               setDraftError('');
             }}
             onKeyDown={onRenameKey}
             onBlur={() => {
               if (draftError) {
                 renamingRef.current = false;
+                draft.reset();
                 setRenaming(null);
                 toast.error(draftError);
                 return;

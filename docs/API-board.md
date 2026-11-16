@@ -193,7 +193,7 @@ Clients ignore kinds they do not know (rendering an "Unsupported tile" placehold
 | POST | `/api/workspaces/{id}/board/ops` | `{"clientId":"c_…","baseRev":42,"ops":[Op…]}` (max 2 MB, ≤ 500 ops) | `{"rev":43}` |
 | GET | `/api/workspaces/{id}/snapshots` | — | `[{ "id": "2026102814", "at": "…", "nodeCount": 12 }]` (newest first) |
 | POST | `/api/workspaces/{id}/snapshots/{sid}/restore` | — | `Board` (the current version is first saved as a snapshot; terminal nodes whose sessions no longer exist are dropped) |
-| GET | `/api/archive` | — | `[{ "id", "projectName", "workspaceName", "archivedAt", "nodeCount", "reason": "closed"\|"cleared"\|"unreadable" }]` |
+| GET | `/api/archive` | — | `[{ "id", "projectId", "projectName", "workspaceName", "archivedAt", "nodeCount", "reason": "closed"\|"cleared"\|"unreadable" }]`; `projectId` is the board's project, absent in archives from before it was kept. A restore offers that project by id, even renamed, else one of the same name |
 | POST | `/api/archive/{id}/restore` | `{"projectId"}` | `201 Workspace` (the board is restored without terminal nodes) |
 
 ```jsonc

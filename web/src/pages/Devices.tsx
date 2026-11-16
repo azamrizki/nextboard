@@ -11,6 +11,7 @@ import { StatusBadge } from '../components/StatusDot';
 import { toast } from '../components/Toast';
 import { PairDialog } from '../devices/PairDialog';
 import { formatDateTime, timeAgo } from '../lib/format';
+import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import type { Device } from '../lib/types';
 import { store, useDevices } from '../store';
 
@@ -126,11 +127,12 @@ interface DeviceCardProps {
 
 function DeviceCard({ device: d, isAdmin, isSelf, onRevoke }: DeviceCardProps) {
   const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft] = useState(d.name);
+  // renamed on another device while the field is open: it shows that name until typed in
+  const draft = useRenameDraft(d.name);
   const renamingRef = useRef(false);
 
   const start = () => {
-    setDraft(d.name);
+    draft.reset();
     renamingRef.current = true;
     setRenaming(true);
   };
@@ -140,8 +142,9 @@ function DeviceCard({ device: d, isAdmin, isSelf, onRevoke }: DeviceCardProps) {
     if (!renamingRef.current) return;
     renamingRef.current = false;
     setRenaming(false);
-    const name = draft.trim();
-    if (!name || name === d.name) return;
+    const name = renameTo(draft.typed(), d.name);
+    draft.reset();
+    if (!name) return;
     try {
       store.upsertDevice(await api.renameDevice(d.id, name));
     } catch (err) {
@@ -162,13 +165,14 @@ function DeviceCard({ device: d, isAdmin, isSelf, onRevoke }: DeviceCardProps) {
             <form onSubmit={commit}>
               <input
                 className="control control-sm"
-                value={draft}
+                value={draft.value}
                 autoFocus
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => draft.set(e.target.value)}
                 onBlur={commit}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     renamingRef.current = false;
+                    draft.reset();
                     setRenaming(false);
                   }
                 }}

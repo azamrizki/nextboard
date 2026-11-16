@@ -12,6 +12,7 @@ import { formatDateTime } from '../lib/format';
 import { boardPath, navigate } from '../lib/router';
 import type { ArchiveEntry } from '../lib/types';
 import { store, useProjects } from '../store';
+import { archiveTarget } from './archive';
 
 const REASON: Record<string, string> = { closed: 'Closed', cleared: 'Cleared', unreadable: 'Unreadable' };
 
@@ -29,7 +30,7 @@ export function ArchiveDialog({ onClose }: { onClose: () => void }) {
       .catch((err) => setError(errorMessage(err)));
   }, []);
 
-  const defaultTarget = (e: ArchiveEntry) => projects.find((p) => p.name === e.projectName)?.id ?? projects[0]?.id ?? '';
+  const defaultTarget = (e: ArchiveEntry) => archiveTarget(e, projects);
 
   const restore = async (e: ArchiveEntry) => {
     const pid = target[e.id] ?? defaultTarget(e);

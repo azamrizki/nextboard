@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { api, errorMessage } from '../api';
 import { groupChain, groupTree, useCollapsedGroups, useMenuSort, type GroupNode } from '../home/groups';
 import { projectParts } from '../lib/parts';
+import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import { boardPath, navigate } from '../lib/router';
 import type { CloseAllPreview, Project, Workspace } from '../lib/types';
 import { isActive } from '../agents/state';
@@ -45,7 +46,7 @@ function CloseAllBoards({ project, onClose }: { project: Project; onClose: () =>
   const close = async () => {
     if (nothing) return;
     const r = await api.closeAllBoards(project.id);
-    store.upsertProject({ ...project, workspaces: [r.workspace] });
+    store.patchProject(project.id, (p) => ({ ...p, workspaces: [r.workspace] }));
     navigate(boardPath(project.id, r.workspace.id), true);
     toast.success(`${count(r.closed, 'board')} closed.${r.archived ? ` ${r.archived} in Home › Archive.` : ''}`);
   };
@@ -230,7 +231,8 @@ function useWorkspaceActions(project: Project, activeId?: string) {
     setAdding(true);
     try {
       const w = await api.createWorkspace(project.id);
-      store.upsertProject({ ...project, workspaces: [...workspaces, w] });
+      // onto the project as it is now: another tab may have added or renamed one meanwhile
+      store.patchProject(project.id, (p) => ({ ...p, workspaces: [...(p.workspaces ?? []).filter((x) => x.id !== w.id), w] }));
       navigate(boardPath(project.id, w.id));
     } catch (err) {
       toast.error(`Could not add a workspace: ${errorMessage(err)}`);
@@ -242,7 +244,7 @@ function useWorkspaceActions(project: Project, activeId?: string) {
   const rename = async (w: Workspace, name: string) => {
     const v = name.trim().slice(0, NAME_MAX);
     if (!v || v === w.name) return;
-    store.upsertProject({ ...project, workspaces: workspaces.map((x) => (x.id === w.id ? { ...x, name: v } : x)) });
+    store.patchProject(project.id, (p) => ({ ...p, workspaces: (p.workspaces ?? []).map((x) => (x.id === w.id ? { ...x, name: v } : x)) }));
     try {
       await api.updateWorkspace(w.id, { name: v });
     } catch (err) {
@@ -252,9 +254,11 @@ function useWorkspaceActions(project: Project, activeId?: string) {
 
   const move = async (w: Workspace, index: number) => {
     if (index < 0 || index >= workspaces.length) return;
-    const list = workspaces.filter((x) => x.id !== w.id);
-    list.splice(index, 0, w);
-    store.upsertProject({ ...project, workspaces: list });
+    store.patchProject(project.id, (p) => {
+      const list = (p.workspaces ?? []).filter((x) => x.id !== w.id);
+      list.splice(index, 0, p.workspaces?.find((x) => x.id === w.id) ?? w);
+      return { ...p, workspaces: list };
+    });
     try {
       await api.updateWorkspace(w.id, { index });
     } catch (err) {
@@ -264,8 +268,8 @@ function useWorkspaceActions(project: Project, activeId?: string) {
 
   const close = async (w: Workspace) => {
     await api.deleteWorkspace(w.id);
-    const rest = workspaces.filter((x) => x.id !== w.id);
-    store.upsertProject({ ...project, workspaces: rest });
+    store.patchProject(project.id, (p) => ({ ...p, workspaces: (p.workspaces ?? []).filter((x) => x.id !== w.id) }));
+    const rest = (store.getState().projects[project.id]?.workspaces ?? workspaces).filter((x) => x.id !== w.id);
     if (w.id === activeId && rest.length) {
       const i = Math.max(0, workspaces.findIndex((x) => x.id === w.id) - 1);
       navigate(boardPath(project.id, rest[Math.min(i, rest.length - 1)].id), true);
@@ -294,8 +298,9 @@ function useWorkspaceActions(project: Project, activeId?: string) {
   return { workspaces, adding, add, rename, move, terminalsIn, workingIn, requestClose: setClosing, dialog };
 }
 
+/** workspace is the live one: renamed elsewhere meanwhile, the field shows it until typed in. */
 function RenameWorkspaceDialog({ workspace, onSave, onClose }: { workspace: Workspace; onSave: (name: string) => void; onClose: () => void }) {
-  const [name, setName] = useState(workspace.name);
+  const draft = useRenameDraft(workspace.name);
   return (
     <Modal
       title="Rename workspace"
@@ -315,11 +320,12 @@ function RenameWorkspaceDialog({ workspace, onSave, onClose }: { workspace: Work
         id="ws-rename-form"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave(name);
+          const v = renameTo(draft.typed(), workspace.name, NAME_MAX);
+          if (v) onSave(v);
           onClose();
         }}
       >
-        <TextField label="Name" value={name} maxLength={NAME_MAX} onChange={(e) => setName(e.target.value)} hint={`Up to ${NAME_MAX} characters.`} />
+        <TextField label="Name" value={draft.value} maxLength={NAME_MAX} onChange={(e) => draft.set(e.target.value)} hint={`Up to ${NAME_MAX} characters.`} />
       </form>
     </Modal>
   );
@@ -329,6 +335,9 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
   const ws = useWorkspaceActions(project, activeId);
   const { workspaces } = ws;
   const [renaming, setRenaming] = useState<string | null>(null);
+  // the tab's name as it is now: renamed in another tab while this field is open, it shows that
+  // name, and Enter without typing saves nothing (never the old name back)
+  const draft = useRenameDraft(workspaces.find((w) => w.id === renaming)?.name ?? '');
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; w: Workspace; i: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -337,13 +346,21 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
     listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [activeId]);
 
-  const rename = (w: Workspace, name: string) => {
+  // a field closed without its blur (the tab went in another tab) leaves no text for the next one
+  const startRename = (id: string) => {
+    draft.reset();
+    setRenaming(id);
+  };
+
+  const rename = (w: Workspace) => {
     setRenaming(null);
-    void ws.rename(w, name);
+    const v = renameTo(draft.typed(), w.name, NAME_MAX);
+    draft.reset();
+    if (v) void ws.rename(w, v);
   };
 
   const menuFor = (w: Workspace, i: number): MenuEntry[] => [
-    { label: 'Rename…', icon: 'pencil', shortcut: 'F2', onSelect: () => setRenaming(w.id) },
+    { label: 'Rename…', icon: 'pencil', shortcut: 'F2', onSelect: () => startRename(w.id) },
     { label: 'Move left', icon: 'arrowLeft', shortcut: 'Ctrl+Shift+←', disabled: i === 0, onSelect: () => void ws.move(w, i - 1) },
     { label: 'Move right', icon: 'arrowRight', shortcut: 'Ctrl+Shift+→', disabled: i === workspaces.length - 1, onSelect: () => void ws.move(w, i + 1) },
     'sep',
@@ -368,7 +385,7 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
       navigate(boardPath(project.id, w.id));
     } else if (e.key === 'F2') {
       e.preventDefault();
-      setRenaming(w.id);
+      startRename(w.id);
     } else if (e.key === 'Delete' && workspaces.length > 1) {
       e.preventDefault();
       ws.requestClose(w);
@@ -387,16 +404,20 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
               {renaming === w.id ? (
                 <input
                   className="control control-sm ws-rename"
-                  defaultValue={w.name}
+                  value={draft.value}
                   autoFocus
                   maxLength={NAME_MAX}
                   aria-label="Workspace name"
                   onFocus={(e) => e.currentTarget.select()}
-                  onBlur={(e) => rename(w, e.target.value)}
+                  onChange={(e) => draft.set(e.target.value)}
+                  onBlur={() => rename(w)}
                   onKeyDown={(e) => {
                     e.stopPropagation();
                     if (e.key === 'Enter') e.currentTarget.blur();
-                    else if (e.key === 'Escape') setRenaming(null);
+                    else if (e.key === 'Escape') {
+                      draft.reset();
+                      setRenaming(null);
+                    }
                   }}
                 />
               ) : (
@@ -408,7 +429,7 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
                   className="ws-tab-btn"
                   title={`${w.name}${n ? ` · ${working} of ${n} terminal${n === 1 ? '' : 's'} active` : ''} — double-click to rename`}
                   onClick={() => navigate(boardPath(project.id, w.id))}
-                  onDoubleClick={() => setRenaming(w.id)}
+                  onDoubleClick={() => startRename(w.id)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setTabMenu({ x: e.clientX, y: e.clientY, w, i });
@@ -448,10 +469,11 @@ export function WorkspaceTabs({ project, activeId }: { project: Project; activeI
 export function PhoneSwitcher({ project, activeId }: { project: Project; activeId?: string }) {
   const ws = useWorkspaceActions(project, activeId);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [renaming, setRenaming] = useState<Workspace | null>(null);
+  const [renamingId, setRenaming] = useState<string | null>(null);
   const [closingAll, setClosingAll] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   const active = ws.workspaces.find((w) => w.id === activeId);
+  const renaming = ws.workspaces.find((w) => w.id === renamingId);
 
   const first: MenuEntry[] = [
     { type: 'heading', label: `Workspaces of ${project.name}` },
@@ -468,7 +490,7 @@ export function PhoneSwitcher({ project, activeId }: { project: Project; activeI
     { label: 'New workspace', icon: 'plus', disabled: ws.adding, onSelect: () => void ws.add() },
     ...(active
       ? ([
-          { label: `Rename “${active.name}”…`, icon: 'pencil', onSelect: () => setRenaming(active) },
+          { label: `Rename “${active.name}”…`, icon: 'pencil', onSelect: () => setRenaming(active.id) },
           { label: `Close “${active.name}”…`, icon: 'close', danger: true, disabled: ws.workspaces.length < 2, onSelect: () => ws.requestClose(active) },
         ] as MenuEntry[])
       : []),

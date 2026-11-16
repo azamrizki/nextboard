@@ -14,6 +14,7 @@ import { toast } from '../components/Toast';
 import { formatDateTime, timeAgoShort } from '../lib/format';
 import { boardPath, lastWorkspace, navigate } from '../lib/router';
 import { projectParts } from '../lib/parts';
+import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import type { GitInfo, Project } from '../lib/types';
 import { isActive } from '../agents/state';
 import { store, useMachines, useRunningSessions } from '../store';
@@ -214,6 +215,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
   const activeCount = consoles.filter(isActive).length;
   const idleCount = consoles.length - activeCount;
   const [renaming, setRenaming] = useState(false);
+  const draft = useRenameDraft(p.name);
   const [confirm, setConfirm] = useState(false);
   const [organizing, setOrganizing] = useState(false);
   const [partsOpen, setPartsOpen] = useState(false);
@@ -229,12 +231,14 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
     }
   }, [removeRequested, onRemoveHandled]);
 
-  const rename = async (name: string) => {
+  const rename = async () => {
     if (!live.current) return;
     live.current = false;
     setRenaming(false);
-    const v = name.trim().slice(0, NAME_MAX);
-    if (!v || v === p.name) return;
+    // renamed elsewhere while the field was open and not typed in: nothing to save
+    const v = renameTo(draft.typed(), p.name, NAME_MAX);
+    draft.reset();
+    if (!v) return;
     try {
       store.upsertProject(await api.updateProject(p.id, { name: v }));
     } catch (err) {
@@ -273,17 +277,19 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
             {renaming ? (
               <input
                 className="control control-sm"
-                defaultValue={p.name}
+                value={draft.value}
                 autoFocus
                 maxLength={NAME_MAX}
                 aria-label="Project name"
                 onFocus={(e) => e.currentTarget.select()}
-                onBlur={(e) => void rename(e.target.value)}
+                onChange={(e) => draft.set(e.target.value)}
+                onBlur={() => void rename()}
                 onKeyDown={(e) => {
                   e.stopPropagation();
                   if (e.key === 'Enter') e.currentTarget.blur();
                   if (e.key === 'Escape') {
                     live.current = false;
+                    draft.reset();
                     setRenaming(false);
                   }
                 }}
@@ -323,6 +329,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
               icon: 'pencil',
               onSelect: () => {
                 live.current = true;
+                draft.reset();
                 setRenaming(true);
               },
             },

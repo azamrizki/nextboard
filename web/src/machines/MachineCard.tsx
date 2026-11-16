@@ -14,6 +14,7 @@ import { SelectBox, type SelectMode } from '../components/SelectBar';
 import { StatusBadge } from '../components/StatusDot';
 import { toast } from '../components/Toast';
 import { formatDateTime, timeAgo } from '../lib/format';
+import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import type { Machine, PersistMode } from '../lib/types';
 import { store } from '../store';
 import { DeleteMachinesDialog, machinesAction, machineTarget, reportMachines } from './ArchivedMachines';
@@ -36,7 +37,8 @@ interface MachineCardProps {
 export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth, select, blocked = '' }: MachineCardProps) {
   const [busy, setBusy] = useState<string>('');
   const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft] = useState(m.name);
+  // renamed on another device while the field is open: it shows that name until typed in
+  const draft = useRenameDraft(m.name);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [orphans, setOrphans] = useState(false);
   const [connLog, setConnLog] = useState(false);
@@ -66,13 +68,14 @@ export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth, select, 
   };
 
   const startRename = () => {
-    setDraft(m.name);
+    draft.reset();
     renamingRef.current = true;
     setRenaming(true);
   };
 
   const cancelRename = () => {
     renamingRef.current = false;
+    draft.reset();
     setRenaming(false);
   };
 
@@ -80,9 +83,10 @@ export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth, select, 
     e.preventDefault();
     if (!renamingRef.current) return;
     renamingRef.current = false;
-    const name = draft.trim();
+    const name = renameTo(draft.typed(), m.name);
+    draft.reset();
     setRenaming(false);
-    if (!name || name === m.name) return;
+    if (!name) return;
     await act('Rename', () => api.updateMachine(m.id, { name }));
   };
 
@@ -156,9 +160,9 @@ export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth, select, 
             <form onSubmit={rename}>
               <input
                 className="control control-sm"
-                value={draft}
+                value={draft.value}
                 autoFocus
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => draft.set(e.target.value)}
                 onBlur={rename}
                 onKeyDown={(e) => e.key === 'Escape' && cancelRename()}
                 aria-label="Machine name"

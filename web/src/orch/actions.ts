@@ -5,7 +5,7 @@ import { api, ApiError, errorMessage } from '../api';
 import { toast } from '../components/Toast';
 import { CLIENT_ID } from '../lib/ids';
 import type { Session } from '../lib/types';
-import { store } from '../store';
+import { machineNameOf, store } from '../store';
 import { orchApi } from './api';
 import { is404, orchStore } from './store';
 import type { CommandResponse, Confirmation } from './types';
@@ -68,9 +68,9 @@ function explain(err: unknown, s?: Session): string {
       case 'not_agent':
         return s ? `${who(s)} is not running an agent right now, so there is nothing to pause.` : 'That console is not running an agent.';
       case 'machine_offline':
-        return s ? `${s.machineName} is offline. Reconnect it from Machines, then try again.` : 'The machine is offline.';
+        return s ? `${machineNameOf(s)} is offline. Reconnect it from Machines, then try again.` : 'The machine is offline.';
       case 'pid_unknown':
-        return s ? `NextBoard cannot find ${who(s)}’s process on ${s.machineName}. Restart the console to pause it later.` : 'The process is unknown.';
+        return s ? `NextBoard cannot find ${who(s)}’s process on ${machineNameOf(s)}. Restart the console to pause it later.` : 'The process is unknown.';
     }
   }
   return orchError(err);

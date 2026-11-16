@@ -22,7 +22,7 @@ import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import { timeAgo } from '../../lib/format';
 import { projectParts } from '../../lib/parts';
-import type { Project } from '../../lib/types';
+import type { Project, ProjectPart } from '../../lib/types';
 import { fsApi, mdApi } from '../api';
 import { studioStore } from '../store';
 import { CodeEditor } from '../code/CodeEditor';
@@ -35,6 +35,9 @@ import { absIn, dirOf, relIn, resolvePath } from './notes';
 import '../../styles/studio.css';
 
 const Graph = lazy(() => import('./Graph'));
+
+/** A part as a place on disk: the same id on the same machine and folder. */
+const placeOf = (p: ProjectPart) => `${p.id}\n${p.machineId || 'local'}\n${p.path.replace(/\/+$/, '')}`;
 
 type View = 'reading' | 'source' | 'graph';
 interface Props {
@@ -58,7 +61,13 @@ export default function MarkdownStudio({ project, ctl, initialPath, partId, view
   refNow.current = ref;
   const [vault, setVault] = useState<MdVault | null>(null);
   const [vaultErr, setVaultErr] = useState('');
-  const [path, setPath] = useState<string | null>(initialPath ?? null);
+  const [openPath, setPath] = useState<string | null>(initialPath ?? null);
+  // the part the open note is in. Removed elsewhere, usePartChoice falls back to another part,
+  // maybe on another machine; moved, it is elsewhere on disk. Either way the note's path means
+  // nothing there, so it is never read or saved on what took its place: it closes at once
+  const place = placeOf(where.part);
+  const [notePart, setNotePart] = useState({ id: where.part.id, name: where.part.name, place });
+  const path = notePart.place === place ? openPath : null;
   const [view, setView] = useState<View>('reading');
   const [q, setQ] = useState('');
   const [graph, setGraph] = useState<MdGraph | null>(null);
@@ -96,7 +105,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, partId, view
       const first = v.agentMemory?.files?.find((x) => /^memory\.md$/i.test(x.rel)) ?? v.files?.find((x) => /^readme\.md$/i.test(x.rel)) ?? v.files?.[0] ?? v.agentMemory?.files?.[0];
       setPath((cur) => cur ?? first?.path ?? null);
     });
-  }, [loadVault]);
+  }, [loadVault, place]);
 
   /** Read another part's notes: the open note is saved and closed; that part's first note opens. */
   const pickPart = (id: string) => {
@@ -108,8 +117,25 @@ export default function MarkdownStudio({ project, ctl, initialPath, partId, view
     setGraph(null);
     setBacklinks(null);
     setSaveState('');
+    const next = projectParts(project).find((p) => p.id === id);
+    if (next) setNotePart({ id, name: next.name, place: placeOf(next) });
     where.setPartId(id);
   };
+
+  // the open note's part went or moved, not by the picker: that part's first note opens instead
+  useEffect(() => {
+    if (notePart.place === place) return;
+    const moved = projectParts(project).some((p) => p.id === notePart.id);
+    setNotePart({ id: where.part.id, name: where.part.name, place });
+    setPath(null);
+    setVault(null);
+    setVaultErr('');
+    setGraph(null);
+    setBacklinks(null);
+    setSaveState('');
+    setDiskChanged(false);
+    toast.info(moved ? `“${notePart.name}” moved, so its note closed.` : `“${notePart.name}” is no longer a part of this project, so its note closed.`);
+  }, [notePart, place, project, where.part.id, where.part.name]);
 
   const memFiles = useMemo(() => vault?.agentMemory?.files ?? [], [vault]);
   const files = useMemo(() => vault?.files ?? [], [vault]);

@@ -4,7 +4,7 @@
 import { api, ApiError, errorMessage, isCode, type RestartBody } from '../api';
 import { toast } from '../components/Toast';
 import type { LaunchMode, Session } from '../lib/types';
-import { store } from '../store';
+import { machineNameOf, store } from '../store';
 
 export type LaunchResult = 'ok' | 'wrap_missing' | 'failed';
 
@@ -57,7 +57,7 @@ export function launchError(s: Session, err: unknown): string {
       case 'not_agent':
         return `${who(s)} is a plain shell console. Use “Switch agent” to run an agent in it.`;
       case 'machine_offline':
-        return `${s.machineName} is offline. Reconnect it from Machines, then try again.`;
+        return `${machineNameOf(s)} is offline. Reconnect it from Machines, then try again.`;
     }
   }
   return `Could not start the agent in ${who(s)}: ${errorMessage(err)}`;

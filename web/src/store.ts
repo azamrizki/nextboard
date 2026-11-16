@@ -300,6 +300,14 @@ class LiveStore {
     }
     this.set({ projects: { ...this.state.projects, [p.id]: p }, archivedProjects: without(this.state.archivedProjects, p.id) });
   }
+  /**
+   * A change of the project as it is in the store at the time of writing, not as it was when a
+   * click started a request: an event may have brought a newer one meanwhile.
+   */
+  patchProject(id: string, change: (p: Project) => Project) {
+    const p = this.state.projects[id];
+    if (p) this.upsertProject(change(p));
+  }
   /** Gone for good (a permanent delete, a merge): from both lists. */
   removeProject(id: string) {
     const projects = without(this.state.projects, id);
@@ -374,6 +382,25 @@ export function useSession(id: string): Session | undefined {
 
 export function useMachine(id: string): Machine | undefined {
   return useSlice((s) => s.machines[id]);
+}
+
+/** A session's machine as it is named now: Session.machineName is a copy a rename never refreshes. */
+export function machineNameOf(s: Pick<Session, 'machineId' | 'machineName'>, st: Pick<LiveState, 'machines' | 'archivedMachines'> = store.getState()): string {
+  const m = st.machines[s.machineId] ?? st.archivedMachines[s.machineId];
+  // This PC under its default name: the hub names its consoles' machine after the hub instead
+  if (!m || (m.id === 'local' && m.name === 'This PC')) return s.machineName;
+  return m.name;
+}
+
+export function useMachineName(s: Pick<Session, 'machineId' | 'machineName'>): string {
+  return useSlice((st) => machineNameOf(s, st));
+}
+
+/** machineNameOf for a list of sessions, drawn again when a machine is renamed. */
+export function useMachineNameOf(): (s: Pick<Session, 'machineId' | 'machineName'>) => string {
+  const machines = useSlice((st) => st.machines);
+  const archivedMachines = useSlice((st) => st.archivedMachines);
+  return useMemo(() => (s) => machineNameOf(s, { machines, archivedMachines }), [machines, archivedMachines]);
 }
 
 const byCreation = (a: Session, b: Session) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);

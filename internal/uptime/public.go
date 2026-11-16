@@ -91,6 +91,7 @@ func (s *Service) SetPublic(projectID string, enabled bool, title string) (Publi
 	s.mu.Unlock()
 	s.saveSettings()
 	s.dropPublicCache()
+	s.settingsChanged(projectID)
 	return c.Public, nil
 }
 
@@ -107,6 +108,7 @@ func (s *Service) RotatePublic(projectID string) (PublicSettings, error) {
 	s.mu.Unlock()
 	s.saveSettings()
 	s.dropPublicCache()
+	s.settingsChanged(projectID)
 	return c.Public, nil
 }
 

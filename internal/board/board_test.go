@@ -445,6 +445,53 @@ func TestArchiveAndRestore(t *testing.T) {
 	}
 }
 
+// TestArchiveListNamesItsProject: the archive list says the project by id, so that a restore
+// offers the board's own project after a rename; archives from before stay readable without it.
+func TestArchiveListNamesItsProject(t *testing.T) {
+	f := newFixture(t, t.TempDir())
+	f.mustApply(note("n_aaaaaa1", 0, `{}`))
+	id, err := f.m.ArchiveProject("p_shopweb001", wid, "Shop", "Main", ReasonClosed)
+	if err != nil || id == "" {
+		t.Fatal(err)
+	}
+	list := f.m.ListArchive()
+	if len(list) != 1 || list[0].ProjectID != "p_shopweb001" || list[0].ProjectName != "Shop" {
+		t.Fatalf("list %+v", list)
+	}
+	if meta, err := f.m.ArchiveMetaOf(id); err != nil || meta.ProjectID != "p_shopweb001" {
+		t.Fatalf("meta %+v %v", meta, err)
+	}
+	b, _ := json.Marshal(list[0])
+	if !strings.Contains(string(b), `"projectId":"p_shopweb001"`) {
+		t.Fatalf("json %s", b)
+	}
+	// read again from its file, by a new manager: the id is kept where it always was
+	if l := f.manager().ListArchive(); len(l) != 1 || l[0].ProjectID != "p_shopweb001" {
+		t.Fatalf("reread %+v", l)
+	}
+	raw, err := os.ReadFile(f.st.Path("archive", id+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var top map[string]any
+	if err := json.Unmarshal(raw, &top); err != nil || top["projectId"] != "p_shopweb001" {
+		t.Fatalf("file %v %v", top["projectId"], err)
+	}
+
+	// an archive from before projects were named in it: listed, with no projectId at all
+	old := `{"id":"r_oldarch0001","projectName":"Shop","workspaceName":"Old","archivedAt":"2026-01-02T03:04:05Z","nodeCount":1,"reason":"closed","workspaceId":"w_oldboard01","board":{"workspaceId":"w_oldboard01","nodes":[],"edges":[]}}`
+	if err := os.WriteFile(f.st.Path("archive", "r_oldarch0001.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l := f.manager().ListArchive()
+	if len(l) != 2 || l[1].ID != "r_oldarch0001" || l[1].ProjectID != "" {
+		t.Fatalf("with an old one %+v", l)
+	}
+	if b, _ := json.Marshal(l[1]); strings.Contains(string(b), "projectId") {
+		t.Fatalf("old json %s", b)
+	}
+}
+
 // TestRestoreKeepsEverySafetyCopy: restores within one second do not share a
 // safety copy, so each state stays reachable.
 func TestRestoreKeepsEverySafetyCopy(t *testing.T) {

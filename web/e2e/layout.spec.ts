@@ -117,7 +117,7 @@ test('a phone: one switcher for the project and its workspaces, settings one pan
   await expect(page.getByRole('button', { name: /, workspace (?!Main\.)/ })).toBeVisible();
   // rename it from the same menu: no double-click on a phone
   await page.locator('.phone-switch').click();
-  await page.getByRole('menuitem', { name: /^Rename/ }).click();
+  await page.getByRole('menuitem', { name: /^Rename “/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Rename workspace' });
   // a dialog on a touch screen does not open the keyboard by itself
   expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('INPUT');

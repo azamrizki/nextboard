@@ -452,3 +452,60 @@ func TestArchivedProjectPaused(t *testing.T) {
 		t.Fatalf("paused monitor %+v", got)
 	}
 }
+
+// TestSettingsChangesAreAnnounced: a dialog open in another tab must hear that a project's
+// settings changed, or it saves its old copy over them (a maintenance window added elsewhere
+// would go). The event names the project and nothing else: it reaches every open board.
+func TestSettingsChangesAreAnnounced(t *testing.T) {
+	r := newRig(t, t.TempDir())
+	var events atomic.Value
+	events.Store([]map[string]any{})
+	r.s.Publish = func(v any) {
+		if ev, ok := v.(map[string]any); ok && ev["type"] == "uptimeSettings" {
+			events.Store(append(events.Load().([]map[string]any), ev))
+		}
+	}
+	took := func(what string) {
+		t.Helper()
+		got := events.Load().([]map[string]any)
+		events.Store([]map[string]any{})
+		if len(got) != 1 || len(got[0]) != 2 || got[0]["projectId"] != testProject {
+			t.Fatalf("%s: %v", what, got)
+		}
+	}
+	v, err := r.s.Create(httpMonitor("http://127.0.0.1:1/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.s.SetMaintenance(testProject, []Window{{Title: "Deploy", Mode: MaintManual, Active: true, MonitorIDs: []string{v.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	took("maintenance")
+	if _, err := r.s.SetWebhook(testProject, "https://example.com/hooks/SECRET-HOOK"); err != nil {
+		t.Fatal(err)
+	}
+	took("webhook")
+	if _, err := r.s.SetPublic(testProject, true, "Status"); err != nil {
+		t.Fatal(err)
+	}
+	took("public page")
+	if _, err := r.s.RotatePublic(testProject); err != nil {
+		t.Fatal(err)
+	}
+	took("new address")
+	r.s.noteWebhook(testProject, "https://example.com/hooks/SECRET-HOOK", fmt.Errorf("receiver answered 500"))
+	took("a delivery that failed")
+	r.s.noteWebhook(testProject, "https://example.com/hooks/SECRET-HOOK", fmt.Errorf("receiver answered 500"))
+	took("failed again, at a new time")
+	// the only monitor of the window goes, and the window with it
+	if err := r.s.Delete(v.ID); err != nil {
+		t.Fatal(err)
+	}
+	took("window pruned")
+	if _, err := r.s.SetMaintenance("p2", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := events.Load().([]map[string]any); len(got) != 1 || got[0]["projectId"] != "p2" {
+		t.Fatalf("other project: %v", got)
+	}
+}

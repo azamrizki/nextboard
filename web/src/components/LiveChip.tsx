@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 import { jumpToSession } from '../agents/jump';
 import { agentPill, isActive, isIdle } from '../agents/state';
 import type { Session } from '../lib/types';
-import { useAsleepCount, useProjects, useRunningSessions } from '../store';
+import { useAsleepCount, useMachineNameOf, useProjects, useRunningSessions } from '../store';
 import { Icon } from './Icon';
 
 const RANK: Record<string, number> = { needsYou: 0, error: 1, working: 2, starting: 3, reconnecting: 3, connecting: 5, legacy: 5, ready: 6, shell: 6, exited: 7 };
@@ -18,6 +18,7 @@ export function LiveChip() {
   const running = useRunningSessions();
   const asleep = useAsleepCount();
   const projects = useProjects();
+  const machineName = useMachineNameOf();
   const [open, setOpen] = useState(false);
   const [showIdle, setShowIdle] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
@@ -144,7 +145,7 @@ export function LiveChip() {
                           <span className={`dot dot-${st.dot}`} aria-hidden="true" />
                           <span className="truncate live-name">{s.handle ? `@${s.handle}` : s.name}</span>
                           <span className={`agent-pill tone-${st.tone} live-pill`}>{st.label}</span>
-                          <span className="live-meta truncate">{st.activity || s.machineName}</span>
+                          <span className="live-meta truncate">{st.activity || machineName(s)}</span>
                         </button>
                       </li>
                     );

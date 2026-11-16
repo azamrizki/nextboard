@@ -6,6 +6,7 @@ import type { DotColor } from '../components/StatusDot';
 import { sessionStatus } from '../board/sessionStatus';
 import type { SocketState } from '../lib/socket';
 import type { AgentState, Session } from '../lib/types';
+import { machineNameOf } from '../store';
 
 export type PillTone = 'success' | 'needs' | 'info' | 'grey' | 'warning' | 'danger';
 
@@ -49,7 +50,7 @@ export function agentPill(s: Session, socket: SocketState = 'open'): Pill {
     case 'error':
       return { state, label: 'Error', dot: 'danger', tone: 'danger', activity: '', detail: s.error || activity || 'The console failed to start' };
     case 'reconnecting':
-      return { state, label: 'Reconnecting', dot: 'warning', tone: 'warning', activity: '', detail: `Reconnecting to ${s.machineName}` };
+      return { state, label: 'Reconnecting', dot: 'warning', tone: 'warning', activity: '', detail: `Reconnecting to ${machineNameOf(s)}` };
     case 'exited': {
       const bad = s.exitCode !== 0;
       return {

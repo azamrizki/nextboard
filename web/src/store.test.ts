@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Machine, Project } from './lib/types';
-import { store } from './store';
+import { machineNameOf, store } from './store';
 
 const project = (id: string, archivedAt?: string): Project => ({ id, name: id, machineId: 'local', path: `/srv/${id}`, workspaces: [], sessionCount: 0, runningCount: 0, createdAt: '', lastOpenedAt: '', archivedAt }) as Project;
 const machine = (id: string, archivedAt?: string): Machine => ({ id, name: id, kind: 'ssh', sessionCount: 0, archivedAt }) as Machine;
@@ -39,5 +39,38 @@ describe('archived projects and machines in the live store', () => {
     expect(Object.keys(store.getState().archivedMachines)).toEqual(['m_a']);
     store.apply({ type: 'machineRemoved', id: 'm_a' });
     expect(store.getState().archivedMachines).toEqual({});
+  });
+});
+
+describe('live values over copies taken earlier', () => {
+  it('a session names its machine as it is called now, its own copy only once the machine is gone', () => {
+    store.seedMachines([{ ...machine('local'), name: 'This PC' }, { ...machine('m_box'), name: 'devbox' }]);
+    const s = { machineId: 'm_box', machineName: 'old-box' };
+    expect(machineNameOf(s)).toBe('devbox');
+    store.apply({ type: 'machine', machine: { ...machine('m_box'), name: 'buildbox' } });
+    expect(machineNameOf(s)).toBe('buildbox');
+    store.apply({ type: 'machine', machine: { ...machine('m_box', '2026-11-15T10:00:00Z'), name: 'buildbox' } });
+    expect(machineNameOf(s)).toBe('buildbox');
+    store.apply({ type: 'machineRemoved', id: 'm_box' });
+    expect(machineNameOf(s)).toBe('old-box');
+    // This PC keeps the hub's name the hub gave its consoles, until it is renamed
+    const here = { machineId: 'local', machineName: 'studio-hub' };
+    expect(machineNameOf(here)).toBe('studio-hub');
+    store.apply({ type: 'machine', machine: { ...machine('local'), name: 'Workstation' } });
+    expect(machineNameOf(here)).toBe('Workstation');
+  });
+
+  it('patchProject changes the project as the store has it then, not a copy from before a request', () => {
+    const ws = (id: string, name: string) => ({ id, name }) as NonNullable<Project['workspaces']>[number];
+    store.seedProjects([{ ...project('p_live'), workspaces: [ws('w_a', 'Main')] }]);
+    const clickTime = store.getState().projects.p_live;
+    // while the request was out, another tab renamed the project and its workspace
+    store.apply({ type: 'project', project: { ...clickTime, name: 'Renamed', workspaces: [ws('w_a', 'API')] } });
+    store.patchProject('p_live', (p) => ({ ...p, workspaces: [...(p.workspaces ?? []), ws('w_b', 'New')] }));
+    const now = store.getState().projects.p_live;
+    expect(now.name).toBe('Renamed');
+    expect(now.workspaces?.map((w) => w.name)).toEqual(['API', 'New']);
+    store.patchProject('p_gone', (p) => ({ ...p, name: 'x' }));
+    expect(store.getState().projects.p_gone).toBeUndefined();
   });
 });

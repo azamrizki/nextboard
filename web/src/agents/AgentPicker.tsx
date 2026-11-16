@@ -8,7 +8,7 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { timeAgo } from '../lib/format';
 import type { Agent, Machine, ModelChoice, Profile, Session } from '../lib/types';
-import { useProfiles } from '../store';
+import { useMachineName, useProfiles } from '../store';
 import { AccountOptions } from '../providers/AccountOptions';
 import { compatible, useProviders } from '../providers/providers';
 import { AgentLogo } from './AgentLogo';
@@ -323,6 +323,7 @@ interface SwitchAgentDialogProps {
 /** Another agent (and/or login) in this same tile, told what happened here. */
 export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel }: SwitchAgentDialogProps) {
   const ma = useMachineAgents(session.machineId);
+  const machineName = useMachineName(session);
   const profiles = useProfiles();
   const providers = useProviders();
   const current = session.agent || session.preset;
@@ -409,7 +410,7 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
             <span className="spinner" aria-hidden="true" /> Loading agents…
           </div>
         ) : (
-          <AgentList agents={ma.agents} value={value} onChange={setValue} onActivate={() => void go()} machineName={session.machineName} label="Agent" />
+          <AgentList agents={ma.agents} value={value} onChange={setValue} onActivate={() => void go()} machineName={machineName} label="Agent" />
         )}
         {options.length + provOptions.length > 0 && (
           <div className="field">
