@@ -108,6 +108,10 @@ export interface Tab {
   commit?: CommitTab & { part: string };
   view?: PartSpecialView;
   preview: boolean;
+  /** Leads its group's strip, never a preview; Close Others, Close to the Right and Close All leave it. */
+  pinned?: boolean;
+  /** Nothing closes it until it is unlocked: no close key or button, no bulk close, no part removed or file trashed. */
+  locked?: boolean;
 }
 
 /** The id of the orchestrator's pane; a console's pane has its session id. */
@@ -155,6 +159,26 @@ export type RemoteRun = <T>(fn: (c: Confirm) => Promise<T>) => Promise<T | null>
 
 const tabId = (path: string, diff?: DiffSource) => (diff ? `diff:${diff}:${path}` : path);
 const paneTab = (pane: string): Tab => ({ id: `pane:${pane}`, path: '', pane, preview: false });
+
+/** A tab takes the pin and the lock of another (or of a saved one); both make it no preview. */
+function withFlags(tab: Tab, from: { pinned?: boolean; locked?: boolean } | undefined): Tab {
+  if (from?.pinned) tab.pinned = true;
+  if (from?.locked) tab.locked = true;
+  if (tab.pinned || tab.locked) tab.preview = false;
+  return tab;
+}
+
+/** Where the strip's unpinned tabs start: the pinned ones lead it. */
+const pinnedCount = (g: Group) => g.tabs.filter((t) => t.pinned).length;
+
+/** A new tab goes after the active one but never among the pinned ones; a pinned one after the last pinned. */
+function insertTab(g: Group, tab: Tab) {
+  const pinned = pinnedCount(g);
+  const at = g.tabs.findIndex((t) => t.id === g.active);
+  g.tabs.splice(tab.pinned ? pinned : Math.max(at < 0 ? g.tabs.length : at + 1, pinned), 0, tab);
+}
+
+const LOCKED = 'Locked: unlock it to close.';
 
 function readJSON<T>(key: string): T | null {
   try {
@@ -409,7 +433,10 @@ export class Workspace implements ViewApi, PartView {
     if (restored.length) {
       this.groups = restored.map((g) => ({
         id: `g${this.groupSeq++}`,
-        tabs: g.tabs.map((t) => (t.pane ? paneTab(t.pane) : { id: tabId(t.path), path: t.path as FileKey, preview: t.preview })),
+        // pinned first, whatever order a state saved by hand has them in
+        tabs: g.tabs
+          .map((t) => withFlags(t.pane ? paneTab(t.pane) : { id: tabId(t.path), path: t.path as FileKey, preview: t.preview }, t))
+          .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned)),
         active: g.active,
       }));
       this.activeGroup = Math.min(saved.activeGroup ?? 0, this.groups.length - 1);
@@ -467,10 +494,10 @@ export class Workspace implements ViewApi, PartView {
       this.changed();
       return;
     }
-    // the clean tabs of a part that went close; dirty ones stay, as outside files
+    // the clean tabs of a part that went close; dirty and locked ones stay, as outside files
     for (const g of [...this.groups]) {
       for (const t of [...g.tabs]) {
-        if (!t.path || this.paths.mountOf(t.path) || this.docs.at(t.path)?.dirty) continue;
+        if (!t.path || t.locked || this.paths.mountOf(t.path) || this.docs.at(t.path)?.dirty) continue;
         if (this.partOf(t.path)) continue;
         this.removeTab(this.groups.indexOf(g), t);
       }
@@ -687,7 +714,7 @@ export class Workspace implements ViewApi, PartView {
     const p: Persisted = {
       v: PERSIST_VERSION,
       groups: this.groups.map((g) => ({
-        tabs: g.tabs.filter((t) => !t.diff && !t.commit && !t.view).map((t) => ({ path: t.path, preview: t.preview, pane: t.pane })),
+        tabs: g.tabs.filter((t) => !t.diff && !t.commit && !t.view).map((t) => ({ path: t.path, preview: t.preview, pane: t.pane, ...(t.pinned ? { pinned: true } : {}), ...(t.locked ? { locked: true } : {}) })),
         active: g.active?.startsWith('diff:') ? null : g.active,
       })),
       activeGroup: this.activeGroup,
@@ -1343,8 +1370,7 @@ export class Workspace implements ViewApi, PartView {
         this.holdDoc(k);
         this.releaseDoc(old.path);
       } else {
-        const at = g.tabs.findIndex((t) => t.id === g.active);
-        g.tabs.splice(at < 0 ? g.tabs.length : at + 1, 0, tab);
+        insertTab(g, tab);
       }
     }
     g.active = id;
@@ -1371,10 +1397,7 @@ export class Workspace implements ViewApi, PartView {
     if (!k || isRootKey(k)) return;
     const g = this.groups[group ?? this.activeGroup] ?? this.group;
     const id = tabId(k, source);
-    if (!g.tabs.some((t) => t.id === id)) {
-      const at = g.tabs.findIndex((t) => t.id === g.active);
-      g.tabs.splice(at < 0 ? g.tabs.length : at + 1, 0, { id, path: k, diff: source, preview: false });
-    }
+    if (!g.tabs.some((t) => t.id === id)) insertTab(g, { id, path: k, diff: source, preview: false });
     g.active = id;
     this.holdDoc(k);
     this.changed();
@@ -1429,8 +1452,7 @@ export class Workspace implements ViewApi, PartView {
         g.tabs[preview] = next;
         this.releaseDoc(old.path);
       } else {
-        const at = g.tabs.findIndex((t) => t.id === g.active);
-        g.tabs.splice(at < 0 ? g.tabs.length : at + 1, 0, next);
+        insertTab(g, next);
       }
     }
     this.focusChanged();
@@ -1467,6 +1489,42 @@ export class Workspace implements ViewApi, PartView {
     }
   }
 
+  /**
+   * Pin or unpin a tab (no `on`: the other way round), as in VS Code: pinned, it moves after the
+   * tabs pinned before it and stops being a preview; unpinned, it leads the unpinned ones.
+   */
+  setPinned(gi: number, id: string, on?: boolean) {
+    const g = this.groups[gi];
+    const t = g?.tabs.find((x) => x.id === id);
+    if (!g || !t) return;
+    const next = on ?? !t.pinned;
+    if (!!t.pinned === next) return;
+    g.tabs.splice(g.tabs.indexOf(t), 1);
+    if (next) {
+      t.pinned = true;
+      t.preview = false;
+    } else {
+      delete t.pinned;
+    }
+    g.tabs.splice(pinnedCount(g), 0, t);
+    this.changed();
+  }
+
+  /** Lock or unlock a tab (no `on`: the other way round). Locked, nothing closes it; it stays where it is. */
+  setLocked(gi: number, id: string, on?: boolean) {
+    const t = this.groups[gi]?.tabs.find((x) => x.id === id);
+    if (!t) return;
+    const next = on ?? !t.locked;
+    if (!!t.locked === next) return;
+    if (next) {
+      t.locked = true;
+      t.preview = false;
+    } else {
+      delete t.locked;
+    }
+    this.changed();
+  }
+
   private lastTabOf(path: FileKey, except: Tab): boolean {
     return !this.groups.some((g) => g.tabs.some((t) => t !== except && t.path === path && !t.diff));
   }
@@ -1476,10 +1534,14 @@ export class Workspace implements ViewApi, PartView {
     return [...docStore.holders(key)].some((h) => h !== this);
   }
 
-  /** Close a tab, asking first when it holds the only view of unsaved edits (in any card). */
+  /** Close a tab, asking first when it holds the only view of unsaved edits (in any card). A locked one says why it stays. */
   closeTab(gi: number, id: string) {
     const tab = this.groups[gi]?.tabs.find((t) => t.id === id);
     if (!tab) return;
+    if (tab.locked) {
+      toast.info(LOCKED);
+      return;
+    }
     if (tab.pane) {
       this.askClosePane(tab.pane);
       return;
@@ -1516,8 +1578,14 @@ export class Workspace implements ViewApi, PartView {
     if (at) this.removeTab(at.gi, at.tab);
   }
 
-  /** Show a pane in the side bar or as a tab of the active group; it has one place at a time. */
+  /** Show a pane in the side bar or as a tab of the active group; it has one place at a time. A tab keeps its pin and lock. */
   placePane(id: string, where: 'side' | 'tab') {
+    const was = this.paneTabAt(id)?.tab;
+    // the side bar has no lock: a locked tab stays in its strip
+    if (where === 'side' && was?.locked) {
+      toast.info('Locked: unlock it to move it to the side bar.');
+      return;
+    }
     this.detachPane(id);
     if (where === 'side') {
       this.rightPanes = [...this.rightPanes, id];
@@ -1525,9 +1593,8 @@ export class Workspace implements ViewApi, PartView {
       this.rightOpen = true;
     } else {
       const g = this.group;
-      const tab = paneTab(id);
-      const at = g.tabs.findIndex((t) => t.id === g.active);
-      g.tabs.splice(at < 0 ? g.tabs.length : at + 1, 0, tab);
+      const tab = withFlags(paneTab(id), was);
+      insertTab(g, tab);
       g.active = tab.id;
     }
     this.focusPane(id);
@@ -1560,8 +1627,12 @@ export class Workspace implements ViewApi, PartView {
     this.changed();
   }
 
-  /** The orchestrator just closes; a console asks first, as closing it stops the agent. */
+  /** The orchestrator just closes; a console asks first, as closing it stops the agent. A locked tab of either stays. */
   askClosePane(id: string) {
+    if (this.paneTabAt(id)?.tab.locked) {
+      toast.info(LOCKED);
+      return;
+    }
     if (id === ORCHESTRATOR_PANE) {
       this.forgetPane(id);
       return;
@@ -1617,16 +1688,28 @@ export class Workspace implements ViewApi, PartView {
     this.changed();
   }
 
+  /** What Close Others, Close to the Right and Close All take: no pane, no pinned or locked tab, no unsaved file. */
+  private bulkCloses(t: Tab): boolean {
+    return !t.pane && !t.pinned && !t.locked && (!!t.diff || !(t.path && this.docs.at(t.path)?.dirty));
+  }
+
   closeOthers(gi: number, id: string) {
     const g = this.groups[gi];
     if (!g) return;
-    for (const t of [...g.tabs]) if (t.id !== id && !t.pane && !(t.path && this.docs.at(t.path)?.dirty && !t.diff)) this.removeTab(this.groups.indexOf(g), t);
+    for (const t of [...g.tabs]) if (t.id !== id && this.bulkCloses(t)) this.removeTab(this.groups.indexOf(g), t);
+  }
+
+  closeRight(gi: number, id: string) {
+    const g = this.groups[gi];
+    const i = g ? g.tabs.findIndex((t) => t.id === id) : -1;
+    if (!g || i < 0) return;
+    for (const t of g.tabs.slice(i + 1)) if (this.bulkCloses(t)) this.removeTab(this.groups.indexOf(g), t);
   }
 
   closeAll(gi: number) {
     const g = this.groups[gi];
     if (!g) return;
-    for (const t of [...g.tabs]) if (!t.pane && (t.diff || !(t.path && this.docs.at(t.path)?.dirty))) this.removeTab(this.groups.indexOf(g), t);
+    for (const t of [...g.tabs]) if (this.bulkCloses(t)) this.removeTab(this.groups.indexOf(g), t);
   }
 
   cycleTab(delta: number) {
@@ -1655,7 +1738,8 @@ export class Workspace implements ViewApi, PartView {
     if (!tab || !to || from === to || to.tabs.some((t) => t.id === id)) return;
     from.tabs = from.tabs.filter((t) => t !== tab);
     if (from.active === id) from.active = from.tabs[0]?.id ?? null;
-    to.tabs.push(tab);
+    // its pin and lock go along: a pinned tab joins the other strip's pinned ones
+    to.tabs.splice(tab.pinned ? pinnedCount(to) : to.tabs.length, 0, tab);
     to.active = id;
     this.activeGroup = toGi;
     if (!from.tabs.length && this.groups.length > 1) {
@@ -1792,15 +1876,18 @@ export class Workspace implements ViewApi, PartView {
     const { machineId, abs } = splitKey(k);
     const r = await this.run((c) => fsApi.trash(machineId, abs, this.partFor(k).ref, c));
     if (!r) return;
+    // a locked tab stays, with its edits, showing its file as deleted on disk (Save it again)
+    const kept = new Set(this.groups.flatMap((g) => g.tabs.flatMap((t) => (t.locked && t.path && keyUnder(t.path, k) ? [t.path] : []))));
     for (const g of [...this.groups]) {
       for (const t of [...g.tabs]) {
-        if (t.path && keyUnder(t.path, k)) {
+        if (t.path && keyUnder(t.path, k) && !t.locked) {
           const d = this.docs.at(t.path);
-          if (d) d.dirty = false;
+          if (d && !kept.has(t.path)) d.dirty = false;
           this.removeTab(this.groups.indexOf(g), t);
         }
       }
     }
+    for (const key of kept) docStore.onDiskChange(key, false, undefined);
     const parent = parentKey(k);
     if (parent) void this.loadDir(parent);
     this.filesTouched(k);

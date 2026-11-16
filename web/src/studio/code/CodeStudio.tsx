@@ -531,7 +531,7 @@ function Workbench({
   };
 
   const choices = usePaneChoices(ws, ctl.workspaceId);
-  const paneEnv = useMemo(() => ({ project, ctl }), [project, ctl]);
+  const paneEnv = useMemo(() => ({ project, ctl, nodeId }), [project, ctl, nodeId]);
 
   // a console's needs-you, the live chip and N all come here for an agent inside the editor
   useEffect(() => {
@@ -553,6 +553,11 @@ function Workbench({
       { id: 'file.save', label: 'File: Save', keys: 'Ctrl+S', icon: 'save', run: () => doc && void ws.save(doc.path) },
       { id: 'file.saveAll', label: 'File: Save All', keys: 'Ctrl+Alt+S', icon: 'save', run: () => void ws.saveAll() },
       { id: 'file.close', label: 'View: Close Editor', keys: 'Alt+W', icon: 'close', run: () => ws.group.active && ws.closeTab(ws.activeGroup, ws.group.active) },
+      // the active tab, whatever it shows (a file, a view, an agent)
+      { id: 'view.pin', label: 'View: Pin Editor', keys: 'Ctrl+K Shift+Enter', icon: 'pin', run: () => ws.group.active && ws.setPinned(ws.activeGroup, ws.group.active, true) },
+      { id: 'view.unpin', label: 'View: Unpin Editor', keys: 'Ctrl+K Shift+Enter', icon: 'pin', run: () => ws.group.active && ws.setPinned(ws.activeGroup, ws.group.active, false) },
+      { id: 'view.lock', label: 'View: Lock Editor', icon: 'lock', run: () => ws.group.active && ws.setLocked(ws.activeGroup, ws.group.active, true) },
+      { id: 'view.unlock', label: 'View: Unlock Editor', icon: 'unlock', run: () => ws.group.active && ws.setLocked(ws.activeGroup, ws.group.active, false) },
       // in a Root card without an open file: the active part's folder (no file goes at the virtual root)
       { id: 'file.new', label: 'File: New File', icon: 'file', run: () => ws.startInput('file', (doc && parentKey(doc.path)) || ws.activePart.rootKey) },
       { id: 'file.newFolder', label: 'File: New Folder', icon: 'folder', run: () => ws.startInput('folder', (doc && parentKey(doc.path)) || ws.activePart.rootKey) },
@@ -619,8 +624,8 @@ function Workbench({
       { id: 'claude.mention', label: 'Agents: Send Selection to Console', keys: 'Alt+K', icon: 'message', run: () => ws.actions.mention?.() },
       { id: 'agents.toggle', label: 'View: Toggle Agents Side Bar', keys: 'Ctrl+Alt+B', icon: 'bot', run: () => ((ws.rightOpen = !ws.rightOpen), ws.changed()) },
       ...choices.agents.flatMap<Command>((a) => [
-        { id: `agents.side.${a.id}`, label: `Agents: Open ${a.name} in the Side Bar`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, 'side') },
-        { id: `agents.tab.${a.id}`, label: `Agents: Open ${a.name} in a New Tab`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, 'tab') },
+        { id: `agents.side.${a.id}`, label: `Agents: Open ${a.name} in the Side Bar`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, 'side', undefined, nodeId) },
+        { id: `agents.tab.${a.id}`, label: `Agents: Open ${a.name} in a New Tab`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, 'tab', undefined, nodeId) },
       ]),
       { id: 'agents.orch.side', label: 'Agents: Open Orchestrator in the Side Bar', icon: 'orchestrator', run: () => ws.placePane(ORCHESTRATOR_PANE, 'side') },
       { id: 'agents.orch.tab', label: 'Agents: Open Orchestrator in a New Tab', icon: 'orchestrator', run: () => ws.placePane(ORCHESTRATOR_PANE, 'tab') },
@@ -662,7 +667,7 @@ function Workbench({
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, ctl.workspaceId, togglePanel, showView, askAgent, pick, fullscreen.active, fullscreen.supported, choices]);
+  }, [ws, ctl.workspaceId, togglePanel, showView, askAgent, pick, fullscreen.active, fullscreen.supported, choices, nodeId]);
 
   // ---- global shortcuts ----
   const latest = useRef({ showView, togglePanel, askAgent, palette, commands, startDebug, toggleBreakpointHere });
@@ -928,7 +933,10 @@ function Workbench({
       aria-label={`Code: ${project.name}`}
       // the board's own shortcuts listen further up: keys typed in the card stop here
       onKeyDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
+      // a double click inside picks a word; on the title bar it zooms the board to the card
+      onDoubleClick={(e) => {
+        if (!(e.target as HTMLElement).closest('.wb-title')) e.stopPropagation();
+      }}
       // the title bar still gives the card's board menu; inside, menus are the editor's own
       onContextMenu={(e) => {
         if (!(e.target as HTMLElement).closest('.wb-title')) e.stopPropagation();

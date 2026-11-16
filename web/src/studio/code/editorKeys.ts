@@ -7,7 +7,7 @@
 
 import { monaco } from './monaco';
 
-export type EditorKey = 'save' | 'inlineSuggest' | 'mention' | 'bookmark' | 'nextBookmark' | 'prevBookmark' | 'format';
+export type EditorKey = 'save' | 'inlineSuggest' | 'mention' | 'bookmark' | 'nextBookmark' | 'prevBookmark' | 'format' | 'pin';
 
 const KEYS: Record<EditorKey, number> = {
   save: monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
@@ -18,6 +18,8 @@ const KEYS: Record<EditorKey, number> = {
   prevBookmark: monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyJ,
   // the key the menu shows: on Linux Monaco only binds Ctrl+Shift+I to it
   format: monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF,
+  // VS Code's chord: pins or unpins the tab
+  pin: monaco.KeyMod.chord(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, monaco.KeyMod.Shift | monaco.KeyCode.Enter),
 };
 
 type Handlers = Partial<Record<EditorKey, () => void>>;

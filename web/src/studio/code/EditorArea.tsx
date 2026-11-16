@@ -1,7 +1,8 @@
-// Editor groups of the Code workbench: tab strips (preview tabs in italics, dirty dots),
-// breadcrumbs, one Monaco editor per group, diffs against HEAD or the disk, Markdown as
-// Reader/Split/Source, image and media preview, and the bars that ask what to do when a
-// file changed on disk. Inline AI edits (Ctrl+I) end in a diff to accept or reject.
+// Editor groups of the Code workbench: tab strips (preview tabs in italics, dirty dots, pinned
+// tabs first, a lock for locked ones), breadcrumbs, one Monaco editor per group, diffs against
+// HEAD or the disk, Markdown as Reader/Split/Source, image and media preview, and the bars that
+// ask what to do when a file changed on disk. Inline AI edits (Ctrl+I) end in a diff to accept
+// or reject.
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { errorMessage } from '../../api';
@@ -141,6 +142,7 @@ function MonacoView({ ws, group, gi, doc, tab }: { ws: Workspace; group: Group; 
       nextBookmark: () => jumpBookmark(ws, pathRef.current, ed.getPosition()?.lineNumber ?? 1, 1),
       prevBookmark: () => jumpBookmark(ws, pathRef.current, ed.getPosition()?.lineNumber ?? 1, -1),
       format: () => void ed.getAction('editor.action.formatDocument')?.run(),
+      pin: () => group.active && ws.setPinned(ws.groups.indexOf(group), group.active),
     });
     const subs = [
       keys,
@@ -877,6 +879,8 @@ function PartTab({ ws, partId, children }: { ws: Workspace; partId: string; chil
   return <>{children(part)}</>;
 }
 
+const LOCKED_TIP = 'Locked: unlock it to close';
+
 function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Group; gi: number; onAddFile: (p: string) => void; onAi: () => void }) {
   const [menu, setMenu] = useState<{ x: number; y: number; tab: Tab } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -888,26 +892,41 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
   const workspaceId = useContext(PaneEnv)?.ctl.workspaceId ?? '';
   const choices = usePaneChoices(ws, workspaceId);
 
+  // every kind of tab: VS Code's pin, and a lock that nothing closes
+  const flagItems = (t: Tab): MenuEntry[] => [
+    { label: t.pinned ? 'Unpin' : 'Pin', icon: 'pin', shortcut: 'Ctrl+K Shift+Enter', onSelect: () => ws.setPinned(gi, t.id, !t.pinned) },
+    t.locked ? { label: 'Unlock', icon: 'unlock', onSelect: () => ws.setLocked(gi, t.id, false) } : { label: 'Lock', icon: 'lock', title: 'Nothing closes it until it is unlocked', onSelect: () => ws.setLocked(gi, t.id, true) },
+  ];
+
+  const closeItems = (t: Tab): MenuEntry[] => [
+    { label: 'Close', icon: 'close', shortcut: 'Alt+W', title: t.locked ? LOCKED_TIP : undefined, onSelect: () => ws.closeTab(gi, t.id) },
+    { label: 'Close Others', title: 'Pinned and locked tabs stay', onSelect: () => ws.closeOthers(gi, t.id) },
+    { label: 'Close to the Right', title: 'Pinned and locked tabs stay', onSelect: () => ws.closeRight(gi, t.id) },
+    { label: 'Close All', title: 'Pinned and locked tabs stay', onSelect: () => ws.closeAll(gi) },
+  ];
+
   const paneItems = (t: Tab): MenuEntry[] => [
-    { label: 'Move to Side Bar', icon: 'external', onSelect: () => ws.placePane(t.pane!, 'side') },
+    { label: 'Move to Side Bar', icon: 'external', disabled: !!t.locked, title: t.locked ? 'Locked: unlock it to move it' : undefined, onSelect: () => ws.placePane(t.pane!, 'side') },
     { label: 'Split Right', icon: 'layout', disabled: ws.groups.length >= 3 && gi === ws.groups.length - 1, onSelect: () => (ws.activate(gi, t.id), ws.splitRight()) },
     'sep',
-    { label: 'Close', icon: 'close', onSelect: () => ws.closeTab(gi, t.id) },
+    ...flagItems(t),
+    'sep',
+    { label: 'Close', icon: 'close', title: t.locked ? LOCKED_TIP : undefined, onSelect: () => ws.closeTab(gi, t.id) },
   ];
 
   const specialItems = (t: Tab): MenuEntry[] => [
-    { label: 'Close', icon: 'close', shortcut: 'Alt+W', onSelect: () => ws.closeTab(gi, t.id) },
-    { label: 'Close Others', onSelect: () => ws.closeOthers(gi, t.id) },
-    { label: 'Close All', onSelect: () => ws.closeAll(gi) },
+    ...closeItems(t),
+    'sep',
+    ...flagItems(t),
     'sep',
     { label: 'Split Right', icon: 'layout', disabled: ws.groups.length >= 3 && gi === ws.groups.length - 1, onSelect: () => (ws.activate(gi, t.id), ws.splitRight()) },
     ...(t.commit ? ([{ label: 'Copy Commit Hash', icon: 'copy', onSelect: () => void navigator.clipboard?.writeText(t.commit!.hash).then(() => toast.success('Hash copied.')) }] as MenuEntry[]) : []),
   ];
 
   const items = (t: Tab): MenuEntry[] => t.pane ? paneItems(t) : !t.path ? specialItems(t) : [
-    { label: 'Close', icon: 'close', shortcut: 'Alt+W', onSelect: () => ws.closeTab(gi, t.id) },
-    { label: 'Close Others', onSelect: () => ws.closeOthers(gi, t.id) },
-    { label: 'Close All', onSelect: () => ws.closeAll(gi) },
+    ...closeItems(t),
+    'sep',
+    ...flagItems(t),
     'sep',
     { label: 'Split Right', icon: 'layout', onSelect: () => ws.open(t.path, { pin: true, side: true }) },
     { label: 'Compare with HEAD', icon: 'branch', disabled: !(t.path && ws.partOf(t.path)?.gitMark(t.path)), onSelect: () => t.path && ws.openDiff(t.path, 'head', gi) },
@@ -919,7 +938,8 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
   ];
 
   return (
-    <div className="wb-tabs" role="tablist" aria-label="Open files" ref={ref}>
+    // a long press is the tab's right-click on any touch screen (lib/longpress.ts)
+    <div className="wb-tabs" role="tablist" aria-label="Open files" ref={ref} data-longpress="">
       {group.tabs.map((t) => {
         const d = t.path ? ws.docs.at(t.path) : undefined;
         const active = group.active === t.id;
@@ -931,7 +951,7 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
             role="tab"
             tabIndex={active ? 0 : -1}
             aria-selected={active}
-            className={`wb-tab ${active ? 'is-active' : ''} ${t.preview ? 'is-preview' : ''} ${mark ? `git-${mark.tone}` : ''} ${d?.dirty && !t.diff ? 'is-dirty' : ''}`}
+            className={`wb-tab ${active ? 'is-active' : ''} ${t.preview ? 'is-preview' : ''} ${t.pinned ? 'is-pinned' : ''} ${t.locked ? 'is-locked' : ''} ${mark ? `git-${mark.tone}` : ''} ${d?.dirty && !t.diff ? 'is-dirty' : ''}`}
             title={t.pane ? undefined : t.commit ? t.commit.label : t.view?.kind === 'graph' ? 'Commit graph' : t.view?.kind === 'pr' ? t.view.title : t.view ? viewTitle(ws, t.view) : t.path ? ws.label(t.path) : ''}
             draggable
             onDragStart={(e) => {
@@ -966,19 +986,42 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
                 {dir && <span className="wb-tab-dir truncate">{dir}</span>}
               </>
             )}
-            <button
-              type="button"
-              className="wb-tab-close"
-              aria-label={t.pane ? 'Close this agent' : `Close ${name}${d?.dirty ? ' (unsaved)' : ''}`}
-              title={d?.dirty ? 'Unsaved changes' : 'Close'}
-              onClick={(e) => {
-                e.stopPropagation();
-                ws.closeTab(gi, t.id);
-              }}
-            >
-              <span className="wb-tab-dot" aria-hidden="true" />
-              <Icon name="close" />
-            </button>
+            {t.locked ? (
+              // no close button: unlocking is in the tab's menu, so a stray click closes nothing
+              <span className="wb-tab-lock" role="img" aria-label={t.pinned ? `Pinned. ${LOCKED_TIP}` : LOCKED_TIP} title={LOCKED_TIP}>
+                {t.pinned && <Icon name="pin" />}
+                {d?.dirty && !t.diff && <span className="wb-tab-dot" aria-hidden="true" />}
+                <Icon name="lock" />
+              </span>
+            ) : t.pinned ? (
+              <button
+                type="button"
+                className="wb-tab-close wb-tab-pin"
+                aria-label={`Unpin ${name}${d?.dirty ? ' (unsaved)' : ''}`}
+                title={d?.dirty ? 'Unsaved changes · Unpin' : 'Pinned · Unpin'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  ws.setPinned(gi, t.id, false);
+                }}
+              >
+                <span className="wb-tab-dot" aria-hidden="true" />
+                <Icon name="pin" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="wb-tab-close"
+                aria-label={t.pane ? 'Close this agent' : `Close ${name}${d?.dirty ? ' (unsaved)' : ''}`}
+                title={d?.dirty ? 'Unsaved changes' : 'Close'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  ws.closeTab(gi, t.id);
+                }}
+              >
+                <span className="wb-tab-dot" aria-hidden="true" />
+                <Icon name="close" />
+              </button>
+            )}
           </div>
         );
       })}

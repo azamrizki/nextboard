@@ -34,7 +34,13 @@ export interface PersistedTab {
   path: string;
   preview: boolean;
   pane?: string;
+  /** Saved only when set: a state from before pins and locks reads as neither. */
+  pinned?: boolean;
+  locked?: boolean;
 }
+
+/** The pin and the lock of a saved tab, only those that are set. */
+const flagsOf = (t: Partial<PersistedTab>): Pick<PersistedTab, 'pinned' | 'locked'> => ({ ...(t.pinned === true ? { pinned: true } : {}), ...(t.locked === true ? { locked: true } : {}) });
 
 export interface Persisted {
   /** PERSIST_VERSION: the paths are FileKeys. */
@@ -112,9 +118,9 @@ export function readState(saved: Partial<Persisted> | null | undefined, legacyMa
   const groups = (Array.isArray(s.groups) ? s.groups : []).map((g) => ({
     tabs: (Array.isArray(g?.tabs) ? g.tabs : []).flatMap((t): PersistedTab[] => {
       if (!t || typeof t !== 'object') return [];
-      if (t.pane) return [{ path: '', preview: false, pane: t.pane }];
+      if (t.pane) return [{ path: '', preview: false, pane: t.pane, ...flagsOf(t) }];
       const k = typeof t.path === 'string' ? read(t.path) : null;
-      return k ? [{ path: k, preview: !!t.preview }] : [];
+      return k ? [{ path: k, preview: !!t.preview, ...flagsOf(t) }] : [];
     }),
     active: readTabId(g?.active, read),
   }));

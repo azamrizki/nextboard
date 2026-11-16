@@ -1175,6 +1175,33 @@
 .wb-tab.is-dirty .wb-tab-close:hover svg {
   opacity: 1;
 }
+/* a pinned tab: compact, its name truncated, its folder left out; the pin shows always */
+.wb-tab.is-pinned {
+  max-width: 132px;
+}
+.wb-tab.is-pinned .wb-tab-dir {
+  display: none;
+}
+.wb-tab .wb-tab-pin svg {
+  opacity: 1;
+}
+/* a locked tab: a lock where the close button was, not a button */
+.wb-tab-lock {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 3px;
+  color: var(--text-2);
+}
+.wb-tab-lock svg {
+  width: 12px;
+  height: 12px;
+}
+.wb-tab-lock .wb-tab-dot {
+  display: block;
+}
 .wb-tabs-tools {
   position: sticky;
   right: 0;
@@ -2407,6 +2434,33 @@
   border-bottom: var(--hairline) solid var(--wb-line);
   color: var(--text-2);
   font-size: var(--fs-xs);
+}
+/* an agent's link to the orchestrator cards: "Directed by Lead" and the menu that makes the wire */
+.wb-pane-link {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  padding: 2px var(--s-1) 2px var(--s-2);
+  border-bottom: var(--hairline) solid var(--wb-line);
+  font-size: var(--fs-xs);
+}
+.wb-pane-directed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  height: 22px;
+  padding: 0 var(--s-1);
+  border-radius: var(--r-sm);
+  background: var(--surface-active);
+  color: var(--text-2);
+}
+.wb-pane-directed svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
 }
 .wb-pane-orch {
   flex: 1 1 0;
