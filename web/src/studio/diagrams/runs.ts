@@ -9,14 +9,14 @@ export interface DiagramRun {
   diagramId: string;
   jobId: string;
   projectId: string;
-  /** The project ref it ran in: "<project>~<part>" in a project of several parts (Try again runs there too). */
+  /** The project ref it ran in: "<project>~<part>" for a part of a project of several parts, the project id at its root (Try again runs there too). */
   ref?: string;
   workspaceId: string;
   style: DiagramStyle;
   look: DiagramLook;
   label: string;
   /** Generate request, for Try again. */
-  request: { subject: string; ask?: string; effort: string; style: DiagramStyle; agent?: string };
+  request: { subject: string; ask?: string; effort: string; style: DiagramStyle; agent?: string; root?: true };
 }
 
 let runs: DiagramRun[] = [];

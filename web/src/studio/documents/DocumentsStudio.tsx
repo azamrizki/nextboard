@@ -24,7 +24,8 @@ import { MarkdownView } from '../MarkdownView';
 import { studioStore, jobActive, useJob, useJobOutput, useStudio } from '../store';
 import { DOC_TYPES, type DocStats, type DocType, type DocVersion, type Effort, type StudioDocument } from '../types';
 import { DOC_HINT, DOC_LABEL, EFFORT_LABEL, EFFORT_WORDS, PHASE_TEXT, docLabel, download, durationText, fileSafe, printDocUrl, type Paper } from './model';
-import { PlacePicker, usePartChoice } from '../../board/PlacePicker';
+import { PlacePicker } from '../../board/PlacePicker';
+import { claudeReadsHint, readsWhere, useReadPlace, versionPlace } from '../readPlace';
 import '../../styles/studio.css';
 
 interface Props {
@@ -137,12 +138,13 @@ function useAgentAvailable(machineId: string) {
   };
 }
 
-function Generator({ project, onStarted, regenerate }: { project: Project; onStarted: (d: StudioDocument) => void; regenerate?: StudioDocument }) {
+function Generator({ project, onStarted, regenerate, place }: { project: Project; onStarted: (d: StudioDocument) => void; regenerate?: StudioDocument; place?: string }) {
   const settings = useEffectiveSettings();
   const runnerDefault = ((settings.runner as { defaultAgent?: string } | undefined)?.defaultAgent ?? 'claude') as string;
-  // several parts: the run reads one part's folder, on its machine (v0.9.0-beta.2)
-  const where = usePartChoice(project);
-  const machineId = where.part.machineId || 'local';
+  // several parts: the run reads the project root (every part, the CLI on This PC) unless a part
+  // is picked, its folder on its machine; a regenerate starts where the version was read
+  const where = useReadPlace(project, place);
+  const machineId = where.machineId;
   const available = useAgentAvailable(machineId);
   const [type, setType] = useState<DocType>((regenerate?.type as DocType) ?? 'overview');
   const [ask, setAsk] = useState(regenerate?.ask ?? '');
@@ -165,7 +167,7 @@ function Generator({ project, onStarted, regenerate }: { project: Project; onSta
   const go = async () => {
     setBusy(true);
     try {
-      const r = await docApi.generate(where.ref, { type, ask: type === 'custom' ? ask.trim() : undefined, effort, agent, documentId: regenerate?.id });
+      const r = await docApi.generate(where.ref, { type, ask: type === 'custom' ? ask.trim() : undefined, effort, agent, documentId: regenerate?.id, ...(where.root ? { root: true } : {}) });
       orchStore.upsertJob(r.job);
       studioStore.upsertDocument(project.id, r.document);
       onStarted(r.document);
@@ -229,11 +231,12 @@ function Generator({ project, onStarted, regenerate }: { project: Project; onSta
           </div>
         </div>
       </div>
-      <PlacePicker project={project} value={where.part.id} onChange={where.setPartId} label="Read in" noRoot hint={false} />
+      <PlacePicker project={project} value={where.value} onChange={where.setValue} label="Read in" hint={false} />
       <p className="fs-xs text-3">
-        A hidden, read-only run of your CLI in {where.part.path} (it can read files but not change them or run commands). It uses your own CLI login and plan. Written in
+        A hidden, read-only run of your CLI in {readsWhere(where)} (it can read files but not change them or run commands). It uses your own CLI login and plan. Written in
         English.
       </p>
+      {claudeReadsHint(project, where, agent, settings.agents?.remoteTools !== false) && <p className="fs-xs text-3">{claudeReadsHint(project, where, agent, settings.agents?.remoteTools !== false)}</p>}
       <div className="row-gap">
         <Button variant="primary" icon="sparkle" loading={busy} disabled={type === 'custom' && !regenerate && !ask.trim()} onClick={() => void go()}>
           {regenerate ? 'Regenerate' : 'Generate'}
@@ -281,7 +284,7 @@ function DocView({ project, doc, onDeleted, onAddToBoard }: { project: Project; 
   }, [doc.id, v?.id, v?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!v) return <p className="list-msg">This document has no versions left.</p>;
-  if (regen) return <Generator project={project} regenerate={doc} onStarted={() => setRegen(false)} />;
+  if (regen) return <Generator project={project} regenerate={doc} place={versionPlace(v)} onStarted={() => setRegen(false)} />;
 
   const body = running ? live : (text ?? '');
   const phase = job?.progress?.phase ?? 'launching';

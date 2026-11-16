@@ -158,7 +158,7 @@ export const previewApi = {
 
 export const docApi = {
   list: (pid: string) => get<StudioDocument[] | null>(`/api/projects/${enc(pid)}/documents`).then((r) => r ?? []),
-  generate: (pid: string, body: { type: DocType | string; ask?: string; effort: Effort; agent?: string; profileId?: string; documentId?: string }) =>
+  generate: (pid: string, body: { type: DocType | string; ask?: string; effort: Effort; agent?: string; profileId?: string; documentId?: string; root?: boolean }) =>
     post<{ document: StudioDocument; versionId: string; job: Job }>(`/api/projects/${enc(pid)}/documents`, body),
   get: (id: string) => get<StudioDocument>(`/api/documents/${enc(id)}`),
   version: (id: string, vid: string) => get<{ version: DocVersion; markdown: string }>(`/api/documents/${enc(id)}/versions/${enc(vid)}`),
@@ -169,7 +169,7 @@ export const docApi = {
 
 export const diagramApi = {
   list: (pid: string) => get<DiagramListItem[] | null>(`/api/projects/${enc(pid)}/diagrams`).then((r) => r ?? []),
-  generate: (pid: string, body: { subject: DiagramSubject; ask?: string; effort: Effort; style: DiagramStyle; agent?: string }) =>
+  generate: (pid: string, body: { subject: DiagramSubject; ask?: string; effort: Effort; style: DiagramStyle; agent?: string; root?: boolean }) =>
     post<{ diagramId: string; job: Job }>(`/api/projects/${enc(pid)}/diagrams`, body),
   get: (id: string) => get<DiagramRecord>(`/api/diagrams/${enc(id)}`),
   land: (id: string, body: { workspaceId: string; x?: number; y?: number; style?: DiagramStyle }) =>

@@ -264,6 +264,10 @@ type DiagramRequest struct {
 	Subject, Ask, Effort, Style, Agent string
 	MachineID, Cwd, Command            string
 	Env                                []string
+	// Root reads the project at its root (every part); the hub then picks machine and folder,
+	// and Parts are the names the prompt gives.
+	Root  bool
+	Parts []string
 }
 
 // Diagrams stores diagram records and starts diagram jobs.
@@ -355,8 +359,13 @@ func (g *Diagrams) Generate(pid string, req DiagramRequest) (DiagramRecord, jobs
 	if err != nil {
 		return DiagramRecord{}, jobs.Job{}, err
 	}
-	j, err := g.Submit(jobs.RunnerRequest{Purpose: "diagram", ProjectID: pid, MachineID: req.MachineID, Cwd: req.Cwd,
-		Agent: req.Agent, Command: req.Command, Env: req.Env, Prompt: DiagramPrompt(req.Subject, req.Ask, req.Effort),
+	prompt := DiagramPrompt(req.Subject, req.Ask, req.Effort)
+	if req.Root {
+		req.MachineID, req.Cwd = "", "" // the hub's root runner places it
+		prompt += DiagramRootNote(req.Parts)
+	}
+	j, err := g.Submit(jobs.RunnerRequest{Purpose: "diagram", ProjectID: pid, MachineID: req.MachineID, Cwd: req.Cwd, Root: req.Root,
+		Agent: req.Agent, Command: req.Command, Env: req.Env, Prompt: prompt,
 		Schema: DiagramJSONSchema,
 		Transform: func(text string, structured json.RawMessage) (json.RawMessage, error) {
 			raw := []byte(structured)

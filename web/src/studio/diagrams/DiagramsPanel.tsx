@@ -22,7 +22,9 @@ import { DIAGRAM_SUBJECTS, type ArrowColor, type ArrowStyle, type DiagramListIte
 import { diagramExcalidraw, diagramPng } from './export';
 import { landDiagram, type Reveal } from './land';
 import { diagramRuns } from './runs';
-import { PlacePicker, usePartChoice } from '../../board/PlacePicker';
+import { PlacePicker } from '../../board/PlacePicker';
+import { isMultiPart } from '../../lib/placement';
+import { claudeReadsHint, readsWhere, useReadPlace } from '../readPlace';
 import { STARTERS } from './starters';
 
 export const SUBJECT_LABEL: Record<DiagramSubject, string> = {
@@ -59,7 +61,7 @@ export default function DiagramsPanel({ ctl, project, viewCenter, reveal, onClos
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState<DiagramListItem[] | null>(null);
   const rev = useStudio((s) => s.diagramRev[project.id] ?? 0);
-  const where = usePartChoice(project);
+  const where = useReadPlace(project);
 
   const load = useCallback(() => {
     diagramApi
@@ -79,9 +81,10 @@ export default function DiagramsPanel({ ctl, project, viewCenter, reveal, onClos
 
   const generate = async () => {
     setBusy(true);
-    const request = { subject, ask: subject === 'custom' ? ask.trim() : undefined, effort, style, agent };
+    // several parts: the run reads the project root (every part) or the part picked below; Try
+    // again keeps it (root goes with the request, a part with the ref)
+    const request = { subject, ask: subject === 'custom' ? ask.trim() : undefined, effort, style, agent, ...(where.root ? { root: true as const } : {}) };
     try {
-      // several parts: the run reads the part picked below (its folder, on its machine)
       const r = await diagramApi.generate(where.ref, request);
       orchStore.upsertJob(r.job);
       diagramRuns.add({ diagramId: r.diagramId, jobId: r.job.id, projectId: project.id, ref: where.ref, workspaceId: ctl.workspaceId, style, look, label: SUBJECT_LABEL[subject], request });
@@ -209,7 +212,9 @@ export default function DiagramsPanel({ ctl, project, viewCenter, reveal, onClos
             <option value="codex">Codex</option>
           </select>
         </div>
-        <PlacePicker project={project} value={where.part.id} onChange={where.setPartId} label="Read in" noRoot hint={false} />
+        <PlacePicker project={project} value={where.value} onChange={where.setValue} label="Read in" hint={false} />
+        {isMultiPart(project) && <p className="fs-xs text-3">Reads {readsWhere(where)}.</p>}
+        {claudeReadsHint(project, where, agent, settings.agents?.remoteTools !== false) && <p className="fs-xs text-3">{claudeReadsHint(project, where, agent, settings.agents?.remoteTools !== false)}</p>}
         <div>
           <Button size="sm" variant="primary" icon="sparkle" loading={busy} disabled={subject === 'custom' && !ask.trim()} onClick={() => void generate()}>
             Draw diagram

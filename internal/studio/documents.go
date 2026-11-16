@@ -79,6 +79,10 @@ type Version struct {
 	Words      int       `json:"words"`
 	DurationMs int64     `json:"durationMs"`
 	JobID      string    `json:"jobId"`
+	// Where a project in several parts was read: at its root, or in the part PartID. Neither for
+	// a project in one part, and for versions from before.
+	Root   bool   `json:"root,omitempty"`
+	PartID string `json:"partId,omitempty"`
 }
 
 // Document is a library entry of a project.
@@ -104,6 +108,12 @@ type DocRequest struct {
 	Command    string
 	Env        []string
 	Model      string // optional (real-CLI test uses haiku)
+	// Root reads the project at its root (every part); the hub then picks machine and folder,
+	// and Parts are the names the prompt gives. PartID is the part read otherwise, in a project
+	// of several parts. Both go on the version.
+	Root   bool
+	Parts  []string
+	PartID string
 }
 
 // Documents is the document library (documents/<projectId>/…) and starts
@@ -351,11 +361,16 @@ func (d *Documents) Generate(pid string, req DocRequest) (Document, string, jobs
 	// The running version is recorded before the job starts, so a job
 	// that finishes at once still finds it.
 	vid := auth.RandomID("v_")
+	prompt := DocPrompt(req.Type, doc.Title, req.Ask, req.Effort)
+	if req.Root {
+		req.MachineID, req.Cwd, req.PartID = "", "", "" // the hub's root runner places it, on This PC
+		prompt += DocRootNote(req.Parts)
+	}
 	mid := req.MachineID
 	if mid == "" {
 		mid = "local"
 	}
-	v := Version{ID: vid, At: time.Now().UTC(), Agent: req.Agent, MachineID: mid, Effort: req.Effort, State: "running"}
+	v := Version{ID: vid, At: time.Now().UTC(), Agent: req.Agent, MachineID: mid, Effort: req.Effort, State: "running", Root: req.Root, PartID: req.PartID}
 	isNew := idx < 0
 	doc.Versions = append([]Version{v}, doc.Versions...)
 	if isNew {
@@ -369,8 +384,8 @@ func (d *Documents) Generate(pid string, req DocRequest) (Document, string, jobs
 		return Document{}, "", jobs.Job{}, err
 	}
 	started := time.Now()
-	j, err := d.Submit(jobs.RunnerRequest{Purpose: "document", ProjectID: pid, MachineID: req.MachineID, Cwd: req.Cwd,
-		Agent: req.Agent, Command: req.Command, Env: req.Env, Prompt: DocPrompt(req.Type, doc.Title, req.Ask, req.Effort),
+	j, err := d.Submit(jobs.RunnerRequest{Purpose: "document", ProjectID: pid, MachineID: req.MachineID, Cwd: req.Cwd, Root: req.Root,
+		Agent: req.Agent, Command: req.Command, Env: req.Env, Prompt: prompt,
 		Stream: true, Timeout: eff.Timeout, IdleTimeout: DocIdle, Model: req.Model,
 		OnFinish: func(j jobs.Job) { d.finish(pid, doc.ID, vid, started, j) }})
 	d.mu.Lock()

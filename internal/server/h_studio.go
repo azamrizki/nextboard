@@ -11,8 +11,31 @@ import (
 
 	"github.com/azamrizki/nextboard/internal/board"
 	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/project"
 	"github.com/azamrizki/nextboard/internal/studio"
 )
+
+// readPlace is where a Documents or Diagrams run reads (§5, §6): with root, the root of a
+// project in several parts, every part (the CLI on This PC, so its agent and profile are picked
+// there); else the part the ref names, the first without one. A project in one part reads its
+// folder either way. seen is the project as runnerFor should see it; partID is "" at the root
+// and in a project of one part.
+func readPlace(pr project.Project, root bool) (seen project.Project, atRoot bool, partID string, names []string) {
+	if len(pr.Parts) < 2 {
+		return pr, false, "", nil
+	}
+	if !root {
+		if pt, ok := pr.PartAt(pr.MachineID, pr.Path); ok {
+			partID = pt.ID
+		}
+		return pr, false, partID, nil
+	}
+	for _, pt := range pr.Parts {
+		names = append(names, pt.Name)
+	}
+	pr.MachineID, pr.Path = machine.LocalID, ""
+	return pr, true, "", names
+}
 
 // ---- Documents (§5) ----
 
@@ -36,6 +59,7 @@ func (s *Server) handleDocumentCreate(w http.ResponseWriter, r *http.Request, p 
 		Agent      string `json:"agent"`
 		ProfileID  string `json:"profileId"`
 		DocumentID string `json:"documentId"`
+		Root       bool   `json:"root"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -43,13 +67,14 @@ func (s *Server) handleDocumentCreate(w http.ResponseWriter, r *http.Request, p 
 	if req.Effort == "" {
 		req.Effort = "balanced"
 	}
-	t, err := s.runnerFor(pr, req.Agent, req.ProfileID)
+	seen, root, partID, names := readPlace(pr, req.Root)
+	t, err := s.runnerFor(seen, req.Agent, req.ProfileID)
 	if err != nil {
 		runnerErr(w, err)
 		return
 	}
 	doc, vid, j, err := s.studio.docs.Generate(pr.ID, studio.DocRequest{Type: req.Type, Ask: req.Ask, Effort: req.Effort, Agent: t.agent,
-		DocumentID: req.DocumentID, MachineID: pr.MachineID, Cwd: pr.Path, Command: t.command, Env: t.env})
+		DocumentID: req.DocumentID, MachineID: pr.MachineID, Cwd: pr.Path, Command: t.command, Env: t.env, Root: root, Parts: names, PartID: partID})
 	switch {
 	case errors.Is(err, studio.ErrBadDocType):
 		writeErrCode(w, http.StatusBadRequest, "bad_type", err.Error())
@@ -155,6 +180,7 @@ func (s *Server) handleDiagramCreate(w http.ResponseWriter, r *http.Request, p *
 		Style     string `json:"style"`
 		Agent     string `json:"agent"`
 		ProfileID string `json:"profileId"`
+		Root      bool   `json:"root"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -162,13 +188,14 @@ func (s *Server) handleDiagramCreate(w http.ResponseWriter, r *http.Request, p *
 	if req.Effort == "" {
 		req.Effort = "balanced"
 	}
-	t, err := s.runnerFor(pr, req.Agent, req.ProfileID)
+	seen, root, _, names := readPlace(pr, req.Root)
+	t, err := s.runnerFor(seen, req.Agent, req.ProfileID)
 	if err != nil {
 		runnerErr(w, err)
 		return
 	}
 	rec, j, err := s.studio.diagrams.Generate(pr.ID, studio.DiagramRequest{Subject: req.Subject, Ask: req.Ask, Effort: req.Effort,
-		Style: req.Style, Agent: t.agent, MachineID: pr.MachineID, Cwd: pr.Path, Command: t.command, Env: t.env})
+		Style: req.Style, Agent: t.agent, MachineID: pr.MachineID, Cwd: pr.Path, Command: t.command, Env: t.env, Root: root, Parts: names})
 	switch {
 	case errors.Is(err, studio.ErrBadSubject):
 		writeErrCode(w, http.StatusBadRequest, "bad_subject", err.Error())

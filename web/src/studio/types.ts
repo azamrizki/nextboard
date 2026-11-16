@@ -363,6 +363,9 @@ export interface DocVersion {
   words: number;
   durationMs: number;
   jobId: string;
+  /** Where a project of several parts was read: at its root, or in the part partId (neither in a project of one part). */
+  root?: boolean;
+  partId?: string;
 }
 
 export interface StudioDocument {

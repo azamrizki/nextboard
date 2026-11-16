@@ -121,8 +121,9 @@ export function PlacePicker({ project, value, onChange, other, noRoot, label = '
 }
 
 /**
- * One part of the project to work in, for what runs in a part's folder (a document or diagram
- * run): the part last placed in, else one on This PC, else the first shown; picked with
+ * One part of the project to work in, for what works in a part's folder (the Markdown studio's
+ * vault; Documents and Diagrams read at the root by default, studio/readPlace.ts): the part last
+ * placed in, else one on This PC, else the first shown; picked with
  * <PlacePicker noRoot>. `ref` is the project ref the hub reads that part through: the project id
  * in a single-part project (as before), "<project>~<part>" otherwise. `initial`: a part id to start
  * in (the part of a card's file), when the project has it.

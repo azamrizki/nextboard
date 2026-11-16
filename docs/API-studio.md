@@ -410,17 +410,19 @@ The tile's toolbar and menu have **Open in a real browser** (`realBrowser:true`)
 ```jsonc
 { "id": "doc_…", "projectId": "p_…", "type": "architecture", "title": "Architecture", "ask"?: "…",
   "versions": [{ "id": "v_…", "at": "…", "agent": "claude", "machineId": "local", "effort": "balanced",
-                 "state": "complete"|"incomplete", "words": 980, "durationMs": 312000, "jobId": "jb_…" }] }
+                 "state": "complete"|"incomplete", "words": 980, "durationMs": 312000, "jobId": "jb_…",
+                 "root"?: true, "partId"?: "pt_…" }] }
 ```
 
 - Types: `overview`, `onboarding`, `architecture`, `readme`, `api`, `dataModel`, `security`, `testing`, `releaseNotes`, `custom` (with `ask`). Written in English, Markdown, starting with `# <title>`.
 - Effort: `quick` 400–700 words / 6 minutes, `balanced` 700–1100 / 12 minutes, `thorough` 900–1500 / 25 minutes; idle 200 s. Read-only tools.
 - Streaming through `jobOutput`; Stop → an `incomplete` version with the text that has arrived (Regenerate, Export draft).
+- **Where it reads** in a project of several parts: `"root": true` runs it at the project root, every part, as a root console and the memory runs do ([API-agents.md](API-agents.md) §21.2): the CLI on This PC in the root folder, the parts on This PC through the root's links (`--add-dir`), a part on a server or a read-only part through the hub's read tools with `part` (that needs Claude Code, so the hub runs Claude Code then, as for a project on a server; with the hub's tools for servers off, the prompt says those parts cannot be read). The agent and profile are picked on This PC. The prompt adds a note naming the parts and asking for the whole project, with the part each component, file or command lives in. Without `root` the run reads the part the ref names (`/api/projects/<project>~<part>/documents`, or `?part=`), the first part for a bare project id, with the prompt as before; `root` wins over a part in the ref. A project in one part reads its folder either way. The version records where: `root: true`, or `partId` (neither in a project of one part). The web client's "Read in" picker defaults to Root (all parts); Regenerate starts where the version shown was read.
 
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/projects/{id}/documents` | — | `Document[]` |
-| POST | `/api/projects/{id}/documents` | `{"type","ask"?,"effort","agent"?,"profileId"?,"documentId"?}` | `202 {"document","versionId","job"}` |
+| POST | `/api/projects/{id}/documents` | `{"type","ask"?,"effort","agent"?,"profileId"?,"documentId"?,"root"?}` | `202 {"document","versionId","job"}` |
 | GET | `/api/documents/{docId}` | — | `Document` |
 | GET | `/api/documents/{docId}/versions/{vid}` | — | `{"version","markdown"}` |
 | DELETE | `/api/documents/{docId}`, `/api/documents/{docId}/versions/{vid}` | — | `{"ok":true}` (permanent) |
@@ -449,10 +451,11 @@ The tile's toolbar and menu have **Open in a real browser** (`realBrowser:true`)
 
 - Limits: nodes ≤ 40, edges ≤ 80, groups ≤ 8, `label` ≤ 48, `note` ≤ 80, id `^[a-z0-9_-]{1,32}$`, an edge must point to an existing node. An edge leaving a `diamond` without a label → a warning.
 - Subjects: `architecture`, `userFlow`, `dataFlow`, `components`, `requestLifecycle`, `stateFlow`, `custom`. Effort: 6–10 / 8–14 / 10–16 components. Style `ink` (default, lines in the text color, transparent fill) or `color` (a color per group).
+- **Where it reads** in a project of several parts: as for documents (§5), `"root": true` runs it at the project root, every part (agent and profile picked on This PC, Claude Code when a part is on a server or read-only), with a prompt note that names the parts and asks to show which part each node lives in (a group per part, or the part's name in the note); without it the part the ref names, the first for a bare project id. A project in one part reads its folder either way. The Diagrams panel's "Read in" defaults to Root (all parts); Try again sends the same request to the same ref, so it reads in the same place. The record does not keep the place.
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| POST | `/api/projects/{id}/diagrams` | `{"subject","ask"?,"effort","style","agent"?}` | `202 {"diagramId","job"}` → result `nb.diagram/v1` |
+| POST | `/api/projects/{id}/diagrams` | `{"subject","ask"?,"effort","style","agent"?,"profileId"?,"root"?}` | `202 {"diagramId","job"}` → result `nb.diagram/v1` |
 | GET | `/api/projects/{id}/diagrams` | — | `[{ "id","title","createdAt","agent" }]` |
 | GET | `/api/diagrams/{id}` | — | `{"id","diagram","style","createdAt"}` |
 
@@ -908,7 +911,12 @@ Entirely in the client; the hub receives no audio and has no voice endpoint. Whi
 - **Web:** `SpeechRecognition`/`webkitSpeechRecognition`, **opt-in** in Settings › Voice with a disclosure (UI text): "Speech recognition here is provided by your browser. In Chrome and Edge your audio is sent to Google or Microsoft to be transcribed. NextBoard never stores or sends audio. Turn on voice?". A browser without the API → voice controls hidden. Settings per client (localStorage): `enabled`, `lang` (BCP-47, default `en-US`), `holdSpace` (true), `dictationKey` (default hold `AltRight`), `ttsConfirmations` (true), `ttsVoice`.
 - **Push-to-talk:** hold Space while the board has focus (not a console/field) or hold/tap the mic button; interim results show in the command bar; release → `POST /api/projects/{id}/commands` `source:"voice"`; Esc cancels; max 60 s (cut off → not sent). Similar-sounding names are handed to the hub's fuzzy resolver (`didYouMean` confirmation). "yes/confirm/cancel" answers a pending confirmation.
 - **Dictation:** hold the dictation key → text to the focused field, or to the focused console through delivery `{guard:"dictation", submit:false, source:"dictation"}`; `409` → the text goes into the command bar. The words "comma", "period", "question mark", "new line" are mapped by the client (English). Max 5 minutes.
-- **TTS:** `speechSynthesis` only for the hub's short sentences (confirmations, "Arkan finished", questions); never reads agent replies aloud.
+- **TTS:** `speechSynthesis` only for the hub's short sentences (confirmations, "Arkan finished", questions); never reads agent replies aloud. How it sounds (`web/src/voice/speech.ts`, v0.11.0):
+  - **One tab talks.** Every open tab hears the same events; each event is claimed once through localStorage (a visible tab first, a hidden one 350 ms later), so a line is never said by two tabs at once.
+  - **One sentence per burst.** Events within 700 ms are joined: "Arkan and Bintang finished.", "Arkan, Bintang and 3 others need you."; who needs you is said before who finished.
+  - **The language it is written in.** The lines are written in English, or in Bahasa Indonesia when that is the voice language ("Arkan selesai.", "Arkan butuh kamu."); with any other voice language they are said in English by an English voice, never read by a voice of another language. A hub confirmation is English and is said by an English voice.
+  - **A smooth voice.** The voice chosen in Settings when it speaks the line's language, else this device's own voices before the browser's network ones (which stall between words), a natural or premium one first. The first line waits until the voices have loaded, and a paused queue is resumed.
+  - **Made for the ear.** A confirmation is read without markdown, links (said "a link"), hub ids, and with a path reduced to its last name; a long one stops at the end of a sentence.
 - **Android:** a mic button in the command bar and the terminal input; `SpeechRecognizer.createOnDeviceSpeechRecognizer` (API 31+) when available, otherwise `EXTRA_PREFER_OFFLINE` with a disclosure when it falls back to an online recognizer; TTS via `TextToSpeech`.
 - **Desktop (Tauri):** uses Web Speech when the webview supports it; when not, the controls are hidden.
 
