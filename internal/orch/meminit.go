@@ -102,7 +102,7 @@ func (s *Service) InitMemory(pid, effort, agentID string) (jobs.Job, error) {
 	if agentID == "claude" {
 		cmd = s.hub.Settings().Agents.Paths[mid]["claude"]
 	}
-	req.Agent, req.Command, req.Prompt, req.Schema = agentID, cmd, s.initPrompt(pid, effort)+partsNote(p), InitSchema
+	req.Agent, req.Command, req.Prompt, req.Schema = agentID, cmd, s.initPrompt(pid, effort)+partsNote(p)+s.partFactsNote(p), withPartField(InitSchema, p)
 	req.Transform = func(text string, structured json.RawMessage) (json.RawMessage, error) {
 		raw := structured
 		if len(raw) == 0 {
@@ -112,6 +112,7 @@ func (s *Service) InitMemory(pid, effort, agentID string) (jobs.Job, error) {
 		if err != nil {
 			return nil, err
 		}
+		r.Facts = s.factParts(pid, r.Facts) // the run names parts; the hub keeps their ids
 		return json.Marshal(r)
 	}
 	return s.hub.SubmitRunner(req)
@@ -133,7 +134,7 @@ func cleanInit(r InitResult) InitResult {
 	out := InitResult{Facts: []Fact{}, Subs: []InitSub{}, Critical: []string{}}
 	for _, f := range r.Facts {
 		if t := cleanFact(f.Text); t != "" && len(out.Facts) < 20 {
-			out.Facts = append(out.Facts, Fact{Kind: strings.ToLower(sectionOf(f.Kind)), Text: t})
+			out.Facts = append(out.Facts, Fact{Kind: strings.ToLower(sectionOf(f.Kind)), Text: t, Part: strings.TrimSpace(f.Part)})
 		}
 	}
 	seen := map[string]bool{CriticalSlug: true, MainDoc: true}
@@ -167,21 +168,27 @@ func ParseInit(raw json.RawMessage) (InitResult, error) {
 }
 
 // ApplyInit saves what the owner accepted. It only adds: facts and rules that
-// are new, pages that are new, and new lines to a page that exists.
+// are new, pages that are new, and new lines to a page that exists. A fact of
+// one part goes on that part's page.
 func (s *Service) ApplyInit(pid string, r InitResult) error {
 	r = cleanInit(r)
 	if len(r.Facts) > 0 {
-		if _, err := s.AcceptMemory(pid, "project", r.Facts); err != nil {
+		if _, err := s.AcceptMemoryFacts(pid, "project", r.Facts); err != nil {
 			return err
 		}
 	}
+	pages := s.partPages(pid)
 	for _, sub := range r.Subs {
 		cur, err := s.Memory.Sub(pid, sub.Slug)
 		content := sub.Content
 		if err == nil {
 			content = mergeLines(cur.Content, sub.Content)
 		}
-		if _, err := s.Memory.WriteSub(pid, sub.Slug, sub.Title, sub.Description, content, ""); err != nil {
+		title, desc := sub.Title, sub.Description
+		if pt, ok := pages[sub.Slug]; ok { // a page named like a part's is that part's
+			title, desc = pt.Name, s.partDesc(pt)
+		}
+		if _, err := s.Memory.WriteSub(pid, sub.Slug, title, desc, content, ""); err != nil {
 			return err
 		}
 	}

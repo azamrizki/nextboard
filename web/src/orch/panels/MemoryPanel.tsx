@@ -1,9 +1,10 @@
 // Project memory panel (docs/API-orchestration.md §12, D21; M): edit the facts of this
 // project or of all projects, scan the repo for proposed facts (nothing is saved until
-// you add them), and push the memory to agents as background context.
+// you add them), and push the memory to agents as background context. A project of several
+// parts has the whole project's memory and one memory per part.
 
-import { useEffect, useMemo, useState } from 'react';
-import { isCode, isStatus } from '../../api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { errorMessage, isCode, isStatus } from '../../api';
 import { Button } from '../../components/Button';
 import { SegmentedControl, SelectField } from '../../components/form';
 import { Icon } from '../../components/Icon';
@@ -13,8 +14,11 @@ import { Link, memoryPath } from '../../lib/router';
 import type { Project } from '../../lib/types';
 import { orchError } from '../actions';
 import { orchApi } from '../api';
+import { memoryApi } from '../../memory/api';
 import { MAIN_DOC } from '../../memory/blocks';
+import { factsWhere, groupFacts, MTIME_ABSENT, routedFacts } from '../../memory/parts';
 import { SendMemoryDialog } from '../../memory/SendMemoryDialog';
+import { usePartMemories } from '../../memory/usePartMemories';
 import { useNow } from '../hooks';
 import { factsOf, setMemoryCache, useMemoryDoc } from '../memoryDoc';
 import { orchStore, useOrch } from '../store';
@@ -25,11 +29,49 @@ type Effort = 'quick' | 'balanced' | 'thorough';
 
 const SKELETON = FACT_KINDS.map((k) => `## ${k}\n\n`).join('');
 
+/** A part's memory page, or an empty one (mtime "") when it is not written yet. */
+function usePartDoc(projectId: string, slug: string | undefined) {
+  const rev = useOrch((s) => s.memoryRev[projectId] ?? 0);
+  const [nonce, setNonce] = useState(0);
+  const [doc, setDoc] = useState<{ slug: string; content: string; mtime: string } | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!slug) return;
+    let alive = true;
+    setError('');
+    memoryApi
+      .doc(projectId, slug)
+      .then((d) => alive && setDoc({ slug, content: d.content, mtime: d.mtime }))
+      .catch((err) => {
+        if (!alive) return;
+        if (isStatus(err, 404)) setDoc({ slug, content: '', mtime: '' });
+        else setError(errorMessage(err));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId, slug, rev, nonce]);
+  return { doc: doc && doc.slug === slug ? doc : null, error, reload: () => setNonce((n) => n + 1) };
+}
+
 export default function MemoryPanel({ project, onClose, onAddCard }: { project: Project; onClose: () => void; onAddCard: () => void }) {
   const mem = useMemoryDoc(project.id);
   const [scope, setScope] = useState<Scope>('project');
-  const doc = mem.data?.[scope];
+  const parts = usePartMemories(project.id);
+  // "" is the whole project's memory; a part's id, that part's
+  const [target, setTarget] = useState('');
+  const part = scope === 'project' ? parts.find((p) => p.id === target) : undefined;
+  const partDoc = usePartDoc(project.id, part?.slug);
+  const doc = part ? partDoc.doc : mem.data?.[scope];
   const [draft, setDraft] = useState<string | null>(null);
+  // the version the draft was started from: the page keeps refreshing while agents write, and a
+  // save must say which one it changes, or an agent's fact saved meanwhile would be lost
+  const docKey = part ? part.slug : scope;
+  const base = useRef<{ key: string; mtime: string } | null>(null);
+  useEffect(() => {
+    if (draft === null) base.current = null;
+    else if (!base.current || base.current.key !== docKey) base.current = { key: docKey, mtime: doc?.mtime ?? '' };
+  }, [draft, docKey, doc?.mtime]);
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [effort, setEffort] = useState<Effort>('balanced');
@@ -43,7 +85,7 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
   useEffect(() => {
     setDraft(null);
     setConflict(false);
-  }, [scope]);
+  }, [scope, part?.id]);
 
   // agents write to this memory on their own: open on the latest
   useEffect(() => {
@@ -77,6 +119,7 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
     const r = job?.state === 'done' ? (job.result as { facts?: Fact[] } | null) : null;
     return Array.isArray(r?.facts) ? r!.facts : [];
   }, [job]);
+  const proposedGroups = useMemo(() => groupFacts(proposed, parts), [proposed, parts]);
   useEffect(() => setPicked(new Set(proposed.map((_, i) => i))), [proposed]);
 
   const value = draft ?? doc?.content ?? '';
@@ -87,7 +130,14 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
     if (draft === null) return;
     setSaving(true);
     try {
-      const res = await orchApi.saveMemory(project.id, { scope, content: draft, ifMtime: doc?.mtime || undefined });
+      if (part) {
+        await memoryApi.save(project.id, part.slug, { content: draft, ifMtime: base.current?.mtime || MTIME_ABSENT });
+        partDoc.reload();
+        setDraft(null);
+        toast.success(`Memory of ${part.name} saved.`);
+        return;
+      }
+      const res = await orchApi.saveMemory(project.id, { scope, content: draft, ifMtime: base.current?.mtime || undefined });
       setMemoryCache(project.id, scope, res);
       mem.reload();
       setDraft(null);
@@ -111,21 +161,43 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
   };
 
   const accept = async () => {
-    const list = proposed.filter((_, i) => picked.has(i));
+    // each fact goes to the part it is for; into the memory of all projects, all of them as one
+    const list = routedFacts(proposed.filter((_, i) => picked.has(i)), scope === 'project' ? parts : []);
     if (!list.length) return;
     try {
       const res = await orchApi.acceptFacts(project.id, { scope, facts: list });
-      setMemoryCache(project.id, scope, res);
+      setMemoryCache(project.id, scope, { content: res.content, mtime: res.mtime });
       mem.reload();
+      if (part) partDoc.reload();
       setJobId(null);
       setDraft(null);
-      toast.success(`Added ${list.length} fact${list.length === 1 ? '' : 's'} to the memory.`);
+      const where = scope === 'project' && list.some((f) => f.part) ? `: ${factsWhere(list, parts)}` : ' to the memory';
+      toast.success(`Added ${list.length} fact${list.length === 1 ? '' : 's'}${where}.`);
     } catch (err) {
       toast.error(`Could not add the facts: ${orchError(err)}`);
     }
   };
 
   const running = job && (job.state === 'queued' || job.state === 'running');
+
+  const factRow = (f: Fact, i: number) => (
+    <label key={i} className="fact-item">
+      <input
+        type="checkbox"
+        checked={picked.has(i)}
+        onChange={() =>
+          setPicked((cur) => {
+            const n = new Set(cur);
+            if (n.has(i)) n.delete(i);
+            else n.add(i);
+            return n;
+          })
+        }
+      />
+      <span className="cap-chip">{f.kind}</span>
+      <span>{f.text}</span>
+    </label>
+  );
 
   return (
     <aside className="side-panel memory-panel" aria-label="Project memory">
@@ -158,13 +230,49 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
       )}
       {mem.status !== 'unsupported' && (
         <>
-          {scope === 'project' && <p className="setting-hint">One memory for this project. Every agent reads it at launch and can add to it, whichever CLI it uses.</p>}
+          {scope === 'project' && parts.length > 0 && (
+            <SelectField label="Which memory" value={part?.id ?? ''} onChange={(e) => setTarget(e.target.value)} className="control-sm">
+              <option value="">Whole project</option>
+              <optgroup label="Parts">
+                {parts.map((p) => {
+                  const has = (mem.data?.subs ?? []).some((x) => (x.part === p.id || x.slug === p.slug) && x.chars > 0);
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.name} · {p.machine}
+                      {has ? '' : ' · no memory yet'}
+                    </option>
+                  );
+                })}
+              </optgroup>
+            </SelectField>
+          )}
+          {scope === 'project' && parts.length === 0 && <p className="setting-hint">One memory for this project. Every agent reads it at launch and can add to it, whichever CLI it uses.</p>}
+          {scope === 'project' && parts.length > 0 && !part && <p className="setting-hint">What holds for every part. Every agent reads it at launch and can add to it, whichever CLI it uses.</p>}
+          {part && (
+            <p className="setting-hint">
+              {doc && !doc.mtime ? `No memory for ${part.name} yet. ` : ''}What holds for {part.name} only ({part.machine}, {part.path}). Agents working there read it at launch, after the whole project's.
+            </p>
+          )}
+          {part && partDoc.error && (
+            <div className="alert" role="alert">
+              <Icon name="alertCircle" />
+              <span>Could not load the memory of {part.name}: {partDoc.error}</span>
+            </div>
+          )}
           <div className="memory-editor">
             <label className="field-label" htmlFor="memory-text">
-              {scope === 'project' ? `${project.name} memory` : 'Memory for all projects'} · {facts.length} fact{facts.length === 1 ? '' : 's'}
+              {part ? `${part.name} memory` : scope === 'project' ? (parts.length > 0 ? 'Whole project memory' : `${project.name} memory`) : 'Memory for all projects'} · {facts.length} fact{facts.length === 1 ? '' : 's'}
               {doc?.mtime && <span className="text-3"> · saved {timeAgo(doc.mtime)}</span>}
             </label>
-            <textarea id="memory-text" className="control mono memory-textarea" value={value} spellCheck={false} placeholder={SKELETON} onChange={(e) => setDraft(e.target.value)} />
+            <textarea
+              id="memory-text"
+              className="control mono memory-textarea"
+              value={value}
+              spellCheck={false}
+              placeholder={SKELETON}
+              disabled={!!part && !partDoc.doc}
+              onChange={(e) => setDraft(e.target.value)}
+            />
             {conflict && (
               <div className="alert" role="alert">
                 <Icon name="alertCircle" />
@@ -174,7 +282,8 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
                   onClick={() => {
                     setConflict(false);
                     setDraft(null);
-                    mem.reload();
+                    if (part) partDoc.reload();
+                    else mem.reload();
                   }}
                 >
                   Reload
@@ -197,7 +306,7 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
               </Button>
             </div>
           </div>
-          {scope === 'project' && (mem.data?.notes?.length ?? 0) > 0 && (
+          {scope === 'project' && !part && (mem.data?.notes?.length ?? 0) > 0 && (
             <details className="memory-notes">
               <summary>Notes saved by agents · {mem.data!.notes!.length}</summary>
               {mem.data!.notes!.map((n) => (
@@ -211,7 +320,9 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
 
           <section className="memory-section" aria-label="Scan">
             <h3 className="section-title">Scan the project</h3>
-            <p className="fs-xs text-3">A hidden read-only run of your CLI reads {project.path} and proposes facts. Nothing is saved until you add them.</p>
+            <p className="fs-xs text-3">
+              A hidden read-only run of your CLI reads {parts.length > 0 ? 'every part of the project' : project.path} and proposes facts{parts.length > 0 ? ', each for the whole project or one part' : ''}. Nothing is saved until you add them.
+            </p>
             <div className="memory-scan-row">
               <SegmentedControl<Effort>
                 value={effort}
@@ -247,24 +358,17 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
             {job?.state === 'failed' && <p className="field-error">The scan failed: {job.error || job.code}</p>}
             {proposed.length > 0 && (
               <div className="fact-list" role="group" aria-label="Proposed facts">
-                {proposed.map((f, i) => (
-                  <label key={i} className="fact-item">
-                    <input
-                      type="checkbox"
-                      checked={picked.has(i)}
-                      onChange={() =>
-                        setPicked((cur) => {
-                          const n = new Set(cur);
-                          if (n.has(i)) n.delete(i);
-                          else n.add(i);
-                          return n;
-                        })
-                      }
-                    />
-                    <span className="cap-chip">{f.kind}</span>
-                    <span>{f.text}</span>
-                  </label>
-                ))}
+                {parts.length > 0
+                  ? proposedGroups.map((g) => (
+                      <div key={g.part || 'whole'} className="fact-group" role="group" aria-label={g.part ? `Facts for ${g.label}` : 'Facts for the whole project'}>
+                        <h4 className="fact-group-head">
+                          <Icon name={g.part ? 'puzzle' : 'brain'} />
+                          {g.label}
+                        </h4>
+                        {g.items.map(({ fact, index }) => factRow(fact, index))}
+                      </div>
+                    ))
+                  : proposed.map((f, i) => factRow(f, i))}
                 <div className="row-end">
                   <Button size="sm" variant="ghost" onClick={() => setJobId(null)}>
                     Discard

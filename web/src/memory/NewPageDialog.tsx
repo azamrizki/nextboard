@@ -6,6 +6,9 @@ import { Button } from '../components/Button';
 import { TextField } from '../components/form';
 import { Modal } from '../components/Modal';
 import { memoryApi } from './api';
+import { projectParts } from '../lib/parts';
+import { useProject } from '../store';
+import { partReserved } from './parts';
 
 const TEMPLATES: { title: string; description: string; content: string }[] = [
   { title: 'Design system', description: 'Tokens, components and layout rules. Read before UI work.', content: '## Tokens\n\n- \n\n## Components\n\n- \n\n## Layout\n\n- \n' },
@@ -32,7 +35,10 @@ export function NewPageDialog({ owner, ownerName, taken, onClose, onCreated }: {
 
   // A title in another script has no letters a name can use.
   const slug = slugOf(title) || (title.trim() ? `page-${Date.now().toString(36)}` : '');
-  const clash = taken.includes(slug) || slug === 'main' || slug === 'critical';
+  // only a project in several parts keeps part names
+  const project = useProject(owner || undefined);
+  const reserved = partReserved(owner, slug, project ? projectParts(project).length : 1);
+  const clash = taken.includes(slug) || slug === 'main' || slug === 'critical' || reserved;
 
   const pick = (t: (typeof TEMPLATES)[number]) => {
     setTitle(t.title);
@@ -79,7 +85,7 @@ export function NewPageDialog({ owner, ownerName, taken, onClose, onCreated }: {
             </button>
           ))}
         </div>
-        <TextField label="Title" value={title} autoFocus maxLength={80} onChange={(e) => setTitle(e.target.value)} error={clash ? 'A page with this name exists.' : undefined} hint={slug && !clash ? `Agents ask for it as ${slug}` : undefined} />
+        <TextField label="Title" value={title} autoFocus maxLength={80} onChange={(e) => setTitle(e.target.value)} error={reserved ? 'Names like this are kept for the memories of parts.' : clash ? 'A page with this name exists.' : undefined} hint={slug && !clash ? `Agents ask for it as ${slug}` : undefined} />
         <TextField label="When to read it" optional value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} hint="One sentence. Agents choose what to look up by this." />
         {error && (
           <p className="field-error" role="alert">

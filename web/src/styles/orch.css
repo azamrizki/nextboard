@@ -2448,6 +2448,30 @@ summary.memory-picker-head {
   margin-top: var(--nudge);
   accent-color: var(--c-primary);
 }
+/* a project of several parts: the whole project's facts, then each part's */
+.fact-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.fact-group + .fact-group {
+  margin-top: var(--s-2);
+}
+.fact-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+.fact-group-head svg {
+  flex: 0 0 auto;
+  width: var(--s-3);
+  height: var(--s-3);
+  color: var(--text-3);
+}
 
 /* layouts */
 /* the popup: the library beside what the chosen layout needs, each scrolling on its own */

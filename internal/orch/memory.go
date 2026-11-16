@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/azamrizki/nextboard/internal/store"
@@ -43,10 +44,13 @@ type MemoryDoc struct {
 	Mtime   string `json:"mtime"` // RFC 3339 (nanoseconds); "" when missing
 }
 
-// Fact is a scan suggestion.
+// Fact is a scan suggestion. Part is the part of a project in several parts it
+// holds for: a name in what a run answers, an id in what the hub gives and takes
+// ("" for the whole project).
 type Fact struct {
 	Kind string `json:"kind"`
 	Text string `json:"text"`
+	Part string `json:"part,omitempty"`
 }
 
 // MemoryNote is an agent's note in the project's memory folder.
@@ -56,7 +60,12 @@ type MemoryNote struct {
 }
 
 // Memory reads and writes the memory files.
-type Memory struct{ st *store.Store }
+type Memory struct {
+	st *store.Store
+	// mu makes a sub-memory's check of its mtime and its write one step, and UpdateSub's read,
+	// change and write: two first writers of a part's page never both start from empty.
+	mu sync.Mutex
+}
 
 func newMemory(st *store.Store) *Memory {
 	_ = os.MkdirAll(st.Path("memory"), 0o700)
@@ -199,9 +208,11 @@ func (m *Memory) Write(scope, projectID, content, ifMtime string) (MemoryDoc, er
 	if err != nil {
 		return MemoryDoc{}, err
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if ifMtime != "" {
 		cur, _ := m.Read(scope, projectID)
-		if !sameMtime(cur.Mtime, ifMtime) {
+		if !mtimeHolds(cur.Mtime, ifMtime) {
 			return MemoryDoc{}, ErrMtimeMismatch
 		}
 	}
@@ -209,6 +220,19 @@ func (m *Memory) Write(scope, projectID, content, ifMtime string) (MemoryDoc, er
 		return MemoryDoc{}, err
 	}
 	return m.Read(scope, projectID)
+}
+
+// MtimeAbsent as ifMtime writes only what does not exist yet: someone who starts a part's memory
+// while an agent makes it gets a conflict, not the agent's facts overwritten.
+const MtimeAbsent = "absent"
+
+// mtimeHolds is the ifMtime check: the page as it is now (have "" when missing) is the one the
+// writer read.
+func mtimeHolds(have, want string) bool {
+	if want == MtimeAbsent {
+		return have == ""
+	}
+	return sameMtime(have, want)
 }
 
 // sameMtime compares with the precision the client sent.
@@ -350,7 +374,7 @@ func ParseFacts(raw json.RawMessage) ([]Fact, error) {
 		if t == "" {
 			continue
 		}
-		out = append(out, Fact{Kind: strings.ToLower(sectionOf(f.Kind)), Text: t})
+		out = append(out, Fact{Kind: strings.ToLower(sectionOf(f.Kind)), Text: t, Part: strings.TrimSpace(f.Part)})
 		if len(out) == 20 {
 			break
 		}

@@ -25,7 +25,7 @@ func memoryRun(p project.Project, req jobs.RunnerRequest) (jobs.RunnerRequest, s
 }
 
 // partsNote is what a memory run's prompt adds for a project in several parts: every part is
-// read, and a fact true of one part says which.
+// read. Scan and Init then ask which part each fact holds for (partFactsNote).
 func partsNote(p project.Project) string {
 	if len(p.Parts) < 2 {
 		return ""
@@ -36,6 +36,6 @@ func partsNote(p project.Project) string {
 	}
 	return fmt.Sprintf(`
 
-This project has %d parts, each a folder of its own: %s. The current folder is the project root, with one entry per part; where each part is and how to read it is said above or in CLAUDE.md / AGENTS.md here. Read every part, not only the first. A fact that holds for one part only starts with that part's name ("%s: ..."); one that holds for the whole project names no part.`,
-		len(p.Parts), strings.Join(names, ", "), names[0])
+This project has %d parts, each a folder of its own: %s. The current folder is the project root, with one entry per part; where each part is and how to read it is said above or in CLAUDE.md / AGENTS.md here. Read every part, not only the first.`,
+		len(p.Parts), strings.Join(names, ", "))
 }

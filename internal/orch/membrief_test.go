@@ -387,7 +387,7 @@ func TestMemoryLaunchHoldsTheStack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	text := s.LaunchMemory(ash.ID, wid, p.ID, false)
+	text := s.LaunchMemory(ash.ID, wid, p.ID, "", false)
 	for _, want := range []string{"the project fact", "the global fact", "buttons are square", "- " + other.ID + "/deploy: Deploy, from project acme"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q:\n%s", want, text)
@@ -409,7 +409,7 @@ func TestMemoryLaunchHoldsTheStack(t *testing.T) {
 
 	// A console with no tile gets what it always got.
 	bea := h.console(p, wid, "Bea", "codex", agentstate.Ready)
-	if got := s.LaunchMemory(bea.ID, wid, p.ID, false); strings.Contains(got, "buttons are square") || got != s.MemoryPrompt(p.ID, false) {
+	if got := s.LaunchMemory(bea.ID, wid, p.ID, "", false); strings.Contains(got, "buttons are square") || got != s.MemoryPrompt(p.ID, false) {
 		t.Fatalf("no tile:\n%s", got)
 	}
 
@@ -418,7 +418,7 @@ func TestMemoryLaunchHoldsTheStack(t *testing.T) {
 	if err := h.ApplyOps(wid, []board.Op{wireOp("e_wire000002", memTile, h.node(wid, cas.ID).ID)}); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.LaunchMemory(cas.ID, wid, p.ID, true); strings.Contains(got, "the project fact") || !strings.Contains(got, "buttons are square") {
+	if got := s.LaunchMemory(cas.ID, wid, p.ID, "", true); strings.Contains(got, "the project fact") || !strings.Contains(got, "buttons are square") {
 		t.Fatalf("native:\n%s", got)
 	}
 	if r, err := s.SendMemory(p.ID, MemorySend{Targets: []string{cas.ID}, Blocks: []MemoryBlock{{ProjectID: p.ID, Name: MainDoc}}}); err != nil || r.UpToDate != 1 {
@@ -440,7 +440,7 @@ func TestMemoryLaunchBudget(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if text := s.LaunchMemory(ash.ID, wid, p.ID, false); !strings.Contains(text, "- global/big: Big page") || strings.Contains(text, strings.Repeat("x", 300)) {
+	if text := s.LaunchMemory(ash.ID, wid, p.ID, "", false); !strings.Contains(text, "- global/big: Big page") || strings.Contains(text, strings.Repeat("x", 300)) {
 		t.Fatalf("too big went in whole: %d", len(text))
 	}
 }
@@ -510,8 +510,8 @@ func TestMemoryOwnFactIsNotSentBack(t *testing.T) {
 	p, wid := h.project("app")
 	ash := h.console(p, wid, "Ash", "codex", agentstate.Ready)
 	bea := h.console(p, wid, "Bea", "codex", agentstate.Ready)
-	s.LaunchMemory(ash.ID, wid, p.ID, false)
-	s.LaunchMemory(bea.ID, wid, p.ID, false)
+	s.LaunchMemory(ash.ID, wid, p.ID, "", false)
+	s.LaunchMemory(bea.ID, wid, p.ID, "", false)
 	if err := s.SaveMemoryFact(p.ID, "Commands", "the build command is make zebra", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -584,7 +584,7 @@ func TestMemoryPlan(t *testing.T) {
 	}
 	ash := h.console(p, wid, "Ash", "claude", agentstate.Ready)
 	bea := h.console(p, wid, "Bea", "claude", agentstate.Ready)
-	s.LaunchMemory(bea.ID, wid, p.ID, true)
+	s.LaunchMemory(bea.ID, wid, p.ID, "", true)
 	shell := h.console(p, wid, "Sh", "shell", "")
 	if err := h.ApplyOps(wid, []board.Op{
 		memoryTileOp(t, map[string]any{"blocks": []MemoryBlock{{ProjectID: other.ID, Name: "design"}, {Name: "gone"}, {ProjectID: "p_gone", Name: MainDoc}}}),
@@ -721,7 +721,7 @@ func TestMemoryContextLost(t *testing.T) {
 		t.Fatal(err)
 	}
 	ash := h.console(p, wid, "Ash", "codex", agentstate.Ready)
-	s.LaunchMemory(ash.ID, wid, p.ID, false)
+	s.LaunchMemory(ash.ID, wid, p.ID, "", false)
 	blocks := []MemoryBlock{{ProjectID: p.ID, Name: MainDoc}, {Name: "writing"}}
 	send := func() PushResult {
 		t.Helper()

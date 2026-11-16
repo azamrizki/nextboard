@@ -470,15 +470,33 @@ export interface MemoryDoc {
   content: string;
   mtime: string;
 }
+/** A page of a main memory, without its content. */
+export interface SubMemory {
+  slug: string;
+  title: string;
+  description: string;
+  critical?: boolean;
+  chars: number;
+  mtime: string;
+  /** A part's memory in a project of several parts: that part's id. */
+  part?: string;
+}
 export interface MemoryBoth {
   project: MemoryDoc;
   global: MemoryDoc;
   /** Notes agents saved in the project's memory folder. */
   notes?: { name: string; content: string }[];
+  subs?: SubMemory[] | null;
 }
 export interface Fact {
   kind: string;
   text: string;
+  /** The part it holds for, in a project of several parts; absent for the whole project. */
+  part?: string;
+}
+/** POST …/memory/accept: the main memory, and the part pages written. */
+export interface AcceptedFacts extends MemoryDoc {
+  parts?: Record<string, MemoryDoc>;
 }
 export interface PushResult {
   delivered: number;

@@ -815,7 +815,8 @@ func (s *Server) handleMemoryAccept(w http.ResponseWriter, r *http.Request, p *p
 	if !decode(w, r, &req) {
 		return
 	}
-	d, err := s.orch.AcceptMemory(pr.ID, req.Scope, req.Facts)
+	// a fact of one part goes on that part's page: "parts" has the pages written
+	d, err := s.orch.AcceptMemoryFacts(pr.ID, req.Scope, req.Facts)
 	if err != nil {
 		s.orchErr(w, err)
 		return

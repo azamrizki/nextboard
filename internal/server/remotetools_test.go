@@ -297,7 +297,7 @@ func TestAgentWorksOnServer(t *testing.T) {
 	for _, x := range out["result"].(map[string]any)["tools"].([]any) {
 		names = append(names, x.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "read_file,write_file,edit_file,grep,glob,bash,bash_output,bash_kill,memory_search,memory_read,memory_save" {
+	if strings.Join(names, ",") != "read_file,write_file,edit_file,grep,glob,bash,bash_output,bash_kill,memory_search,memory_read,memory_save,memory_move" {
 		t.Fatalf("tools %v", names)
 	}
 	if _, out := rpc(token, "no/such", nil); out["error"] == nil {
@@ -659,7 +659,7 @@ func TestProjectMemoryAcrossCLIs(t *testing.T) {
 		return resp.StatusCode, out
 	}
 	st, out := rpc(cid, envOf(env, "NB_TOKEN"), "tools/list", nil)
-	if n := len(out["result"].(map[string]any)["tools"].([]any)); st != 200 || n != 3 {
+	if n := len(out["result"].(map[string]any)["tools"].([]any)); st != 200 || n != 4 { // memory_search, memory_read, memory_save, memory_move
 		t.Fatalf("claude endpoint %d: %v", st, out)
 	}
 	_, out = rpc(cid, envOf(env, "NB_TOKEN"), "tools/call", map[string]any{"name": "memory_search", "arguments": map[string]any{"query": "database"}})
@@ -690,7 +690,7 @@ func TestProjectMemoryAcrossCLIs(t *testing.T) {
 	}
 	tok := envOf(env, "NB_TOKEN")
 	_, out = rpc(xid, tok, "tools/list", nil)
-	if n := len(out["result"].(map[string]any)["tools"].([]any)); n != 3 {
+	if n := len(out["result"].(map[string]any)["tools"].([]any)); n != 4 {
 		t.Fatalf("memory tools only: %v", out)
 	}
 	_, out = rpc(xid, tok, "tools/call", map[string]any{"name": "bash", "arguments": map[string]any{"command": "true"}})

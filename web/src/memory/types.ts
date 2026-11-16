@@ -16,6 +16,8 @@ export interface GalaxyDoc {
   mtime?: string;
   sections: GalaxySection[];
   links: string[];
+  /** A part's memory in a project of several parts: that part's id. Its title is the part's name. */
+  part?: string;
 }
 
 export interface GalaxyOwner {
@@ -37,6 +39,8 @@ export interface MemoryDocument {
   critical?: boolean;
   content: string;
   mtime: string;
+  /** A part's memory: that part's id (parts.ts). */
+  part?: string;
 }
 
 export interface MemoryHit {
@@ -59,7 +63,8 @@ export interface InitSub {
 }
 
 export interface InitResult {
-  facts: { kind: string; text: string }[];
+  /** `part`: the part a fact holds for, absent for the whole project. */
+  facts: { kind: string; text: string; part?: string }[];
   subs: InitSub[];
   critical: string[];
 }

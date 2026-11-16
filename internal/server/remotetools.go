@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path"
@@ -156,7 +157,7 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		if prompt.Len() > 0 {
 			prompt.WriteString("\n")
 		}
-		prompt.WriteString(s.orch.LaunchMemory(sp.ID, sp.WorkspaceID, sp.ProjectID, claude))
+		prompt.WriteString(s.orch.LaunchMemory(sp.ID, sp.WorkspaceID, sp.ProjectID, sp.PartID, claude))
 	}
 	if s.orch != nil {
 		c.Blocked = s.blockedIn(sp.ProjectID, sp.PartID)
@@ -303,7 +304,13 @@ func (t remoteTarget) tools() []map[string]any {
 		}
 	}
 	if t.memory && t.projectID != "" {
-		list = append(list, memoryToolList...)
+		// parts are named only where the project has them: a project in one part keeps the
+		// tools it had
+		if len(t.parts) > 0 {
+			list = append(list, memoryToolList...)
+		} else {
+			list = append(list, memoryToolsOnePart...)
+		}
 	}
 	if t.credentials && t.sessionID != "" && t.projectID != "" {
 		list = append(list, credentialToolList...)
@@ -338,7 +345,20 @@ func (s *Server) handleRemoteJobMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	s.serveRemoteRPC(w, r, v.(remoteTarget))
+	t := v.(remoteTarget)
+	if t.root {
+		// a job at a project root reads the parts the project has now: one removed or split off
+		// while it runs is out of its reach at once
+		pr, _ := s.projects.Get(t.projectID)
+		kept := make([]partTarget, 0, len(t.parts))
+		for _, pt := range t.parts {
+			if now, ok := pr.PartByID(pt.id); ok && now.MachineID == pt.machineID && now.Path == pt.cwd {
+				kept = append(kept, pt)
+			}
+		}
+		t.parts = kept
+	}
+	s.serveRemoteRPC(w, r, t)
 }
 
 func (s *Server) serveRemoteRPC(w http.ResponseWriter, r *http.Request, t remoteTarget) {
@@ -681,13 +701,47 @@ var memoryToolList = []map[string]any{
 		"annotations": map[string]any{"readOnlyHint": true},
 		"inputSchema": toolSchema([]string{}, map[string]any{
 			"name":  map[string]any{"type": "string", "description": "A page, as listed by memory_read."},
+			"part":  map[string]any{"type": "string", "description": "In a project of several parts: the memory of this part, by its name, instead of a page."},
 			"topic": map[string]any{"type": "string", "description": "Only what is about this."}})},
 	{"name": "memory_save", "description": "Save one lasting fact about this project for every agent that comes after you, whichever CLI it uses. Not for progress or plans of this task. Critical rules cannot be changed: tell the owner instead.",
 		"inputSchema": toolSchema([]string{"fact"}, map[string]any{
-			"fact":    map[string]any{"type": "string", "description": "One short fact, at most 400 characters."},
-			"section": map[string]any{"type": "string", "description": "The heading to put it under. In the main memory: " + strings.Join(orch.MemorySections, ", ") + "."},
-			"page":    map[string]any{"type": "string", "description": "The page to add it to. Leave out for the main memory."}})},
+			"fact":        map[string]any{"type": "string", "description": "One short fact, at most 400 characters."},
+			"section":     map[string]any{"type": "string", "description": "The heading to put it under. In the main memory: " + strings.Join(orch.MemorySections, ", ") + "."},
+			"page":        map[string]any{"type": "string", "description": "The page to add it to, by its name or title; a page that does not exist yet is made. Leave out for the main memory."},
+			"title":       map[string]any{"type": "string", "description": "For a page that does not exist yet: its title."},
+			"description": map[string]any{"type": "string", "description": "For a page that does not exist yet: one sentence saying what is in it and when to read it, since agents choose pages by it."},
+			"part":        map[string]any{"type": "string", "description": "In a project of several parts: the name of the one part this holds for, instead of a page. Leave out when it holds for the whole project."}})},
+	{"name": "memory_move", "description": "Move facts from one memory of this project to another: out of the main memory into a page (made when it does not exist yet) or a part's memory, or between pages. Each fact is taken out of where it was and added where it goes, under the same heading. Use it when the owner asks to sort the memory, for example to start a page about one area. Critical notes cannot be moved.",
+		"inputSchema": toolSchema([]string{"facts"}, map[string]any{
+			"facts":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "The facts to move, as memory_read shows them (one line each; a unique part of a line of 12 characters or more works too)."},
+			"from":        map[string]any{"type": "string", "description": "The page they are in. Leave out for the main memory."},
+			"to":          map[string]any{"type": "string", "description": "The page they go to, by its name or title; made when it does not exist yet. Leave out for the main memory."},
+			"from_part":   map[string]any{"type": "string", "description": "In a project of several parts: the part whose memory they are in, instead of from."},
+			"to_part":     map[string]any{"type": "string", "description": "In a project of several parts: the part whose memory they go to, instead of to."},
+			"title":       map[string]any{"type": "string", "description": "For a page that does not exist yet: its title."},
+			"description": map[string]any{"type": "string", "description": "For a page that does not exist yet: one sentence saying what is in it and when to read it."}})},
 }
+
+// memoryToolsOnePart are the memory tools without their part argument.
+var memoryToolsOnePart = func() []map[string]any {
+	out := make([]map[string]any, len(memoryToolList))
+	for i, x := range memoryToolList {
+		y := maps.Clone(x)
+		if sc, ok := x["inputSchema"].(map[string]any); ok {
+			sc = maps.Clone(sc)
+			if props, ok := sc["properties"].(map[string]any); ok {
+				props = maps.Clone(props)
+				delete(props, "part")
+				delete(props, "from_part")
+				delete(props, "to_part")
+				sc["properties"] = props
+			}
+			y["inputSchema"] = sc
+		}
+		out[i] = y
+	}
+	return out
+}()
 
 func (s *Server) runMemoryTool(t remoteTarget, name string, raw json.RawMessage) (string, error) {
 	if !t.memory || t.projectID == "" || s.orch == nil {
@@ -701,11 +755,31 @@ func (s *Server) runMemoryTool(t remoteTarget, name string, raw json.RawMessage)
 		Fact    string `json:"fact"`
 		Section string `json:"section"`
 		Page    string `json:"page"`
+		Part    string `json:"part"`
+		// a page memory_save makes, and memory_move's
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Facts       []string `json:"facts"`
+		From        string   `json:"from"`
+		To          string   `json:"to"`
+		FromPart    string   `json:"from_part"`
+		ToPart      string   `json:"to_part"`
 	}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return "", fmt.Errorf("invalid arguments: %v", err)
 		}
+	}
+	// a part's memory is its page; in a project of one part, the main memory
+	if a.Part = strings.TrimSpace(a.Part); a.Part != "" && name != "memory_search" {
+		if (name == "memory_read" && a.Name != "") || (name == "memory_save" && a.Page != "") {
+			return "", errors.New("give a page or a part, not both")
+		}
+		page, err := s.orch.PartPage(t.projectID, a.Part)
+		if err != nil {
+			return "", err
+		}
+		a.Name, a.Page = page, page
 	}
 	switch name {
 	case "memory_search":
@@ -713,11 +787,58 @@ func (s *Server) runMemoryTool(t remoteTarget, name string, raw json.RawMessage)
 	case "memory_read":
 		return s.orch.MemoryReadFor(t.sessionID, t.workspaceID, t.projectID, a.Name, a.Topic)
 	case "memory_save":
-		if err := s.orch.SaveMemoryFact(t.projectID, a.Section, a.Fact, a.Page); err != nil {
+		page, made, err := s.orch.SaveMemoryFactTo(t.projectID, a.Section, a.Fact, a.Page, a.Title, a.Description)
+		if err != nil {
 			return "", err
 		}
-		s.orch.MemorySaved(t.sessionID, t.projectID, a.Page, a.Fact)
+		s.orch.MemorySaved(t.sessionID, t.projectID, page, a.Fact)
+		switch {
+		case a.Part != "" && page != orch.MainDoc:
+			return "Saved to the memory of the part " + a.Part + ".", nil
+		case made:
+			return fmt.Sprintf("Made the page %s and saved to it. Its name for memory_read and memory_save is %q.", page, page), nil
+		case page != orch.MainDoc:
+			return "Saved to the page " + page + ".", nil
+		}
 		return "Saved to the project memory.", nil
+	case "memory_move":
+		from, to := a.From, a.To
+		for _, p := range []struct {
+			part string
+			page *string
+		}{{a.FromPart, &from}, {a.ToPart, &to}} {
+			if strings.TrimSpace(p.part) == "" {
+				continue
+			}
+			if *p.page != "" {
+				return "", errors.New("give a page or a part, not both")
+			}
+			page, err := s.orch.PartPage(t.projectID, strings.TrimSpace(p.part))
+			if err != nil {
+				return "", err
+			}
+			*p.page = page
+		}
+		if strings.TrimSpace(to) == "" && strings.TrimSpace(from) == "" {
+			return "", errors.New("say where the facts go: to (a page) or to_part, or from a page back to the main memory")
+		}
+		res, err := s.orch.MoveMemoryFacts(t.projectID, from, to, a.Title, a.Description, a.Facts)
+		if err != nil {
+			return "", err
+		}
+		for _, f := range res.Moved {
+			s.orch.MemorySaved(t.sessionID, t.projectID, res.To, f)
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Moved %d fact(s) from %s to %s", len(res.Moved), res.From, res.To)
+		if res.Made {
+			b.WriteString(" (the page was made for them)")
+		}
+		b.WriteString(".")
+		if len(res.Missing) > 0 {
+			fmt.Fprintf(&b, " Not found in %s, so not moved: %s.", res.From, strings.Join(res.Missing, "; "))
+		}
+		return b.String(), nil
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

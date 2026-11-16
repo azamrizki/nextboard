@@ -45,7 +45,15 @@ func (s *Server) submitRootRunner(req jobs.RunnerRequest) (jobs.Job, error) {
 		return s.submitRunner(req)
 	}
 	if !s.settings.View().Agents.RemoteTools || s.hookURL == "" {
-		// nothing can reach them from This PC: the run says so rather than guess
+		if len(req.AddDirs) == 0 {
+			// no part can be read from the root: the run goes to its first part's folder, as before
+			// root runs, where a server's own CLI reads it
+			pt := pr.DefaultPart()
+			req.MachineID, req.Cwd, req.AddDirs = pt.MachineID, pt.Path, nil
+			req.Prompt += fmt.Sprintf("\n\nThe hub's tools for servers are off, so this run reads only the part %s: the current folder is that part, not the project root. Propose nothing about the other parts.", pt.Name)
+			return s.submitRunner(req)
+		}
+		// the parts on This PC are read; the others cannot be reached: the run says so rather than guess
 		names := make([]string, len(far))
 		for i, pt := range far {
 			names[i] = pt.Name

@@ -775,10 +775,11 @@ func (s *Service) PlanMemory(pid string, req MemorySend) (MemoryPlan, error) {
 
 // ---- launch, tools, planner ----
 
-// LaunchMemory is MemoryPrompt for one console: with what the tiles connected to it add,
-// and the note of what it now has, so nothing here is typed to it again.
-func (s *Service) LaunchMemory(sid, wid, pid string, nativeMemory bool) string {
-	text, docs := s.memoryPrompt(pid, nativeMemory, s.briefDocs(pid, s.attachedBlocks(sid, wid)))
+// LaunchMemory is MemoryPrompt for one console: with its part's page when it works in a part
+// (partID, "" at the root), what the tiles connected to it add, and the note of what it now
+// has, so nothing here is typed to it again.
+func (s *Service) LaunchMemory(sid, wid, pid, partID string, nativeMemory bool) string {
+	text, docs := s.memoryPrompt(pid, partID, nativeMemory, s.briefDocs(pid, s.attachedBlocks(sid, wid)))
 	s.seen.launched(sid, docs)
 	return text
 }
@@ -834,6 +835,13 @@ func (s *Service) MemoryReadFor(sid, wid, pid, name, topic string) (string, erro
 	blocks := s.attachedBlocks(sid, wid)
 	if name == "" && topic == "" {
 		text := s.MemoryTextFor(pid)
+		if in, ok := s.hub.SessionInfo(sid); ok && in.PartID != "" {
+			if pt, ok := s.pagePart(pid, PartSlug(in.PartID)); ok {
+				if d, err := s.Memory.Sub(pid, PartSlug(pt.ID)); err == nil && strings.TrimSpace(d.Content) != "" {
+					text += "\n\nMemory of your part " + pt.Name + ":\n" + strings.TrimSpace(d.Content)
+				}
+			}
+		}
 		if idx := s.attachedIndex(pid, blocks); idx != "" {
 			text += "\n\nAdded by the owner, read one with memory_read and its name:\n" + idx
 		}

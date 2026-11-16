@@ -6,6 +6,7 @@
 import { apiRequest, type HttpMethod } from '../api';
 import type { FsStat, Session } from '../lib/types';
 import type {
+  AcceptedFacts,
   MessageOutput,
   CommandRequest,
   CommandResponse,
@@ -156,7 +157,7 @@ export const orchApi = {
   scanMemory: (projectId: string, body: { effort: 'quick' | 'balanced' | 'thorough'; agent?: string }) =>
     call<Job>('POST', `/api/projects/${enc(projectId)}/memory/scan`, body),
   acceptFacts: (projectId: string, body: { scope: 'project' | 'global'; facts: Fact[] }) =>
-    call<MemoryDoc>('POST', `/api/projects/${enc(projectId)}/memory/accept`, body),
+    call<AcceptedFacts>('POST', `/api/projects/${enc(projectId)}/memory/accept`, body),
   refreshFact: (projectId: string, fact: string) => call<Job>('POST', `/api/projects/${enc(projectId)}/memory/refresh`, { fact }),
   pushMemory: (projectId: string, body: MemorySendBody) => call<PushResult>('POST', `/api/projects/${enc(projectId)}/memory/push`, body),
   memoryPlan: (projectId: string, body: MemorySendBody) => call<MemoryPlan>('POST', `/api/projects/${enc(projectId)}/memory/plan`, body),

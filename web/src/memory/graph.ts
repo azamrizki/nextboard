@@ -1,6 +1,7 @@
 // Turns every main memory into the nodes and links the galaxy draws: all projects
 // at the core, each project a star on a spiral arm, its pages in orbit around it,
-// their headings as small moons.
+// their headings as small moons. In a project of several parts, each part's memory is a planet
+// of that star like a page, named after the part.
 
 import type { GalaxyDoc, GalaxyOwner, GalaxyView } from './types';
 
@@ -18,6 +19,8 @@ export interface MemNode {
   chars: number;
   facts: number;
   mtime?: string;
+  /** A part's memory: that part's id. */
+  part?: string;
   parent: string | null;
   /** The project's colour. */
   hue: string;
@@ -45,7 +48,9 @@ function addOwner(o: GalaxyOwner, hue: string, nodes: MemNode[], links: MemLink[
   const owner = o.projectId ?? '';
   const main = o.docs.find((d) => d.kind === 'main');
   const mainId = nodeId(owner, 'main');
-  const rest = o.docs.filter((d) => d.kind !== 'main');
+  // critical notes first, then the parts' memories, so a part's planet keeps its place among the pages
+  const rank = (d: GalaxyDoc) => (d.critical ? 0 : d.part ? 1 : 2);
+  const rest = o.docs.filter((d) => d.kind !== 'main').sort((a, b) => rank(a) - rank(b));
   nodes.push({
     id: mainId,
     kind: owner ? 'star' : 'core',
@@ -83,6 +88,7 @@ function addOwner(o: GalaxyOwner, hue: string, nodes: MemNode[], links: MemLink[
       chars: d.chars,
       facts: d.facts,
       mtime: d.mtime,
+      part: d.part,
       parent: mainId,
       hue: d.critical ? CRITICAL_HUE : hue,
       order: i,

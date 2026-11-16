@@ -1,6 +1,7 @@
 package orch
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -33,12 +34,13 @@ type MemoryHit struct {
 	Text      string  `json:"text"`
 	Critical  bool    `json:"critical,omitempty"`
 	Global    bool    `json:"global,omitempty"`
+	Part      string  `json:"part,omitempty"` // found on a part's page
 	Score     float64 `json:"score"`
 }
 
 type memDoc struct {
-	projectID, project, name, title, desc, content string
-	critical, global                               bool
+	projectID, project, name, title, desc, content, part string
+	critical, global                                     bool
 }
 
 // memDocs is everything an agent of the project can look up. pid "" is only
@@ -53,9 +55,11 @@ func (s *Service) memDocs(pid, projectName string) []memDoc {
 		if d, err := s.Memory.Read(scope, owner); err == nil && strings.TrimSpace(d.Content) != "" {
 			out = append(out, memDoc{projectID: owner, project: label, name: MainDoc, title: mainTitle(global), content: d.Content, global: global})
 		}
+		pages := s.partPages(owner)
 		for _, sub := range s.Memory.Subs(owner) {
 			if full, err := s.Memory.Sub(owner, sub.Slug); err == nil && strings.TrimSpace(full.Content) != "" {
-				out = append(out, memDoc{projectID: owner, project: label, name: sub.Slug, title: full.Title, desc: full.Description, content: full.Content, critical: full.Critical, global: global})
+				s.asPart(pages, &full)
+				out = append(out, memDoc{projectID: owner, project: label, name: sub.Slug, title: full.Title, desc: full.Description, content: full.Content, part: full.Part, critical: full.Critical, global: global})
 			}
 		}
 		if !global {
@@ -286,7 +290,7 @@ func memHits(chunks []memChunk, query string, limit, maxChars int) []MemoryHit {
 		}
 		d := sc.c.doc
 		out = append(out, MemoryHit{ProjectID: d.projectID, Project: d.project, Doc: d.name, Title: d.title, Section: sc.c.section, Text: sc.c.text,
-			Critical: d.critical, Global: d.global, Score: math.Round(sc.score*100) / 100})
+			Critical: d.critical, Global: d.global, Part: d.part, Score: math.Round(sc.score*100) / 100})
 		used += size
 		if len(out) == limit {
 			break
@@ -299,6 +303,9 @@ func docLabel(h MemoryHit) string {
 	name := h.Doc
 	if h.Global {
 		name = "global/" + name
+	}
+	if h.Part != "" {
+		name += " (memory of the part " + h.Title + ")"
 	}
 	if h.Section != "" {
 		name += " › " + h.Section
@@ -346,6 +353,9 @@ func (s *Service) MemoryReadText(pid, name, topic string) (string, error) {
 	}
 	owner, doc := splitDocName(pid, name)
 	if _, err := s.ReadDoc(owner, doc); err != nil {
+		if pt, ok := s.pagePart(owner, doc); ok && errors.Is(err, ErrSubNotFound) {
+			return fmt.Sprintf("The part %s has no memory of its own yet. Save what holds only for it with memory_save and part: %q.", pt.Name, pt.Name), nil
+		}
 		return "", fmt.Errorf("no memory named %q. What there is:\n%s", name, s.memoryIndex(pid))
 	}
 	return s.memoryDocText(owner, name, doc, topic)

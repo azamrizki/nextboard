@@ -55,9 +55,11 @@ type SubMemory struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Critical    bool   `json:"critical,omitempty"`
-	Content     string `json:"content,omitempty"`
-	Chars       int    `json:"chars"`
-	Mtime       string `json:"mtime"`
+	// Part is the part whose page this is, in a project of several parts (mempart.go).
+	Part    string `json:"part,omitempty"`
+	Content string `json:"content,omitempty"`
+	Chars   int    `json:"chars"`
+	Mtime   string `json:"mtime"`
 }
 
 const criticalTitle = "Critical notes"
@@ -188,13 +190,17 @@ func (m *Memory) Subs(pid string) []SubMemory {
 			out = append(out, s)
 		}
 	}
+	sortSubs(out)
+	return out
+}
+
+func sortSubs(out []SubMemory) {
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Critical != out[j].Critical {
 			return out[i].Critical
 		}
 		return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
 	})
-	return out
 }
 
 // Sub reads one sub-memory.
@@ -224,12 +230,43 @@ func (m *Memory) WriteSub(pid, slug, title, desc, content, ifMtime string) (SubM
 	if slug == CriticalSlug && len(content) > maxCritical {
 		return SubMemory{}, ErrCriticalBig
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.writeSubLocked(pid, slug, title, desc, content, ifMtime)
+}
+
+// UpdateSub changes a sub-memory in one step under the lock: change gets the page as it is now
+// (exists false and an empty one when missing) and returns what to write, or ok false to leave it.
+func (m *Memory) UpdateSub(pid, slug string, change func(cur SubMemory, exists bool) (title, desc, content string, ok bool)) (SubMemory, bool, error) {
+	if !subSlugRe.MatchString(slug) || slug == MainDoc {
+		return SubMemory{}, false, ErrBadSubName
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur, err := m.Sub(pid, slug)
+	exists := err == nil
+	if err != nil && !errors.Is(err, ErrSubNotFound) {
+		return SubMemory{}, false, err
+	}
+	title, desc, content, ok := change(cur, exists)
+	if !ok {
+		return cur, false, nil
+	}
+	if len(content) > MaxMemory {
+		return SubMemory{}, false, ErrMemoryTooBig
+	}
+	out, err := m.writeSubLocked(pid, slug, title, desc, content, "")
+	return out, err == nil, err
+}
+
+func (m *Memory) writeSubLocked(pid, slug, title, desc, content, ifMtime string) (SubMemory, error) {
 	cur, err := m.Sub(pid, slug)
 	exists := err == nil
 	if err != nil && !errors.Is(err, ErrSubNotFound) {
 		return SubMemory{}, err
 	}
-	if exists && ifMtime != "" && !sameMtime(cur.Mtime, ifMtime) {
+	// a page that exists must be the one the writer read; MtimeAbsent says it read none
+	if exists && ifMtime != "" && !mtimeHolds(cur.Mtime, ifMtime) {
 		return SubMemory{}, ErrMtimeMismatch
 	}
 	if !exists && len(m.Subs(pid)) >= maxSubs {
@@ -320,21 +357,29 @@ func (s *Service) CriticalRules(pid string) string {
 }
 
 // memoryIndex lists the sub-memories an agent can look up, one per line.
-func (s *Service) memoryIndex(pid string) string {
+func (s *Service) memoryIndex(pid string) string { return s.memoryIndexBut(pid, "") }
+
+// memoryIndexBut leaves out skip, a page of the project the agent has whole already. A part's page
+// is listed as that part's memory.
+func (s *Service) memoryIndexBut(pid, skip string) string {
 	var b strings.Builder
 	line := func(prefix string, subs []SubMemory) {
 		for _, sub := range subs {
-			if sub.Critical {
+			if sub.Critical || (prefix == "" && skip != "" && sub.Slug == skip) {
 				continue
 			}
-			fmt.Fprintf(&b, "- %s%s: %s", prefix, sub.Slug, sub.Title)
+			title := sub.Title
+			if sub.Part != "" {
+				title += " (part memory)"
+			}
+			fmt.Fprintf(&b, "- %s%s: %s", prefix, sub.Slug, title)
 			if sub.Description != "" {
 				b.WriteString(". " + sub.Description)
 			}
 			b.WriteString("\n")
 		}
 	}
-	line("", s.Memory.Subs(pid))
+	line("", s.subs(pid))
 	line("global/", s.Memory.Subs(""))
 	return b.String()
 }
@@ -358,6 +403,7 @@ type MemoryDocView struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 	Critical    bool   `json:"critical,omitempty"`
+	Part        string `json:"part,omitempty"` // a part's page (mempart.go)
 	Content     string `json:"content"`
 	Mtime       string `json:"mtime"`
 }
@@ -391,11 +437,22 @@ func (s *Service) ReadDoc(pid, name string) (MemoryDocView, error) {
 	if err != nil {
 		return MemoryDocView{}, err
 	}
-	return MemoryDocView{Name: sub.Slug, Kind: "sub", Title: sub.Title, Description: sub.Description, Critical: sub.Critical, Content: sub.Content, Mtime: sub.Mtime}, nil
+	s.asPart(s.partPages(pid), &sub)
+	return MemoryDocView{Name: sub.Slug, Kind: "sub", Title: sub.Title, Description: sub.Description, Critical: sub.Critical, Part: sub.Part, Content: sub.Content, Mtime: sub.Mtime}, nil
 }
 
-// WriteDoc writes the main memory or a sub-memory and tells the clients.
+// WriteDoc writes the main memory or a sub-memory and tells the clients. A part's page keeps the
+// part's name and place, whatever title and description come; a new page of a project named like
+// one is only for a part it has (ErrPartNotFound).
 func (s *Service) WriteDoc(pid, name, title, desc, content, ifMtime string) (MemoryDocView, error) {
+	// only a project in several parts keeps such names for its parts
+	if pid != "" && IsPartSlug(name) && s.partPages(pid) != nil {
+		if pt, ok := s.pagePart(pid, name); ok {
+			title, desc = pt.Name, s.partDesc(pt)
+		} else if _, err := s.Memory.Sub(pid, name); errors.Is(err, ErrSubNotFound) {
+			return MemoryDocView{}, ErrPartNotFound
+		}
+	}
 	if name == MainDoc {
 		scope := "project"
 		if pid == "" {

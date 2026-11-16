@@ -212,6 +212,16 @@
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
+/* a part of the project: its machine beside its name, and the way to start its memory */
+.mem-parts > .mem-group:first-child {
+  margin-top: var(--s-4);
+}
+.mem-row-machine {
+  color: var(--text-3);
+}
+.mem-row-part.is-empty {
+  color: var(--text-2);
+}
 .mem-count {
   flex: 0 0 auto;
   font-size: var(--fs-xs);

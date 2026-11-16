@@ -1,7 +1,8 @@
 // One memory document, to read and to edit, like a note in a vault. [[Links]] open
-// what they point at; critical notes say what makes them different.
+// what they point at; critical notes say what makes them different. A part's memory has the
+// part's name and its purpose from the hub, and opens empty to be written before it exists.
 
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { api, errorMessage, isCode, isStatus } from '../api';
 import { Button } from '../components/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -12,6 +13,7 @@ import { timeAgo } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 import { memoryApi } from './api';
 import { commandLines } from './blocks';
+import { MTIME_ABSENT, partDescription, type PartMemory } from './parts';
 import { SendMemoryDialog } from './SendMemoryDialog';
 import { useProject } from '../store';
 import type { SandboxStatus } from '../lib/types';
@@ -30,6 +32,7 @@ function linked(content: string) {
 
 function badgeOf(d: MemoryDocument): { icon: IconName; label: string } {
   if (d.critical) return { icon: 'shieldAlert', label: 'Critical notes' };
+  if (d.part) return { icon: 'puzzle', label: 'Part memory' };
   if (d.kind === 'main') return { icon: 'brain', label: 'Main memory' };
   if (d.kind === 'note') return { icon: 'note', label: 'Agent note' };
   return { icon: 'layers', label: 'Sub-memory' };
@@ -150,6 +153,7 @@ function ProjectSandbox({ projectId }: { projectId: string }) {
 
 export function DocPanel({
   doc,
+  part,
   owner,
   ownerName,
   rev,
@@ -160,6 +164,8 @@ export function DocPanel({
   projects,
 }: {
   doc: DocRef;
+  /** When the document is the memory of a current part: which one, so a missing page can be started. */
+  part?: PartMemory;
   /** Where a memory of all projects can be sent to. */
   projects: { id: string; name: string }[];
   owner: GalaxyOwner | undefined;
@@ -181,12 +187,17 @@ export function DocPanel({
   const [deleting, setDeleting] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [sending, setSending] = useState(false);
+  // a part's memory that is not written yet: shown empty, made by its first save
+  const [unsaved, setUnsaved] = useState(false);
+  // it opens to be written once; after Cancel, a memory event elsewhere does not open it again
+  const startedFor = useRef('');
 
   useEffect(() => {
     setEditing(startEditing);
     setConflict(false);
     setError('');
     setData(null);
+    setUnsaved(false);
   }, [doc.owner, doc.name, startEditing]);
 
   // Agents write too: show the latest, but never pull text out from under an edit.
@@ -201,14 +212,33 @@ export function DocPanel({
         setTitle(d.title);
         setDescription(d.description ?? '');
         setContent(d.content);
+        setUnsaved(false);
       })
-      .catch((err) => alive && setError(errorMessage(err)));
+      .catch((err) => {
+        if (!alive) return;
+        if (part && isStatus(err, 404)) {
+          const d: MemoryDocument = { name: doc.name, kind: 'sub', title: part.name, description: partDescription(part), content: '', mtime: '', part: part.id };
+          setData(d);
+          setTitle(d.title);
+          setDescription(d.description ?? '');
+          setContent('');
+          setUnsaved(true);
+          const key = `${doc.owner}/${doc.name}`;
+          if (startedFor.current !== key) {
+            startedFor.current = key;
+            setEditing(true);
+          }
+          return;
+        }
+        setError(errorMessage(err));
+      });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.owner, doc.name, rev]);
 
+  const isPart = !!(data?.part || part);
   const html = useMemo(() => (data?.content ? renderMarkdown(linked(data.content), undefined, { anchors: true }) : ''), [data?.content]);
 
   const onBodyClick = (e: MouseEvent) => {
@@ -227,11 +257,17 @@ export function DocPanel({
     setSaving(true);
     setError('');
     try {
-      const d = await memoryApi.save(doc.owner, doc.name, { title, description, content, ifMtime: data.mtime || undefined });
+      // the hub names a part's memory after the part and says what it is for
+      // a part memory started here is new: if an agent made it meanwhile, that is a conflict, not
+      // its facts overwritten
+      const ifMtime = data.mtime || (isPart ? MTIME_ABSENT : undefined);
+      const body = isPart ? { content, ifMtime } : { title, description, content, ifMtime };
+      const d = await memoryApi.save(doc.owner, doc.name, body);
       setData(d);
       setEditing(false);
+      setUnsaved(false);
       onChanged();
-      toast.success(`${d.title} saved.`);
+      toast.success(isPart ? `Memory of ${d.title} saved.` : `${d.title} saved.`);
     } catch (err) {
       if (isCode(err, 'mtime_mismatch') || isStatus(err, 409)) setConflict(true);
       else setError(errorMessage(err));
@@ -270,7 +306,7 @@ export function DocPanel({
           </span>
         )}
         <span className="spacer" />
-        {data && !data.critical && !editing && (
+        {data && !data.critical && !editing && !unsaved && (
           <Button size="sm" icon="send" onClick={() => setSending(true)}>
             Send
           </Button>
@@ -287,6 +323,7 @@ export function DocPanel({
         <h2>{data?.title ?? ' '}</h2>
         <p className="fs-xs text-3">
           {ownerName}
+          {part ? ` · ${part.machine}` : ''}
           {meta ? ` · ${meta.facts ? `${meta.facts} ${data?.critical ? 'rule' : 'fact'}${meta.facts === 1 ? '' : 's'}` : `${meta.chars} characters`}` : ''}
           {data?.mtime ? ` · saved ${timeAgo(data.mtime)}` : ''}
         </p>
@@ -327,7 +364,7 @@ export function DocPanel({
 
       {editing ? (
         <div className="mem-doc-edit">
-          {data?.kind === 'sub' && !data.critical && (
+          {data?.kind === 'sub' && !data.critical && !isPart && (
             <>
               <TextField label="Title" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
               <TextField label="When to read it" value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} hint="Agents choose what to look up by this." />
@@ -338,7 +375,13 @@ export function DocPanel({
             value={content}
             spellCheck={false}
             aria-label={`${data?.title ?? 'Memory'} text`}
-            placeholder={data?.critical ? '- Never run `make wipe`: it empties the production database.' : '## A heading\n\n- One fact per bullet. Link other pages with [[their-name]].'}
+            placeholder={
+              data?.critical
+                ? '- Never run `make wipe`: it empties the production database.'
+                : isPart
+                  ? `## Commands\n\n- One fact per bullet, true for ${data?.title ?? 'this part'} only. What holds for every part goes in the main memory.`
+                  : '## A heading\n\n- One fact per bullet. Link other pages with [[their-name]].'
+            }
             onChange={(e) => setContent(e.target.value)}
             autoFocus={startEditing}
           />
@@ -365,7 +408,7 @@ export function DocPanel({
             </div>
           )}
           <div className="mem-doc-actions">
-            {data?.kind === 'sub' && !data.critical && (
+            {data?.kind === 'sub' && !data.critical && !unsaved && (
               <Button size="sm" variant="danger-ghost" icon="trash" onClick={() => setDeleting(true)} disabled={saving} className="mem-doc-delete">
                 Delete
               </Button>
@@ -432,8 +475,8 @@ export function DocPanel({
 
       {deleting && data && (
         <ConfirmDialog
-          title={`Delete ${data.title}?`}
-          confirmLabel="Delete sub-memory"
+          title={isPart ? `Delete the memory of ${data.title}?` : `Delete ${data.title}?`}
+          confirmLabel={isPart ? 'Delete part memory' : 'Delete sub-memory'}
           danger
           onClose={() => setDeleting(false)}
           onConfirm={async () => {
@@ -442,7 +485,11 @@ export function DocPanel({
             onClose();
           }}
         >
-          <p>This page is removed from the memory of {ownerName}, and agents can no longer look it up. It cannot be undone.</p>
+          {isPart ? (
+            <p>What holds for the {data.title} part only is removed, and agents there no longer get it. The part itself stays. It cannot be undone.</p>
+          ) : (
+            <p>This page is removed from the memory of {ownerName}, and agents can no longer look it up. It cannot be undone.</p>
+          )}
         </ConfirmDialog>
       )}
     </aside>

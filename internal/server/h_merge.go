@@ -166,7 +166,7 @@ func (s *Server) handleMerge(w http.ResponseWriter, r *http.Request, p *principa
 	loops := 0
 	if s.orch != nil {
 		loops = s.orch.Loops.MoveProject(b.ID, a.ID)
-		s.mergeMemory(a, b, req.Critical == "append")
+		s.mergeMemory(a, b, plan.PartIDs, req.Critical == "append")
 	}
 	// review: each of its parts keeps its history, from <from>~<part> to <this>~<its new part>
 	for _, pt := range b.Parts {
@@ -206,9 +206,11 @@ func mergeSlug(name string) string {
 }
 
 // mergeMemory keeps what was learned about the other project: its memory and notes as one
-// sub-memory, its own sub-memories under its name, and its critical notes only when asked.
-func (s *Server) mergeMemory(a, b project.Project, critical bool) {
+// sub-memory, its own sub-memories under its name, its part pages as the pages of the parts they
+// became, and its critical notes only when asked.
+func (s *Server) mergeMemory(a, b project.Project, partIDs map[string]string, critical bool) {
 	m := s.orch.Memory
+	carried := s.orch.MergedPartPages(b, a.ID, partIDs)
 	slug := mergeSlug(b.Name)
 	taken := map[string]bool{}
 	for _, sub := range m.Subs(a.ID) {
@@ -246,7 +248,7 @@ func (s *Server) mergeMemory(a, b project.Project, critical bool) {
 	}
 	for _, sub := range m.Subs(b.ID) {
 		full, err := m.Sub(b.ID, sub.Slug)
-		if err != nil {
+		if err != nil || carried[sub.Slug] {
 			continue
 		}
 		if sub.Critical {
@@ -281,6 +283,9 @@ func (s *Server) handleSplit(w http.ResponseWriter, r *http.Request, p *principa
 	}
 	s.review.Rename(reviewKey(before, partID), reviewKey(np, partID))
 	s.unlabelMonitors(pid, partID)
+	if s.orch != nil {
+		s.orch.PartSplit(before, np.ID, partID) // its memory becomes the new project's main memory
+	}
 	s.emitProject(pr.ID)
 	s.emitProject(np.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"project": s.projectView(np), "from": s.projectView(pr)})

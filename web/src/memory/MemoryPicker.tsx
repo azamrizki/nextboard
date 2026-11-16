@@ -63,7 +63,7 @@ export function MemoryPicker({ projectId, picked, hidden, onToggle }: { projectI
               <label key={d.name} className="memory-pick-row">
                 <input type="checkbox" checked={on} onChange={() => onToggle(block, !on)} />
                 <span className="memory-pick-text">
-                  <span className="truncate">{d.title}</span>
+                  <span className="truncate">{d.part ? `${d.title} (part memory)` : d.title}</span>
                   {d.description && <span className="memory-pick-desc truncate">{d.description}</span>}
                 </span>
                 <span className="memory-size tabular" title={`${d.chars} characters`}>

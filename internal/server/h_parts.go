@@ -215,6 +215,9 @@ func (s *Server) handlePartDelete(w http.ResponseWriter, r *http.Request, p *pri
 	}
 	s.review.Forget(reviewKey(before, partID))
 	s.unlabelMonitors(pid, partID)
+	if s.orch != nil {
+		s.orch.PartRemoved(before, partID) // its memory stays, as an ordinary page
+	}
 	s.emitProject(pr.ID)
 	writeJSON(w, http.StatusOK, s.projectView(pr))
 }

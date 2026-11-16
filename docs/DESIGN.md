@@ -262,6 +262,7 @@ Visual reference: Obsidian's graph view (nodes and links, hover lights up the ne
 - **Color:** per project follows a fixed order (`PROJECT_HUES`, oldest project first) and does not change when another project is opened. Past six projects, the color is neutral. Red only for critical notes.
 - **Motion:** the orbits and the galaxy rotation are very slow and stop while the pointer is over a node. `prefers-reduced-motion`: everything is still and only draws when something changes.
 - **The list on the left holds the same things** as the canvas and can be used with the keyboard: `/` searches, Esc goes back. The canvas itself is only a visual extra (`role="img"`).
+- **A project of several parts** (API-orchestration §12): the list has **Whole project** (main memory, critical notes), then **Parts**, one row per current part with its machine. A row opens that part's memory; a part without one reads "No memory for <name> yet" and opens an empty editor that the first save turns into its page. Part pages are not listed again under Sub-memories, have no title or description to edit (the hub names them after the part), and are planets of their project in the galaxy, named after the part. The board's Memory panel picks the whole project or a part under **Which memory**; Scan and Init list their facts under Whole project and each part's name, and each fact is saved where it is listed. A project of one part shows none of this.
 - **Narrow screens:** controls at the bottom within thumb reach, panels become sheets.
 
 ### 3.11 Project list (Home)

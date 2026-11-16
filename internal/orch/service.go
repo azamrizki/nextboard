@@ -123,6 +123,8 @@ type Service struct {
 	Git GitActions
 	// Previews opens hub previews for "open localhost <port>" (optional).
 	Previews PreviewOpener
+	// MachineName names a machine for people, as a part's page says where the part is (optional).
+	MachineName func(machineID string) string
 
 	mu        sync.Mutex
 	plan      plannerState

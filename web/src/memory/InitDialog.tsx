@@ -1,5 +1,6 @@
 // Init memory: a hidden read-only run reads the project and proposes its memory.
-// Nothing is saved until the owner has looked at it.
+// Nothing is saved until the owner has looked at it. In a project of several parts, each fact
+// is for the whole project or for one part, and is saved where it belongs.
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { errorMessage } from '../api';
@@ -12,7 +13,9 @@ import { orchApi } from '../orch/api';
 import { useNow } from '../orch/hooks';
 import { orchStore, useOrch } from '../orch/store';
 import { memoryApi } from './api';
+import { groupFacts, routedFacts } from './parts';
 import type { InitResult } from './types';
+import { usePartMemories } from './usePartMemories';
 
 type Effort = 'quick' | 'balanced' | 'thorough';
 
@@ -91,6 +94,7 @@ export function InitDialog({
   const [error, setError] = useState('');
   const running = !!jobId && (!job || job.state === 'queued' || job.state === 'running');
   const now = useNow(1000, running);
+  const parts = usePartMemories(projectId);
 
   const proposal = useMemo<InitResult | null>(() => {
     if (job?.state !== 'done' || !job.result) return null;
@@ -101,6 +105,7 @@ export function InitDialog({
   const [facts, setFacts] = useState<Set<number>>(new Set());
   const [subs, setSubs] = useState<Set<number>>(new Set());
   const [rules, setRules] = useState<Set<number>>(new Set());
+  const factGroups = useMemo(() => groupFacts(proposal?.facts ?? [], parts), [proposal, parts]);
   useEffect(() => {
     if (!proposal) return;
     setFacts(new Set(proposal.facts.map((_, i) => i)));
@@ -129,7 +134,7 @@ export function InitDialog({
     setError('');
     try {
       await memoryApi.applyInit(projectId, {
-        facts: proposal.facts.filter((_, i) => facts.has(i)),
+        facts: routedFacts(proposal.facts.filter((_, i) => facts.has(i)), parts),
         subs: proposal.subs.filter((_, i) => subs.has(i)),
         critical: proposal.critical.filter((_, i) => rules.has(i)),
       });
@@ -289,7 +294,28 @@ export function InitDialog({
               ))}
             </section>
           )}
-          {proposal.facts.length > 0 && (
+          {proposal.facts.length > 0 &&
+            parts.length > 0 &&
+            factGroups.map((g) => {
+              const part = parts.find((p) => p.id === g.part);
+              return (
+                <section key={g.part || 'whole'} className="mem-review-group" aria-label={part ? `Facts for ${part.name}` : 'Facts for the whole project'}>
+                  <h3>
+                    <Icon name={part ? 'puzzle' : 'brain'} /> {g.label}
+                  </h3>
+                  <p className="fs-xs text-3">{part ? `The memory of this part only (${part.machine}, ${part.path}).` : 'The main memory: what holds for every part.'}</p>
+                  {g.items.map(({ fact: f, index: i }) => (
+                    <label key={i} className="mem-check">
+                      <input type="checkbox" checked={facts.has(i)} onChange={toggler(setFacts, i)} />
+                      <span>
+                        <span className="mem-kind">{f.kind}</span> {withCode(f.text)}
+                      </span>
+                    </label>
+                  ))}
+                </section>
+              );
+            })}
+          {proposal.facts.length > 0 && parts.length === 0 && (
             <section className="mem-review-group" aria-label="Facts">
               <h3>
                 <Icon name="brain" /> Main memory

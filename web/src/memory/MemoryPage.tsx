@@ -16,8 +16,10 @@ import { GalaxyEngine } from './engine';
 import { buildGraph, nodeId, type MemNode } from './graph';
 import { InitDialog, useInitJob } from './InitDialog';
 import { NewPageDialog } from './NewPageDialog';
+import { splitPartDocs, type PartMemory } from './parts';
 import { takeGalaxy } from './preload';
 import type { DocRef, GalaxyDoc, GalaxyOwner, GalaxyView, MemoryHit } from './types';
+import { usePartMemories } from './usePartMemories';
 import '../styles/memory.css';
 
 const LEGEND: { cls: string; label: string }[] = [
@@ -52,17 +54,63 @@ function DocRow({ d, owner, active, onOpen }: { d: GalaxyDoc; owner: string; act
   );
 }
 
-function OwnerDocs({ o, doc, onOpen }: { o: GalaxyOwner; doc: DocRef | null; onOpen: (r: DocRef) => void }) {
+/** A part of the project and its memory, or the way to start one. */
+function PartRow({ part, d, active, onOpen, onStart }: { part: PartMemory; d?: GalaxyDoc; active: boolean; onOpen: () => void; onStart: () => void }) {
+  const empty = !d || d.chars === 0;
+  return (
+    <button
+      type="button"
+      className={`mem-row mem-row-part ${empty ? 'is-empty' : ''} ${active ? 'is-active' : ''}`}
+      aria-current={active ? 'true' : undefined}
+      onClick={empty ? onStart : onOpen}
+      title={empty ? `Start the memory of ${part.name}: what holds for that part only` : d.description}
+    >
+      <Icon name={empty ? 'plus' : 'puzzle'} />
+      <span className="mem-row-text">
+        <span className="truncate">
+          {part.name}
+          <span className="mem-row-machine"> · {part.machine}</span>
+        </span>
+        {empty && <span className="mem-row-meta truncate">No memory for {part.name} yet</span>}
+      </span>
+      {!empty && (
+        <span className="mem-count tabular" title={d.facts ? `${d.facts} facts` : `${d.chars} characters`}>
+          {countOf(d)}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function OwnerDocs({ o, doc, onOpen, parts = [], onStart }: { o: GalaxyOwner; doc: DocRef | null; onOpen: (r: DocRef) => void; parts?: PartMemory[]; onStart?: (p: PartMemory) => void }) {
   const owner = o.projectId ?? '';
   const main = o.docs.find((d) => d.kind === 'main');
   const critical = o.docs.find((d) => d.critical);
-  const pages = o.docs.filter((d) => d.kind === 'sub' && !d.critical);
+  // in a project of several parts, each part's page is under Parts and not again among the pages
+  const split = splitPartDocs(o.docs, parts);
+  const pages = split.pages;
   const notes = o.docs.filter((d) => d.kind === 'note');
   const isActive = (d: GalaxyDoc) => doc?.owner === owner && doc.name === d.name;
   return (
     <>
+      {parts.length > 0 && <h3 className="mem-group">Whole project</h3>}
       {main && <DocRow d={main} owner={owner} active={isActive(main)} onOpen={onOpen} />}
       {critical && <DocRow d={critical} owner={owner} active={isActive(critical)} onOpen={onOpen} />}
+      {parts.length > 0 && (
+        <section className="mem-parts" aria-label="Parts">
+          <h3 className="mem-group">Parts</h3>
+          {split.parts.map(({ part, doc: d }) => (
+            <PartRow
+              key={part.id}
+              part={part}
+              d={d}
+              active={doc?.owner === owner && doc.name === part.slug}
+              onOpen={() => onOpen({ owner, name: d?.name ?? part.slug })}
+              onStart={() => onStart?.(part)}
+            />
+          ))}
+        </section>
+      )}
       {pages.length > 0 && <h3 className="mem-group">Sub-memories</h3>}
       {pages.map((d) => (
         <DocRow key={d.name} d={d} owner={owner} active={isActive(d)} onOpen={onOpen} />
@@ -96,6 +144,8 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
   const searched = useRef(false);
 
   const owner = projectId ?? '';
+  const parts = usePartMemories(projectId);
+  const docParts = usePartMemories(doc?.owner);
   const memoryEvents = useOrch((s) => Object.values(s.memoryRev).reduce((a, b) => a + b, 0));
   const rev = memoryEvents + nonce;
   const init = useInitJob(owner);
@@ -124,6 +174,11 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
   const openDoc = (r: DocRef) => {
     setEditNew(false);
     setDoc(r);
+  };
+  // nothing is written until it is saved: the page opens empty, to be written
+  const startPart = (p: PartMemory) => {
+    setEditNew(true);
+    setDoc({ owner, name: p.slug });
   };
 
   // The engine lives as long as the page.
@@ -258,7 +313,14 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
   const ownerName = (o: string) => (o ? (view?.projects.find((p) => p.projectId === o)?.name ?? 'Project') : 'All projects');
   const ownerOf = (o: string): GalaxyOwner | undefined => (o ? view?.projects.find((p) => p.projectId === o) : view?.global);
   const projectFacts = (p: GalaxyOwner) => p.docs.find((d) => d.kind === 'main')?.facts ?? 0;
-  const projectPages = (p: GalaxyOwner) => p.docs.filter((d) => d.kind === 'sub' && !d.critical).length;
+  const projectPages = (p: GalaxyOwner) => p.docs.filter((d) => d.kind === 'sub' && !d.critical && !d.part).length;
+  const partPages = (p: GalaxyOwner) => p.docs.filter((d) => d.kind === 'sub' && d.part).length;
+  const projectMeta = (p: GalaxyOwner) => {
+    const [facts, pages, inParts] = [projectFacts(p), projectPages(p), partPages(p)];
+    if (!facts && !pages && !inParts) return 'Not initialised yet';
+    const line = `${facts} fact${facts === 1 ? '' : 's'} · ${pages} sub-memor${pages === 1 ? 'y' : 'ies'}`;
+    return inParts ? `${line} · ${inParts} part memor${inParts === 1 ? 'y' : 'ies'}` : line;
+  };
   const uninitialised = !!project && (project.docs.find((d) => d.kind === 'main')?.chars ?? 0) === 0;
 
   return (
@@ -272,7 +334,7 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
         />
         {hover && (
           <div className="mem-tip" ref={tip} role="status">
-            <strong>{hover.kind === 'core' ? 'All projects' : hover.title}</strong>
+            <strong>{hover.kind === 'core' ? 'All projects' : hover.part ? `${hover.title} (part memory)` : hover.title}</strong>
             {hover.description && <span>{hover.description}</span>}
             <span className="text-3 tabular">
               {hover.kind === 'section' ? `Heading in ${hover.doc === 'main' ? 'main memory' : hover.doc}` : hover.facts ? `${hover.facts} ${hover.kind === 'critical' ? 'rule' : 'fact'}${hover.facts === 1 ? '' : 's'}` : hover.chars ? `${hover.chars} characters` : 'Empty'}
@@ -359,7 +421,7 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
                       Sub-memory
                     </Button>
                   </div>
-                  <OwnerDocs o={project} doc={doc} onOpen={openDoc} />
+                  <OwnerDocs o={project} doc={doc} onOpen={openDoc} parts={parts} onStart={startPart} />
                   <p className="mem-foot">
                     <Link to={boardPath(owner)}>Open the board of {project.name}</Link>
                   </p>
@@ -375,9 +437,7 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
                       <Icon name="brain" />
                       <span className="mem-row-text">
                         <span className="truncate">{p.name}</span>
-                        <span className="mem-row-meta tabular">
-                          {projectFacts(p) || projectPages(p) ? `${projectFacts(p)} fact${projectFacts(p) === 1 ? '' : 's'} · ${projectPages(p)} sub-memor${projectPages(p) === 1 ? 'y' : 'ies'}` : 'Not initialised yet'}
-                        </span>
+                        <span className="mem-row-meta tabular">{projectMeta(p)}</span>
                       </span>
                     </Link>
                   ))}
@@ -398,6 +458,7 @@ export function MemoryPage({ projectId }: { projectId?: string }) {
       {doc && (
         <DocPanel
           doc={doc}
+          part={docParts.find((p) => p.slug === doc.name)}
           owner={ownerOf(doc.owner)}
           ownerName={ownerName(doc.owner)}
           rev={rev}

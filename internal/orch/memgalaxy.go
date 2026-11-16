@@ -22,6 +22,7 @@ type GalaxyDoc struct {
 	Title       string          `json:"title"`
 	Description string          `json:"description,omitempty"`
 	Critical    bool            `json:"critical,omitempty"`
+	Part        string          `json:"part,omitempty"` // a part's page (mempart.go)
 	Chars       int             `json:"chars"`
 	Facts       int             `json:"facts"`
 	Mtime       string          `json:"mtime,omitempty"`
@@ -93,9 +94,11 @@ func (s *Service) galaxyOwner(pid, name string) GalaxyOwner {
 	if main, err := s.ReadDoc(pid, MainDoc); err == nil {
 		add(GalaxyDoc{Name: MainDoc, Kind: "main", Title: main.Title, Mtime: main.Mtime}, main.Content)
 	}
+	pages := s.partPages(pid)
 	for _, sub := range s.Memory.Subs(pid) {
 		if full, err := s.Memory.Sub(pid, sub.Slug); err == nil {
-			add(GalaxyDoc{Name: full.Slug, Kind: "sub", Title: full.Title, Description: full.Description, Critical: full.Critical, Mtime: full.Mtime}, full.Content)
+			s.asPart(pages, &full)
+			add(GalaxyDoc{Name: full.Slug, Kind: "sub", Title: full.Title, Description: full.Description, Critical: full.Critical, Part: full.Part, Mtime: full.Mtime}, full.Content)
 		}
 	}
 	if pid != "" {
