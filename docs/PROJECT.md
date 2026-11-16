@@ -99,7 +99,7 @@ Since 2026-11-02 the focus is the **core backend** (decision 8). Android and des
 | **Thread** | A history of orders and reports: one per project, one per orchestrator card. |
 | **Planner** | A local Claude Code that turns sentences into steps. |
 | **Group** | A team of consoles inside a frame, with a name, roles, and a color. |
-| **Orchestrator card** | A small command bar on the board, scoped to the consoles wired to that card. |
+| **Orchestrator card** | A small command bar on the board, scoped to the consoles wired to that card (and the agents inside an editor card wired to it). |
 | **Lead agent** | The orchestrator as a person: the owner's assistant and the agents' leader, with a name (default Aruna, the owner's choice 2026-11-08) and a personality. It talks first; work for the team waits for approval. |
 | **Runner / job** | A hidden headless CLI for background work: documents, diagrams, memory scans, the planner. |
 | **Preview** | A proxy to a dev server on a machine, one listener per port. |
@@ -288,7 +288,7 @@ Since decision 10, agent CLIs stay on This PC; on a server they work through hub
 
 A kind the client does not know shows as "Unsupported tile", so a new kind does not break old clients.
 
-**Edges.** `wire` (gray; orchestrator, memory, editor, or a tile with content → console/group; the tile's content is sent once on connecting), `forward` (dashed orange; console/group → console/group, no cycles), `preview` (cyan; terminal → web), `log` (web → weblog). Lines route straight when tiles face each other, with one elbow when they do not, and go around when a tile is in the way. An orchestrator wire that is working lights up and carries a subtle animation.
+**Edges.** `wire` (gray; orchestrator, memory, editor, or a tile with content → console/group; the tile's content is sent once on connecting; an orchestrator → editor card directs the agents opened inside that editor, also from the agent's pane: *Connect to orchestrator*), `forward` (dashed orange; console/group → console/group, no cycles), `preview` (cyan; terminal → web), `log` (web → weblog). Lines route straight when tiles face each other, with one elbow when they do not, and go around when a tile is in the way. An orchestrator wire that is working lights up and carries a subtle animation.
 
 **Durability** (tested with `kill -9` and corrupt files):
 
@@ -408,7 +408,7 @@ TTL 60 seconds (30–300). The first decision wins, from any client, and it can 
 
 **Groups and the composer.** Roles: `general`, `frontend`, `backend`, `testers`, `reviewers`, `design`, `docs`, `security`, each of which can have a default agent. At most 12 members, and a console can be in only one group. Batch spawn of 1–12 consoles in one broadcast. **Linked input** (`syncInput`) copies one member's keystrokes to the other members, including Ctrl+C, but does not copy the emulator's automatic replies.
 
-**Orchestrator cards.** A small command bar that reaches only the consoles wired to it, with its own thread. Undo and workspace commands are refused here. A card is led by a lead agent; the card's name = its lead's name.
+**Orchestrator cards.** A small command bar that reaches only the consoles wired to it, and the agents opened inside an editor card wired to it, with its own thread. Undo and workspace commands are refused here. A card is led by a lead agent; the card's name = its lead's name.
 
 **Lead agent.** In the bar, cards, and the editor, the owner talks with the lead (Settings › Lead agent: name, personality, Talk first). Greetings and questions are answered as conversation. Work is handed to agents right away, with no need for Go ahead. Only a plan that could do damage (deleting files or data, resetting a database, rewriting git history, production) waits for a button or a word of approval, and it can be changed while chatting. Orders that name an `@agent` and plain commands still run right away. The lead uses Claude Code on This PC, so every chat turn uses the owner's plan.
 

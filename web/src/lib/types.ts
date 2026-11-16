@@ -370,6 +370,10 @@ export interface Session extends SessionAgentFields {
   pastRuns?: PastRun[];
   /** A terminal or agent of the Code workbench (no board node). */
   panel?: boolean;
+  /** Of a panel session: the editor card (node id) it was opened in, so that an orchestrator card wired to that card directs it. */
+  card?: string;
+  /** A login profile's sign-in console: no order, loop or task types into it. */
+  signIn?: boolean;
   name: string;
   preset: string;
   machineId: string;
@@ -444,6 +448,8 @@ export interface CreateSession {
   node?: NodeLayout;
   /** No board node: a terminal or agent of the Code workbench. */
   panel?: boolean;
+  /** With panel: the editor card (node id) the pane is opened in. */
+  card?: string;
 }
 
 export interface Viewport {
@@ -671,6 +677,8 @@ export interface SnapshotInfo {
 
 export interface ArchiveEntry {
   id: string;
+  /** The board's project; absent in archives from before it was kept. */
+  projectId?: string;
   projectName: string;
   workspaceName: string;
   archivedAt: string;
@@ -1011,6 +1019,8 @@ export type HubEvent =
   | { type: 'uptimeBeat'; projectId: string; monitorId: string; beat: Beat; monitor: Monitor }
   | { type: 'uptimeMonitor'; monitor: Monitor }
   | { type: 'uptimeRemoved'; projectId: string; id: string }
+  /** A project's uptime settings changed: fetch them again (they hold the webhook, so the event does not). */
+  | { type: 'uptimeSettings'; projectId: string }
   | { type: 'vaultChanged'; rev: number; vaultId: string }
   | { type: 'credentialRequest'; id: string; state: string }
   | { type: 'passkeyRequest'; id?: string }

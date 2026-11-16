@@ -201,7 +201,7 @@ func ValidateBoard(nodes []*board.Node, edges []*board.Edge, touched map[string]
 		switch e.Kind {
 		case EdgeWire:
 			if !isWireSource(src) || !isWireTarget(dst, src) {
-				return board.Invalid(0, "bad_edge", "a wire only goes from an orchestrator/memory/editor/content tile to a terminal/group (an orchestrator also to a kanban/checklist; an editor also to an orchestrator)")
+				return board.Invalid(0, "bad_edge", "a wire only goes from an orchestrator/memory/editor/content tile to a terminal/group (an orchestrator also to a kanban/checklist or an editor; an editor also to an orchestrator; a memory also to an orchestrator or an editor)")
 			}
 			for _, o := range edges {
 				if o.ID != e.ID && o.Kind == EdgeWire && o.Source == e.Source && o.Target == e.Target {

@@ -72,6 +72,13 @@ type Spec struct {
 	Root bool `json:"root,omitempty"`
 	// Panel: a terminal or agent of the Code workbench, with no board node.
 	Panel bool `json:"panel,omitempty"`
+	// Card: of a Panel session, the editor card (board node id) it was opened in, so that an
+	// orchestrator card wired to that editor directs it (docs/API-studio.md §7.8). "" for one
+	// opened before cards were recorded: the editor card of its placement holds it.
+	Card string `json:"card,omitempty"`
+	// SignIn: the console that signs a login profile in (Settings › Profiles). It is the
+	// profile's own CLI: no order, loop or task ever types into it.
+	SignIn bool `json:"signIn,omitempty"`
 
 	// Phase 5 (docs/API-agents.md §7). Agent == Preset.
 	// An agent runs on This PC (MachineID); these say which server folder it

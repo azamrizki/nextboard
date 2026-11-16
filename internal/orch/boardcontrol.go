@@ -409,7 +409,8 @@ func isWireSource(n *board.Node) bool {
 
 // isWireTarget says what a connection from src may end at. Between consoles and
 // groups a connection is a forward; the editor also talks to orchestrator cards, and a
-// memory tile reaches what those two direct.
+// memory tile reaches what those two direct. An orchestrator wired to an editor card
+// directs the agents opened inside it (editor → orchestrator is the editor's Ask, another edge).
 func isWireTarget(t, src *board.Node) bool {
 	switch t.Kind {
 	case board.KindTerminal, KindGroup:
@@ -417,7 +418,7 @@ func isWireTarget(t, src *board.Node) bool {
 	case KindOrchestrator:
 		return src.Kind == KindEditor || src.Kind == KindMemory
 	case KindEditor:
-		return src.Kind == KindMemory
+		return src.Kind == KindMemory || src.Kind == KindOrchestrator
 	case "kanban", "checklist":
 		return src.Kind == KindOrchestrator
 	}
@@ -524,14 +525,23 @@ func (s *Service) execConnect(c *execCtx, st Step, wid string) error {
 	}
 	var ops []board.Op
 	var wired []string
+	var empty []string // editor cards wired with no agent opened in them yet
 	for _, t := range st.Tiles {
 		if st.Op == "disconnect" {
+			// a disconnect removes the link in whichever direction it was made; an orchestrator and
+			// an editor may have both, which mean different things, so the direction said goes first
+			var said, back []board.Op
 			for _, e := range b.Edges {
-				// a disconnect removes the link in whichever direction it was made
-				if (e.Source == st.Source && e.Target == t) || (e.Source == t && e.Target == st.Source) {
-					ops = append(ops, board.Op{Op: "delEdge", ID: e.ID})
+				if e.Source == st.Source && e.Target == t {
+					said = append(said, board.Op{Op: "delEdge", ID: e.ID})
+				} else if e.Source == t && e.Target == st.Source {
+					back = append(back, board.Op{Op: "delEdge", ID: e.ID})
 				}
 			}
+			if len(said) == 0 {
+				said = back
+			}
+			ops = append(ops, said...)
 			continue
 		}
 		dst := byID[t]
@@ -560,6 +570,12 @@ func (s *Service) execConnect(c *execCtx, st Step, wid string) error {
 		if kind == EdgeWire && (contentTiles[src.Kind] || src.Kind == KindMemory) {
 			wired = append(wired, t)
 		}
+		if kind == EdgeWire && src.Kind == KindOrchestrator && dst.Kind == KindEditor {
+			_, proj, _ := s.hub.Workspace(wid)
+			if len(boardScope(proj, wid, b, s.hub.Sessions()).editorAgents(dst)) == 0 {
+				empty = append(empty, t)
+			}
+		}
 	}
 	if len(ops) == 0 {
 		s.note(c, "Nothing changed.")
@@ -573,6 +589,9 @@ func (s *Service) execConnect(c *execCtx, st Step, wid string) error {
 		return nil
 	}
 	s.note(c, fmt.Sprintf("Connected %d tile(s).", len(ops)))
+	if len(empty) > 0 {
+		s.note(c, "No agent is open in that editor yet; the agents opened there take this card's orders.")
+	}
 	if len(wired) > 0 {
 		res, err := s.PushTile(wid, src.ID, wired)
 		switch {

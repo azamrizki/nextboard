@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/azamrizki/nextboard/internal/agentstate"
-	"github.com/azamrizki/nextboard/internal/board"
 	"github.com/azamrizki/nextboard/internal/delivery"
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/session"
@@ -35,15 +34,9 @@ func (s *Service) loopTargets(l LoopDef) []session.Info {
 		if err != nil {
 			return nil
 		}
-		sc := &scope{b: b, sidOf: map[string]string{}, nodeOf: map[string]*board.Node{}}
-		for _, n := range b.Nodes {
-			switch n.Kind {
-			case board.KindTerminal:
-				sc.sidOf[n.ID] = n.SessionID()
-			case KindGroup:
-				sc.groups = append(sc.groups, n)
-			}
-		}
+		// a card's loop also reaches the agents opened in an editor card wired to it
+		_, proj, _ := s.hub.Workspace(l.WorkspaceID)
+		sc := boardScope(proj, l.WorkspaceID, b, all)
 		for _, id := range l.Targets.IDs {
 			if l.Targets.Kind == "group" {
 				sids = append(sids, sc.nodeSessions(id)...)

@@ -9,7 +9,7 @@ import { restartConsole } from '../../agents/actions';
 import { jumpToSession } from '../../agents/jump';
 import { agentPill } from '../../agents/state';
 import type { BoardController } from '../../board/controller';
-import { directedTerminals } from '../../board/groups';
+import { directedSessions, directedTerminals } from '../../board/groups';
 import { readGroup, readOrchestrator } from '../../board/kinds';
 import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -22,6 +22,7 @@ import { projectParts } from '../../lib/parts';
 import { ROOT_VALUE } from '../../lib/placement';
 import type { Session } from '../../lib/types';
 import { useMediaQuery } from '../../lib/useMediaQuery';
+import { useMachineName } from '../../store';
 import { killSessions, pauseSessions, resumeSessions } from '../actions';
 import { orchApi } from '../api';
 import { useNow, useStoreSessions } from '../hooks';
@@ -327,7 +328,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
                 <dd>
                   {selDirector.id === 'bar'
                     ? 'Everything on the board'
-                    : `${directedTerminals(doc.nodes, doc.edges, selDirector.id).length} consoles`}
+                    : `${directedSessions(doc.nodes, doc.edges, selDirector.id, sessions, { workspaceId: ctl.workspaceId, project: ctl.project }).length} consoles`}
                 </dd>
               </dl>
             </div>
@@ -346,6 +347,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
 function ConsoleInspector({ c, now, onFocus, onKill }: { c: MConsole; now: number; onFocus: () => void; onKill: () => void }) {
   const s = c.session;
   const pill = agentPill(s);
+  const machineName = useMachineName(s);
   const [armed, setArmed] = useState(false);
   const since = s.stateSince ? Date.parse(s.stateSince) : NaN;
   const exited = s.status === 'exited';
@@ -353,7 +355,7 @@ function ConsoleInspector({ c, now, onFocus, onKill }: { c: MConsole; now: numbe
     <div className="mm-insp">
       <h3>@{s.handle ?? s.name}</h3>
       <p className="text-3 fs-xs">
-        {agentById(s.agent || s.preset)?.name ?? s.agent} on {s.machineName}
+        {agentById(s.agent || s.preset)?.name ?? s.agent} on {machineName}
         {c.role ? ` · ${ROLE_LABEL[c.role as Role] ?? c.role}` : ''}
       </p>
       <dl className="kv">

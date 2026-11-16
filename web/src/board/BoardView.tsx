@@ -657,10 +657,11 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   // ---- wires & forwards ----
   const connectTo = useCallback(
     (fromId: string, toId: string) => {
-      const intent = connectIntent(ctl.nodes, ctl.sync.state.edges, fromId, toId);
+      const intent = connectIntent(ctl.nodes, ctl.sync.state.edges, fromId, toId, { workspaceId: ctl.workspaceId, project: ctl.project });
       if (intent.ok) {
         ctl.apply([intent.op]);
         if (intent.sends) void sendTile(ctl.workspaceId, fromId, [toId]);
+        if (intent.note) toast.info(intent.note);
         return true;
       }
       if (intent.reason) toast.info(intent.reason);
@@ -1116,8 +1117,10 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
         ui.set({ editing: n.id });
         return;
       }
-      // a double click inside a console or an editor picks a word; the board must not move under it
-      if ((e.target as HTMLElement).closest('.nodrag')) return;
+      // a double click inside a console or an editor picks a word, and one on a button or a
+      // field is that control's: the board must not move under it. Anywhere else, the header
+      // above all, it zooms to the tile.
+      if ((e.target as HTMLElement).closest('.nodrag, button, input, textarea, select, a, [contenteditable="true"], [role="menu"]')) return;
       frame(n.id);
       if (n.kind === 'terminal' && (e.target as HTMLElement).closest('.nb-node-header')) {
         window.setTimeout(() => {

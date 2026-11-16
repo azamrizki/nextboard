@@ -10,7 +10,7 @@ import { restartConsole } from '../../agents/actions';
 import { agentById, byPriority, useMachineAgents } from '../../agents/catalog';
 import { agentPill } from '../../agents/state';
 import type { BoardController } from '../../board/controller';
-import { directedTerminals } from '../../board/groups';
+import { connectIntent, directedSessions, directorsOf, editorAgents } from '../../board/groups';
 import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Icon } from '../../components/Icon';
@@ -18,7 +18,7 @@ import { Menu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { navigate } from '../../lib/router';
-import type { Agent, Project, Session } from '../../lib/types';
+import type { Agent, BoardNode, Project, Session } from '../../lib/types';
 import { orchError, sendCommand } from '../../orch/actions';
 import { useStoreSessions } from '../../orch/hooks';
 import { localMentions } from '../../orch/mentions';
@@ -40,8 +40,8 @@ import { orderText, type AgentContext } from './SidePanels';
 import { useWs } from './useWs';
 import { nameOf, ORCHESTRATOR_PANE, type Workspace } from './workspace';
 
-/** What a pane needs from the board around the card. */
-export const PaneEnv = createContext<{ project: Project; ctl: BoardController } | null>(null);
+/** What a pane needs from the board around the card; nodeId is the card's (the editor node). */
+export const PaneEnv = createContext<{ project: Project; ctl: BoardController; nodeId?: string } | null>(null);
 
 type Where = 'side' | 'tab';
 
@@ -82,12 +82,13 @@ function pickPlace(ws: Workspace, v: string) {
 /**
  * Start an agent for this editor: a console with no tile on the board, in the card's part (on
  * that part's machine, or on This PC for a server part, as the hub decides), or in a Root card at
- * the place picked in its agent menu, else the card's default (BottomPanel defaultPlaceOf).
+ * the place picked in its agent menu, else the card's default (BottomPanel defaultPlaceOf). `card`
+ * is the editor node it is opened in: an orchestrator card wired to that node directs it.
  */
-export async function startAgentPane(ws: Workspace, workspaceId: string, agent: Agent, where: Where, place?: Placement) {
+export async function startAgentPane(ws: Workspace, workspaceId: string, agent: Agent, where: Where, place?: Placement, card?: string) {
   try {
     const at = place ?? agentPlace(ws);
-    const s = await api.createSession({ workspaceId, preset: agent.id, agent: agent.id, panel: true, cols: 100, rows: 30, ...ws.placeOf(placeDir(ws.paths, at)) });
+    const s = await api.createSession({ workspaceId, preset: agent.id, agent: agent.id, panel: true, ...(card ? { card } : {}), cols: 100, rows: 30, ...ws.placeOf(placeDir(ws.paths, at)) });
     store.upsertSession(s);
     ws.placePane(s.id, where);
   } catch (err) {
@@ -102,6 +103,8 @@ export interface PaneChoices {
   unplaced: Session[];
   /** A project on a server while agents on servers are off: the menu says where to turn them on. */
   serverOff: (() => void) | null;
+  /** The editor card (node id) the menu is in: what a new agent records as its card. */
+  card?: string;
 }
 
 export function usePaneChoices(ws: Workspace, workspaceId: string): PaneChoices {
@@ -118,10 +121,11 @@ export function usePaneChoices(ws: Workspace, workspaceId: string): PaneChoices 
   // a part on a server (a Root card: any) while agents on servers are off
   const onServer = ws.paths.multi ? ws.parts.some((p) => p.machineId !== LOCAL_MACHINE) : ws.parts[0].machineId !== LOCAL_MACHINE;
   const serverOff = onServer && !remote ? () => navigate('/settings/agents') : null;
-  return { agents: sorted, unplaced, serverOff };
+  const card = useContext(PaneEnv)?.nodeId;
+  return { agents: sorted, unplaced, serverOff, card };
 }
 
-export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced, serverOff }: PaneChoices, where: Where): MenuEntry[] {
+export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced, serverOff, card }: PaneChoices, where: Where): MenuEntry[] {
   return [
     ...unplaced.map<MenuEntry>((s) => ({ label: `Show ${s.handle ? `@${s.handle}` : s.name}`, icon: 'terminal', title: 'Already running in this editor', onSelect: () => ws.placePane(s.id, where) })),
     ...(unplaced.length ? (['sep'] as MenuEntry[]) : []),
@@ -137,7 +141,7 @@ export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced
       label: a.name,
       icon: 'bot',
       title: ws.paths.multi ? `Start ${a.name} in ${placeName(ws, agentPlace(ws))}` : `Start ${a.name} in the project folder`,
-      onSelect: () => void startAgentPane(ws, workspaceId, a, where, agentPlace(ws)),
+      onSelect: () => void startAgentPane(ws, workspaceId, a, where, agentPlace(ws), card),
     })),
     ...(agents.length ? (['sep'] as MenuEntry[]) : []),
     { label: 'Orchestrator', icon: 'orchestrator', title: 'Give orders to the agents of this board', onSelect: () => ws.placePane(ORCHESTRATOR_PANE, where) },
@@ -180,6 +184,66 @@ export function PaneTitle({ ws, id }: { ws: Workspace; id: string }) {
   );
 }
 
+/**
+ * For an agent's pane: the board's orchestrator cards, the editor card that holds the agent (the
+ * one it was opened in; an older agent's card of its placement; else the card showing the pane),
+ * and which orchestrator cards direct that card.
+ */
+function useDirectors(s: Session): { cards: BoardNode[]; directors: BoardNode[]; nodeId: string; ctl: BoardController } | null {
+  const env = useContext(PaneEnv);
+  const ctl = env?.ctl;
+  const doc = useSyncExternalStore(ctl?.sync.subscribe ?? noSubscribe, ctl?.sync.getState ?? noDoc);
+  if (!ctl || !env?.nodeId || !doc) return null;
+  const at = { workspaceId: ctl.workspaceId, project: env.project };
+  const holder = doc.nodes.find((n) => n.kind === 'editor' && editorAgents(doc.nodes, n, [s], at).length)?.id ?? env.nodeId;
+  const cards = doc.nodes.filter((n) => n.kind === 'orchestrator');
+  return { cards, directors: directorsOf(doc.nodes, doc.edges, holder), nodeId: holder, ctl };
+}
+const noSubscribe = () => () => undefined;
+const noDoc = () => null;
+
+const cardName = (n: BoardNode) => (typeof n.data.title === 'string' && n.data.title ? n.data.title : 'Orchestrator');
+
+/**
+ * "Directed by Lead" and the link to the board's orchestrator cards, over an agent's pane: the
+ * same orchestrator → editor wire as one drawn on the board, so every agent of this card takes
+ * the orders of the cards it is wired to.
+ */
+function PaneLink({ session }: { session: Session }) {
+  const d = useDirectors(session);
+  if (!d || (!d.cards.length && !d.directors.length)) return null;
+  const { ctl, nodeId, cards, directors } = d;
+  const at = { workspaceId: ctl.workspaceId, project: ctl.project };
+  const link = (c: BoardNode) => {
+    const intent = connectIntent(ctl.nodes, ctl.sync.state.edges, c.id, nodeId, at);
+    if (!intent.ok) {
+      if (intent.reason) toast.info(intent.reason);
+      return;
+    }
+    ctl.apply([intent.op]);
+    toast.success(intent.label === 'Disconnected' ? `Disconnected from ${cardName(c)}.` : `Connected: ${cardName(c)} directs the agents of this editor.`);
+  };
+  const free = cards.filter((c) => !directors.includes(c));
+  const items: MenuEntry[] = [
+    ...(free.length ? ([{ type: 'heading', label: 'Connect to orchestrator' }] as MenuEntry[]) : []),
+    ...free.map<MenuEntry>((c) => ({ label: `${cardName(c)}…`, icon: 'orchestrator', title: `${cardName(c)} gives orders to the agents of this editor`, onSelect: () => link(c) })),
+    ...(free.length && directors.length ? (['sep'] as MenuEntry[]) : []),
+    ...directors.map<MenuEntry>((c) => ({ label: `Disconnect from ${cardName(c)}`, icon: 'close', onSelect: () => link(c) })),
+  ];
+  return (
+    <div className="wb-pane-link">
+      {directors.map((c) => (
+        <span key={c.id} className="wb-pane-directed" title={`${cardName(c)} directs the agents of this editor`}>
+          <Icon name="orchestrator" />
+          <span className="truncate">Directed by {cardName(c)}</span>
+        </span>
+      ))}
+      <span className="spacer" />
+      <Menu label="Orchestrator link" icon="wire" items={items} />
+    </div>
+  );
+}
+
 function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
   useWs(ws);
   const s = useSession(id);
@@ -200,6 +264,7 @@ function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
 
   return (
     <div className="wb-pane-console" ref={host}>
+      {s?.agentKind === 'agent' && <PaneLink session={s} />}
       {s?.status === 'exited' && (
         <div className="wb-pane-ended">
           <span className="truncate">This console has ended.</span>
@@ -284,9 +349,10 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
   const team = useMemo(() => {
     const running = Object.values(sessions).filter((s) => s.agentKind === 'agent' && s.status !== 'exited');
     if (!card) return running.filter((s) => s.projectId === project.id);
-    const wired = new Set(directedTerminals(doc.nodes, doc.edges, card).map((id) => doc.nodes.find((n) => n.id === id)?.data.sessionId));
+    // with the agents inside an editor card wired to it
+    const wired = new Set(directedSessions(doc.nodes, doc.edges, card, sessions, { workspaceId: ctl.workspaceId, project }));
     return running.filter((s) => wired.has(s.id));
-  }, [sessions, card, project.id, doc]);
+  }, [sessions, card, project, doc, ctl.workspaceId]);
   const shownTeam = team.filter((s) => s.handle).slice(0, TEAM_CHIPS);
   const consoles = `${team.length} ${team.length === 1 ? 'console' : 'consoles'}`;
   const summary = !team.length ? (card ? 'No console is wired to this card yet' : 'No agent is running yet') : card ? `Directs ${consoles}` : `${consoles} on the team`;
@@ -384,7 +450,7 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
             value={text}
             onChange={setText}
             onSubmit={(t) => void send(t)}
-            local={() => localMentions(ctl.nodes, ctl.sync.state.edges, sessions, (a) => agentById(a)?.name ?? a, card || undefined)}
+            local={() => localMentions(ctl.nodes, ctl.sync.state.edges, sessions, (a) => agentById(a)?.name ?? a, card || undefined, { workspaceId: ctl.workspaceId, project })}
             placeholder={reply?.handle ? `Reply to @${reply.handle}…` : `Talk to ${name}…`}
             label="Order for the agents"
             onEscape={() => setReply(null)}
@@ -470,7 +536,7 @@ export function AgentSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: 
               </Button>
             ))}
             {choices.agents.map((a) => (
-              <Button key={a.id} variant="ghost" icon="bot" onClick={() => void startAgentPane(ws, workspaceId, a, 'side')}>
+              <Button key={a.id} variant="ghost" icon="bot" onClick={() => void startAgentPane(ws, workspaceId, a, 'side', undefined, choices.card)}>
                 {a.name}
               </Button>
             ))}

@@ -1,5 +1,6 @@
 // Orchestrator card (node kind "orchestrator", docs/API-orchestration.md §6, D10): directs
-// only the consoles wired to it (directly or through a wired group). Its own thread and
+// only the consoles wired to it (directly or through a wired group), and the agents opened
+// inside an editor card wired to it (docs/API-studio.md §7.8). Its own thread and
 // input; Connect mode or a dragged wire adds consoles. The team is a row of chips so the
 // thread keeps the room; the full list with its row actions opens on demand.
 
@@ -14,6 +15,7 @@ import { Icon } from '../../components/Icon';
 import { ContextMenu, Menu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
+import { placementOf } from '../../lib/parts';
 import type { BoardNode, Session } from '../../lib/types';
 import { newId } from '../../lib/ids';
 import { store } from '../../store';
@@ -30,7 +32,8 @@ import { orchStore, useThread } from '../../orch/store';
 import { ThreadList, type ThreadActions } from '../../orch/ThreadView';
 import { restartConsole } from '../../agents/actions';
 import type { FlowNode } from '../flow';
-import { directedTerminals, TASK_BOARDS } from '../groups';
+import { cardLabel } from '../editorCards';
+import { directedTerminals, editorAgents, TASK_BOARDS } from '../groups';
 import { readChecklist, readGroup, readKanban, readOrchestrator } from '../kinds';
 import { useBoardEnv, useUi } from '../ui';
 import { InlineTitle, TileFrame, TileHead } from './common';
@@ -77,19 +80,26 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const taskWires = allWires.filter((e) => TASK_BOARDS.has(byId.get(e.target)?.kind ?? ''));
   const wires = allWires.filter((e) => !taskWires.includes(e));
   const directed = directedTerminals(doc.nodes, doc.edges, id);
+  // editor cards wired to this one: it directs the agents opened inside them
+  const editorWired = wires.some((w) => byId.get(w.target)?.kind === 'editor');
   // only the consoles this card directs: others changing need no render here
   const sidOf = (nid: string) => {
     const sid = byId.get(nid)?.data.sessionId;
     return typeof sid === 'string' ? sid : undefined;
   };
   const wanted = new Set([...directed, ...wires.map((w) => w.target)].map(sidOf));
-  const directedSessions = useSessionList((s) => wanted.has(s.id));
+  const directedSessions = useSessionList((s) => wanted.has(s.id) || (editorWired && !!s.panel && s.workspaceId === ctl.workspaceId));
   const sessions = useMemo(() => new Map(directedSessions.map((s) => [s.id, s])), [directedSessions]);
   const sessionOfNode = (nid: string) => {
     const sid = sidOf(nid);
     return sid ? sessions.get(sid) : undefined;
   };
-  const agents = directed.map(sessionOfNode).filter((s): s is Session => !!s);
+  const agentsIn = (nid: string) => {
+    const ed = byId.get(nid);
+    return ed?.kind === 'editor' ? editorAgents(doc.nodes, ed, directedSessions, { workspaceId: ctl.workspaceId, project }) : [];
+  };
+  const editorLabel = (t: BoardNode) => cardLabel(project, placementOf(t.data, project));
+  const agents = [...new Set([...directed.map(sessionOfNode), ...wires.flatMap((w) => agentsIn(w.target))])].filter((s): s is Session => !!s);
 
   const disconnect = (target: string) => {
     const e = wires.find((w) => w.target === target);
@@ -233,7 +243,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   return (
     <TileFrame id={id} kind="orchestrator" selected={!!selected} label={`Lead agent ${name}`} minW={320} minH={300} className={connecting ? 'is-connecting' : ''}>
       <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
-      <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console or group to wire it" />
+      <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console, a group or an editor card to wire it" />
       <TileHead
         id={id}
         icon={<LeadAvatar name={name} />}
@@ -260,7 +270,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
               aria-label={connecting ? 'Done' : 'Connect'}
               aria-pressed={connecting}
               onClick={() => ui.set({ connectFrom: connecting ? null : id })}
-              title={connecting ? 'Stop connecting' : 'Click consoles or groups on the board to wire them'}
+              title={connecting ? 'Stop connecting' : 'Click consoles, groups or an editor card on the board to wire them'}
             >
               {roomy ? (connecting ? 'Done' : 'Connect') : null}
             </Button>
@@ -312,6 +322,24 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                 {wires.map((w) => {
                   const t = byId.get(w.target);
                   if (!t) return null;
+                  if (t.kind === 'editor') {
+                    const inside = agentsIn(t.id);
+                    const label = editorLabel(t);
+                    return (
+                      <li key={w.id} className="orch-group">
+                        <div className="orch-group-head">
+                          <Icon name="code" />
+                          <span className="truncate">{label}</span>
+                          <span className="orch-agent">{inside.length === 1 ? '1 agent' : inside.length ? `${inside.length} agents` : 'No agent open yet'}</span>
+                          <span className="spacer" />
+                          <span className="orch-row-actions">
+                            <Button size="sm" variant="ghost" iconOnly icon="close" className="nodrag" aria-label={`Disconnect ${label}`} title="Disconnect this editor" onClick={() => disconnect(t.id)} />
+                          </span>
+                        </div>
+                        <ul className="orch-rows nested">{inside.map((s) => rowFor(s, t.id, false))}</ul>
+                      </li>
+                    );
+                  }
                   if (t.kind === 'group') {
                     const g = readGroup(t);
                     const control = pauseControl(g.members.map(sessionOfNode).filter((s): s is Session => !!s));
@@ -356,6 +384,27 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
                 {wires.map((w) => {
                   const t = byId.get(w.target);
                   if (!t) return null;
+                  if (t.kind === 'editor') {
+                    const inside = agentsIn(t.id).filter((s) => s.handle);
+                    const label = editorLabel(t);
+                    return (
+                      <span key={w.id} className="orch-chip-set">
+                        <button
+                          type="button"
+                          className="orch-set-label"
+                          title={inside.length ? `Mention every agent in ${label}` : `No agent is open in ${label} yet. The agents opened there take this card’s orders.`}
+                          disabled={!inside.length}
+                          onClick={() => mention(inside.map((s) => `@${s.handle}`).join(' '))}
+                        >
+                          <Icon name="code" />
+                          <span className="truncate">{label}</span>
+                        </button>
+                        {inside.map((s) => (
+                          <AgentChip key={s.id} session={s} onMention={() => mention(`@${s.handle}`)} onMenu={(e) => openChipMenu(e, s, t.id, false)} />
+                        ))}
+                      </span>
+                    );
+                  }
                   if (t.kind === 'group') {
                     const g = readGroup(t);
                     return (
@@ -430,7 +479,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
             value={text}
             onChange={setText}
             onSubmit={(t) => void send(t)}
-            local={() => localMentions(ctl.nodes, ctl.sync.state.edges, store.getState().sessions, (a) => agentById(a)?.name ?? a, id)}
+            local={() => localMentions(ctl.nodes, ctl.sync.state.edges, store.getState().sessions, (a) => agentById(a)?.name ?? a, id, { workspaceId: ctl.workspaceId, project })}
             placeholder={placeholder}
             label={`Message for ${name}`}
             onEscape={() => setReply(null)}

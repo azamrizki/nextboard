@@ -362,31 +362,66 @@ func (s *Service) tileStack(pid string, n *board.Node) []briefDoc {
 }
 
 // memoryReach walks the wires from a node: consoles, groups, and through orchestrator
-// and editor cards to what those are wired to. It returns the nodes reached and the
-// sessions among them.
-func memoryReach(b board.Board, starts []string) (nodes map[string]bool, sessions []string) {
+// and editor cards to what those are wired to. An editor card an orchestrator is wired to
+// stands for the agents opened inside it (editorAgents, nil = none known). It returns the
+// nodes reached and the sessions among them.
+func memoryReach(b board.Board, starts []string, editorAgents func(nodeID string) []string) (nodes map[string]bool, sessions []string) {
 	byID := map[string]*board.Node{}
 	for _, n := range b.Nodes {
 		byID[n.ID] = n
 	}
+	type step struct {
+		id       string
+		directed bool // reached through an orchestrator
+	}
 	nodes = map[string]bool{}
-	stack := slices.Clone(starts)
+	seen := map[step]bool{}
+	var stack []step
+	for _, id := range starts {
+		stack = append(stack, step{id: id})
+	}
 	for len(stack) > 0 {
-		id := stack[len(stack)-1]
+		st := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		n := byID[id]
-		if n == nil || nodes[id] {
+		n := byID[st.id]
+		if n == nil || seen[st] {
 			continue
 		}
-		nodes[id] = true
+		seen[st] = true
+		nodes[st.id] = true
 		switch n.Kind {
 		case board.KindTerminal, KindGroup:
-			sessions = append(sessions, nodeSessionIDs(b, id)...)
-		case KindOrchestrator, KindEditor:
-			stack = append(stack, wireTargets(b, id)...)
+			sessions = append(sessions, nodeSessionIDs(b, st.id)...)
+		case KindOrchestrator:
+			for _, t := range wireTargets(b, st.id) {
+				stack = append(stack, step{id: t, directed: true})
+			}
+		case KindEditor:
+			if st.directed {
+				if editorAgents != nil {
+					sessions = append(sessions, editorAgents(st.id)...)
+				}
+				continue
+			}
+			for _, t := range wireTargets(b, st.id) {
+				stack = append(stack, step{id: t})
+			}
 		}
 	}
 	return nodes, uniq(sessions)
+}
+
+// editorAgentsOf answers, for the editor cards of board b, which agents were opened inside
+// them. The sessions are read once, when first asked.
+func (s *Service) editorAgentsOf(wid string, b board.Board) func(string) []string {
+	var sc *scope
+	return func(id string) []string {
+		if sc == nil {
+			_, proj, _ := s.hub.Workspace(wid)
+			sc = boardScope(proj, wid, b, s.hub.Sessions())
+		}
+		return sc.nodeSessions(id)
+	}
 }
 
 func wireTargets(b board.Board, id string) []string {
@@ -409,11 +444,12 @@ func (s *Service) attachedBlocks(sid, wid string) []MemoryBlock {
 		return nil
 	}
 	var out []MemoryBlock
+	agents := s.editorAgentsOf(wid, b)
 	for _, n := range b.Nodes {
 		if n.Kind != KindMemory {
 			continue
 		}
-		if _, sessions := memoryReach(b, wireTargets(b, n.ID)); slices.Contains(sessions, sid) {
+		if _, sessions := memoryReach(b, wireTargets(b, n.ID), agents); slices.Contains(sessions, sid) {
 			out = append(out, tileBlocks(n)...)
 		}
 	}
@@ -620,7 +656,7 @@ func (s *Service) resolveSend(pid string, req MemorySend) ([]briefDoc, []string,
 		if len(from) == 0 {
 			from = wireTargets(b, node.ID)
 		}
-		_, sessions := memoryReach(b, from)
+		_, sessions := memoryReach(b, from, s.editorAgentsOf(req.WorkspaceID, b))
 		targets = append(targets, sessions...)
 	} else {
 		if len(targets) == 0 {
@@ -872,7 +908,7 @@ func (s *Service) plannerBlocks(sc *scope) string {
 		if n.Kind != KindMemory {
 			continue
 		}
-		nodes, _ := memoryReach(sc.b, wireTargets(sc.b, n.ID))
+		nodes, _ := memoryReach(sc.b, wireTargets(sc.b, n.ID), nil)
 		reached := false
 		for _, o := range sc.b.Nodes {
 			if o.Kind == KindOrchestrator && nodes[o.ID] && (sc.card == nil || sc.card.ID == o.ID) {

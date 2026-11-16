@@ -3,7 +3,8 @@
 // them through the controller (one undo step, one request).
 
 import { newId } from '../lib/ids';
-import type { BoardEdge, BoardNode, NodeLayout, Op, Session } from '../lib/types';
+import { isRoot, normalPlacement, placementOf, placementOfSession, projectParts, samePlacement } from '../lib/parts';
+import type { BoardEdge, BoardNode, NodeLayout, Op, Project, Session } from '../lib/types';
 import { isAgentSession } from '../orch/actions';
 import { ROLE_COLOR, type ForwardMode, type ForwardTrigger, type GroupData, type Role } from '../orch/types';
 import { store } from '../store';
@@ -224,11 +225,11 @@ export function noAgentReason(nodes: BoardNode[], n: BoardNode): string {
   return '';
 }
 
-/** `sends`: the tile's content goes to the new target now that it is wired. */
-export type EdgeIntent = { ok: true; op: Op; label: string; sends?: boolean } | { ok: false; reason: string };
+/** `sends`: the tile's content goes to the new target now that it is wired. `note`: worth a word to the user. */
+export type EdgeIntent = { ok: true; op: Op; label: string; sends?: boolean; note?: string } | { ok: false; reason: string };
 
-/** What dropping a connection from `from` on `to` means (wire, forward, or why not). */
-export function connectIntent(nodes: BoardNode[], edges: BoardEdge[], fromId: string, toId: string): EdgeIntent {
+/** What dropping a connection from `from` on `to` means (wire, forward, or why not). `at`: where the board is, to see who is inside an editor card. */
+export function connectIntent(nodes: BoardNode[], edges: BoardEdge[], fromId: string, toId: string, at?: BoardAt): EdgeIntent {
   const from = nodes.find((n) => n.id === fromId);
   const to = nodes.find((n) => n.id === toId);
   if (!from || !to || from.id === to.id) return { ok: false, reason: '' };
@@ -245,11 +246,30 @@ export function connectIntent(nodes: BoardNode[], edges: BoardEdge[], fromId: st
   if (from.kind === 'terminal' && to.kind === 'web') return line('preview', 'Linked');
   // a task board and its lead, whichever end the drag began at: the wire starts at the lead
   if (from.kind === 'orchestrator' && TASK_BOARDS.has(to.kind)) return line('wire', 'Linked');
-  if (TASK_BOARDS.has(from.kind) && to.kind === 'orchestrator') return connectIntent(nodes, edges, to.id, from.id);
+  if (TASK_BOARDS.has(from.kind) && to.kind === 'orchestrator') return connectIntent(nodes, edges, to.id, from.id, at);
+  // the card directs the agents opened inside the editor, those there now and those opened later
+  // (the other way round is the editor's Ask, another line)
+  if (from.kind === 'orchestrator' && to.kind === 'editor') {
+    const intent = line('wire', 'Wired');
+    if (!intent.ok || intent.label === 'Disconnected') return intent;
+    const empty = at && !editorAgents(nodes, to, Object.values(store.getState().sessions), at).length;
+    return empty ? { ...intent, label: 'Wired: the agents opened in this editor take its orders', note: 'No agent is open in this editor yet. The agents opened there take this card’s orders.' } : intent;
+  }
   if (WIRE_SOURCES.has(from.kind)) {
     // the editor also asks orchestrator cards, and a memory tile reaches what those two direct
     const reachable = WIRE_TARGETS.has(to.kind) || ((from.kind === 'editor' || from.kind === 'memory') && to.kind === 'orchestrator') || (from.kind === 'memory' && to.kind === 'editor');
-    if (!reachable) return { ok: false, reason: from.kind === 'memory' ? 'Wire the memory to a console, a group, an orchestrator card or the editor.' : from.kind === 'editor' ? 'Wire the editor to a console, a group or an orchestrator card.' : 'Wire a card to a console or a group.' };
+    if (!reachable)
+      return {
+        ok: false,
+        reason:
+          from.kind === 'memory'
+            ? 'Wire the memory to a console, a group, an orchestrator card or the editor.'
+            : from.kind === 'editor'
+              ? 'Wire the editor to a console, a group or an orchestrator card.'
+              : from.kind === 'orchestrator'
+                ? 'Wire the orchestrator to a console, a group, a task board or an editor card.'
+                : 'Wire a card to a console or a group.',
+      };
     const intent = line('wire', 'Wired');
     if (intent.ok && intent.label === 'Disconnected') return intent;
     const noAgent = noAgentReason(nodes, to);
@@ -273,7 +293,7 @@ export function connectIntent(nodes: BoardNode[], edges: BoardEdge[], fromId: st
   return { ok: false, reason: '' };
 }
 
-/** Node ids a card directs: wired terminals + members of wired groups. */
+/** Node ids a card directs: wired terminals + members of wired groups. The agents inside wired editor cards have no node: directedSessions. */
 export function directedTerminals(nodes: BoardNode[], edges: BoardEdge[], cardId: string): string[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const out: string[] = [];
@@ -285,4 +305,73 @@ export function directedTerminals(nodes: BoardNode[], edges: BoardEdge[], cardId
     else if (t.kind === 'group') out.push(...readGroup(t).members);
   }
   return [...new Set(out)];
+}
+
+// ---- agents inside an editor card (docs/API-studio.md §7.8) ---------------------------------
+
+/** Where a board is, for what its nodes do not say: which sessions are inside its editor cards. */
+export interface BoardAt {
+  workspaceId: string;
+  project: Project;
+}
+
+/** The editor cards an orchestrator card is wired to: it directs the agents opened in them. */
+export function wiredEditors(nodes: BoardNode[], edges: BoardEdge[], cardId: string): BoardNode[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out: BoardNode[] = [];
+  for (const e of edges) {
+    const t = e.kind === 'wire' && e.source === cardId ? byId.get(e.target) : undefined;
+    if (t?.kind === 'editor' && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * The agents opened inside an editor card: the board's panel agents that name it as their card.
+ * One that names none (opened before cards were recorded), or a card no longer on the board,
+ * counts for the card of its placement, else for a Root card, which shows every part. The user's
+ * own terminals in the editor never count. The hub has the same rule (internal/orch editorAgents).
+ */
+export function editorAgents(nodes: BoardNode[], editor: BoardNode, sessions: Iterable<Session>, at: BoardAt): Session[] {
+  const cards = nodes.filter((n) => n.kind === 'editor');
+  const one = projectParts(at.project).length < 2;
+  const mine = placementOf(editor.data, at.project);
+  const out: Session[] = [];
+  for (const s of sessions) {
+    if (!s.panel || s.agentKind !== 'agent' || s.signIn || s.workspaceId !== at.workspaceId) continue;
+    if (s.card === editor.id) {
+      out.push(s);
+      continue;
+    }
+    if (s.card && cards.some((n) => n.id === s.card)) continue; // opened in another card of this board
+    const place = placementOfSession(s, at.project);
+    const its = place && normalPlacement(at.project, place);
+    const hasCard = (p: typeof its) => !!p && cards.some((n) => samePlacement(placementOf(n.data, at.project), p));
+    if (one || (its && samePlacement(its, mine)) || (isRoot(mine) && !hasCard(its))) out.push(s);
+  }
+  return out;
+}
+
+/** Session ids a card directs: the consoles wired to it, the members of wired groups and the agents inside wired editor cards. */
+export function directedSessions(nodes: BoardNode[], edges: BoardEdge[], cardId: string, sessions: Record<string, Session>, at: BoardAt): string[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out: string[] = [];
+  for (const id of directedTerminals(nodes, edges, cardId)) {
+    const sid = byId.get(id)?.data.sessionId;
+    if (typeof sid === 'string') out.push(sid);
+  }
+  const all = Object.values(sessions);
+  for (const ed of wiredEditors(nodes, edges, cardId)) out.push(...editorAgents(nodes, ed, all, at).map((s) => s.id));
+  return [...new Set(out)];
+}
+
+/** The orchestrator cards that direct an editor card's agents (orchestrator → editor wires). */
+export function directorsOf(nodes: BoardNode[], edges: BoardEdge[], editorId: string): BoardNode[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out: BoardNode[] = [];
+  for (const e of edges) {
+    const c = e.kind === 'wire' && e.target === editorId ? byId.get(e.source) : undefined;
+    if (c?.kind === 'orchestrator' && !out.includes(c)) out.push(c);
+  }
+  return out;
 }

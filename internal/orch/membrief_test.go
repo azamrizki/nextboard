@@ -653,7 +653,7 @@ func TestMemoryTileValidation(t *testing.T) {
 	for _, c := range []struct {
 		src, dst *board.Node
 		want     string
-	}{{mt, orc, EdgeWire}, {mt, ed, EdgeWire}, {note, orc, ""}, {note, ed, ""}, {orc, ed, ""}, {ed, orc, EdgeWire}} {
+	}{{mt, orc, EdgeWire}, {mt, ed, EdgeWire}, {note, orc, ""}, {note, ed, ""}, {orc, ed, EdgeWire}, {ed, orc, EdgeWire}} {
 		if got := edgeKindFor(c.src, c.dst); got != c.want {
 			t.Fatalf("%s → %s: %q", c.src.Kind, c.dst.Kind, got)
 		}

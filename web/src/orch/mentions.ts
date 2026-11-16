@@ -4,7 +4,7 @@
 
 import type { BoardEdge, BoardNode, Session } from '../lib/types';
 import { readGroup } from '../board/kinds';
-import { directedTerminals } from '../board/groups';
+import { directedTerminals, editorAgents, wiredEditors, type BoardAt } from '../board/groups';
 import { ROLE_LABEL, type Mention, type Role } from './types';
 
 export const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -15,6 +15,7 @@ export function localMentions(
   sessions: Record<string, Session>,
   agentName: (id: string) => string,
   cardId?: string | null,
+  at?: BoardAt,
 ): Mention[] {
   const terms = nodes.filter((n) => n.kind === 'terminal');
   const allowed = cardId ? new Set(directedTerminals(nodes, edges, cardId)) : null;
@@ -26,6 +27,17 @@ export function localMentions(
     if (!s?.handle) continue;
     consoleSessions.push(s);
     out.push({ kind: 'console', id: s.id, label: s.handle, handle: s.handle, agentState: s.agentState });
+  }
+  // agents opened inside editor cards have no tile: those of the editors wired to the card, or of every editor
+  if (at) {
+    const editors = cardId ? wiredEditors(nodes, edges, cardId) : nodes.filter((n) => n.kind === 'editor');
+    const all = Object.values(sessions);
+    for (const ed of editors)
+      for (const s of editorAgents(nodes, ed, all, at)) {
+        if (!s.handle || consoleSessions.includes(s)) continue;
+        consoleSessions.push(s);
+        out.push({ kind: 'console', id: s.id, label: s.handle, handle: s.handle, agentState: s.agentState });
+      }
   }
   const groups = nodes.filter((n) => n.kind === 'group');
   const roles = new Set<string>();

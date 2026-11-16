@@ -310,29 +310,11 @@ func (s *Server) handleMentions(w http.ResponseWriter, r *http.Request, p *princ
 	needle := orch.Norm(q.Get("q"))
 	match := func(label string) bool { return needle == "" || strings.Contains(orch.Norm(label), needle) }
 	card := q.Get("cardId")
+	sessions := s.sessions.List()
 	wired := map[string]bool{}
 	if card != "" {
-		nodeSid := map[string]string{}
-		for _, n := range b.Nodes {
-			if n.Kind == board.KindTerminal {
-				nodeSid[n.ID] = n.SessionID()
-			}
-		}
-		for _, e := range b.Edges {
-			if e.Kind != orch.EdgeWire || e.Source != card {
-				continue
-			}
-			if sid, ok := nodeSid[e.Target]; ok {
-				wired[sid] = true
-			}
-			for _, n := range b.Nodes {
-				if n.ID == e.Target && n.Kind == orch.KindGroup {
-					for _, m := range orch.GroupOf(n).Members {
-						wired[nodeSid[m]] = true
-					}
-				}
-			}
-		}
+		// consoles and groups wired to the card, and the agents inside editor cards wired to it
+		wired = orch.DirectedSessions(pr, b, sessions, card)
 	}
 	// The main bar reaches every board of the project, a card only its own.
 	boards := []board.Board{b}
@@ -360,7 +342,6 @@ func (s *Server) handleMentions(w http.ResponseWriter, r *http.Request, p *princ
 	if match("everyone") {
 		out = append(out, mention{Kind: "everyone", ID: "everyone", Label: "everyone"})
 	}
-	sessions := s.sessions.List()
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].WorkspaceID == ws.ID && sessions[j].WorkspaceID != ws.ID })
 	agentsSeen := map[string]bool{}
 	for _, in := range sessions {

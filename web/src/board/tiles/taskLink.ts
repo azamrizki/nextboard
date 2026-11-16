@@ -6,7 +6,7 @@ import type { MenuEntry } from '../../components/Menu';
 import type { Session } from '../../lib/types';
 import { useStoreSessions } from '../../orch/hooks';
 import { useLeadName } from '../../orch/lead';
-import { directedTerminals } from '../groups';
+import { directedSessions } from '../groups';
 import { readOrchestrator } from '../kinds';
 import { useBoardEnv } from '../ui';
 
@@ -29,13 +29,10 @@ export function useTaskLink(id: string, autoRun: boolean) {
     const n = doc.nodes.find((x) => x.id === e.source);
     return n?.kind === 'orchestrator' ? [n] : [];
   });
+  // the agents inside an editor card wired to the lead are on the team too
   const team = cards
-    .flatMap((c) => directedTerminals(doc.nodes, doc.edges, c.id))
-    .flatMap((nid) => {
-      const n = doc.nodes.find((x) => x.id === nid);
-      const s = n && typeof n.data.sessionId === 'string' ? sessions[n.data.sessionId] : undefined;
-      return s ? [s] : [];
-    });
+    .flatMap((c) => directedSessions(doc.nodes, doc.edges, c.id, sessions, { workspaceId: ctl.workspaceId, project: ctl.project }))
+    .flatMap((sid) => (sessions[sid] ? [sessions[sid]] : []));
   const lead = useLeadName(cards[0] ? readOrchestrator(cards[0]).title : undefined);
   const menu: MenuEntry[] = cards.length
     ? [

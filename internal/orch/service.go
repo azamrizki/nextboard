@@ -267,6 +267,7 @@ type scope struct {
 	sidOf    map[string]string      // terminal node id → sessionId
 	wsOf     map[string]string      // node id → workspace id
 	groups   []*board.Node          // this board's first, then the others in tab order
+	editors  map[string]*board.Node // Code editor cards by node id
 	card     *board.Node
 	directed map[string]bool // card scope: sessions the card directs
 }
@@ -283,12 +284,17 @@ func (s *Service) newScope(wid, cardID string) (*scope, error) {
 		return nil, err
 	}
 	sc := &scope{proj: proj, ws: ws, b: b, all: s.hub.Sessions(), byID: map[string]session.Info{},
-		nodeOf: map[string]*board.Node{}, sidOf: map[string]string{}, wsOf: map[string]string{}, others: map[string]board.Board{}}
+		nodeOf: map[string]*board.Node{}, sidOf: map[string]string{}, wsOf: map[string]string{}, others: map[string]board.Board{}, editors: map[string]*board.Node{}}
 	for _, in := range sc.all {
 		sc.byID[in.ID] = in
 		// A terminal of the Code workbench's panel is the user's own shell. An
 		// agent opened in the editor takes orders like any other.
 		if in.Panel && !isAgent(in) {
+			continue
+		}
+		// a profile's sign-in console is that account's own CLI: an order typed there would be
+		// a real turn on it
+		if in.SignIn {
 			continue
 		}
 		if in.WorkspaceID == wid || (cardID == "" && in.ProjectID == proj.ID) {
@@ -334,11 +340,36 @@ func (sc *scope) addBoard(wid string, b board.Board) {
 			sc.sidOf[n.ID] = n.SessionID()
 		case KindGroup:
 			sc.groups = append(sc.groups, n)
+		case KindEditor:
+			sc.editors[n.ID] = n
 		}
 	}
 }
 
-// wiredSessions lists consoles wired to a node directly or through a group.
+// boardScope is one board alone, enough to follow its wires (a loop, the memory walk, the
+// mentions of a card). all lets a wire to an editor card reach the agents opened in it.
+func boardScope(proj project.Project, wid string, b board.Board, all []session.Info) *scope {
+	sc := &scope{proj: proj, b: b, all: all, byID: map[string]session.Info{}, nodeOf: map[string]*board.Node{}, sidOf: map[string]string{},
+		wsOf: map[string]string{}, others: map[string]board.Board{}, editors: map[string]*board.Node{}}
+	for _, in := range all {
+		sc.byID[in.ID] = in
+	}
+	sc.addBoard(wid, b)
+	return sc
+}
+
+// DirectedSessions are the sessions an orchestrator card on board b directs: the consoles wired to
+// it, the members of groups wired to it, and the agents opened inside editor cards wired to it.
+func DirectedSessions(proj project.Project, b board.Board, all []session.Info, cardID string) map[string]bool {
+	out := map[string]bool{}
+	for _, sid := range boardScope(proj, b.WorkspaceID, b, all).wiredSessions(cardID) {
+		out[sid] = true
+	}
+	return out
+}
+
+// wiredSessions lists consoles wired to a node directly or through a group, and the agents
+// inside an editor card wired to it.
 func (sc *scope) wiredSessions(src string) []string {
 	var out []string
 	wired := func(b board.Board) {
@@ -385,7 +416,8 @@ func (sc *scope) boardsNote(sids []string) string {
 	return fmt.Sprintf(" (on %d boards)", len(seen))
 }
 
-// nodeSessions: a terminal node's session or a group's members' sessions.
+// nodeSessions: a terminal node's session, a group's members' sessions, or the agents opened
+// inside an editor card.
 func (sc *scope) nodeSessions(nodeID string) []string {
 	if sid, ok := sc.sidOf[nodeID]; ok {
 		return []string{sid}
@@ -401,7 +433,60 @@ func (sc *scope) nodeSessions(nodeID string) []string {
 			return out
 		}
 	}
+	if ed := sc.editors[nodeID]; ed != nil {
+		return sc.editorAgents(ed)
+	}
 	return nil
+}
+
+// editorAgents are the agents opened inside an editor card (docs/API-studio.md §7.8): the panel
+// agents of its board that name it as their card. One that names no card (opened before cards
+// were recorded), or a card no longer on its board, belongs to the card of its placement there,
+// else to a Root card, which shows every part. The user's own terminals in the editor are not
+// agents and are never directed.
+func (sc *scope) editorAgents(ed *board.Node) []string {
+	wid := sc.wsOf[ed.ID]
+	at := editorPlace(sc.proj, ed)
+	var out []string
+	for _, in := range sc.all {
+		if !in.Panel || !isAgent(in) || in.SignIn || in.WorkspaceID != wid {
+			continue
+		}
+		if in.Card == ed.ID {
+			out = append(out, in.ID)
+			continue
+		}
+		if own := sc.editors[in.Card]; own != nil && sc.wsOf[own.ID] == wid {
+			continue // opened in another card of this board
+		}
+		place := sessionPlace(sc.proj, in)
+		if place == at || (at == "" && !sc.editorAt(wid, place)) {
+			out = append(out, in.ID)
+		}
+	}
+	return out
+}
+
+// editorAt reports an editor card of that placement on the board.
+func (sc *scope) editorAt(wid, place string) bool {
+	for id, n := range sc.editors {
+		if sc.wsOf[id] == wid && editorPlace(sc.proj, n) == place {
+			return true
+		}
+	}
+	return false
+}
+
+// sessionPlace is where a console works, as editorPlace gives a card's: "" at the root or in a
+// project of one part, else its part's id, and "-" in no part of the project.
+func sessionPlace(proj project.Project, in session.Info) string {
+	if in.Root || len(proj.Parts) < 2 {
+		return ""
+	}
+	if _, ok := proj.PartByID(in.PartID); ok {
+		return in.PartID
+	}
+	return "-"
 }
 
 func uniq(l []string) []string {
@@ -508,7 +593,7 @@ func (sc *scope) resolve(names []string) resolution {
 		}
 		var hit *session.Info
 		for i := range sc.all {
-			if Norm(sc.all[i].Handle) == n {
+			if Norm(sc.all[i].Handle) == n && !sc.all[i].SignIn {
 				hit = &sc.all[i]
 				break
 			}
@@ -562,7 +647,7 @@ func (sc *scope) resolve(names []string) resolution {
 		}
 		var cands []string
 		for _, in := range sc.all {
-			if in.Handle == "" || (sc.directed != nil && !sc.directed[in.ID]) {
+			if in.Handle == "" || in.SignIn || (sc.directed != nil && !sc.directed[in.ID]) {
 				continue
 			}
 			if Similar(n, Norm(in.Handle)) {

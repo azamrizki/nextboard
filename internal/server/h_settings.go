@@ -251,7 +251,7 @@ func (s *Server) handleProfileSignIn(w http.ResponseWriter, r *http.Request, p *
 	id := pf.ID
 	in, err := s.sessions.Create(session.CreateRequest{
 		MachineID: machine.LocalID, Agent: a.ID, Name: "Sign in · " + pf.Name, Cwd: dir, Cols: 100, Rows: 30,
-		ProfileID: &id, Panel: true, ProjectID: proj.ID, WorkspaceID: ws.ID,
+		ProfileID: &id, Panel: true, SignIn: true, ProjectID: proj.ID, WorkspaceID: ws.ID,
 	})
 	if err != nil {
 		s.sessionErr(w, err)

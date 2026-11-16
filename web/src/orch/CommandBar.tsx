@@ -139,7 +139,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
   const liveConsoles = projectSessions.filter((s) => s.status !== 'exited');
   const liveBoards = new Set(liveConsoles.map((s) => s.workspaceId)).size;
 
-  const local = () => localMentions(ctl.nodes, ctl.sync.state.edges, store.getState().sessions, (a) => agentById(a)?.name ?? a);
+  const local = () => localMentions(ctl.nodes, ctl.sync.state.edges, store.getState().sessions, (a) => agentById(a)?.name ?? a, null, { workspaceId: ctl.workspaceId, project: ctl.project });
   // Other boards' groups are only known to the hub: target chips ask it once an @ appears.
   const hasAt = text.includes('@');
   const [hubMentions, setHubMentions] = useState<Mention[]>([]);

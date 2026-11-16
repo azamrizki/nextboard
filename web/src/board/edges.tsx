@@ -1,6 +1,7 @@
 // Edges of board v2 that the hub understands (docs/API-orchestration.md §1):
 //   wire    orchestrator / memory / editor / content tile → console or group (who a card
-//           directs, briefs or gives its content to)
+//           directs, briefs or gives its content to); orchestrator → editor card (the agents
+//           opened inside it)
 //   forward console or group → console or group (results of finished turns go on)
 // Routed by wireRoute: from the border of one tile to the other, around whatever is in
 // the way, so they follow tiles of any size without fixed handle positions.
@@ -11,7 +12,7 @@ import type { BoardEdge } from '../lib/types';
 import { useContext } from 'react';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { useSessionsValue } from '../orch/hooks';
-import { groupSessions, noAgentReason } from './groups';
+import { editorAgents, groupSessions, noAgentReason } from './groups';
 import { BoardEnvContext } from './ui';
 import { draftRoute, routeWire, type Box, type Route, type Side } from './wireRoute';
 
@@ -97,7 +98,13 @@ function useWireBusy(source: string, target: string): boolean {
     if (!ctl || ctl.node(source)?.kind !== 'orchestrator') return false;
     const node = ctl.node(target);
     if (!node) return false;
-    const list = node.kind === 'group' ? groupSessions(ctl.nodes, node) : [sessions[String(node.data.sessionId)]];
+    // a wired editor card: the agents opened inside it
+    const list =
+      node.kind === 'group'
+        ? groupSessions(ctl.nodes, node)
+        : node.kind === 'editor'
+          ? editorAgents(ctl.nodes, node, Object.values(sessions), { workspaceId: ctl.workspaceId, project: ctl.project })
+          : [sessions[String(node.data.sessionId)]];
     return list.some((s) => s && s.status === 'running' && (s.agentState === 'working' || (s.queue ?? 0) > 0));
   });
 }

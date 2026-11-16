@@ -22,6 +22,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/agent"
 	"github.com/azamrizki/nextboard/internal/agentstate"
 	"github.com/azamrizki/nextboard/internal/auth"
+	"github.com/azamrizki/nextboard/internal/board"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/marker"
 	"github.com/azamrizki/nextboard/internal/profiles"
@@ -90,6 +91,10 @@ type CreateRequest struct {
 	Root bool `json:"root,omitempty"`
 	// Panel: no board node (a terminal or agent of the Code workbench).
 	Panel bool `json:"panel"`
+	// Card: with Panel, the editor card (node id) the pane is opened in. Ignored without Panel.
+	Card string `json:"card,omitempty"`
+	// SignIn: set by the hub for a profile's sign-in console only; never from a client.
+	SignIn bool `json:"-"`
 }
 
 // RestartRequest is the body of POST /api/sessions/{id}/restart.
@@ -733,6 +738,11 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 	if req.Root && (req.PartID != "" || req.MachineID != machine.LocalID || req.ProjectID == "") {
 		return Info{}, ErrBadRequest
 	}
+	if !req.Panel {
+		req.Card = ""
+	} else if req.Card != "" && !board.IDRe.MatchString(req.Card) {
+		return Info{}, ErrBadRequest
+	}
 	if readOnly && (!st.Agents.RemoteTools || !a.WorksOnServers() || m.RemoteWorkDir == nil) {
 		return Info{}, ErrPartReadOnly
 	}
@@ -818,7 +828,7 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		Command: a.Command, Args: append([]string{}, a.Args...), ResumeArgs: append([]string{}, a.Resume.ContinueArgs...),
 		Env: append([]string{}, a.Env...), Cwd: cwd,
 		Cols: clamp(req.Cols, 10, 500), Rows: clamp(req.Rows, 4, 300),
-		CreatedAt: time.Now().UTC(), ProjectID: req.ProjectID, WorkspaceID: req.WorkspaceID, PartID: req.PartID, Root: req.Root, Panel: req.Panel,
+		CreatedAt: time.Now().UTC(), ProjectID: req.ProjectID, WorkspaceID: req.WorkspaceID, PartID: req.PartID, Root: req.Root, Panel: req.Panel, Card: req.Card, SignIn: req.SignIn,
 		Agent: a.ID, AgentKind: a.Kind, Yolo: yolo, ProfileID: profileID, ProviderID: providerID, AgentSessionID: aid,
 		Model: model, Effort: effort,
 	}

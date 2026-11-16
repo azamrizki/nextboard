@@ -482,7 +482,7 @@ func TestTasksGoByPart(t *testing.T) {
 	}
 	// Web's card to Web1, the Api card (no console there) to the root console
 	var tile *taskTile
-	for _, x := range taskTilesOf(mustBoard(t, h, wid)) {
+	for _, x := range taskTilesOf(mustBoard(t, h, wid), nil) {
 		tile = x
 	}
 	s.runTasks(wid, tile)

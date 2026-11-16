@@ -72,8 +72,9 @@ type taskTile struct {
 	data map[string]any
 }
 
-// taskTilesOf lists the task boards of a board that a card is wired to.
-func taskTilesOf(b board.Board) []*taskTile {
+// taskTilesOf lists the task boards of a board that a card is wired to. editorAgents answers who
+// is inside an editor card the lead is wired to: they are on its team too (nil = no one).
+func taskTilesOf(b board.Board, editorAgents func(nodeID string) []string) []*taskTile {
 	byID := map[string]*board.Node{}
 	for _, n := range b.Nodes {
 		byID[n.ID] = n
@@ -93,10 +94,15 @@ func taskTilesOf(b board.Board) []*taskTile {
 			out = append(out, t)
 		}
 		for _, w := range b.Edges {
-			if w.Kind == EdgeWire && w.Source == src.ID {
-				for _, sid := range nodeSessionIDs(b, w.Target) {
-					t.team[sid] = true
-				}
+			if w.Kind != EdgeWire || w.Source != src.ID {
+				continue
+			}
+			sids := nodeSessionIDs(b, w.Target)
+			if n := byID[w.Target]; n != nil && n.Kind == KindEditor && editorAgents != nil {
+				sids = editorAgents(w.Target)
+			}
+			for _, sid := range sids {
+				t.team[sid] = true
 			}
 		}
 	}
@@ -325,7 +331,7 @@ func (s *Service) syncTasks(o Order) {
 		if err != nil {
 			continue
 		}
-		for _, t := range taskTilesOf(b) {
+		for _, t := range taskTilesOf(b, s.editorAgentsOf(wid, b)) {
 			changed := false
 			for _, target := range targets {
 				if t.team[target.SessionID] && followTarget(t, o, target) {
@@ -370,7 +376,7 @@ func (s *Service) tasksTick(now time.Time) {
 		if err != nil {
 			continue
 		}
-		for _, t := range taskTilesOf(b) {
+		for _, t := range taskTilesOf(b, s.editorAgentsOf(in.WorkspaceID, b)) {
 			if t.data["autoRun"] == true {
 				s.runTasks(in.WorkspaceID, t)
 			}
@@ -628,7 +634,7 @@ func (s *Service) applyTaskEdit(c *execCtx, st Step) error {
 // it needs to name it, also those no lead is wired to yet.
 func tasksForPlanner(b board.Board, name string) []map[string]any {
 	linked := map[string]bool{}
-	for _, t := range taskTilesOf(b) {
+	for _, t := range taskTilesOf(b, nil) {
 		linked[t.node.ID] = true
 	}
 	out := []map[string]any{}
