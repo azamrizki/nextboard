@@ -725,7 +725,7 @@ Needs Go 1.26+ and Node 22+. Go module: `github.com/azamrizki/nextboard`. `go in
 |---|---|
 | `make dev` | Hub + Vite; web `:15173`, hub `:12312`, data `./.devdata`, which `scripts/devinstance` makes the instance `dev` (cookie `nb_session_http_dev`, so it does not log the browser out of an installed hub on the same host; one login again after the upgrade); a changed Go file → the hub restarts through air (`RELOAD=0` turns this off) |
 | `make dev-hub`, `make dev-web` | One side only |
-| `make test` | `go vet` + `go test -race ./...` |
+| `make test` | `go vet` + `go test -race -timeout 30m ./...` |
 | `make test-web` | Web unit tests (Vitest); needs `web/node_modules` |
 | `make test-e2e` | Browser tests (Playwright) against a temporary hub with fake agents; needs `cd web && npx playwright install chromium` once. Not part of the release workflow |
 | `make test-ssh` | SSH tests against a temporary sshd |
@@ -747,7 +747,7 @@ Needs Go 1.26+ and Node 22+. Go module: `github.com/azamrizki/nextboard`. `go in
 
 **Rules on a shared host.** If This PC also runs other services, the tests use the same memory, and `/tmp` may have a per-user quota. A recursive test helper once spawned hundreds of `Xtigervnc` processes until the OOM killer hit other services. So: tests that spawn processes are run as one small case first with `-timeout`, leftover processes are counted afterwards, and a test must not exec itself without a guard.
 
-**CI and releases (decision #36).** During development, CI does not run on every push or pull request, so run the tests yourself before pushing. A release is started by hand from Actions or with `gh workflow run release.yml`, with `-f dry_run=true` to see the next version without publishing anything. The workflow runs `make web`, `make test-web`, `go vet`, `NEXTBOARD_SSHD_TEST=1 go test -race ./...`, and a trial goreleaser build. Once everything passes, semantic-release works out the version from the commit messages since the last tag and creates the tag, then goreleaser publishes linux/darwin × amd64/arm64 + `checksums.txt`. A tag pushed by hand no longer triggers anything. The first release, `v0.1.0`, came out 2026-11-05 through a manual tag.
+**CI and releases (decision #36).** During development, CI does not run on every push or pull request, so run the tests yourself before pushing. A release is started by hand from Actions or with `gh workflow run release.yml`, with `-f dry_run=true` to see the next version without publishing anything. The workflow runs `make web`, `make test-web`, `go vet`, `NEXTBOARD_SSHD_TEST=1 go test -race -timeout 30m ./...` (internal/server alone takes close to ten minutes there), and a trial goreleaser build. Once everything passes, semantic-release works out the version from the commit messages since the last tag and creates the tag, then goreleaser publishes linux/darwin × amd64/arm64 + `checksums.txt`. A tag pushed by hand no longer triggers anything. The first release, `v0.1.0`, came out 2026-11-05 through a manual tag.
 
 Commits use Conventional Commits: `fix:`, `perf:`, `revert:` → patch; `feat:` → minor; `docs:`, `test:`, `ci:`, `chore:`, and other commits → no release. Before 1.0, a breaking change (`feat!:`, a `BREAKING CHANGE:` footer) is also minor. The rules are in `.releaserc.json`.
 

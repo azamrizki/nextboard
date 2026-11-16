@@ -41,7 +41,8 @@ jobs:
       - run: make web
       - run: make test-web
       - run: go vet ./...
-      - run: NEXTBOARD_SSHD_TEST=1 go test -race ./...
+      # internal/server alone took 568 s of the default 600 s at v0.9.0: room to grow
+      - run: NEXTBOARD_SSHD_TEST=1 go test -race -timeout 30m ./...
 
       - uses: goreleaser/goreleaser-action@v6
         with:
