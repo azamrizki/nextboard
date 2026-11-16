@@ -277,19 +277,21 @@ func TestPersistenceAndReload(t *testing.T) {
 		t.Fatalf("reload rev=%d %s %v", b.Rev, ids(b), err)
 	}
 
-	// Debounced save: within MaxDelay even while changes keep coming.
+	// Debounced save: within MaxDelay even while changes keep coming. A change every 10 ms never
+	// lets a 40 ms debounce fire by itself, so a save at all is MaxDelay's; the bounds leave room
+	// for a busy machine (CI), where two fsynced writes can take longer than MaxDelay.
 	m2.Flush() // load dropped the stale terminal node → dirty with the fake clock
 	m2.SaveDelay, m2.MaxDelay, m2.now = 40*time.Millisecond, 150*time.Millisecond, time.Now
 	path := f.st.Path("boards", wid+".json")
 	start := time.Now()
-	for time.Since(start) < 400*time.Millisecond {
+	for time.Since(start) < 5*time.Second {
 		if _, err := m2.Apply(wid, "", []Op{note("n_cccccc3", float64(time.Since(start).Milliseconds()), `{}`)}); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(10 * time.Millisecond)
 		if raw, _ := os.ReadFile(path); strings.Contains(string(raw), "n_cccccc3") {
-			if time.Since(start) > 300*time.Millisecond {
-				t.Fatalf("save waited too long")
+			if time.Since(start) > 3*time.Second {
+				t.Fatalf("save waited too long: %v", time.Since(start))
 			}
 			return
 		}

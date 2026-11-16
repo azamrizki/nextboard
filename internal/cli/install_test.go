@@ -70,14 +70,25 @@ func nextboardBinary(t *testing.T) string {
 	return builtBin
 }
 
+// portsGiven are the ports freePort handed out: the kernel can give a port it just freed again,
+// and two listen lines on one port break a config (nginx: "duplicate listen").
+var portsGiven sync.Map
+
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for range 50 {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+		if _, dup := portsGiven.LoadOrStore(port, true); !dup {
+			return port
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	t.Fatal("no free port that was not handed out already")
+	return 0
 }
 
 // box is a scratch user: a home folder, and a PATH with fakes in front.
