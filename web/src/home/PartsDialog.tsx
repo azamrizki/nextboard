@@ -4,7 +4,7 @@
 // any one can be renamed, moved, split off or removed while one is left; the order is only the
 // order they are shown in. A part's name is its folder's name in the project root.
 
-import { useEffect, useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { ApiError, api, errorMessage } from '../api';
 import { machineReady, machineStatus } from '../board/sessionStatus';
 import { Button } from '../components/Button';
@@ -165,6 +165,12 @@ function PartRow({
     if (await onBlocked(draft.split('\n').map((l) => l.trim()).filter(Boolean))) setEditing(false);
   };
   const [name, setName] = useState(part.name);
+  // renamed in another tab or on another device: the field follows unless it was typed in, so
+  // that leaving it never writes the old name back
+  const edited = useRef(false);
+  useEffect(() => {
+    if (!edited.current) setName(part.name);
+  }, [part.name]);
   // shown at once, and back if the hub refuses
   const [readOnly, setReadOnly] = useState(!!part.readOnly);
   useEffect(() => setReadOnly(!!part.readOnly), [part.readOnly]);
@@ -174,6 +180,8 @@ function PartRow({
   };
   const [nameError, setNameError] = useState('');
   const save = async () => {
+    if (!edited.current) return;
+    edited.current = false;
     const v = name.trim().slice(0, NAME_MAX);
     if (!v || v === part.name) {
       setNameError('');
@@ -182,6 +190,7 @@ function PartRow({
     // a part's name is a folder name in the project root: said here, before the hub refuses it
     const problem = partNameProblem(v);
     if (problem) {
+      edited.current = true; // the draft stays, with what is wrong with it
       setNameError(problem);
       return;
     }
@@ -199,6 +208,7 @@ function PartRow({
           aria-invalid={nameError ? true : undefined}
           aria-describedby={nameError ? `part-name-err-${part.id}` : undefined}
           onChange={(e) => {
+            edited.current = true;
             setName(e.target.value);
             if (nameError) setNameError('');
           }}
@@ -207,6 +217,7 @@ function PartRow({
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             if (e.key === 'Escape') {
               e.stopPropagation();
+              edited.current = false;
               setName(part.name);
               setNameError('');
             }

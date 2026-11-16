@@ -448,14 +448,25 @@ export class Workspace implements ViewApi, PartView {
 
   /** The project changed (a part renamed, added, removed or moved): the card follows, its tabs stay. */
   private setProject(project: Project) {
+    const was = this.paths.mounts;
+    const { mounts, multi } = mountsOf(project, this.placement);
+    const renamed = this.name !== project.name || mounts.some((m, i) => m.name !== was[i]?.name || !!m.readOnly !== !!was[i]?.readOnly);
     this.project = project;
     this.name = project.name;
-    const { mounts, multi } = mountsOf(project, this.placement);
-    const same = mounts.length === this.paths.mounts.length && mounts.every((m, i) => m.partId === this.paths.mounts[i].partId && m.machineId === this.paths.mounts[i].machineId && m.root === this.paths.mounts[i].root);
+    const same = mounts.length === was.length && mounts.every((m, i) => m.partId === was[i].partId && m.machineId === was[i].machineId && m.root === was[i].root);
     this.paths = new ViewPaths(mounts, multi);
-    if (!same) this.setParts(project, mounts);
+    // the same parts: their services take the new names (setParts does that for a new set)
+    const all = projectParts(project);
+    if (same) for (const m of mounts) PartService.get(project, all.find((p) => p.id === m.partId)!);
+    else this.setParts(project, mounts);
     this.dropBorrowed(project);
-    if (same) return;
+    if (same) {
+      // only a name or read-only changed: the card shows it now, not at its next change
+      if (!renamed) return;
+      if (this.paths.multi && this.items.has(ROOT_KEY)) this.items.set(ROOT_KEY, this.rootEntries());
+      this.changed();
+      return;
+    }
     // the clean tabs of a part that went close; dirty ones stay, as outside files
     for (const g of [...this.groups]) {
       for (const t of [...g.tabs]) {

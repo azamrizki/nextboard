@@ -45,7 +45,7 @@ export class PartService implements DocPart {
   readonly root: string;
   readonly rootKey: FileKey;
   readonly ref: string;
-  readonly readOnly: boolean;
+  readOnly: boolean;
   readonly lsp: LspHub;
 
   git: GitStatus | null = null;
@@ -83,7 +83,12 @@ export class PartService implements DocPart {
       s = new PartService(project, part);
       services.set(m.ref, s);
     }
-    s.name = part.name;
+    // renamed or made read-only in another tab or by the hub: every card that mounts it shows it
+    if (s.name !== part.name || s.readOnly !== !!part.readOnly) {
+      s.name = part.name;
+      s.readOnly = !!part.readOnly;
+      s.changed();
+    }
     return s;
   }
 
