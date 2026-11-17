@@ -3216,12 +3216,56 @@
   color: var(--c-danger-300);
   font-weight: normal;
 }
-.wb-part-machine {
+/* a Root card's part rows: the name in plain text (the dot says what git sees), then the machine
+   and the dot in fixed columns at the right, so every row lines up whatever it shows */
+.wb-row.is-part > .wb-row-name {
+  flex: 1 1 auto;
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+.wb-part-end {
   flex: 0 1 auto;
   min-width: 0;
+  max-width: 58%;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.wb-part-machine {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   color: var(--text-3);
   font-size: var(--fs-xs);
+}
+.wb-part-machine svg {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+}
+.wb-part-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.wb-part-dot.is-none {
+  visibility: hidden;
+}
+.git-added .wb-part-dot {
+  color: var(--git-added);
+}
+.git-modified .wb-part-dot {
+  color: var(--git-modified);
+}
+.git-renamed .wb-part-dot {
+  color: var(--git-renamed);
+}
+.git-deleted .wb-part-dot {
+  color: var(--git-deleted);
 }
 .wb-scm-part + .wb-scm-part {
   border-top: var(--hairline) solid var(--wb-line);

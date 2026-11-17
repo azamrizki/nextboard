@@ -463,7 +463,7 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
               aria-level={r.depth + 1}
               aria-expanded={e.dir ? open : undefined}
               aria-selected={selected}
-              className={`wb-row ${selected ? 'is-selected' : ''} ${dim ? 'is-dim' : ''} ${cut ? 'is-cut' : ''} ${mark ? `git-${mark.tone}` : ''} ${dirTone ? `git-${dirTone}` : ''} ${dropOn === r.path ? 'is-drop' : ''}`}
+              className={`wb-row ${top ? 'is-part' : ''} ${selected ? 'is-selected' : ''} ${dim ? 'is-dim' : ''} ${cut ? 'is-cut' : ''} ${mark ? `git-${mark.tone}` : ''} ${dirTone ? `git-${dirTone}` : ''} ${dropOn === r.path ? 'is-drop' : ''}`}
               style={style}
               title={top ? `${top.name}: ${top.root} on ${machineName(top.machineId)}` : ws.label(r.path)}
               draggable={!top}
@@ -491,10 +491,22 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
               {e.dir ? <Icon name={open ? 'chevronDown' : 'chevronRight'} className="wb-chev" /> : <span className="wb-chev" aria-hidden="true" />}
               <FileIcon name={e.name} dir={e.dir} open={open} />
               <span className="wb-row-name truncate">{e.name}</span>
-              {remote && <span className="wb-part-machine truncate">{machineName(top.machineId)}</span>}
-              {review && <span className="wb-rv-mark" title={`Changed by ${review.join(', ')}. Check it in Review.`} aria-label={`Changed by ${review.join(', ')}`} />}
-              {mark && <span className="wb-row-mark">{mark.letter}</span>}
-              {dirTone && <span className="wb-row-dot" aria-hidden="true" />}
+              {top ? (
+                // a part's row: its machine and its git state in two fixed columns, so the rows line up
+                <span className="wb-part-end">
+                  <span className="wb-part-machine">
+                    <Icon name={remote ? 'server' : 'monitor'} />
+                    <span className="truncate">{machineName(top.machineId)}</span>
+                  </span>
+                  <span className={`wb-part-dot ${dirTone ? '' : 'is-none'}`} aria-hidden="true" />
+                </span>
+              ) : (
+                <>
+                  {review && <span className="wb-rv-mark" title={`Changed by ${review.join(', ')}. Check it in Review.`} aria-label={`Changed by ${review.join(', ')}`} />}
+                  {mark && <span className="wb-row-mark">{mark.letter}</span>}
+                  {dirTone && <span className="wb-row-dot" aria-hidden="true" />}
+                </>
+              )}
             </div>
           );
         })}
