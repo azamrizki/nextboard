@@ -2012,3 +2012,48 @@ textarea.control.prose {
 .live-pop .popover-head h2 {
   font-size: var(--fs-md);
 }
+
+/* A cover made as a background (DESIGN.md §3.11 Cover): the name is set over it here, in the
+   same type and place on every card, on a dark gradient that fades to transparent toward the
+   right. Sizes follow the cover's own height, so a wide card and the dialog's preview match. */
+.project-cover.has-title {
+  container-type: size;
+}
+.cover-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3cqh;
+  padding: 0 7cqw;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.62) 30%, rgba(0, 0, 0, 0.18) 58%, transparent 74%);
+  pointer-events: none;
+}
+.cover-title {
+  max-width: 62%;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-size: 30cqh;
+  font-weight: var(--fw-heavy);
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cover-accent, #fff);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.45);
+}
+.cover-tagline {
+  max-width: 62%;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-size: 10.5cqh;
+  font-weight: var(--fw-medium);
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}

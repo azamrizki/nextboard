@@ -561,6 +561,10 @@ func TestProjectArt(t *testing.T) {
 	if got.Cover == nil || got.Cover.Source != "ai" || got.Cover.AssetID != res["assetId"] || !h.srv.isImageAsset(got.Cover.AssetID) {
 		t.Fatalf("cover %+v", got.Cover)
 	}
+	// a background: the clients set the name over it, with the tool's tagline
+	if !got.Cover.Title || got.Cover.Tagline != "Plants watered on time" || res["title"] != true || res["tagline"] != "Plants watered on time" {
+		t.Fatalf("cover title %+v, result %v", got.Cover, res)
+	}
 	prompt, _ := os.ReadFile(filepath.Join(logDir, "prompt"))
 	if !strings.Contains(string(prompt), "Waters balcony plants") || strings.Contains(string(prompt), "hidden-value") {
 		t.Fatalf("prompt %s", prompt)
@@ -679,5 +683,9 @@ home="${CODEX_HOME:-$HOME/.codex}"
 mkdir -p "$home/generated_images/01a2b3c4-1111-7222-8333-444455556666"
 f="$home/generated_images/01a2b3c4-1111-7222-8333-444455556666/exec-$$.png"
 cp "$FAKE_PNG" "$f"
+out=""
+prev=""
+for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
+[ -n "$out" ] && printf '%s\nPlants watered on time\n' "$f" > "$out"
 echo "$f"
 `

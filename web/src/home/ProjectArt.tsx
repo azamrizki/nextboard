@@ -2,7 +2,7 @@
 // the picture loads, so nothing moves when it arrives, and a picture that cannot load leaves the
 // quiet fallback (a gradient in the project's tone, the monogram).
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { assetUrl } from '../api';
 import type { Project } from '../lib/types';
 
@@ -28,12 +28,46 @@ function Picture({ id, onFail }: { id: string; onFail: () => void }) {
   return <img src={assetUrl(id)} alt="" decoding="async" loading="lazy" draggable={false} className={loaded ? 'is-loaded' : ''} onLoad={() => setLoaded(true)} onError={onFail} />;
 }
 
+const LABELS = 'prod|production|dev|develop|development|staging|stage|stg|uat|qa|test|testing|local|demo|sandbox|preprod|beta|live';
+const SEP = '[-–—:|/_.]';
+const LABEL_RE = new RegExp(
+  `^\\s*[\\[(](${LABELS})[\\])]\\s*${SEP}*\\s*|^\\s*(${LABELS})\\s*${SEP}+\\s*|\\s*${SEP}+\\s*(${LABELS})\\s*$|\\s*[\\[(](${LABELS})[\\])]\\s*$`,
+  'i',
+);
+
+/**
+ * The project's name as a cover carries it: without working labels such as "PROD - " or
+ * "(staging)", at most 40 characters (the same rule as the hub's art.DisplayName).
+ */
+export function coverTitle(name: string): string {
+  let s = name.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  for (let prev = ''; s !== prev; ) {
+    prev = s;
+    s = s.replace(LABEL_RE, '').trim();
+  }
+  s = s.replace(/["“”`]/g, '');
+  return Array.from(s).slice(0, 40).join('').trim();
+}
+
+const ACCENT = /^#[0-9A-Fa-f]{6}$/;
+
 export function ProjectCover({ project: p, className = '' }: { project: Project; className?: string }) {
   const id = p.cover?.assetId;
   const [failed, setFailed] = useState('');
+  const shown = !!id && failed !== id;
+  // A cover made as a background gets the name set over it here, always in the same type and
+  // place, and it follows a rename (DESIGN.md §3.11 Cover).
+  const title = shown && p.cover?.title ? coverTitle(p.name) : '';
+  const accent = p.cover?.accent && ACCENT.test(p.cover.accent) ? p.cover.accent : undefined;
   return (
-    <div className={`project-cover tone-${monogramTone(p.id)} ${className}`} aria-hidden="true">
-      {id && failed !== id && <Picture key={id} id={id} onFail={() => setFailed(id)} />}
+    <div className={`project-cover tone-${monogramTone(p.id)} ${title ? 'has-title' : ''} ${className}`} aria-hidden="true">
+      {shown && <Picture key={id} id={id} onFail={() => setFailed(id)} />}
+      {title && (
+        <div className="cover-frame" style={accent ? ({ '--cover-accent': accent } as CSSProperties) : undefined}>
+          <span className="cover-title">{title}</span>
+          {p.cover?.tagline && <span className="cover-tagline">{p.cover.tagline}</span>}
+        </div>
+      )}
     </div>
   );
 }

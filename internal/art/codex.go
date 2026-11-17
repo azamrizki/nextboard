@@ -136,23 +136,23 @@ var (
 )
 
 // Generate runs codex once and returns the bytes of the image it made.
-func (c Codex) Generate(ctx context.Context, kind, prompt string, progress func(phase, text string)) ([]byte, error) {
+func (c Codex) Generate(ctx context.Context, kind, prompt string, progress func(phase, text string)) ([]byte, string, error) {
 	feats, err := c.features(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if !feats["image_generation"] {
-		return nil, fail("no_image_tool", "Codex's image_generation feature is off")
+		return nil, "", fail("no_image_tool", "Codex's image_generation feature is off")
 	}
 	flags := c.optionalFlags(ctx)
 	dir, err := os.MkdirTemp(c.TempDir, "nb-art-")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer os.RemoveAll(dir)
 	work := filepath.Join(dir, "work")
 	if err := os.Mkdir(work, 0o700); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	reply := filepath.Join(dir, "reply.txt")
 	argv := []string{c.command(), "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-C", work, "-o", reply,
@@ -182,20 +182,20 @@ func (c Codex) Generate(ctx context.Context, kind, prompt string, progress func(
 		Timeout: timeout, IdleTimeout: timeout, MaxOutput: replyMax})
 	switch {
 	case ctx.Err() != nil:
-		return nil, ctx.Err()
+		return nil, "", ctx.Err()
 	case err != nil:
-		return nil, fail("cli_failed", "codex could not be started: %v", err)
+		return nil, "", fail("cli_failed", "codex could not be started: %v", err)
 	case res.Cancelled:
-		return nil, context.Canceled
+		return nil, "", context.Canceled
 	case res.TimedOut || res.IdleKilled:
-		return nil, fail("timeout", "Codex made no image within %s", timeout)
+		return nil, "", fail("timeout", "Codex made no image within %s", timeout)
 	}
 	text := readBounded(reply, replyMax) + "\n" + string(res.Stdout) + "\n" + string(res.Stderr)
 	if res.ExitCode != 0 {
 		if notLoggedIn(text) {
-			return nil, fail("cli_not_logged_in", "Codex is not logged in on This PC")
+			return nil, "", fail("cli_not_logged_in", "Codex is not logged in on This PC")
 		}
-		return nil, fail("cli_failed", "codex failed (exit code %d): %s", res.ExitCode, tail(string(res.Stderr), 300))
+		return nil, "", fail("cli_failed", "codex failed (exit code %d): %s", res.ExitCode, tail(string(res.Stderr), 300))
 	}
 	session := ""
 	if m := sessionRe.FindStringSubmatch(text); m != nil {
@@ -203,13 +203,13 @@ func (c Codex) Generate(ctx context.Context, kind, prompt string, progress func(
 	}
 	file, ok := findImage(images, session, text, start, before)
 	if !ok {
-		return nil, fail("no_image", "Codex finished without making an image")
+		return nil, "", fail("no_image", "Codex finished without making an image")
 	}
 	b := readBounded(file, MaxImageBytes+1)
 	if len(b) > MaxImageBytes {
-		return nil, fail("bad_image", "the image file is too large")
+		return nil, "", fail("bad_image", "the image file is too large")
 	}
-	return []byte(b), nil
+	return []byte(b), readBounded(reply, replyMax), nil
 }
 
 // imageFiles lists the images in the folder and in its sub-folders (one per session), by their

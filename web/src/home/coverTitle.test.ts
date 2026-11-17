@@ -1,0 +1,52 @@
+import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { coverTitle, ProjectCover } from './ProjectArt';
+import type { Project } from '../lib/types';
+
+// The same cases as the hub's TestDisplayName (internal/art), so both drop the same labels.
+describe('coverTitle', () => {
+  it('drops working labels around the name', () => {
+    const cases: Record<string, string> = {
+      'PROD - Lumen': 'Lumen',
+      'DEV - Orchard': 'Orchard',
+      tidepool: 'tidepool',
+      'shop (staging)': 'shop',
+      'api-dev': 'api',
+      '[UAT] Harbor Lounge': 'Harbor Lounge',
+      'Prod: Tide pool': 'Tide pool',
+      PROD: 'PROD',
+      'dev - ': '',
+      'Say "hi"\nnow': 'Say hi now',
+      'Production Planner': 'Production Planner',
+    };
+    for (const [name, want] of Object.entries(cases)) expect(coverTitle(name), name).toBe(want);
+  });
+  it('keeps at most 40 characters', () => {
+    expect(coverTitle('x'.repeat(60))).toHaveLength(40);
+  });
+});
+
+
+// A cover made as a background gets the name set over it (from the project's name now, so a
+// rename shows at once), its tagline, and its accent when that is a colour; other covers none.
+describe('ProjectCover', () => {
+  const base = { id: 'p_a', name: 'PROD - Lumen', machineId: 'local', path: '/srv/lumen' } as unknown as Project;
+  const html = (cover: Project['cover']) => renderToStaticMarkup(createElement(ProjectCover, { project: { ...base, cover } }));
+  it('sets the title over a background cover', () => {
+    const out = html({ assetId: 'a_1', source: 'ai', at: '', title: true, tagline: 'Lights that follow you', accent: '#88E500' });
+    expect(out).toContain('class="cover-title">Lumen<');
+    expect(out).toContain('class="cover-tagline">Lights that follow you<');
+    expect(out).toContain('--cover-accent:#88E500');
+  });
+  it('leaves a bad accent out, and the text of the tagline as text', () => {
+    const out = html({ assetId: 'a_1', source: 'ai', at: '', title: true, tagline: '<b>x</b> y', accent: 'red;background:url(x)' });
+    expect(out).not.toContain('--cover-accent');
+    expect(out).toContain('&lt;b&gt;x&lt;/b&gt; y');
+  });
+  it('sets nothing over an upload or an older cover', () => {
+    expect(html({ assetId: 'a_1', source: 'upload', at: '' })).not.toContain('cover-frame');
+    expect(html({ assetId: 'a_1', source: 'ai', at: '' })).not.toContain('cover-frame');
+    expect(html(undefined)).not.toContain('cover-frame');
+  });
+});

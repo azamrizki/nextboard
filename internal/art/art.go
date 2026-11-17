@@ -46,7 +46,7 @@ type Tool interface {
 	// Check says whether the tool can make images now, and why not.
 	Check(ctx context.Context) Capability
 	// Generate makes one image and returns the bytes of the file it produced.
-	Generate(ctx context.Context, kind, prompt string, progress func(phase, text string)) ([]byte, error)
+	Generate(ctx context.Context, kind, prompt string, progress func(phase, text string)) ([]byte, string, error)
 }
 
 // Pick returns the first tool that can make images, or the reason of the first one.
@@ -94,6 +94,12 @@ type Image struct {
 	Type   string // image/png | image/jpeg
 	Width  int
 	Height int
+	// A cover is a background: the card sets the project's name over it (Title). Tagline is the
+	// short line under the name, from the tool's reply and checked ("" when it gave none fit to
+	// show); Accent the brand colour the name is set in ("" = white).
+	Title   bool
+	Tagline string
+	Accent  string
 }
 
 // Process checks that raw is a PNG or JPEG of sane size and makes the stored form: a cover at
@@ -159,10 +165,14 @@ func Make(ctx context.Context, t Tool, kind string, src Source, progress func(ph
 	progress("reading", "Reading the project…")
 	brief := Brief(ctx, src)
 	progress("generating", "Creating the image…")
-	raw, err := t.Generate(ctx, kind, Prompt(kind, brief, DisplayName(src.Name)), progress)
+	raw, reply, err := t.Generate(ctx, kind, Prompt(kind, brief), progress)
 	if err != nil {
 		return Image{}, err
 	}
 	progress("saving", "Saving…")
-	return Process(kind, raw)
+	im, err := Process(kind, raw)
+	if err == nil && kind == KindCover {
+		im.Title, im.Tagline, im.Accent = true, Tagline(reply), Accent(brief)
+	}
+	return im, err
 }

@@ -557,6 +557,12 @@ export interface ProjectImage {
   assetId: string;
   source: 'upload' | 'ai';
   at: string;
+  /** A cover made as a background: the card sets the project's name over it (coverTitle). */
+  title?: boolean;
+  /** The short line under the name. */
+  tagline?: string;
+  /** The colour the name is set in, #RRGGBB; white when absent. */
+  accent?: string;
 }
 
 /** What a bulk request does to each id (API-board §1, docs/API.md Machines). `delete` is permanent. */

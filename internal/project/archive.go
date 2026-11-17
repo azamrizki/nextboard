@@ -28,6 +28,12 @@ type Image struct {
 	AssetID string    `json:"assetId"`
 	Source  string    `json:"source"`
 	At      time.Time `json:"at"`
+	// Title: a cover made as a background, which clients show with the project's name set over
+	// it (the name without working labels), Tagline under it, the name in Accent (#RRGGBB, else
+	// white). Covers from before, and uploads, have their own lettering or none.
+	Title   bool   `json:"title,omitempty"`
+	Tagline string `json:"tagline,omitempty"`
+	Accent  string `json:"accent,omitempty"`
 }
 
 // ImageChange in a Patch sets an image (Image) or removes it (Image nil).

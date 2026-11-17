@@ -195,14 +195,18 @@ func (s *Server) runArt(ctx context.Context, rep *jobs.Reporter, pid, kind strin
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.projects.SetImage(pid, kind, &project.Image{AssetID: id, Source: project.ImageAI, At: time.Now().UTC()}); err != nil {
+	if _, err := s.projects.SetImage(pid, kind, &project.Image{AssetID: id, Source: project.ImageAI, At: time.Now().UTC(), Title: img.Title, Tagline: img.Tagline, Accent: img.Accent}); err != nil {
 		if errors.Is(err, project.ErrNotFound) {
 			return nil, &jobs.FuncError{Code: "project_not_found", Msg: "the project was deleted meanwhile"}
 		}
 		return nil, err
 	}
 	s.emitProject(pid)
-	return json.Marshal(map[string]any{"kind": kind, "assetId": id, "url": "/api/assets/" + id, "type": img.Type, "w": img.Width, "h": img.Height})
+	out := map[string]any{"kind": kind, "assetId": id, "url": "/api/assets/" + id, "type": img.Type, "w": img.Width, "h": img.Height}
+	if img.Title {
+		out["title"], out["tagline"], out["accent"] = true, img.Tagline, img.Accent
+	}
+	return json.Marshal(out)
 }
 
 // artSource is what the brief reads: the name, the parts' names, every part's folder (on a
