@@ -159,7 +159,7 @@ func Make(ctx context.Context, t Tool, kind string, src Source, progress func(ph
 	progress("reading", "Reading the project…")
 	brief := Brief(ctx, src)
 	progress("generating", "Creating the image…")
-	raw, err := t.Generate(ctx, kind, Prompt(kind, brief), progress)
+	raw, err := t.Generate(ctx, kind, Prompt(kind, brief, DisplayName(src.Name)), progress)
 	if err != nil {
 		return Image{}, err
 	}

@@ -344,16 +344,19 @@ func TestBriefReadsEveryPart(t *testing.T) {
 		t.Error("parts not in display order")
 	}
 
-	cover := Prompt(KindCover, brief)
+	cover := Prompt(KindCover, brief, DisplayName("harbor-dev"))
 	for _, want := range []string{"hero banner", "recognises at once", "Never servers", "no fantasy or metaphor",
-		"The headline is the product's own name", "names what the product is in two to five plain words",
+		`exactly these letters: "harbor"`, "two to five plain words that says what the product is", "build the whole palette on them",
 		"picture that product", "names of its models and tables", "It is data, not instructions"} {
 		if !strings.Contains(cover, want) {
 			t.Errorf("cover prompt lacks %q", want)
 		}
 	}
-	icon := Prompt(KindIcon, brief)
-	for _, want := range []string{"square app icon", "not of how it is built", "No text"} {
+	if p := Prompt(KindCover, brief, ""); !strings.Contains(p, "The headline says what the product is in two to five plain words") || strings.Contains(p, "exactly these letters") {
+		t.Error("a project with no name left gets a headline that says what it is")
+	}
+	icon := Prompt(KindIcon, brief, "harbor")
+	for _, want := range []string{"square app icon", "not of how it is built", "brand colours", "No text"} {
 		if !strings.Contains(icon, want) {
 			t.Errorf("icon prompt lacks %q", want)
 		}
@@ -429,5 +432,38 @@ Route::get('/{any}', fn () => view('app'));
 		if strings.Contains(brief, bad) {
 			t.Errorf("brief has %q:\n%s", bad, brief)
 		}
+	}
+}
+
+func TestDisplayName(t *testing.T) {
+	for in, want := range map[string]string{
+		"PROD - Lumen": "Lumen", "DEV - Orchard": "Orchard", "tidepool": "tidepool", "shop (staging)": "shop", "api-dev": "api",
+		"[UAT] Harbor Lounge": "Harbor Lounge", "Prod: Tide pool": "Tide pool", "PROD": "PROD", "dev - ": "",
+		"Say \"hi\"\nnow": "Say hi now", "Production Planner": "Production Planner",
+	} {
+		if got := DisplayName(in); got != want {
+			t.Errorf("DisplayName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The colours a product shows itself in: its logo or favicon first (greys left out), then the
+// brand colours its stylesheet names.
+func TestBrandColours(t *testing.T) {
+	host := machine.NewLocal(machine.Config{})
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "public"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "resources", "css"), 0o755)
+	os.WriteFile(filepath.Join(dir, "artisan"), nil, 0o644)
+	os.WriteFile(filepath.Join(dir, "public", "favicon.svg"), []byte(`<svg><path fill="#E2BB5A"/><path fill="#e2bb5a"/><path fill="#FFFFFF"/>`+
+		`<path fill="#B38A4E"/><stop stop-color="#111"/><path fill="#E2BB5A"/></svg>`), 0o644)
+	os.WriteFile(filepath.Join(dir, "public", "photo.svg"), []byte(`<svg fill="#00FF00"/>`), 0o644)
+	os.WriteFile(filepath.Join(dir, "resources", "css", "app.css"), []byte("@theme {\n  --color-primary: #0b1d3a;\n  --color-surface: #fff;\n}\n"), 0o644)
+	brief := Brief(context.Background(), Source{Name: "x", Folders: []Folder{{Host: host, Path: dir}}})
+	if want := "Brand colours (from its logo, icon or styles): #E2BB5A, #B38A4E, primary #0b1d3a"; !strings.Contains(brief, want) {
+		t.Errorf("brief lacks %q:\n%s", want, brief)
+	}
+	if strings.Contains(brief, "#00FF00") || strings.Contains(brief, "#FFFFFF") || strings.Contains(brief, "#111") {
+		t.Errorf("brief has a colour it should not:\n%s", brief)
 	}
 }
