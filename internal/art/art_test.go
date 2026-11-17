@@ -356,7 +356,7 @@ func TestBriefReadsEveryPart(t *testing.T) {
 		t.Error("a project with no name left gets a headline that says what it is")
 	}
 	icon := Prompt(KindIcon, brief, "harbor")
-	for _, want := range []string{"square app icon", "not of how it is built", "brand colours", "No text"} {
+	for _, want := range []string{"square app icon", "not for how it is built", "three-quarter angle", "two contrasting tones", "brand colours", "No text"} {
 		if !strings.Contains(icon, want) {
 			t.Errorf("icon prompt lacks %q", want)
 		}
@@ -465,5 +465,48 @@ func TestBrandColours(t *testing.T) {
 	}
 	if strings.Contains(brief, "#00FF00") || strings.Contains(brief, "#FFFFFF") || strings.Contains(brief, "#111") {
 		t.Errorf("brief has a colour it should not:\n%s", brief)
+	}
+}
+
+// A front end whose sources name no colours: its built stylesheet says what the pages look like,
+// the brand colours and the dark colours they are set against.
+func TestColoursFromTheBuild(t *testing.T) {
+	host := machine.NewLocal(machine.Config{})
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "public", "build", "assets"), 0o755)
+	os.WriteFile(filepath.Join(dir, "artisan"), nil, 0o644)
+	css := strings.Repeat(".a{color:#f1cf89}", 6) + strings.Repeat(".b{background:#1A1A1A}", 5) + strings.Repeat(".c{background:#161C26}", 4) +
+		strings.Repeat(".d{color:#D4A052}", 4) + strings.Repeat(".e{color:#ffffff}", 9) + ".f{color:#00ff00}"
+	os.WriteFile(filepath.Join(dir, "public", "build", "assets", "app-Bc7mq.css"), []byte(css), 0o644)
+	os.WriteFile(filepath.Join(dir, "public", "build", "assets", "vendor-x.css"), []byte(strings.Repeat(".z{color:#123456}", 9)), 0o644)
+	brief := Brief(context.Background(), Source{Name: "x", Folders: []Folder{{Host: host, Path: dir}}})
+	for _, want := range []string{"Brand colours (from its logo, icon or styles): #F1CF89, #D4A052", "Dark colours its pages use (backgrounds): #1A1A1A, #161C26"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief lacks %q:\n%s", want, brief)
+		}
+	}
+	for _, bad := range []string{"#00FF00", "#FFFFFF", "#123456"} {
+		if strings.Contains(brief, bad) {
+			t.Errorf("brief has %q:\n%s", bad, brief)
+		}
+	}
+	if p := Prompt(KindIcon, brief, "x"); !strings.Contains(p, "dark colours the brief lists") {
+		t.Error("the icon's second tone comes from the dark colours")
+	}
+}
+
+// An admin panel's colours are its UI kit's: none is taken for the brand.
+func TestNoColoursFromTheBackOffice(t *testing.T) {
+	host := machine.NewLocal(machine.Config{})
+	root := t.TempDir()
+	admin := filepath.Join(root, "shop-admin")
+	os.MkdirAll(filepath.Join(admin, "public"), 0o755)
+	os.WriteFile(filepath.Join(admin, "artisan"), nil, 0o644)
+	os.WriteFile(filepath.Join(admin, "public", "favicon.svg"), []byte(`<svg fill="#F27474"/>`), 0o644)
+	if brief := Brief(context.Background(), Source{Name: "x", Folders: []Folder{{Host: host, Path: root}}}); strings.Contains(brief, "#F27474") {
+		t.Errorf("an admin panel's colour went in:\n%s", brief)
+	}
+	if !grey("#4B5563") || !grey("#1F2937") || grey("#B38A4E") || grey("#E2BB5A") {
+		t.Error("grey")
 	}
 }

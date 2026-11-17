@@ -6,6 +6,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -188,8 +189,14 @@ func appBrief(ctx context.Context, h machine.Host, dir string, top map[string]bo
 		line("Web app theme colour", am.Theme, descMax)
 		line("Web app background colour", am.Background, descMax)
 	}
-	if cols := brandColours(ctx, h, dir, top); len(cols) > 0 {
-		line("Brand colours (from its logo, icon or styles)", strings.Join(cols, ", "), descMax)
+	// an admin panel's or an API's colours are its UI kit's, not the brand's
+	if !behindRe.MatchString(path.Base(dir)) {
+		if cols := brandColours(ctx, h, dir, top); len(cols) > 0 {
+			line("Brand colours (from its logo, icon or styles)", strings.Join(cols, ", "), descMax)
+		}
+		if darks := darkColours(ctx, h, dir, top); len(darks) > 0 {
+			line("Dark colours its pages use (backgrounds)", strings.Join(darks, ", "), descMax)
+		}
 	}
 	c := codeOf(ctx, h, dir, top)
 	line("What the code keeps (models)", strings.Join(c.models, ", "), listMax)
@@ -343,11 +350,14 @@ func firstN(list []string, n int) []string {
 }
 
 var (
-	hexRe       = regexp.MustCompile(`#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b`)
-	cssBrandRe  = regexp.MustCompile(`(?m)--(?:color-)?((?:primary|secondary|accent|brand|main|theme)[a-z0-9-]*)\s*:\s*([^;}\n]{3,40})`)
-	twBrandRe   = regexp.MustCompile(`\b((?:primary|secondary|accent|brand|main|theme)[A-Za-z0-9_-]*)['"]?\s*:\s*['"](#[0-9a-fA-F]{3,8})['"]`)
-	logoNameRe  = regexp.MustCompile(`(?i)^(logo|favicon|brand|icon|app-icon|apple-touch-icon)[\w.-]*\.svg$`)
-	brandColMax = 6
+	hexRe             = regexp.MustCompile(`#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b`)
+	cssBrandRe        = regexp.MustCompile(`(?m)--(?:color-)?((?:primary|secondary|accent|brand|main|theme)[a-z0-9-]*)\s*:\s*([^;}\n]{3,40})`)
+	twBrandRe         = regexp.MustCompile(`\b((?:primary|secondary|accent|brand|main|theme)[A-Za-z0-9_-]*)['"]?\s*:\s*['"](#[0-9a-fA-F]{3,8})['"]`)
+	logoNameRe        = regexp.MustCompile(`(?i)^(logo|favicon|brand|icon|app-icon|apple-touch-icon)[\w.-]*\.svg$`)
+	brandColMax       = 6
+	builtCSSMax int64 = 256 << 10
+	// behindRe is a folder of the product's back office or plumbing, whose look is not the brand's
+	behindRe = regexp.MustCompile(`(?i)(^|[-_.])(admin|backend|back-end|backoffice|api|service|server|worker|dashboard|panel|cms|operator|internal)([-_.]|$)`)
 )
 
 // brandColours are the colours the product shows itself in: the most used colours of its logo
@@ -424,6 +434,15 @@ func brandColours(ctx context.Context, h machine.Host, dir string, top map[strin
 		}
 		break
 	}
+	if len(out) < 2 {
+		// nothing much in the sources: the colours the built pages use most
+		order, counts := colourCounts(builtCSS(ctx, h, dir, top))
+		for _, c := range order {
+			if counts[c] >= 3 && !grey(c) {
+				add(c)
+			}
+		}
+	}
 	for _, rel := range []string{"tailwind.config.js", "tailwind.config.ts", "tailwind.config.cjs", "tailwind.config.mjs"} {
 		if !hasEntry(top, rel) {
 			continue
@@ -436,29 +455,84 @@ func brandColours(ctx context.Context, h machine.Host, dir string, top map[strin
 	return out
 }
 
-// grey says whether a hex colour is white, black or a grey (no hue to speak of).
-func grey(hex string) bool {
+// builtCSS is the main stylesheet a build put out (Vite, Laravel Vite, Create React App and the
+// like), read when the sources name no colours: what the pages really look like.
+func builtCSS(ctx context.Context, h machine.Host, dir string, top map[string]bool) string {
+	for _, rel := range []string{"public/build/assets", "dist/assets", "build/static/css", "public/css", "public/assets", "static/css"} {
+		if first, _, _ := strings.Cut(rel, "/"); !hasEntry(top, first) {
+			continue
+		}
+		var css []string
+		for n, isDir := range listing(ctx, h, path.Join(dir, rel)) {
+			if !isDir && strings.HasSuffix(n, ".css") {
+				css = append(css, n)
+			}
+		}
+		if len(css) == 0 {
+			continue
+		}
+		sort.Slice(css, func(i, j int) bool { // app.css / app-<hash>.css / main… first
+			rank := func(n string) int {
+				if l := strings.ToLower(n); strings.HasPrefix(l, "app") || strings.HasPrefix(l, "main") || strings.HasPrefix(l, "index") {
+					return 0
+				}
+				return 1
+			}
+			return rank(css[i]) < rank(css[j]) || rank(css[i]) == rank(css[j]) && css[i] < css[j]
+		})
+		return string(readHead(ctx, h, path.Join(dir, rel, css[0]), builtCSSMax))
+	}
+	return ""
+}
+
+// colourCounts counts the hex colours of a text, most used first, letters in upper case.
+func colourCounts(text string) ([]string, map[string]int) {
+	counts := map[string]int{}
+	var order []string
+	for _, c := range hexRe.FindAllString(text, -1) {
+		c = strings.ToUpper(c)
+		if counts[c] == 0 {
+			order = append(order, c)
+		}
+		counts[c]++
+	}
+	sort.SliceStable(order, func(a, b int) bool { return counts[order[a]] > counts[order[b]] })
+	return order, counts
+}
+
+// darkColours are the dark colours the built pages use most (backgrounds, at most two): what a
+// brand colour is set against. A built stylesheet only.
+func darkColours(ctx context.Context, h machine.Host, dir string, top map[string]bool) []string {
+	order, counts := colourCounts(builtCSS(ctx, h, dir, top))
+	var out []string
+	for _, c := range order {
+		if len(out) == 2 || counts[c] < 3 {
+			break
+		}
+		if r, g, b := rgbOf(c); 0.2126*float64(r)+0.7152*float64(g)+0.0722*float64(b) < 60 {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func rgbOf(hex string) (int, int, int) {
 	h := strings.TrimPrefix(hex, "#")
 	if len(h) == 3 {
 		h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
 	}
 	var rgb [3]int
 	for i := range 3 {
-		var v int
-		for _, ch := range h[i*2 : i*2+2] {
-			v *= 16
-			switch {
-			case ch >= '0' && ch <= '9':
-				v += int(ch - '0')
-			case ch >= 'a' && ch <= 'f':
-				v += int(ch-'a') + 10
-			case ch >= 'A' && ch <= 'F':
-				v += int(ch-'A') + 10
-			}
-		}
-		rgb[i] = v
+		v, _ := strconv.ParseUint(h[i*2:i*2+2], 16, 8)
+		rgb[i] = int(v)
 	}
-	return max(rgb[0], rgb[1], rgb[2])-min(rgb[0], rgb[1], rgb[2]) < 24
+	return rgb[0], rgb[1], rgb[2]
+}
+
+// grey says whether a hex colour is white, black or a grey (no hue to speak of).
+func grey(hex string) bool {
+	r, g, b := rgbOf(hex)
+	return max(r, g, b)-min(r, g, b) < 40 // Tailwind's slate and gray have a little blue: still greys
 }
 
 // envLabelRe is a working label around a project's name: "PROD - Lumen", "shop (staging)", "api-dev".
@@ -750,17 +824,23 @@ func Prompt(kind, brief, name string) string {
 		"the project's name, which may be only a working label, and more than a framework's default text. A project of " +
 		"several parts or folders (backend, API, admin panel, service, front end) is one product: picture that product " +
 		"as the people who use it know it, not its parts or how it is built."
-	colours := "Colours: when the brief lists brand colours (from its logo, icon or styles), build the whole palette on them " +
-		"so that the image looks like it belongs to that product; otherwise choose colours and a mood that suit its users."
+	colours := "Colours: when the brief lists brand colours (from its logo, icon or styles) and the dark colours its pages " +
+		"use, build the whole palette on them, the brand colours set against those dark colours, so that the image looks " +
+		"like it belongs to that product; otherwise choose colours and a mood that suit its users."
 	var want string
 	switch kind {
 	case KindIcon:
-		want = "A square app icon, 1024×1024, like the icon of a polished app in an app store for this kind of product: " +
-			"one clear symbol of what the product offers its users, not of how it is built: no servers, gears, code brackets, " +
-			"network nodes, clouds or databases unless that is what the product sells. The background and the symbol in the " +
-			"product's brand colours, the symbol with some depth and material, filling most of the square, with strong " +
-			"contrast so that it still reads at 32 px. " +
-			"No text, no letters, no numbers, no logos or trademarks of real companies or products."
+		want = "A square app icon, 1024×1024, like the icon of a polished, premium app in an app store for this kind of product. " +
+			"The symbol: one object that stands for what the product offers its users, joined with what sets this product " +
+			"apart when the brief or its name makes that clear (its standing, its audience, its theme), not for how it is " +
+			"built: no servers, gears, code brackets, network nodes, clouds or databases unless that is what the product sells. " +
+			"The style: that one object as a glossy 3D render with real thickness, seen from a slight three-quarter angle, " +
+			"lit with a soft rim light, made of two contrasting tones: a precious or bright material in the brand colours, and " +
+			"a deep second tone taken from the dark colours the brief lists (else a deep colour that suits the brand); the " +
+			"background in that dark tone with a soft radial glow of the brand colour behind the object, so that it stands " +
+			"out with strong contrast. Not an icon in one colour family " +
+			"only: a gold object on a gold or brown background is too flat. The object fills most of the square and still " +
+			"reads at 32 px. No text, no letters, no numbers, no logos or trademarks of real companies or products."
 	default:
 		var headline string
 		if name != "" {
