@@ -135,7 +135,19 @@ func folderBrief(ctx context.Context, f Folder, readmeCap int) string {
 			names = append(names, name)
 		}
 	}
-	sort.Strings(names)
+	// the apps its users see say most about a product: front ends first, back office last
+	sort.SliceStable(names, func(i, j int) bool {
+		rank := func(n string) int {
+			switch {
+			case frontRe.MatchString(n):
+				return 0
+			case behindRe.MatchString(n):
+				return 2
+			}
+			return 1
+		}
+		return rank(names[i]) < rank(names[j]) || rank(names[i]) == rank(names[j]) && names[i] < names[j]
+	})
 	found := 0
 	for i, name := range names {
 		if found == maxApps || i == maxLook {
@@ -196,6 +208,9 @@ func appBrief(ctx context.Context, h machine.Host, dir string, top map[string]bo
 		}
 		if darks := darkColours(ctx, h, dir, top); len(darks) > 0 {
 			line("Dark colours its pages use (backgrounds)", strings.Join(darks, ", "), descMax)
+		}
+		if fonts := fontsOf(ctx, h, dir, top); len(fonts) > 0 {
+			line("Fonts its pages use (most used first)", strings.Join(fonts, ", "), descMax)
 		}
 	}
 	c := codeOf(ctx, h, dir, top)
@@ -357,6 +372,8 @@ var (
 	brandColMax       = 6
 	builtCSSMax int64 = 256 << 10
 	// behindRe is a folder of the product's back office or plumbing, whose look is not the brand's
+	// frontRe is a folder of what the product's users see
+	frontRe  = regexp.MustCompile(`(?i)(^|[-_.])(frontend|front-end|front|web|website|site|www|client|app|mobile|landing|portal|ui|shop|store|public)([-_.]|$)`)
 	behindRe = regexp.MustCompile(`(?i)(^|[-_.])(admin|backend|back-end|backoffice|api|service|server|worker|dashboard|panel|cms|operator|internal)([-_.]|$)`)
 )
 
@@ -514,6 +531,70 @@ func darkColours(ctx context.Context, h machine.Host, dir string, top map[string
 		}
 	}
 	return out
+}
+
+var (
+	fontFamilyRe = regexp.MustCompile(`font-family\s*:\s*([^;}]{2,200})`)
+	googleFontRe = regexp.MustCompile(`fonts\.(?:googleapis\.com|bunny\.net)/css2?\?[^"'\s>]*?family=([A-Za-z0-9+ %]+)`)
+	fontsourceRe = regexp.MustCompile(`"@fontsource(?:-variable)?/([a-z0-9-]+)"`)
+	twFontRe     = regexp.MustCompile(`(?s)fontFamily\s*:\s*\{[^}]*?\b(?:sans|serif|display|heading|body|brand)\s*:\s*\[\s*['"]([^'"]+)['"]`)
+	// families that say nothing about the product's look: system stacks, generic names, icon fonts
+	notAFont = regexp.MustCompile(`(?i)^(inherit|initial|unset|sans-serif|serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|-apple-system|blinkmacsystemfont|segoe ui.*|helvetica.*|arial|apple color emoji|noto color emoji|.*emoji.*|sfmono-regular|menlo|monaco|consolas|liberation mono|courier.*|times.*|georgia|var\(.*|.*awesome.*|.*icons?.*|primeicons|swiper-icons|bootstrap-icons|dashicons|glyphicons.*|revicons|slick|feather)$`)
+)
+
+// fontsOf are the fonts the product's pages use, most used first (at most three): web fonts its
+// pages load (Google Fonts, Bunny Fonts, @fontsource), the families its built stylesheet and its
+// Tailwind config name. System stacks, generic names and icon fonts are left out.
+func fontsOf(ctx context.Context, h machine.Host, dir string, top map[string]bool) []string {
+	counts := map[string]int{}
+	var order []string
+	add := func(name string, n int) {
+		name = strings.Trim(strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(name, "+", " "), "%20", " ")), `"'`)
+		if name == "" || len(name) > 40 || notAFont.MatchString(name) {
+			return
+		}
+		key := strings.ToLower(name)
+		for _, o := range order {
+			if strings.ToLower(o) == key {
+				counts[o] += n
+				return
+			}
+		}
+		order = append(order, name)
+		counts[name] = n
+	}
+	var pages []string
+	for _, rel := range []string{"index.html", "public/index.html", "src/index.html", "resources/views/app.blade.php", "resources/views/layouts/app.blade.php", "app/layout.tsx", "src/app/layout.tsx"} {
+		if first, _, _ := strings.Cut(rel, "/"); hasEntry(top, first) {
+			if b := readHead(ctx, h, path.Join(dir, rel), pageHead); len(b) > 0 {
+				pages = append(pages, string(b))
+			}
+		}
+	}
+	for _, p := range pages {
+		for _, m := range googleFontRe.FindAllStringSubmatch(p, -1) {
+			add(m[1], 3) // a font the page loads on purpose weighs more than a fallback in a stack
+		}
+	}
+	if hasEntry(top, "package.json") {
+		for _, m := range fontsourceRe.FindAllStringSubmatch(string(readHead(ctx, h, path.Join(dir, "package.json"), manifest)), -1) {
+			add(strings.ReplaceAll(m[1], "-", " "), 3)
+		}
+	}
+	for _, m := range fontFamilyRe.FindAllStringSubmatch(builtCSS(ctx, h, dir, top), -1) {
+		first, _, _ := strings.Cut(m[1], ",")
+		add(first, 1)
+	}
+	for _, rel := range []string{"tailwind.config.js", "tailwind.config.ts", "tailwind.config.cjs", "tailwind.config.mjs"} {
+		if hasEntry(top, rel) {
+			for _, m := range twFontRe.FindAllStringSubmatch(string(readHead(ctx, h, path.Join(dir, rel), manifest)), -1) {
+				add(m[1], 2)
+			}
+			break
+		}
+	}
+	sort.SliceStable(order, func(a, b int) bool { return counts[order[a]] > counts[order[b]] })
+	return firstN(order, 3)
 }
 
 func rgbOf(hex string) (int, int, int) {
@@ -855,9 +936,9 @@ func Prompt(kind, brief, name string) string {
 	default:
 		var headline string
 		if name != "" {
-			headline = "The headline is the product's name, exactly these letters: \"" + name + "\" (letter case and type may be " +
-				"styled as the design needs, the letters may not change, nothing added to them). Under it, at most one short " +
-				"line of two to five plain words that says what the product is for its users. "
+			headline = "The headline is the product's name, exactly these letters: \"" + name + "\" (set in capitals as below; " +
+				"the letters may not change, nothing added to them). The short line: two to five plain words that say what " +
+				"the product is for its users. "
 		} else {
 			headline = "The headline says what the product is in two to five plain words. "
 		}
@@ -867,8 +948,18 @@ func Prompt(kind, brief, name string) string {
 			"lighting. Never servers, data centres, cables, code, dashboards, network diagrams or glowing lines, and no " +
 			"fantasy or metaphor (floating islands, castles, domes, portals, planets, abstract cities) unless the product " +
 			"itself is about that. People, if any, are adults, fully clothed and tastefully shown. " +
-			"Text: one elegant headline set large, where it does not cover the scene's subject. " + headline +
-			"Spell every word correctly. No other text, no logos or trademarks of other companies, no screenshots of a user interface."
+			"Text: one headline and one short line, nothing else. " + headline +
+			"Typography, the same on every cover, so that covers made at different times look like one family: the headline " +
+			"in the product's own font when the brief names the fonts its pages use (the first one), else a bold geometric " +
+			"sans-serif in the manner of Montserrat; heavy weight, upright, all capitals, never italic, script, serif or " +
+			"decorative unless the product's own font is one; flat colour with at most a soft shadow, no outline, bevel, " +
+			"gradient or glow; in the product's main brand colour, or white when that colour does not read on the scene. " +
+			"Placed always the same way: left aligned in the top-left area, starting about 6% of the width from the left edge " +
+			"and 8% of the height from the top, the headline about 16% of the image's height tall; the short line right " +
+			"under it in the same font, regular weight, sentence case, white, about a third of the headline's height, on one " +
+			"line. Keep the subject of the scene clear of the text, toward the right. " +
+			"Spell every word correctly. No logos, brand marks or trademarks of other companies anywhere, not on clothing, " +
+			"equipment, vehicles or signs either; no screenshots of a user interface."
 	}
 	return "Create exactly one image with your built-in image generation tool, and do nothing else: " +
 		"do not run commands, do not read, write or search files, do not browse or use any other tool.\n\n" +
