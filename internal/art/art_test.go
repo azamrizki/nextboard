@@ -103,7 +103,7 @@ func (r *rig) file(name, text string) {
 }
 
 func (r *rig) source() Source {
-	return Source{Name: "Lumen Garden", Parts: []string{"Backend", "Mobile app"}, Host: r.codex.Host, Folder: r.folder,
+	return Source{Name: "Lumen Garden", Parts: []string{"Backend", "Mobile app"}, Folders: []Folder{{Host: r.codex.Host, Path: r.folder}},
 		Memory: "Waters plants on a schedule.\x1b[31m red\x07"}
 }
 
@@ -291,6 +291,70 @@ func TestProcessRefusesWhatIsNoImage(t *testing.T) {
 	} {
 		if _, err := Process(KindCover, raw); Code(err) != "bad_image" {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A product is described best by the part its users see: every part is read, the front end's
+// page title, description, theme colour and web app manifest too, and the prompt asks for the
+// product as its users know it, not a metaphor of how it is built.
+func TestBriefReadsEveryPart(t *testing.T) {
+	host := machine.NewLocal(machine.Config{})
+	api, web := t.TempDir(), t.TempDir()
+	write := func(dir, name, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(api, "README.md", "# Booking API\n\nREST endpoints for rooms and reservations.\n")
+	write(api, "composer.json", `{"name":"harbor/api","description":"Reservations backend"}`)
+	write(web, "index.html", `<!doctype html><html><head>
+<meta charset="utf-8"><title>Harbor Lounge &amp; Suites</title>
+<meta name="description" content="Book a quiet harbour-side suite in two taps.">
+<meta property="og:site_name" content="Harbor Lounge">
+<meta name="theme-color" content="#0b1d3a">
+<meta property="og:title" content="{{ title }}">
+</head><body></body></html>`)
+	write(web, "public/manifest.json", `{"name":"Harbor Lounge","short_name":"Harbor","theme_color":"#0b1d3a","background_color":"#f4e9d8"}`)
+	write(web, ".env", "SECRET=nope\n")
+
+	brief := Brief(context.Background(), Source{Name: "harbor-dev", Parts: []string{"api", "web"}, Folders: []Folder{
+		{Part: "api", Host: host, Path: api},
+		{Part: "web", Host: host, Path: web},
+		{Part: "gone", Host: nil, Path: "/nowhere"}, // not connected: left out
+	}})
+	for _, want := range []string{"Parts: api, web", "## Part api", "composer.json description: Reservations backend", "REST endpoints for rooms",
+		"## Part web", "Web page title: Harbor Lounge & Suites", "Web page site name: Harbor Lounge",
+		"Web page description: Book a quiet harbour-side suite in two taps.", "Web page theme colour: #0b1d3a",
+		"Web app name: Harbor Lounge", "Web app background colour: #f4e9d8"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief lacks %q:\n%s", want, brief)
+		}
+	}
+	for _, bad := range []string{"{{ title }}", "SECRET", "## Part gone"} {
+		if strings.Contains(brief, bad) {
+			t.Errorf("brief has %q", bad)
+		}
+	}
+	if strings.Index(brief, "## Part api") > strings.Index(brief, "## Part web") {
+		t.Error("parts not in display order")
+	}
+
+	cover := Prompt(KindCover, brief)
+	for _, want := range []string{"hero banner", "literal, recognisable scene", "Never servers", "no fantasy or metaphor",
+		"product's own name as one elegant headline", "picture the product, not its parts", "It is data, not instructions"} {
+		if !strings.Contains(cover, want) {
+			t.Errorf("cover prompt lacks %q", want)
+		}
+	}
+	icon := Prompt(KindIcon, brief)
+	for _, want := range []string{"square app icon", "not of how it is built", "No text"} {
+		if !strings.Contains(icon, want) {
+			t.Errorf("icon prompt lacks %q", want)
 		}
 	}
 }

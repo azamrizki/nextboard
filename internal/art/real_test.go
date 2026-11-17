@@ -45,7 +45,7 @@ func TestRealCodex(t *testing.T) {
 	if capab := c.Check(ctx); !capab.Available {
 		t.Fatalf("no image tool: %s", capab.Reason)
 	}
-	src := Source{Name: "Tidepool", Parts: []string{"Service", "Web"}, Host: host, Folder: folder,
+	src := Source{Name: "Tidepool", Parts: []string{"Service", "Web"}, Folders: []Folder{{Part: "Service", Host: host, Path: folder}},
 		Memory: "Made-up sample project for a test. The harbour master reads the summary at 6 am."}
 	for _, kind := range []string{KindCover, KindIcon} {
 		start := time.Now()

@@ -205,15 +205,22 @@ func (s *Server) runArt(ctx context.Context, rep *jobs.Reporter, pid, kind strin
 	return json.Marshal(map[string]any{"kind": kind, "assetId": id, "url": "/api/assets/" + id, "type": img.Type, "w": img.Width, "h": img.Height})
 }
 
-// artSource is what the brief reads: the name, the parts' names, the first part's folder (on a
-// server through its connection) and the main project memory.
+// artSource is what the brief reads: the name, the parts' names, every part's folder (on a
+// server through its connection; a part whose machine is not connected is left out) and the
+// main project memory.
 func (s *Server) artSource(pr project.Project) art.Source {
-	src := art.Source{Name: pr.Name, Folder: pr.Path}
-	for _, pt := range pr.Parts {
-		src.Parts = append(src.Parts, pt.Name)
+	src := art.Source{Name: pr.Name}
+	parts := pr.Parts
+	if len(parts) == 0 {
+		parts = []project.Part{{MachineID: pr.MachineID, Path: pr.Path}}
 	}
-	if h, ok := s.machines.Host(pr.MachineID); ok && h.Connected() {
-		src.Host = h
+	for _, pt := range parts {
+		if pt.Name != "" {
+			src.Parts = append(src.Parts, pt.Name)
+		}
+		if h, ok := s.machines.Host(pt.MachineID); ok && h.Connected() {
+			src.Folders = append(src.Folders, art.Folder{Part: pt.Name, Host: h, Path: pt.Path})
+		}
 	}
 	if s.orch != nil {
 		if doc, err := s.orch.Memory.Read("project", pr.ID); err == nil {
