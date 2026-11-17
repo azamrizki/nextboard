@@ -12,6 +12,7 @@ import { AuthProvider } from './auth';
 import { Button } from './components/Button';
 import { Icon } from './components/Icon';
 import { Toaster } from './components/Toast';
+import { UpdateReminder } from './components/UpdateReminder';
 import { guardHubStorage, pageTitle, setInstance } from './lib/instance';
 import { navigate, parseRoute, usePath } from './lib/router';
 import type { Me } from './lib/types';
@@ -220,6 +221,7 @@ export function App() {
         const route = parseRoute(path);
         return (
           <AuthProvider me={boot.me} onLogout={logout}>
+            {route.page !== 'print' && <UpdateReminder />}
             {route.page === 'print' ? (
               <Suspense fallback={<PageLoading />}>
                 <PrintPage kind={route.kind} docId={route.docId} versionId={route.versionId} />

@@ -258,3 +258,77 @@ func TestHubUpdateRestartsTheSiblingsThenItself(t *testing.T) {
 		t.Fatalf("calls:\n%s", raw)
 	}
 }
+
+// The popup that offers a newer release when the app opens: it asks while one is out, "later"
+// keeps it away for a day, "skip" for that release only, and the answer holds for the whole hub.
+func TestHubUpdateReminder(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	f := withFakeRelease(t, h, "0.9.0")
+	f.gh.Publish(t, "v0.9.0", false, []byte("hub 0.9.0"))
+	f.gh.Publish(t, "v0.9.1", false, []byte("hub 0.9.1"))
+	remind := func() (bool, map[string]any) {
+		t.Helper()
+		st, c := h.do("GET", "/api/hub/update", nil, nil)
+		if st != 200 {
+			t.Fatalf("check %d %v", st, c)
+		}
+		return c["remind"] == true, c
+	}
+	if on, c := remind(); !on || c["skipped"] != nil || c["remindAfter"] != nil {
+		t.Fatalf("a new release asks: %v", c)
+	}
+
+	// later: not for 24 hours
+	st, r := h.do("POST", "/api/hub/update/remind", map[string]any{"action": "later"}, nil)
+	if st != 200 || r["remind"] != false {
+		t.Fatalf("later %d %v", st, r)
+	}
+	at, err := time.Parse(time.RFC3339Nano, r["remindAfter"].(string))
+	if err != nil || at.Sub(time.Now()) < 23*time.Hour || at.Sub(time.Now()) > 25*time.Hour {
+		t.Fatalf("remindAfter %v %v", r["remindAfter"], err)
+	}
+	if on, c := remind(); on {
+		t.Fatalf("asked again within the day: %v", c)
+	}
+	// a day later it asks again
+	past := time.Now().Add(-time.Minute)
+	if err := h.srv.st.Save(updateReminderFile, updateReminder{RemindAfter: &past}); err != nil {
+		t.Fatal(err)
+	}
+	if on, _ := remind(); !on {
+		t.Fatal("not asked again after the day")
+	}
+
+	// skip this version: never for v0.9.1, also once the day is over
+	if st, r := h.do("POST", "/api/hub/update/remind", map[string]any{"action": "skip", "version": "v0.9.1"}, nil); st != 200 || r["skipped"] != "v0.9.1" {
+		t.Fatalf("skip %d %v", st, r)
+	}
+	if on, c := remind(); on || c["skipped"] != "v0.9.1" {
+		t.Fatalf("asked for a skipped release: %v", c)
+	}
+	// a newer release asks again
+	f.gh.Publish(t, "v0.9.2", false, []byte("hub 0.9.2"))
+	h.srv.hubUpdate.mu.Lock()
+	h.srv.hubUpdate.at = time.Time{}
+	h.srv.hubUpdate.mu.Unlock()
+	if on, c := remind(); !on || c["latest"] != "v0.9.2" {
+		t.Fatalf("a newer release than the skipped one asks: %v", c)
+	}
+
+	for _, bad := range []map[string]any{{"action": "skip"}, {"action": "skip", "version": "latest; rm"}, {"action": "never"}, {}} {
+		if st, _ := h.do("POST", "/api/hub/update/remind", bad, nil); st != 400 {
+			t.Errorf("%v: %d", bad, st)
+		}
+	}
+}
+
+// A dev build follows no release, so it never asks.
+func TestHubUpdateReminderDevBuild(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	withFakeRelease(t, h, "dev")
+	if st, c := h.do("GET", "/api/hub/update", nil, nil); st != 200 || c["remind"] != false {
+		t.Fatalf("dev %d %v", st, c)
+	}
+}

@@ -64,6 +64,7 @@ The web's way to run `nextboard update` (README, Update): whether a newer releas
 |---|---|---|---|---|
 | GET | `/api/hub/update` | yes | — | `HubUpdate`. Asks GitHub at most once an hour (after a failure, again after 10 minutes); a dev build asks nothing. |
 | POST | `/api/hub/update` | admin | `{"version":"v0.9.1"}` (optional: the release the owner confirmed) | `202 Job` (kind `hubUpdate`, purpose = the tag). `409` `dev_build` · `not_service` (not started by its service, so it cannot restart itself: use `nextboard update` where it runs) · `not_writable` (the binary's folder) · `update_running` (`jobId`) · `restart_pending` (swapped in, not restarted yet) · `up_to_date` · `version_changed` (the newest release is no longer the one asked). `502 check_failed` (GitHub could not be asked). `403` for a device. |
+| POST | `/api/hub/update/remind` | admin | `{"action":"skip","version":"v0.9.1"}` or `{"action":"later"}` | `{"skipped"?,"remindAfter"?,"remind":false}`: the owner's answer to the update popup. `skip` never asks for that release again (a newer one asks); `later` keeps it away for 24 hours. Kept by the hub (`<data>/update-reminder.json`), so every browser and device follows it. `400 bad_action`, `400 bad_version` (not a release tag). |
 
 ```jsonc
 // HubUpdate
@@ -83,9 +84,14 @@ The web's way to run `nextboard update` (README, Update): whether a newer releas
   "restarts": [              // when an update can start: every instance whose service runs this binary, this one too
     { "name": "default", "listen": "127.0.0.1:12312", "service": "nextboard.service" },
     { "name": "work", "listen": "127.0.0.1:12412", "service": "nextboard-work.service", "self": true }
-  ]
+  ],
+  "skipped": "v0.9.0",       // the release the owner skipped for good (the popup's Skip this version)
+  "remindAfter": "2026-11-16T09:00:00Z",   // Skip for now: no popup before then
+  "remind": true             // ask now: a newer release is out, not skipped, not put off, nothing installing or swapped in
 }
 ```
+
+- **Update popup** (DESIGN.md §3.4): when the web app opens and `remind` is true, it offers the release to the owner (admin only; a device or a dev build never sees it). Update now starts the update (`POST /api/hub/update`) and shows its progress in the popup; Skip this version and Skip for now (and closing it) answer through `POST /api/hub/update/remind`. An open app asks again every hour and when its tab comes back, so a day that ran out is seen without a reload; one opening never asks twice about the same release.
 
 - **Channel:** a stable build follows the latest stable release; a beta follows the newest release of any kind, beta or stable (`v0.9.0-beta.3`, then `v0.9.0`). Never an older one, never a draft. A dev build follows none: update it with `git pull` and a rebuild.
 - **The job** (events `{"type":"job"}`, API-studio.md §1.2) has the phases `download` (with `pct`), `verify` (SHA-256 against the release's `checksums.txt`), `swap`, `restarting`, then `done` with `result` `{"from","to","binary","old","restart":true,"restarts":["default","work"]}`. Assets must come from the repository's own releases (`https://github.com/<repo>/releases/download/…`); nothing from the download runs. The new binary is written next to the old one, which stays as `<binary>.old`, then renamed over it in one step. To go back: `nextboard update --version <old tag> --force`, or move `<binary>.old` back and restart the service.

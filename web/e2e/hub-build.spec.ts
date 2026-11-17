@@ -203,6 +203,39 @@ test('a release hub run by its service updates itself from About this hub', asyn
     });
     await page.goto('/');
 
+    // opening the app with a newer release out asks once (DESIGN.md §3.4 Update reminder)
+    const popup = page.getByRole('dialog', { name: 'Update available' });
+    await expect(popup).toBeVisible();
+    await expect(popup).toContainText('NextBoard v0.9.1 is out. This hub runs 0.9.0.');
+    await expect(popup.getByRole('link', { name: 'What’s new' })).toHaveAttribute('href', `${gh.base}/example-owner/nextboard/releases/tag/v0.9.1`);
+    await expect(popup.getByRole('button', { name: 'Update now' })).toBeVisible();
+    await expect(popup).toContainText('Skip for now asks again in 24 hours.');
+    await expect(popup).toHaveCSS('opacity', '1');
+    await shot(page, 'release-reminder');
+    // Skip this version: kept by the hub, so no browser asks again for v0.9.1
+    await popup.getByRole('button', { name: 'Skip this version' }).click();
+    await expect(popup).toBeHidden();
+    const skipped = await (await ctx.request.get('/api/hub/update')).json();
+    expect(skipped).toMatchObject({ skipped: 'v0.9.1', remind: false });
+    await page.reload();
+    await expect(page.getByRole('button', { name: /^About this hub: NextBoard v0\.9\.0/ })).toBeVisible();
+    await expect(popup).toHaveCount(0);
+    // Skip for now: as if a newer release asked, the popup puts it off for a day on the hub
+    await page.route('**/api/hub/update', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const real = await route.fetch();
+      await route.fulfill({ response: real, json: { ...(await real.json()), skipped: '', remind: true } });
+    });
+    await page.reload();
+    await expect(popup).toBeVisible();
+    const later = page.waitForRequest((r) => r.url().endsWith('/api/hub/update/remind') && r.method() === 'POST');
+    await popup.getByRole('button', { name: 'Skip for now' }).click();
+    expect((await later).postDataJSON()).toEqual({ action: 'later' });
+    await expect(popup).toBeHidden();
+    const putOff = await (await ctx.request.get('/api/hub/update')).json();
+    expect(Date.parse(putOff.remindAfter) - Date.now()).toBeGreaterThan(23 * 3600_000);
+    await page.unroute('**/api/hub/update');
+
     // the label, with a dot: a newer release is out
     const label = page.getByRole('button', { name: 'About this hub: NextBoard v0.9.0 · abc1234, v0.9.1 available' });
     await expect(label).toHaveText('v0.9.0 · abc1234');

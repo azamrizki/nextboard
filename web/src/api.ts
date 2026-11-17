@@ -42,6 +42,7 @@ import type {
   Health,
   Hub,
   HubUpdate,
+  UpdateReminder,
   CreatedInstance,
   InstancesList,
   NewInstanceBody,
@@ -244,6 +245,8 @@ export const api = {
   hubUpdate: () => get<HubUpdate>('/api/hub/update'),
   /** Install it (admin): a job, then the hub restarts. */
   startHubUpdate: (version: string) => post<Job>('/api/hub/update', { version }),
+  /** The update popup's answer (admin): skip that release for good, or put it off for a day. */
+  remindHubUpdate: (body: { action: 'skip'; version: string } | { action: 'later' }) => post<UpdateReminder>('/api/hub/update/remind', body),
 
   // auth
   login: (password: string) => post<Ok>('/api/auth/login', { password }, { noRedirect: true }),

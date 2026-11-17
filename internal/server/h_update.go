@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -200,6 +201,79 @@ type hubUpdateView struct {
 	// Restarts are the instances whose service runs this binary, this one included (self): an
 	// update restarts them all. Only when an update can start.
 	Restarts []restartTarget `json:"restarts,omitempty"`
+	updateReminder
+}
+
+// updateReminder is the owner's answer to the popup that offers a newer release when the app
+// opens (docs/API.md Hub update), kept for the whole hub so that every browser and device follows
+// it: a release skipped for good, and "not now" until RemindAfter. Remind says whether to ask now.
+type updateReminder struct {
+	Skipped     string     `json:"skipped,omitempty"`
+	RemindAfter *time.Time `json:"remindAfter,omitempty"`
+	Remind      bool       `json:"remind"`
+}
+
+const (
+	updateReminderFile = "update-reminder.json"
+	// remindLater is how long "Skip for now" keeps the popup away
+	remindLater = 24 * time.Hour
+)
+
+var releaseTag = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$`)
+
+// reminder is the stored answer, with Remind worked out for v.
+func (s *Server) reminder(v hubUpdateView) updateReminder {
+	var r updateReminder
+	s.hubUpdate.mu.Lock()
+	_, _ = s.st.Load(updateReminderFile, &r)
+	s.hubUpdate.mu.Unlock()
+	r.Remind = v.Status == update.StatusAvailable && v.Latest != "" && v.Installed == "" && v.JobID == "" &&
+		!sameTag(r.Skipped, v.Latest) && (r.RemindAfter == nil || !time.Now().Before(*r.RemindAfter))
+	return r
+}
+
+func sameTag(a, b string) bool {
+	return a != "" && strings.TrimPrefix(a, "v") == strings.TrimPrefix(b, "v")
+}
+
+// handleHubUpdateRemind records the owner's answer: {"action": "skip", "version"} skips that
+// release for good (a newer one asks again), {"action": "later"} keeps the popup away for 24 hours.
+func (s *Server) handleHubUpdateRemind(w http.ResponseWriter, r *http.Request, p *principal) {
+	var req struct {
+		Action  string `json:"action"`
+		Version string `json:"version"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	u := &s.hubUpdate
+	u.mu.Lock()
+	var rem updateReminder
+	_, _ = s.st.Load(updateReminderFile, &rem)
+	switch req.Action {
+	case "skip":
+		if !releaseTag.MatchString(req.Version) {
+			u.mu.Unlock()
+			writeErrCode(w, http.StatusBadRequest, "bad_version", "version must be a release tag such as v1.2.3")
+			return
+		}
+		rem.Skipped, rem.RemindAfter = req.Version, nil
+	case "later":
+		at := time.Now().Add(remindLater).UTC()
+		rem.RemindAfter = &at
+	default:
+		u.mu.Unlock()
+		writeErrCode(w, http.StatusBadRequest, "bad_action", `action must be "skip" or "later"`)
+		return
+	}
+	rem.Remind = false
+	err := s.st.Save(updateReminderFile, rem)
+	u.mu.Unlock()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rem)
 }
 
 // refusal is why an update cannot start, as a code and a message.
@@ -259,6 +333,7 @@ func (s *Server) handleHubUpdateCheck(w http.ResponseWriter, r *http.Request, p 
 	u.mu.Lock()
 	v.Installed, v.RestartError = u.installed, u.restartErr
 	u.mu.Unlock()
+	v.updateReminder = s.reminder(v)
 	writeJSON(w, http.StatusOK, v)
 }
 

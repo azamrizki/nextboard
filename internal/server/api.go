@@ -86,6 +86,7 @@ func (s *Server) routes() {
 	admin("POST /api/instances", s.handleInstanceCreate)
 	authed("GET /api/hub/update", s.handleHubUpdateCheck)
 	admin("POST /api/hub/update", s.handleHubUpdate)
+	admin("POST /api/hub/update/remind", s.handleHubUpdateRemind)
 
 	admin("POST /api/pair/start", s.handlePairStart)
 	pub("POST /api/pair/complete", s.handlePairComplete)

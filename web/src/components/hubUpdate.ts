@@ -77,6 +77,12 @@ export function loadUpdateCheck(force = false) {
   );
 }
 
+/** Records the owner's answer to the update popup, here and on the hub (for every browser). */
+export async function answerReminder(action: 'skip' | 'later', version: string): Promise<void> {
+  const r = await api.remindHubUpdate(action === 'skip' ? { action, version } : { action });
+  if (state.check) set({ check: { ...state.check, skipped: r.skipped, remindAfter: r.remindAfter, remind: r.remind } });
+}
+
 /** Starts the update to target; throws what the hub refused, for the confirm dialog to show. */
 export async function startUpdate(target: string): Promise<void> {
   const job = await api.startHubUpdate(target);

@@ -144,6 +144,19 @@ export interface HubUpdate {
   restartError?: string;
   /** The instances whose service runs this binary, this one too (self): an update restarts them all. */
   restarts?: { name: string; listen: string; service: string; self?: boolean }[];
+  /** The release the owner skipped for good (the update popup's "Skip this version"). */
+  skipped?: string;
+  /** "Skip for now": the popup stays away until then. */
+  remindAfter?: string;
+  /** Whether the popup asks now: a newer release is out, not skipped, not put off, not installing. */
+  remind?: boolean;
+}
+
+/** The owner's answer to the update popup (POST /api/hub/update/remind). */
+export interface UpdateReminder {
+  skipped?: string;
+  remindAfter?: string;
+  remind: boolean;
 }
 
 export type Me =
