@@ -834,13 +834,17 @@ func Prompt(kind, brief, name string) string {
 			"The symbol: one object that stands for what the product offers its users, joined with what sets this product " +
 			"apart when the brief or its name makes that clear (its standing, its audience, its theme), not for how it is " +
 			"built: no servers, gears, code brackets, network nodes, clouds or databases unless that is what the product sells. " +
-			"The style: that one object as a glossy 3D render with real thickness, seen from a slight three-quarter angle, " +
-			"lit with a soft rim light, made of two contrasting tones: a precious or bright material in the brand colours, and " +
-			"a deep second tone taken from the dark colours the brief lists (else a deep colour that suits the brand); the " +
-			"background in that dark tone with a soft radial glow of the brand colour behind the object, so that it stands " +
-			"out with strong contrast. Not an icon in one colour family " +
-			"only: a gold object on a gold or brown background is too flat. The object fills most of the square and still " +
-			"reads at 32 px. No text, no letters, no numbers, no logos or trademarks of real companies or products."
+			"Precision comes first, as in a vector design rendered in 3D: the object seen straight from the front, not tilted " +
+			"and with no perspective; symmetrical about its vertical axis; circles perfectly round, straight edges straight, " +
+			"parts that repeat identical in shape and size and evenly spaced; clean, crisp outlines with no warped, bent, " +
+			"dented, melted or uneven shapes. Its material: polished and glossy with a clean bevel that gives it thickness, " +
+			"one soft light from the upper left, highlights and reflections smooth and even. Two contrasting tones: a precious " +
+			"or bright material in the brand colours, and a deep second tone taken from the dark colours the brief lists " +
+			"(else a deep colour that suits the brand); never one colour family only, as a gold object on a gold or brown " +
+			"background is too flat. The composition, always the same: the object centred, about 80% of the square wide, " +
+			"with equal space on every side; the background a plain field in that dark tone with one soft, even radial glow " +
+			"of the brand colour right behind the object; nothing else: no second object, sparkles, particles, smoke, frame " +
+			"or border. It must still read at 32 px. No text, no letters, no numbers, no logos or trademarks of real companies or products."
 	default:
 		var headline string
 		if name != "" {
