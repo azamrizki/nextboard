@@ -356,6 +356,9 @@ type Confirmation struct {
 	Choice     string      `json:"choice,omitempty"`
 	// MissionID: the mission this asks about (kind "mission"), or whose step it holds (§22).
 	MissionID string `json:"missionId,omitempty"`
+	// ChatID: the lead chat it was asked in (§4.1). The thread's next command answers it,
+	// whatever chat that is typed in.
+	ChatID string `json:"chatId,omitempty"`
 	// hub-side context to execute the steps later
 	ctx *execCtx
 }
@@ -397,6 +400,8 @@ type savedCtx struct {
 	// owner agreed to those sends adding consoles to its team.
 	MissionID string `json:"missionId,omitempty"`
 	TeamOK    bool   `json:"teamOk,omitempty"`
+	// ChatID: the lead chat the command was given in (§4.1).
+	ChatID string `json:"chatId,omitempty"`
 }
 
 func newConfirms(st *store.Store) *Confirms {
@@ -410,7 +415,7 @@ func newConfirms(st *store.Store) *Confirms {
 		if x := saved.Ctx; x != nil {
 			cf.ctx = &execCtx{commandID: x.CommandID, threadID: x.ThreadID, projectID: x.ProjectID, workspaceID: x.WorkspaceID,
 				cardID: x.CardID, clientID: x.ClientID, source: x.Source, by: x.By, selection: x.Selection,
-				plannerMode: x.PlannerMode, planned: x.Planned, reply: x.Reply, place: x.Place, missionID: x.MissionID, teamOK: x.TeamOK}
+				plannerMode: x.PlannerMode, planned: x.Planned, reply: x.Reply, place: x.Place, missionID: x.MissionID, teamOK: x.TeamOK, chatID: x.ChatID}
 		}
 		c.byID[cf.ID] = &cf
 		if cf.State == ConfPending {
@@ -428,7 +433,7 @@ func (c *Confirms) saveLocked() {
 		if x := cf.ctx; x != nil {
 			saved.Ctx = &savedCtx{CommandID: x.commandID, ThreadID: x.threadID, ProjectID: x.projectID, WorkspaceID: x.workspaceID,
 				CardID: x.cardID, ClientID: x.clientID, Source: x.source, By: x.by, Selection: x.selection,
-				PlannerMode: x.plannerMode, Planned: x.planned, Reply: x.reply, Place: x.place, MissionID: x.missionID, TeamOK: x.teamOK}
+				PlannerMode: x.plannerMode, Planned: x.planned, Reply: x.reply, Place: x.place, MissionID: x.missionID, TeamOK: x.teamOK, ChatID: x.chatID}
 		}
 		list = append(list, saved)
 	}

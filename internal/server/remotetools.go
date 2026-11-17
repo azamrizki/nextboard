@@ -50,9 +50,14 @@ const (
 // remoteWorkDir is the local folder the CLI runs in for a folder on a server.
 // It stays empty and stable, so the agent's memory follows the server folder.
 func (s *Server) remoteWorkDir(machineID, cwd string) (string, error) {
-	sum := sha256.Sum256([]byte(cwd))
-	dir := s.st.Path("agents", "remote", machineID, hex.EncodeToString(sum[:6]))
+	dir := s.remoteWorkPath(machineID, cwd)
 	return dir, os.MkdirAll(dir, 0o700)
+}
+
+// remoteWorkPath is remoteWorkDir without making it: where the chats of that folder are.
+func (s *Server) remoteWorkPath(machineID, cwd string) string {
+	sum := sha256.Sum256([]byte(cwd))
+	return s.st.Path("agents", "remote", machineID, hex.EncodeToString(sum[:6]))
 }
 
 // launchContext is what the hub gives an agent's launch: the project's one

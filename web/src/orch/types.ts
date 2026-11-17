@@ -197,6 +197,8 @@ export interface Confirmation {
   plan?: { handle: string; text: string }[] | null;
   expiresAt: string;
   state: 'pending' | 'confirmed' | 'cancelled' | 'expired' | string;
+  /** The lead chat it was asked in; the thread's next command answers it from any chat. */
+  chatId?: string;
   decidedBy?: string;
   /** Kind "mission": the mission it approves or asks about (else found by its confirmationId). */
   missionId?: string;
@@ -235,6 +237,8 @@ export interface ThreadMessage {
   missionId?: string;
   /** Kind "team": who wrote to whom inside a mission. */
   team?: TeamRef | null;
+  /** The lead chat it belongs to (chats are segments of the thread); absent on older hubs. */
+  chatId?: string;
 }
 
 export type TeamKind = 'ask' | 'reply' | 'update' | 'doc' | 'report';
@@ -699,6 +703,8 @@ export type OrchEvent =
   | { type: 'delivery'; delivery: Delivery }
   | { type: 'thread'; threadId: string; message: ThreadMessage }
   | { type: 'threadCleared'; threadId: string }
+  /** The thread's chats or its active chat changed (chats/store.ts reloads them). */
+  | { type: 'leadChats'; threadId: string; active: string }
   | { type: 'order'; order: Order }
   | { type: 'confirmation'; confirmation: Confirmation }
   | { type: 'command'; commandId: string; clientId: string; state: 'planning' | 'done' | 'failed' | string; uiActions?: UiAction[] | null }

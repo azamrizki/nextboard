@@ -138,6 +138,9 @@ type MissionRun struct {
 	UpdatedAt      time.Time  `json:"updatedAt"`
 	ApprovedAt     *time.Time `json:"approvedAt,omitempty"`
 	EndedAt        *time.Time `json:"endedAt,omitempty"`
+	// ChatID: the lead chat it started in (§4.1). Its messages go there and the lead reads
+	// that chat on its wakes, whatever chat the owner has open.
+	ChatID string `json:"chatId,omitempty"`
 }
 
 // Ended reports a mission that is over (done, stopped or failed).
@@ -443,6 +446,9 @@ func (s *Service) MissionEvent(id, reason string) {
 // MissionID are filled in. The message is published like every thread message.
 func (s *Service) MissionThreadMessage(ms MissionRun, m ThreadMessage) ThreadMessage {
 	m.ThreadID, m.MissionID = ms.ThreadID, ms.ID
+	if m.ChatID == "" {
+		m.ChatID = s.missionChat(ms)
+	}
 	if m.Kind == "" {
 		m.Kind = "mission"
 		if m.Team != nil {

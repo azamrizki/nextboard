@@ -123,6 +123,7 @@ import type { GuiApp, GuiSession } from '../gui/api';
 import { AppPicker } from '../gui/AppPicker';
 import { AppTile } from '../gui/AppTile';
 import { BoardEnvContext, UiStore, type BoardEnv, type Tool } from './ui';
+import type { ChatView } from '../chats/types';
 import { deviceEntries, sizesInMenu } from './cardSize';
 
 const MarkupEditor = lazy(() => import('./MarkupEditor'));
@@ -137,6 +138,8 @@ const HandoffDialog = lazy(() => import('../orch/panels/HandoffDialog'));
 // Phase 7 panels and studios: loaded on first use
 const GitPanel = lazy(() => import('../git/GitPanel'));
 const DiagramsPanel = lazy(() => import('../studio/diagrams/DiagramsPanel'));
+const ChatsPanel = lazy(() => import('../chats/ChatsPanel'));
+const ResumeDialog = lazy(() => import('../chats/ResumeDialog').then((m) => ({ default: m.ResumeDialog })));
 const DrawingCards = lazy(() => import('../studio/diagrams/DrawingCards'));
 const DocumentsStudio = lazy(() => import('../studio/documents/DocumentsStudio'));
 const MarkdownStudio = lazy(() => import('../studio/markdown/MarkdownStudio'));
@@ -277,7 +280,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   const selection = useSyncExternalStore(ctl.subscribeSelection, ctl.getSelection);
   useSyncExternalStore(ctl.subscribeHistory, ctl.getHistoryVersion);
   const uiState = useSyncExternalStore(ui.subscribe, ui.get);
-  const { tool, editing, penColor, penWidth, panel, markup, filePicker, appPicker, mission, composer, handoff, connectFrom, studio } = uiState;
+  const { tool, editing, penColor, penWidth, panel, markup, filePicker, appPicker, mission, composer, handoff, connectFrom, studio, resumeChat } = uiState;
   const diagramRuns = useDiagramRuns(ctl.workspaceId);
   const voice = useVoicePrefs();
   const [edgeSel, setEdgeSel] = useState<ReadonlySet<string>>(EMPTY);
@@ -1259,6 +1262,33 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     if (kind === 'code') openCode(extra.path ? { file: { path: extra.path } } : {});
     else ui.set({ studio: { kind, ...extra } });
   };
+  /**
+   * Where a resumed chat's new console goes: next to the tiles of the place it started in (its
+   * part, or the root) when this board has some, else near the middle of the view.
+   */
+  const resumeAt = (c: ChatView) => {
+    const sessions = store.getState().sessions;
+    const mine = ctl.nodes.filter((n) => {
+      const s = n.kind === 'terminal' ? sessions[String(n.data.sessionId ?? '')] : undefined;
+      return !!s && (c.root ? !!s.root : !!c.partId && s.partId === c.partId);
+    });
+    const box = boundsOf(mine.map(rectOf));
+    const center = box ? { x: box.x + box.w + DEFAULT_W / 2 + 40, y: box.y + DEFAULT_H / 2 } : viewCenter();
+    const r = placeNear(ctl.nodes.filter((n) => n.kind !== 'ink').map(rectOf), center, DEFAULT_W, DEFAULT_H);
+    return { x: r.x, y: r.y, near: !!box };
+  };
+  /** A lead chat resumed from the Chats panel: show the thread it is in. */
+  const openLeadThread = (threadId: string) => {
+    if (threadId === project.id) {
+      if (phone) setPhoneTab('lead');
+      else ui.set({ leadThread: ui.get().leadThread + 1 });
+      return;
+    }
+    if (!ctl.node(threadId)) return;
+    ctl.select([threadId]);
+    if (phone) focusCard(threadId);
+    else frame(threadId);
+  };
   /** The right rail: what a project is worked with. What goes on the board is in the right-click ring. */
   const railItems: InsertItem[] = [
     { icon: 'code', label: 'Code editor', onClick: () => openStudio('code') },
@@ -1271,7 +1301,8 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
         setStudioMenu({ x: r.left - 220, y: r.top });
       },
     },
-    { icon: 'brain', label: 'Memory', shortcut: shortcuts.memory.toUpperCase(), active: panel === 'memory', onClick: () => togglePanel('memory'), sepBefore: true },
+    { icon: 'message', label: 'Chats', active: panel === 'chats', onClick: () => togglePanel('chats'), sepBefore: true },
+    { icon: 'brain', label: 'Memory', shortcut: shortcuts.memory.toUpperCase(), active: panel === 'memory', onClick: () => togglePanel('memory') },
     { icon: 'branch', label: 'Git', shortcut: shortcuts.git.toUpperCase(), active: panel === 'git', onClick: () => togglePanel('git') },
     {
       icon: 'loop',
@@ -2106,6 +2137,31 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
         {handoff && <HandoffDialog sessionId={handoff} workspaceId={ctl.workspaceId} projectId={project.id} onClose={() => ui.set({ handoff: null })} />}
         {panel === 'git' && <GitPanel project={project} workspaceId={ctl.workspaceId} onClose={() => ui.set({ panel: null })} openEditor={(placement) => shownCard(openCode({ placement, rootOk: true }))} ui={ui} />}
         {panel === 'diagrams' && <DiagramsPanel ctl={ctl} project={project} viewCenter={viewCenter} reveal={revealRect} onClose={() => ui.set({ panel: null })} />}
+        {panel === 'chats' && (
+          <ChatsPanel
+            ctl={ctl}
+            project={project}
+            compact={compact}
+            onClose={() => ui.set({ panel: null })}
+            onResume={(chat) => ui.set({ resumeChat: { chat } })}
+            onOpenThread={openLeadThread}
+          />
+        )}
+        {resumeChat && (
+          <ResumeDialog
+            chat={resumeChat.chat}
+            project={project}
+            workspaceId={ctl.workspaceId}
+            at={resumeAt(resumeChat.chat)}
+            onClose={() => ui.set({ resumeChat: null })}
+            onResumed={(s) => {
+              // the new console's tile comes with the hub's board ops: select it (frame it on narrow screens)
+              if (compact && ui.get().panel === 'chats') ui.set({ panel: null });
+              pendingFocus.current = { sessionId: s.id, frame: compact };
+              focusPending();
+            }}
+          />
+        )}
         {diagramRuns.length > 0 && <DrawingCards ctl={ctl} viewCenter={viewCenter} reveal={revealRect} />}
         {studio?.kind === 'documents' && (
           <DocumentsStudio

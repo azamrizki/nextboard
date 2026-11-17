@@ -18,6 +18,17 @@ interface PopoverProps {
   width?: number;
 }
 
+/**
+ * Whether a press or a wheel at `target` closes the popover: outside it and its trigger, and
+ * not in a dialog or menu (opened from the popover, they are part of it).
+ */
+export function closesOn(target: Node | null, popover: HTMLElement | null, trigger: HTMLElement | null): boolean {
+  if (!target) return false;
+  if (popover?.contains(target) || trigger?.contains(target)) return false;
+  const el = target instanceof Element ? target : target.parentElement;
+  return !el?.closest('.modal-layer, .menu-list');
+}
+
 export function Popover({ anchor, onClose, label, children, className, placement = 'below', align = 'end', width }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -49,10 +60,7 @@ export function Popover({ anchor, onClose, label, children, className, placement
   useEffect(() => {
     const trigger = anchor.current;
     const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (ref.current?.contains(t) || trigger?.contains(t)) return;
-      if ((t as HTMLElement).closest?.('.modal-layer, .menu-list')) return;
-      closeRef.current();
+      if (closesOn(e.target as Node, ref.current, trigger)) closeRef.current();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !document.querySelector('.modal-layer')) {
@@ -61,8 +69,9 @@ export function Popover({ anchor, onClose, label, children, className, placement
         trigger?.focus();
       }
     };
+    // scrolling a dialog or menu opened from the popover keeps it, as a click there does
     const onWheel = (e: WheelEvent) => {
-      if (!ref.current?.contains(e.target as Node)) closeRef.current();
+      if (closesOn(e.target as Node, ref.current, null)) closeRef.current();
     };
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey, true);

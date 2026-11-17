@@ -503,7 +503,7 @@ Security and limits: §6 and §14.
 
 ### 5.14 Studio
 
-**Hidden runs.** The CLIs' headless mode (`claude -p`, `codex exec`) with read-only tools or no tools, no yolo (guarded by `TestRunnerArgvNeverUnsafe`). Claude and Codex only. Queue ≤ 2 per machine, ≤ 4 per hub. Purposes: `document`, `diagram`, `memory-scan`, `memory-init`, `memory-refresh`, `loop-goal`, `planner`, `handoff-summary`, `commit-subject`, `thread-summary`, `code-edit`, `code-complete`, `code-ask`.
+**Hidden runs.** The CLIs' headless mode (`claude -p`, `codex exec`) with read-only tools or no tools, no yolo (guarded by `TestRunnerArgvNeverUnsafe`). Claude and Codex only. Queue ≤ 2 per machine, ≤ 4 per hub. Purposes: `document`, `diagram`, `memory-scan`, `memory-init`, `memory-refresh`, `loop-goal`, `planner`, `handoff-summary`, `commit-subject`, `thread-summary`, `chat-summary`, `code-edit`, `code-complete`, `code-ask`.
 
 **Code workbench.** An `editor` node, one per board, not an overlay. Tabs and unsaved edits belong to the project. The Fill button widens the card to the width of the view.
 
@@ -654,7 +654,7 @@ presets.json  profiles.json  profiles/<id>/      custom agents and profiles
 agents/<agent>/  agents/prompts/<sid>.md  agents/remote/…   CLI state per agent
 boards/<wid>.json(.prev)  snapshots/<wid>/  archive/    boards
 assets/                                          images
-threads/<tid>.jsonl  orders.json  forwards.json  orchestration
+threads/<tid>.jsonl  threads/<tid>.chats.json  orders.json  forwards.json   orchestration (lead chats)
 loops.json  loops/<id>.jsonl  layouts.json       loops and layouts
 memory/<projectId>/MEMORY.md  memory/global.md  memory/subs/…   memory
 mcp-servers.json  extensions/                    MCP and extensions

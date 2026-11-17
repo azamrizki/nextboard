@@ -3,6 +3,7 @@
 // slice changes.
 
 import { createContext, useContext, useSyncExternalStore } from 'react';
+import type { ChatView } from '../chats/types';
 import type { MenuEntry } from '../components/Menu';
 import { prefs } from '../lib/format';
 import type { Project } from '../lib/types';
@@ -30,7 +31,7 @@ export type Tool =
 /** Tools that stay active after use (the others revert to Select after one placement). */
 export const STICKY_TOOLS: ReadonlySet<Tool> = new Set(['select', 'hand', 'pen', 'eraser']);
 
-export type Panel = 'snapshots' | 'loops' | 'memory' | 'layouts' | 'git' | 'diagrams' | null;
+export type Panel = 'snapshots' | 'loops' | 'memory' | 'layouts' | 'git' | 'diagrams' | 'chats' | null;
 
 /** Full-screen studios (Phase 7), opened over the board. */
 export type StudioKind = 'documents' | 'code' | 'markdown' | 'skills';
@@ -94,6 +95,10 @@ export interface UiState {
   studio: StudioOpen | null;
   /** A file asked for from elsewhere on the board, for an editor card. */
   openFile: OpenFileRequest | null;
+  /** The Resume dialog of an agent chat (Chats panel, New console › Resume a chat). */
+  resumeChat: { chat: ChatView } | null;
+  /** Bumped to open the command bar's thread (a lead chat resumed from the Chats panel). */
+  leadThread: number;
 }
 
 function initial(): UiState {
@@ -113,6 +118,8 @@ function initial(): UiState {
     connectFrom: null,
     studio: null,
     openFile: null,
+    resumeChat: null,
+    leadThread: 0,
   };
 }
 

@@ -95,6 +95,9 @@ type ThreadMessage struct {
 	MissionID string `json:"missionId,omitempty"`
 	// Team: who said what to whom in a mission's team (kind "team").
 	Team *TeamRef `json:"team,omitempty"`
+	// ChatID: the lead chat of the thread it is in (§4.1). The store fills it in: the active
+	// chat, a mission's or an order's own chat (Threads.ChatFor).
+	ChatID string `json:"chatId,omitempty"`
 }
 
 // TeamRef is the team side of a team message (§22).
@@ -108,6 +111,13 @@ type TeamRef struct {
 type thread struct {
 	msgs  []ThreadMessage
 	lines int // lines in the file
+	// chats in the order they were made, and the one new messages go to (leadchats.go);
+	// saved: the list is in its file.
+	chats  []*LeadChat
+	active string
+	saved  bool
+	// unread: the file has lines it could not read to the end, which loading never rewrites
+	unread bool
 }
 
 // Threads stores every thread.
@@ -116,9 +126,16 @@ type Threads struct {
 	Now func() time.Time
 	// OnMessage publishes {"type":"thread"} (new or updated message).
 	OnMessage func(ThreadMessage)
+	// OnChats publishes {"type":"leadChats"} (the active chat or the list changed).
+	OnChats func(tid, active string)
+	// ChatFor names the chat of a new message that names none: its mission's or its order's;
+	// "" = the active one.
+	ChatFor func(ThreadMessage) string
 
 	mu sync.Mutex
 	th map[string]*thread
+	// pub paces the leadChats events of new counts (leadchats.go).
+	pub chatsPub
 }
 
 func newThreads(st *store.Store) *Threads {
@@ -144,6 +161,7 @@ func (t *Threads) loadLocked(tid string) *thread {
 	t.th[tid] = th
 	f, err := os.Open(t.path(tid))
 	if err != nil {
+		t.loadChatsLocked(tid, th)
 		return th
 	}
 	defer f.Close()
@@ -163,9 +181,8 @@ func (t *Threads) loadLocked(tid string) *thread {
 		idx[m.ID] = len(th.msgs)
 		th.msgs = append(th.msgs, m)
 	}
-	if max := threadMax(tid); len(th.msgs) > max {
-		th.msgs = th.msgs[len(th.msgs)-max:]
-	}
+	th.unread = sc.Err() != nil
+	t.loadChatsLocked(tid, th) // puts every message in a chat, then keeps what the limits allow
 	return th
 }
 
@@ -184,6 +201,13 @@ func (t *Threads) appendLine(tid string, m ThreadMessage) {
 
 // compactLocked rewrites the file with the kept messages.
 func (t *Threads) compactLocked(tid string, th *thread) {
+	t.rewriteLocked(tid, th)
+	t.pruneOutputsLocked(tid, th)
+	t.saveChatsLocked(tid, th) // with the counts of what is left
+}
+
+// rewriteLocked writes the kept messages to a new file that replaces the old one.
+func (t *Threads) rewriteLocked(tid string, th *thread) {
 	var buf bytes.Buffer
 	for _, m := range th.msgs {
 		b, _ := json.Marshal(m)
@@ -192,7 +216,6 @@ func (t *Threads) compactLocked(tid string, th *thread) {
 	if store.WriteFileAtomic(t.path(tid), buf.Bytes()) == nil {
 		th.lines = len(th.msgs)
 	}
-	t.pruneOutputsLocked(tid, th)
 }
 
 func (t *Threads) outputsDir(tid string) string { return t.st.Path("threads", tid+".outputs") }
@@ -265,21 +288,36 @@ func (t *Threads) Add(m ThreadMessage) ThreadMessage {
 	if len([]rune(m.Text)) > maxReportText {
 		m.Text = string([]rune(m.Text)[:maxReportText])
 	}
+	if m.ChatID == "" && t.ChatFor != nil {
+		m.ChatID = t.ChatFor(m)
+	}
 	t.mu.Lock()
 	th := t.loadLocked(m.ThreadID)
+	changed := th.placeLocked(m.ThreadID, &m)
 	th.msgs = append(th.msgs, m)
 	th.lines++
 	t.appendLine(m.ThreadID, m)
 	max := threadMax(m.ThreadID)
 	if len(th.msgs) > max {
-		th.msgs = slices.Clone(th.msgs[len(th.msgs)-max:])
+		var cut bool
+		if th.msgs, cut = trimMessages(m.ThreadID, th.msgs); cut {
+			th.recount()
+		}
 	}
-	if th.lines > 2*max {
+	if th.lines > len(th.msgs)+max {
 		t.compactLocked(m.ThreadID, th)
+	} else if changed || !th.saved {
+		t.saveChatsLocked(m.ThreadID, th)
 	}
+	active := th.active
 	t.mu.Unlock()
 	if t.OnMessage != nil {
 		t.OnMessage(m)
+	}
+	if changed {
+		t.publishChats(m.ThreadID, active)
+	} else {
+		t.countsChanged(m.ThreadID) // a chat's count and last time
 	}
 	return m
 }
@@ -297,6 +335,7 @@ func (t *Threads) Update(m ThreadMessage) {
 			if m.At.IsZero() {
 				m.At = th.msgs[i].At
 			}
+			m.ChatID = th.msgs[i].ChatID // a message stays in its chat
 			th.msgs[i], found = m, true
 			break
 		}
@@ -307,7 +346,7 @@ func (t *Threads) Update(m ThreadMessage) {
 	}
 	th.lines++
 	t.appendLine(m.ThreadID, m)
-	if th.lines > 2*threadMax(m.ThreadID) {
+	if th.lines > len(th.msgs)+threadMax(m.ThreadID) {
 		t.compactLocked(m.ThreadID, th)
 	}
 	t.mu.Unlock()
@@ -317,7 +356,8 @@ func (t *Threads) Update(m ThreadMessage) {
 }
 
 // List returns up to limit messages before the message id "before" (or
-// the newest), oldest first, and whether older ones exist.
+// the newest), oldest first, and whether older ones exist: of every chat of the thread
+// (ListChat reads one).
 func (t *Threads) List(tid, before string, limit int) ([]ThreadMessage, bool) {
 	if limit <= 0 {
 		limit = 50
@@ -351,8 +391,9 @@ func (t *Threads) Last(tid string, n int) []ThreadMessage {
 }
 
 // Merge moves one thread's messages into another, in time order, with the replies they keep; the
-// other thread is then empty (a project merged into another, ROADMAP #49). The oldest go first
-// when both together are more than a thread keeps.
+// other thread is then empty (a project merged into another, ROADMAP #49). Its chats come along
+// as chats of this one; the active chat stays this thread's (the other's, when this one had no
+// messages). The oldest go first when both together are more than a thread keeps.
 func (t *Threads) Merge(into, from string) int {
 	if into == from || !ValidThreadID(into) || !ValidThreadID(from) {
 		return 0
@@ -367,9 +408,23 @@ func (t *Threads) Merge(into, from string) int {
 			all = append(all, m)
 		}
 		slices.SortStableFunc(all, func(a, b ThreadMessage) int { return a.At.Compare(b.At) })
-		if max := threadMax(into); len(all) > max {
-			all = all[len(all)-max:]
+		// a chat of this thread nobody wrote in gives way to the chats that come, but for the
+		// one the owner has open; a thread with no messages at all takes the other's active chat
+		empty := len(dst.msgs) == 0
+		dst.chats = slices.DeleteFunc(dst.chats, func(c *LeadChat) bool {
+			return c.Messages == 0 && c.Summary == "" && (empty || c.ID != dst.active)
+		})
+		for _, c := range src.chats {
+			if dst.chat(c.ID) == nil {
+				c.ThreadID = into
+				dst.chats = append(dst.chats, c)
+			}
 		}
+		slices.SortStableFunc(dst.chats, func(a, b *LeadChat) int { return a.CreatedAt.Compare(b.CreatedAt) })
+		if dst.chat(dst.active) == nil {
+			dst.active = src.active
+		}
+		all, _ = trimMessages(into, all)
 		_ = os.MkdirAll(t.outputsDir(into), 0o700)
 		if ents, err := os.ReadDir(t.outputsDir(from)); err == nil {
 			for _, e := range ents {
@@ -377,20 +432,28 @@ func (t *Threads) Merge(into, from string) int {
 			}
 		}
 		dst.msgs = all
+		dst.recount()
 		t.compactLocked(into, dst)
 	}
 	t.th[from] = &thread{}
 	_ = os.Remove(t.path(from))
+	_ = os.Remove(t.chatsPath(from))
 	_ = os.RemoveAll(t.outputsDir(from))
+	active := dst.active
 	t.mu.Unlock()
+	if n > 0 {
+		t.publishChats(into, active)
+	}
 	return n
 }
 
-// Clear empties a thread (DELETE /api/threads/{tid}).
+// Clear empties a thread with every chat of it (a project deleted for good); DELETE
+// /api/threads/{tid} empties only the active chat (ClearActive).
 func (t *Threads) Clear(tid string) {
 	t.mu.Lock()
 	t.th[tid] = &thread{}
 	_ = os.Remove(t.path(tid))
+	_ = os.Remove(t.chatsPath(tid))
 	_ = os.RemoveAll(t.outputsDir(tid))
 	t.mu.Unlock()
 }
@@ -449,6 +512,8 @@ type Order struct {
 	Targets   []OrderTarget `json:"targets"`
 	// MissionID: the order carries a task of this mission (§22).
 	MissionID string `json:"missionId,omitempty"`
+	// ChatID: the lead chat it was given in; its reports go there (§4.1).
+	ChatID string `json:"chatId,omitempty"`
 }
 
 // Active reports whether a target still runs.

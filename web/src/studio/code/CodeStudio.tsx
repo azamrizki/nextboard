@@ -44,7 +44,7 @@ import { Explorer } from './Explorer';
 import { applyTheme, loadExtensions, useBuiltinTheme } from './extensions';
 import { store } from '../../store';
 import { registerEditorFocus, takePendingPane } from '../../agents/jump';
-import { AgentSideBar, ClosePaneDialog, PaneEnv, startAgentPane, usePaneChoices } from './AgentPanes';
+import { AgentSideBar, ClosePaneDialog, PaneEnv, ResumeChatsDialog, startAgentPane, usePaneChoices } from './AgentPanes';
 import { allowESLint, eslintFixAll, eslintStatus, type EslintState } from './eslintRun';
 import { ExtensionsPanel } from './ExtensionsPanel';
 import { taskApi } from '../api';
@@ -1060,6 +1060,7 @@ function Workbench({
       )}
       <DebugDialogs ws={ws} />
       <ClosePaneDialog ws={ws} />
+      <ResumeChatsDialog ws={ws} workspaceId={ctl.workspaceId} />
       {confirmDialog}
       {/* fixed to the screen: out of the card, which the board moves and scales */}
       {typing === 'editor' && createPortal(<EditorKeyBar ws={ws} onGoToFile={() => setPalette({ initial: '' })} />, document.body)}

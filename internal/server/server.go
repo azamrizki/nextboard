@@ -142,6 +142,8 @@ type Server struct {
 	art *artState
 	// roots are the projects' root folders, where root consoles work (roots.go).
 	roots *rootDirs
+	// chats is the index of agent conversations per project (chats.go); nil when it could not open.
+	chats *chatHub
 }
 
 // New loads all state from the data directory.
@@ -246,6 +248,7 @@ func New(opts Options) (_ *Server, err error) {
 	s.setupStudio()
 	s.setupGUI()
 	s.setupAttachments()
+	s.setupChats()
 	s.roots.Prune()
 	s.setupVault()
 	s.passkeysAtStart()

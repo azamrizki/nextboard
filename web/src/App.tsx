@@ -24,6 +24,7 @@ import { store } from './store';
 import { loadMemoryPage, memoryPageIfLoaded, prefetchGalaxy, preloadMemoryWhenIdle } from './memory/preload';
 import { installMock, mockRequested } from './orch/api';
 import { orchStore } from './orch/store';
+import { chatsStore } from './chats/store';
 import { studioStore } from './studio/store';
 import { guiStore } from './gui/store';
 import { resetVaultStore } from './vault/store';
@@ -133,6 +134,7 @@ export function App() {
     // dev flag (localStorage nb.orchMock / ?orchmock=1): Phase 6 endpoints served in-browser
     if (mockRequested()) void installMock();
     orchStore.install();
+    chatsStore.install();
     studioStore.install();
     guiStore.install();
     store.connect();
@@ -152,6 +154,7 @@ export function App() {
       stopTts();
       store.reset();
       orchStore.reset();
+      chatsStore.reset();
       studioStore.reset();
       guiStore.reset();
       resetVaultStore();

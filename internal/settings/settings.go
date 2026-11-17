@@ -48,6 +48,9 @@ type Agents struct {
 	// KeepRecentProjects keeps the agents of that many most recently opened projects awake
 	// when idle, and starts them right after a hub restart: going back to one is instant.
 	KeepRecentProjects int `json:"keepRecentProjects"`
+	// ResumeTellChanges: a chat that resumes is told what changed in its place since it last
+	// ran, new commits and memory (docs/API-agents.md §29); a resume can ask otherwise.
+	ResumeTellChanges bool `json:"resumeTellChanges"`
 }
 
 // ModelChoice is a model and an effort ("" = the CLI's own choice).
@@ -204,7 +207,7 @@ func Defaults() Settings {
 			RoleAgents: map[string]string{"frontend": "claude", "backend": "codex", "testers": "gemini", "reviewers": "claude",
 				"design": "claude", "docs": "claude", "security": "codex", "general": ""},
 			LiveStatus: true, IDELink: true, HookChannel: "auto", ResumeOnRestart: "auto",
-			SleepAfterMin: 30, LazyStart: true, KeepRecentProjects: 2,
+			SleepAfterMin: 30, LazyStart: true, KeepRecentProjects: 2, ResumeTellChanges: true,
 			// out of preview on 2026-11-08 (ROADMAP #44): a hub that saved false keeps it
 			RemoteTools: true,
 		},

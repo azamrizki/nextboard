@@ -150,6 +150,11 @@ type Service struct {
 	bgClosed    bool
 	// mwake: by mission id, the lead's pending wake and what it remembers between wakes.
 	mwake map[string]*missionWakeState
+	// chatSum: by lead chat id, the dividers waiting for the chat's summary job (leadchats.go).
+	// One such job runs at a time; chatSumNext are the ones after it.
+	chatSum     map[string][]string
+	chatSumOn   bool
+	chatSumNext []func()
 }
 
 // New loads threads, orders, loops, forwards, memory and layouts.
@@ -163,6 +168,10 @@ func New(hub Hub, st *store.Store) *Service {
 	s.Threads.OnMessage = func(m ThreadMessage) {
 		hub.Publish(map[string]any{"type": "thread", "threadId": m.ThreadID, "message": m})
 	}
+	s.Threads.OnChats = func(tid, active string) {
+		hub.Publish(map[string]any{"type": "leadChats", "threadId": tid, "active": active})
+	}
+	s.Threads.ChatFor = s.chatFor
 	s.Orders = newOrders(st)
 	s.Confirms = newConfirms(st)
 	s.Memory = newMemory(st)
@@ -220,6 +229,7 @@ func (s *Service) Close() {
 	s.bgClosed = true
 	s.bgMu.Unlock()
 	s.wg.Wait()
+	s.Threads.Close() // no leadChats event after this
 	s.Orders.Save(s.Now())
 	s.saveForwards()
 	s.saveHandoffs()
@@ -245,7 +255,7 @@ func (s *Service) goBackground(fn func()) {
 func (s *Service) Tick(now time.Time) {
 	for _, cf := range s.Confirms.Expire(now) {
 		s.publishConfirm(cf)
-		s.Threads.Add(ThreadMessage{ThreadID: cf.ThreadID, Role: "hub", Kind: "note", ConfirmationID: cf.ID, Text: "Confirmation expired; nothing was done.", MissionID: cf.MissionID})
+		s.Threads.Add(ThreadMessage{ThreadID: cf.ThreadID, ChatID: cf.ChatID, Role: "hub", Kind: "note", ConfirmationID: cf.ID, Text: "Confirmation expired; nothing was done.", MissionID: cf.MissionID})
 		if cf.MissionID != "" {
 			s.missionConfirmGone(cf, "not answered in time")
 		}

@@ -903,6 +903,25 @@ func (m *Manager) HandleTaken(h string) bool {
 	return m.takenLocked(nil)[strings.ToLower(h)]
 }
 
+// NextHandle is the handle a new console gets when it asks for none.
+func (m *Manager) NextHandle() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.nextHandleLocked()
+}
+
+// HandleHolder returns the console that has a handle (case-insensitive), "" when none has.
+func (m *Manager) HandleHolder(h string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, s := range m.sessions {
+		if strings.EqualFold(s.spec.Handle, h) {
+			return id
+		}
+	}
+	return ""
+}
+
 // Update renames and/or changes the handle (PATCH /api/sessions/{id}).
 func (m *Manager) Update(id string, name, handle *string) (Info, error) {
 	s, ok := m.Get(id)

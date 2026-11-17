@@ -1,0 +1,584 @@
+/* =========================================================================
+   Chats (docs/DESIGN.md §3.5 Chats): the board's Chats panel, the Resume
+   dialog, New console › Resume a chat, and the lead's chat list in thread
+   headers. Monochrome: status speaks through the usual dots and tints.
+   ========================================================================= */
+
+/* ---- the panel on the right rail ---- */
+.side-panel.chats-panel {
+  width: var(--w-git-panel);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  overflow: hidden;
+  /* ends above the command bar */
+  max-height: calc(100dvh - var(--shell-top) - var(--h-cmdbar) - var(--s-8));
+}
+@media (max-width: 899px) {
+  .side-panel.chats-panel {
+    width: auto;
+  }
+}
+@media (max-width: 719px) {
+  .side-panel.chats-panel {
+    max-height: calc(100dvh - var(--shell-top) - var(--h-cmdbar) - var(--s-6));
+  }
+}
+.chats-panel .side-panel-head {
+  margin-bottom: 0;
+}
+.chats-panel .side-panel-head > .truncate {
+  min-width: 0;
+}
+.chats-filters {
+  display: flex;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.chats-filters .input-group {
+  min-width: 0;
+}
+.chats-agent {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 40%;
+}
+.chat-place-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+}
+.chat-place-btn {
+  max-width: 100%;
+  height: var(--h-chip);
+  padding: 0 var(--s-3);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.chat-place-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.chat-place-btn[aria-pressed='true'] {
+  border-color: var(--glass-border-strong);
+  background: var(--surface-active);
+  color: var(--text);
+}
+.chats-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 calc(var(--s-2) * -1);
+  padding: 0 var(--s-2);
+}
+.chats-foot {
+  display: flex;
+  gap: var(--s-2);
+  margin: 0;
+  padding-top: var(--s-3);
+  border-top: var(--hairline) solid var(--glass-border);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.chats-foot > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+
+/* ---- rows ---- */
+.chat-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.chat-group + .chat-group {
+  margin-top: var(--s-2);
+}
+.chat-day {
+  margin: 0 0 var(--s-1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-3);
+}
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+/* badge | title and meta | actions; a row of the lead's chats has no badge */
+.chat-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  min-width: 0;
+  padding: var(--s-2);
+  border-radius: var(--r-md);
+}
+.chat-row.lead-chat-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.chat-row:hover,
+.chat-row:focus-within {
+  background: var(--surface-hover);
+}
+.chat-row.is-current {
+  background: var(--surface-active);
+}
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.chat-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+.chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 var(--s-2);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.chat-chip > svg {
+  flex: 0 0 auto;
+  width: var(--fs-xs);
+  height: var(--fs-xs);
+}
+.chat-chip.is-orphan {
+  border-style: dashed;
+  border-color: var(--tint-warning-border);
+  color: var(--tint-warning-text);
+}
+.chat-chip.is-mission,
+.chat-chip.is-card {
+  border-color: transparent;
+  background: var(--surface-input);
+}
+.chat-chip.is-mission.tone-success {
+  background: var(--tint-success-bg);
+  color: var(--tint-success-text);
+}
+.chat-chip.is-mission.tone-warning,
+.chat-chip.is-mission.tone-needs {
+  background: var(--tint-warning-bg);
+  color: var(--tint-warning-text);
+}
+.chat-chip.is-mission.tone-danger {
+  background: var(--tint-danger-bg);
+  color: var(--tint-danger-text);
+}
+.chat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  white-space: nowrap;
+}
+.chat-size {
+  white-space: nowrap;
+}
+.chat-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+/* the row's menu shows on hover and keyboard focus; a finger has it always, and long-press */
+.chat-row-menu {
+  opacity: 0;
+}
+.chat-row:hover .chat-row-menu,
+.chat-row:focus-within .chat-row-menu,
+[data-input='touch'] .chat-row-menu {
+  opacity: 1;
+}
+.chat-row.is-orphan .chat-title {
+  color: var(--text-2);
+}
+/* a phone: the actions go under the title and its place, which get the whole width */
+@media (max-width: 559px) {
+  .chat-row:not(.lead-chat-row) {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+  .chat-row:not(.lead-chat-row) .chat-actions {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+/* ---- transcript ---- */
+.chat-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin: 0;
+}
+.chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--surface-input);
+}
+.chat-msg.is-user {
+  background: var(--surface-active);
+}
+.chat-msg.is-tool {
+  background: transparent;
+  border: var(--hairline) dashed var(--glass-border);
+}
+.chat-msg-who {
+  display: flex;
+  gap: var(--s-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+}
+.chat-msg-who time {
+  font-weight: var(--fw-regular);
+}
+.chat-msg-text {
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Resume dialog ---- */
+.resume-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.resume-facts {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) minmax(0, 1fr);
+  gap: var(--s-2) var(--s-4);
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+  background: var(--surface-input);
+  font-size: var(--fs-sm);
+}
+.resume-facts dt {
+  color: var(--text-3);
+}
+.resume-facts dd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  margin: 0;
+}
+.resume-where {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.resume-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.resume-reply {
+  margin: 0;
+  padding-left: var(--s-3);
+  border-left: 2px solid var(--glass-border-strong);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 559px) {
+  .resume-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-1);
+  }
+  .resume-facts dd + dt {
+    margin-top: var(--s-2);
+  }
+}
+.resume-taken {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: var(--hairline) solid var(--tint-warning-border);
+  border-radius: var(--r-md);
+  background: var(--tint-warning-bg);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.resume-taken > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  margin-top: var(--nudge);
+  color: var(--tint-warning-text);
+}
+.resume-opts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.resume-opt {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-md);
+}
+.resume-opt .radio-card {
+  width: 100%;
+}
+.resume-opt.is-on:has(.resume-name) .radio-card {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.resume-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3) var(--s-3) calc(var(--s-3) * 2 + var(--size-icon));
+  border: var(--hairline) solid var(--c-primary);
+  border-top: 0;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  background: var(--selected-bg);
+}
+.resume-name p {
+  margin: 0;
+}
+.resume-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.resume-name-row .control {
+  flex: 0 1 220px;
+  min-width: 0;
+}
+.resume-tell {
+  font-size: var(--fs-sm);
+}
+
+/* ---- New console › Resume a chat, editor panes' Resume a chat… ---- */
+.nt-panel-tabs {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--s-3);
+}
+.nt-tabs {
+  margin-bottom: var(--s-3);
+}
+.nt-panel-tabs .nt-tabs {
+  margin-bottom: 0;
+}
+.nt-resume,
+.resume-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.resume-list-box {
+  max-height: min(48dvh, 420px);
+  overflow-y: auto;
+  padding: var(--s-1);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+}
+.resume-list-box .list-msg {
+  padding: var(--s-3);
+}
+.resume-list-box .chat-day {
+  padding: var(--s-1) var(--s-2) 0;
+}
+.nt-resume > p {
+  margin: 0;
+}
+
+/* ---- the lead's chats in a thread's header (mockup 3) ---- */
+.lead-chat-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.lead-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  max-width: 280px;
+  height: var(--h-control-sm);
+  padding: 0 var(--s-2) 0 var(--s-3);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+  background: var(--surface-input);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.lead-chat-btn:hover,
+.lead-chat-btn[aria-expanded='true'] {
+  border-color: var(--glass-border-strong);
+  background: var(--surface-hover);
+}
+.lead-chat-btn > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  color: var(--text-3);
+}
+.popover.lead-chat-pop {
+  padding: var(--s-2);
+  max-height: min(70dvh, 560px);
+  overflow-y: auto;
+}
+.lead-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.lead-chat-list .section-title {
+  padding: var(--s-1) var(--s-2);
+}
+.lead-chat-list .lead-chat-row .chat-actions .text-3 {
+  padding: 0 var(--s-2);
+}
+.lead-chat-newrow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  width: 100%;
+  margin-top: var(--s-1);
+  padding: var(--s-3) var(--s-2) var(--s-2);
+  border: 0;
+  border-top: var(--hairline) solid var(--glass-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lead-chat-newrow:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+}
+.lead-chat-newrow > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  margin-top: var(--nudge);
+  color: var(--text-2);
+}
+.lead-chat-newtext {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nudge);
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.lead-chat-newtext > span {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.lead-chat-none {
+  margin: 0 0 var(--s-2);
+}
+/* the chat row above a card's or a pane's thread */
+.orch-chatbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-2) var(--s-3) 0;
+}
+.wb-orch-chats {
+  padding: var(--s-2) var(--wb-orch-gutter, var(--s-3));
+  border-bottom: var(--hairline) solid var(--wb-line, var(--glass-border));
+}
+.thread-head .lead-chat-btn {
+  max-width: min(280px, 36vw);
+}
+@media (max-width: 559px) {
+  .thread-head .lead-chat-btn {
+    max-width: 40vw;
+  }
+  .thread-head .thread-planner-text {
+    display: none;
+  }
+}
+
+/* "Resumed — Aruna has a summary of …": a line across the thread */
+.msg.msg-divider {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s-3);
+  margin: var(--s-2) 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-align: center;
+}
+.msg.msg-divider::before,
+.msg.msg-divider::after {
+  content: '';
+  flex: 1 1 var(--s-6);
+  min-width: var(--s-4);
+  border-top: var(--hairline) solid var(--glass-border);
+}
+.msg-divider-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* a question asked in another chat of the thread, pinned above the messages */
+.thread-other-ask {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3) 0;
+}

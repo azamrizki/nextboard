@@ -104,8 +104,8 @@ func (s *Service) diagramStep(c *execCtx, st Step) error {
 	if g := st.Geom; g != nil && g.X != nil && g.Y != nil {
 		req.X, req.Y = g.X, g.Y
 	}
-	tid, cmd, client := c.threadID, c.commandID, c.clientID
-	req.Done = func(r DiagramLanded) { s.diagramLanded(tid, cmd, client, r) }
+	tid, chat, cmd, client := c.threadID, s.chatOf(c), c.commandID, c.clientID
+	req.Done = func(r DiagramLanded) { s.diagramLanded(tid, chat, cmd, client, r) }
 	if _, err := dm.GenerateDiagram(c.projectID, wid, req); err != nil {
 		return err
 	}
@@ -117,13 +117,14 @@ func (s *Service) diagramStep(c *execCtx, st Step) error {
 	return nil
 }
 
-// diagramLanded tells the thread where the diagram is, or why it is not there.
-func (s *Service) diagramLanded(threadID, commandID, clientID string, r DiagramLanded) {
+// diagramLanded tells the thread where the diagram is, or why it is not there, in the lead chat
+// it was asked in.
+func (s *Service) diagramLanded(threadID, chatID, commandID, clientID string, r DiagramLanded) {
 	if r.Err != "" {
-		s.Threads.Add(ThreadMessage{ThreadID: threadID, Role: "hub", Kind: "error", Text: "The diagram could not be drawn: " + r.Err})
+		s.Threads.Add(ThreadMessage{ThreadID: threadID, ChatID: chatID, Role: "hub", Kind: "error", Text: "The diagram could not be drawn: " + r.Err})
 		return
 	}
-	s.Threads.Add(ThreadMessage{ThreadID: threadID, Role: "hub", Kind: "note", Text: fmt.Sprintf("The diagram \"%s\" is on %s.", r.Title, r.Board)})
+	s.Threads.Add(ThreadMessage{ThreadID: threadID, ChatID: chatID, Role: "hub", Kind: "note", Text: fmt.Sprintf("The diagram \"%s\" is on %s.", r.Title, r.Board)})
 	// a result that comes later goes out like a planner's (§3.8): the client that sent the
 	// command shows it
 	s.hub.Publish(map[string]any{"type": "command", "commandId": commandID, "clientId": clientID, "state": "done",

@@ -31,6 +31,7 @@ import { copyText } from '../../lib/clipboard';
 import { orchStore, useActiveMission, useThread } from '../../orch/store';
 import { missionChip, missionStateLabel, missionTone } from '../../orch/mission';
 import { ThreadList, type ThreadActions } from '../../orch/ThreadView';
+import { LeadChatSwitcher, newLeadChat, NewChatButton } from '../../chats/LeadChatSwitcher';
 import { restartConsole } from '../../agents/actions';
 import type { FlowNode } from '../flow';
 import { cardLabel } from '../editorCards';
@@ -194,6 +195,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         void copyText(thread.messages.map((m) => `${messageAuthor(m, name)}: ${messageText(m)}`).join('\n\n')).then((ok) => (ok ? toast.success('Thread copied.') : toast.error('Could not copy the thread.'))),
     },
     { label: 'Clear thread', icon: 'broom', disabled: !thread.messages.length, onSelect: () => void orchApi.clearThread(id).catch((err) => toast.error(orchError(err))) },
+    { label: 'New chat', icon: 'plus', title: 'This chat is kept and can be resumed from the chat list', onSelect: () => void newLeadChat(id, name) },
   ];
 
   const agentItems = (s: Session, nodeId: string, wiredDirect: boolean): MenuEntry[] => [
@@ -463,6 +465,11 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
             </section>
           )
         )}
+        <div className="orch-chatbar">
+          <LeadChatSwitcher threadId={id} lead={name} scope={project.name} />
+          <span className="spacer" />
+          <NewChatButton threadId={id} lead={name} iconOnly={!roomy} />
+        </div>
         <ThreadList
           threadId={id}
           projectId={project.id}

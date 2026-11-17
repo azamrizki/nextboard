@@ -13,7 +13,7 @@ import { useEffectiveSettings } from '../agents/settings';
 import { onMachine, YoloConfirm } from '../agents/YoloConfirm';
 import { Button } from '../components/Button';
 import { FolderBrowser } from '../components/FolderBrowser';
-import { Checkbox, Field, SelectField, TextField } from '../components/form';
+import { Checkbox, Field, SegmentedControl, SelectField, TextField } from '../components/form';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Popover } from '../components/Popover';
@@ -27,6 +27,8 @@ import { AccountOptions, isProviderId } from '../providers/AccountOptions';
 import { compatible, useProviders } from '../providers/providers';
 import { OTHER_VALUE, PlacePicker } from './PlacePicker';
 import { machineReady, machineStatus } from './sessionStatus';
+import { ResumeChatList } from '../chats/ResumeChatList';
+import type { ChatView } from '../chats/types';
 
 /** What the dock / Spawn tool would start. */
 export interface TerminalChoice {
@@ -310,6 +312,53 @@ function PlaceField({ nt, size = 'sm' }: { nt: NT; size?: 'sm' | 'md' }) {
   return <PlacePicker project={nt.project} value={nt.placeValue} onChange={nt.setPlace} other size={size} />;
 }
 
+/** The board's side of "Resume a chat": its id for the dialogs, and the Resume dialog to open. */
+export interface ResumeFrom {
+  workspaceId: string;
+  onResume: (c: ChatView) => void;
+}
+
+type NtTab = 'fresh' | 'resume';
+
+/** "Start fresh / Resume a chat" at the top of the new console form (mockup 4). */
+function NtTabs({ tab, onTab }: { tab: NtTab; onTab: (t: NtTab) => void }) {
+  return (
+    <SegmentedControl
+      label="New console"
+      block
+      size="sm"
+      className="nt-tabs"
+      value={tab}
+      onChange={onTab}
+      options={[
+        { value: 'fresh', label: 'Start fresh' },
+        { value: 'resume', label: 'Resume a chat', title: 'A conversation an agent had in this project, where it started' },
+      ]}
+    />
+  );
+}
+
+/** The chats of the place picked in the form, the armed agent's first. */
+function ResumeTab({ nt, from, onDone }: { nt: NT; from: ResumeFrom; onDone: () => void }) {
+  return (
+    <div className="nt-resume">
+      <ResumeChatList
+        project={nt.project}
+        workspaceId={from.workspaceId}
+        place={nt.multi ? (nt.placeValue === OTHER_VALUE ? ROOT_VALUE : nt.placeValue) : ''}
+        onPlace={nt.setPlace}
+        agent={nt.agentId}
+        onResume={(c) => {
+          onDone();
+          from.onResume(c);
+        }}
+        onShown={onDone}
+      />
+      <p className="fs-xs text-3">Chats started in another place are under that place.</p>
+    </div>
+  );
+}
+
 /** Yolo needs a confirmation every time it is switched on for a spawn. */
 function useYoloToggle(nt: NT) {
   const [confirming, setConfirming] = useState(false);
@@ -465,8 +514,9 @@ function NewTerminalDock({ nt, onBrowse }: { nt: NT; onBrowse: () => void }) {
 }
 
 /** Same form as a modal for narrow screens. */
-function NewTerminalSheet({ nt, onClose, onBrowse }: { nt: NT; onClose: () => void; onBrowse: () => void }) {
+function NewTerminalSheet({ nt, onClose, onBrowse, resume }: { nt: NT; onClose: () => void; onBrowse: () => void; resume?: ResumeFrom }) {
   const yolo = useYoloToggle(nt);
+  const [tab, setTab] = useState<NtTab>('fresh');
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (await nt.create()) onClose();
@@ -479,65 +529,76 @@ function NewTerminalSheet({ nt, onClose, onBrowse }: { nt: NT; onClose: () => vo
       size="sm"
       dismissable={!nt.creating}
       footer={
-        <>
-          <Button variant="secondary" onClick={onClose} disabled={nt.creating}>
+        tab === 'resume' ? (
+          <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" form="new-terminal-form" variant="primary" icon="plus" loading={nt.creating} disabled={!nt.canCreate && !nt.creating}>
-            Start terminal
-          </Button>
-        </>
+        ) : (
+          <>
+            <Button variant="secondary" onClick={onClose} disabled={nt.creating}>
+              Cancel
+            </Button>
+            <Button type="submit" form="new-terminal-form" variant="primary" icon="plus" loading={nt.creating} disabled={!nt.canCreate && !nt.creating}>
+              Start terminal
+            </Button>
+          </>
+        )
       }
     >
-      <form id="new-terminal-form" className="form" onSubmit={submit}>
-        <fieldset disabled={nt.creating}>
-          <PlaceField nt={nt} size="md" />
-          {askMachine(nt) && (
-            <SelectField label="Machine" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} hint={serverHint(nt)}>
-              <MachineOptions nt={nt} />
+      {resume && <NtTabs tab={tab} onTab={setTab} />}
+      {resume && tab === 'resume' ? (
+        <ResumeTab nt={nt} from={resume} onDone={onClose} />
+      ) : (
+        <form id="new-terminal-form" className="form" onSubmit={submit}>
+          <fieldset disabled={nt.creating}>
+            <PlaceField nt={nt} size="md" />
+            {askMachine(nt) && (
+              <SelectField label="Machine" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} hint={serverHint(nt)}>
+                <MachineOptions nt={nt} />
+              </SelectField>
+            )}
+            <SelectField
+              label="Agent"
+              value={nt.agentId}
+              onChange={(e) => nt.setAgentId(e.target.value)}
+              hint={nt.agent ? `Runs ${nt.agent.command}` : undefined}
+              error={nt.agentsError || undefined}
+            >
+              <AgentOptions nt={nt} />
             </SelectField>
-          )}
-          <SelectField
-            label="Agent"
-            value={nt.agentId}
-            onChange={(e) => nt.setAgentId(e.target.value)}
-            hint={nt.agent ? `Runs ${nt.agent.command}` : undefined}
-            error={nt.agentsError || undefined}
-          >
-            <AgentOptions nt={nt} />
-          </SelectField>
-          <ModelField nt={nt} />
-          {nt.hasAccounts && (
-            <SelectField label="Login profile" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)}>
-              <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
-            </SelectField>
-          )}
-          {askCwd(nt) && (
-            <Field label="Working directory" optional hint={nt.place ? 'Leave empty to start in the part’s folder.' : 'Leave empty to start in the project folder.'}>
-              {({ labelId: _l, ...a11y }) => (
-                <div className="input-group has-lead has-addon">
-                  <span className="ig-lead">
-                    <Icon name="folder" />
-                  </span>
-                  <input
-                    className="control mono"
-                    placeholder={cwdPlaceholder(nt)}
-                    value={nt.cwd}
-                    onChange={(e) => nt.setCwd(e.target.value)}
-                    spellCheck={false}
-                    {...a11y}
-                  />
-                  <Button className="ig-addon" onClick={onBrowse} disabled={!nt.machine}>
-                    Browse
-                  </Button>
-                </div>
-              )}
-            </Field>
-          )}
-          <TextField label="Name" optional placeholder={nt.agent?.name ?? 'Claude Code'} value={nt.name} onChange={(e) => nt.setName(e.target.value)} maxLength={80} />
-          {nt.yoloable && <Checkbox checked={nt.yolo} onChange={() => yolo.toggle()} label="Yolo: run without permission prompts" />}
-        </fieldset>
-      </form>
+            <ModelField nt={nt} />
+            {nt.hasAccounts && (
+              <SelectField label="Login profile" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)}>
+                <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
+              </SelectField>
+            )}
+            {askCwd(nt) && (
+              <Field label="Working directory" optional hint={nt.place ? 'Leave empty to start in the part’s folder.' : 'Leave empty to start in the project folder.'}>
+                {({ labelId: _l, ...a11y }) => (
+                  <div className="input-group has-lead has-addon">
+                    <span className="ig-lead">
+                      <Icon name="folder" />
+                    </span>
+                    <input
+                      className="control mono"
+                      placeholder={cwdPlaceholder(nt)}
+                      value={nt.cwd}
+                      onChange={(e) => nt.setCwd(e.target.value)}
+                      spellCheck={false}
+                      {...a11y}
+                    />
+                    <Button className="ig-addon" onClick={onBrowse} disabled={!nt.machine}>
+                      Browse
+                    </Button>
+                  </div>
+                )}
+              </Field>
+            )}
+            <TextField label="Name" optional placeholder={nt.agent?.name ?? 'Claude Code'} value={nt.name} onChange={(e) => nt.setName(e.target.value)} maxLength={80} />
+            {nt.yoloable && <Checkbox checked={nt.yolo} onChange={() => yolo.toggle()} label="Yolo: run without permission prompts" />}
+          </fieldset>
+        </form>
+      )}
       {yolo.dialog}
     </Modal>
   );
@@ -547,9 +608,10 @@ function NewTerminalSheet({ nt, onClose, onBrowse }: { nt: NT; onClose: () => vo
  * Agent chip of the command bar: the armed agent (and machine when not the project's).
  * Opens the new-console form as a popover (desktop) or the sheet (narrow screens).
  */
-export function AgentChip({ nt, anchor }: { nt: NT; anchor?: RefObject<HTMLElement | null> }) {
+export function AgentChip({ nt, anchor, resume }: { nt: NT; anchor?: RefObject<HTMLElement | null>; resume?: ResumeFrom }) {
   const compact = useMediaQuery('(max-width: 899px)');
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<NtTab>('fresh');
   const [browsing, setBrowsing] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   const remote = nt.machine && nt.machine.id !== nt.project.machineId;
@@ -585,17 +647,31 @@ export function AgentChip({ nt, anchor }: { nt: NT; anchor?: RefObject<HTMLEleme
         {nt.yolo && <Icon name="bolt" className="agent-chip-yolo" />}
         <Icon name="chevronUp" className="agent-chip-chev" />
       </button>
-      {open && compact && <NewTerminalSheet nt={nt} onClose={() => setOpen(false)} onBrowse={() => setBrowsing(true)} />}
+      {open && compact && <NewTerminalSheet nt={nt} onClose={() => setOpen(false)} onBrowse={() => setBrowsing(true)} resume={resume} />}
       {open && !compact && (
-        <Popover anchor={anchor ?? ref} onClose={() => !browsing && setOpen(false)} label="New console" placement="above" align="start" className="nt-pop" width={340}>
-          <NewTerminalPanel
-            nt={nt}
-            onBrowse={() => setBrowsing(true)}
-            onDone={() => {
-              setOpen(false);
-              ref.current?.focus();
-            }}
-          />
+        <Popover anchor={anchor ?? ref} onClose={() => !browsing && setOpen(false)} label="New console" placement="above" align="start" className="nt-pop" width={resume && tab === 'resume' ? 460 : 340}>
+          {resume && (
+            <div className="nt-panel-tabs">
+              <div className="pop-head">
+                <Icon name="terminal" />
+                <strong>New console</strong>
+              </div>
+              <NtTabs tab={tab} onTab={setTab} />
+            </div>
+          )}
+          {resume && tab === 'resume' ? (
+            <ResumeTab nt={nt} from={resume} onDone={() => setOpen(false)} />
+          ) : (
+            <NewTerminalPanel
+              nt={nt}
+              onBrowse={() => setBrowsing(true)}
+              head={!resume}
+              onDone={() => {
+                setOpen(false);
+                ref.current?.focus();
+              }}
+            />
+          )}
         </Popover>
       )}
       {folderBrowser}
@@ -604,7 +680,7 @@ export function AgentChip({ nt, anchor }: { nt: NT; anchor?: RefObject<HTMLEleme
 }
 
 /** The dock's controls stacked in a popover. */
-function NewTerminalPanel({ nt, onBrowse, onDone }: { nt: NT; onBrowse: () => void; onDone: () => void }) {
+function NewTerminalPanel({ nt, onBrowse, onDone, head = true }: { nt: NT; onBrowse: () => void; onDone: () => void; head?: boolean }) {
   const yolo = useYoloToggle(nt);
   const mstatus = nt.machine ? machineStatus(nt.machine) : null;
   const submit = async (e: FormEvent) => {
@@ -613,10 +689,12 @@ function NewTerminalPanel({ nt, onBrowse, onDone }: { nt: NT; onBrowse: () => vo
   };
   return (
     <form className="nt-panel form" onSubmit={submit} aria-label="New console">
-      <div className="pop-head">
-        <Icon name="terminal" />
-        <strong>New console</strong>
-      </div>
+      {head && (
+        <div className="pop-head">
+          <Icon name="terminal" />
+          <strong>New console</strong>
+        </div>
+      )}
       <PlaceField nt={nt} />
       {askMachine(nt) && (
         <SelectField label="Machine" value={nt.machineId} onChange={(e) => nt.changeMachine(e.target.value)} className="control-sm" hint={serverHint(nt) ?? (mstatus ? `Status: ${mstatus.label}` : undefined)}>

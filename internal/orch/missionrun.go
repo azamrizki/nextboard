@@ -382,7 +382,8 @@ func (s *Service) CreateMission(req MissionRequest) (MissionRun, error) {
 	if ms, ok := s.Missions.Active(tid); ok && ms.State != MissionAwaiting {
 		return MissionRun{}, ErrMissionActive
 	}
-	c := &execCtx{commandID: auth.RandomID("cmd_"), threadID: tid, projectID: proj.ID, workspaceID: wid, cardID: cardID, by: req.By}
+	c := &execCtx{commandID: auth.RandomID("cmd_"), threadID: tid, projectID: proj.ID, workspaceID: wid, cardID: cardID, by: req.By,
+		chatID: s.Threads.ActiveChat(tid)}
 	ms, _, err := s.proposeMission(c, sc, req.MissionSpec, true)
 	return ms, err
 }
@@ -414,12 +415,13 @@ func (s *Service) proposeMission(c *execCtx, sc *scope, sp MissionSpec, strict b
 	}
 	set := s.hub.Settings().Lead
 	ms := MissionRun{ID: auth.RandomID("ms_"), ProjectID: c.projectID, ThreadID: c.threadID, WorkspaceID: c.workspaceID, CardID: c.cardID,
-		Lead: s.leadOf(sc).name, CreatedAt: now, MaxRounds: missionRounds(set.MissionRounds)}
+		Lead: s.leadOf(sc).name, CreatedAt: now, MaxRounds: missionRounds(set.MissionRounds), ChatID: s.chatOf(c)}
 	if old, ok := s.Missions.Active(c.threadID); ok {
 		if old.State != MissionAwaiting {
 			return MissionRun{}, notes, ErrMissionActive
 		}
 		ms.ID, ms.CreatedAt = old.ID, old.CreatedAt
+		ms.ChatID = firstNonEmpty(old.ChatID, ms.ChatID) // a changed plan stays in the chat it was proposed in
 	}
 	ms.Goal, ms.Summary, ms.DoneWhen = clipLen(goal, maxMissionGoal), clipLen(summary, maxMissionSummary), clipLen(doneWhen, maxMissionDoneWhen)
 	ms.Doc = clipBytes(doc, maxMissionDoc)
@@ -481,7 +483,7 @@ func clipBytes(s string, n int) string {
 // missionCtx is the context the hub acts in for a mission (its orders, its questions).
 func (s *Service) missionCtx(ms MissionRun) *execCtx {
 	return &execCtx{commandID: auth.RandomID("cmd_"), threadID: ms.ThreadID, projectID: ms.ProjectID, workspaceID: ms.WorkspaceID,
-		cardID: ms.CardID, by: "lead", missionID: ms.ID}
+		cardID: ms.CardID, by: "lead", missionID: ms.ID, chatID: s.missionChat(ms)}
 }
 
 // ---- decisions ----

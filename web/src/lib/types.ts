@@ -1,5 +1,6 @@
 // Typed models mirroring docs/API.md and docs/API-board.md. Field names are the exact JSON (camelCase) names.
 
+import type { ChatView } from '../chats/types';
 import type { OrchEvent } from '../orch/types';
 import type { StudioEvent } from '../studio/types';
 import type { Beat, Monitor } from '../uptime/api';
@@ -940,6 +941,8 @@ export interface Settings {
     lazyStart?: boolean;
     /** The agents of this many projects opened last stay awake when idle and start after a restart. */
     keepRecentProjects?: number;
+    /** A resumed chat is told what changed in its place since its last message (default on). */
+    resumeTellChanges?: boolean;
   };
   notifications: { needsYou: boolean; finished: boolean; error: boolean; finishedMinSec: number };
   shortcuts: ShortcutMap;
@@ -1033,6 +1036,8 @@ export type HubEvent =
   | { type: 'agents' }
   | { type: 'profile'; profile: Profile }
   | { type: 'profileRemoved'; id: string }
+  /** An agent chat was recorded or changed (chats/store.ts). */
+  | { type: 'chat'; chat: ChatView }
   | OrchEvent
   | StudioEvent;
 

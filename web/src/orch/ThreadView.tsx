@@ -22,6 +22,8 @@ import { CopyButton, LeadAvatar } from './OrderBits';
 import { MissionCard, MissionMessage, MissionPlan, TeamRow, TeamRun } from './MissionCard';
 import { missionMarks, missionTaskText, threadItems } from './mission';
 import { ORDER_DONE, type Confirmation, type Order, type OrderTarget, type ThreadMessage } from './types';
+import { inChat, isResumeDivider } from '../chats/helpers';
+import { useLeadActive } from '../chats/store';
 
 const TARGET_LABEL: Record<string, string> = {
   queued: 'Queued',
@@ -295,7 +297,17 @@ function ResendOrder({ orderId }: { orderId: string }) {
 function MessageViewImpl({ m, onOutput, compact, lead, actions, onGoTo, mark = '' }: { m: ThreadMessage; onOutput: (m: ThreadMessage) => void; compact?: boolean; lead: string; actions?: ThreadActions; onGoTo: (id: string) => void; mark?: string }) {
   if (m.kind === 'team') return <TeamRow m={m} lead={lead} />;
   if (m.kind === 'mission') return <MissionMessage m={m} lead={lead} first={mark.includes('first')} last={mark.includes('last')} />;
+  if (isResumeDivider(m)) return <ResumeDivider m={m} />;
   return <PlainMessage m={m} onOutput={onOutput} compact={compact} lead={lead} actions={actions} onGoTo={onGoTo} />;
+}
+
+/** "Resumed — Aruna has a summary of the 64 earlier messages and the last 20 in full": a line across the thread where an older chat was picked up again. */
+function ResumeDivider({ m }: { m: ThreadMessage }) {
+  return (
+    <li className="msg msg-divider" data-msg={m.id} title={formatDateTime(m.at)}>
+      <span className="msg-divider-text">{m.text}</span>
+    </li>
+  );
 }
 
 function PlainMessage({ m, onOutput, compact, lead, actions, onGoTo }: { m: ThreadMessage; onOutput: (m: ThreadMessage) => void; compact?: boolean; lead: string; actions?: ThreadActions; onGoTo: (id: string) => void }) {
@@ -423,6 +435,10 @@ function PlainMessage({ m, onOutput, compact, lead, actions, onGoTo }: { m: Thre
   );
 }
 
+const NO_ASKS: Confirmation[] = [];
+/** The same confirmations (by id and state): the thread does not render again for others. */
+const sameIds = (a: Confirmation[], b: Confirmation[]) => a.length === b.length && a.every((c, i) => c.id === b[i].id && c.state === b[i].state);
+
 // A thread holds up to 500 messages and its parent re-renders on every keystroke in its box;
 // with stable props (see ThreadList) only a message that changed renders again.
 const MessageView = memo(MessageViewImpl);
@@ -447,8 +463,21 @@ export function ThreadList({
   const who = lead ?? hubLead;
   const thread = useThread(threadId);
   const mission = useActiveMission(threadId);
-  const items = useMemo(() => threadItems(thread.messages), [thread.messages]);
-  const marks = useMemo(() => missionMarks(thread.messages), [thread.messages]);
+  // the chat in use: a mission keeps writing to the chat it started in, which may be another
+  const active = useLeadActive(threadId);
+  const shown = useMemo(() => (active ? thread.messages.filter((m) => inChat(m, active)) : thread.messages), [thread.messages, active]);
+  const items = useMemo(() => threadItems(shown), [shown]);
+  // a question asked in another chat of this thread is answered by the next command, whatever
+  // chat it is typed in: it stays in sight
+  const asks = useRef<Confirmation[]>(NO_ASKS);
+  const otherAsks = useOrch((s) => {
+    const now = Date.now();
+    const list = active ? Object.values(s.confirmations).filter((c) => c.threadId === threadId && c.state === 'pending' && !!c.chatId && c.chatId !== active && Date.parse(c.expiresAt) > now) : NO_ASKS;
+    // the same list as before keeps its identity: the store's snapshot must not change for nothing
+    if (!sameIds(asks.current, list)) asks.current = list.length ? list : NO_ASKS;
+    return asks.current;
+  });
+  const marks = useMemo(() => missionMarks(shown), [shown]);
   const pid = projectId ?? (threadId.startsWith('p_') ? threadId : '');
   useEffect(() => {
     if (pid) void orchStore.loadMissions(pid);
@@ -488,11 +517,17 @@ export function ThreadList({
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [thread.messages.length, pending]);
+  }, [shown.length, pending]);
 
   return (
     <>
       {mission && <MissionCard mission={mission} lead={who} pinned compact={compact} />}
+      {otherAsks.map((c) => (
+        <div key={c.id} className="thread-other-ask" role="group" aria-label="Asked in another chat">
+          <span className="fs-xs text-3">Asked in another chat</span>
+          <ConfirmationCard c={c} compact />
+        </div>
+      ))}
       <div
         className={`thread-list ${compact ? 'is-compact' : ''}`}
         ref={ref}
@@ -520,7 +555,7 @@ export function ThreadList({
             <span>Could not load the thread: {thread.error}</span>
           </div>
         )}
-        {thread.status === 'ready' && !thread.messages.length && !pending && (typeof empty === 'string' ? <p className="thread-empty">{empty}</p> : empty)}
+        {thread.status === 'ready' && !shown.length && !pending && (typeof empty === 'string' ? <p className="thread-empty">{empty}</p> : empty)}
         <ol className="msgs" aria-live="polite">
           {items.map((it) =>
             it.kind === 'team' ? (
@@ -538,7 +573,7 @@ export function ThreadList({
               />
             ),
           )}
-          {pending && !thread.messages.some((m) => /still thinking/i.test(m.text)) && (
+          {pending && !shown.some((m) => /still thinking/i.test(m.text)) && (
             <li className="msg msg-hub kind-thinking">
               <div className="msg-hub-body">
                 <LeadAvatar name={who} />

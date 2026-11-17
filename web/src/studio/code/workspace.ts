@@ -351,6 +351,8 @@ export class Workspace implements ViewApi, PartView {
   paneFocus = { id: '', tick: 0 };
   /** The console asked to be closed: "stop the agent?". */
   closingPane = '';
+  /** "Resume a chat…" is open, and where its console's pane goes. */
+  resumingChats: 'side' | 'tab' | '' = '';
   /** The link to Claude consoles on the board that shows this editor. */
   readonly ide: IdeLink;
   actions: { ask?: (prompt?: string, ctx?: AgentContextInput) => void; aiEdit?: () => void; palette?: () => void; mention?: () => void; openWeb?: (url: string, machineId?: string) => void; pick?: (placeholder: string, items: { label: string; detail?: string; run: () => void }[]) => void; addToBoard?: (path: string) => void } = {};

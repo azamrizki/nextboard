@@ -233,7 +233,7 @@ Deliberately not mapped: `lanjut`, `tunggu`, `lihat`, `hapus` on their own, and 
 
 - Only on **This PC**, through the runner (API-studio §2): `claude -p --output-format json --json-schema '<PlanSchema>'`, with no tools (`--tools ""` when supported, otherwise `--disallowedTools` for every tool + `--max-turns 1`), cwd `<data>/runner/planner`, timeout 45 s, never yolo, using Claude's default profile on This PC.
 - Available when `claude` is detected on This PC and the last login check succeeded; `settings.commands.planner: "auto"|"off"`.
-- **Input** (JSON on stdin, without project file contents or transcripts): the order text (> 600 characters → the planner is skipped, unless Talk first is on: then up to the 4000 limit), the last 20 thread messages (≤ 600 per message, ≤ 6000 characters in total), `pendingPlan` when there is an open plan (§3.9), a snapshot: consoles (`handle`, agent, role, group, `board`, `agentState`, `activity` ≤ 80, running order ≤ 120), groups, orchestrators + wires, `boards` (every board in scope: name, `current`, ≤ 30 non-console tiles per board with `id`, `kind`, position, size, and content as described below), custom agent names, project/workspace names, loop names, the selection, the card scope, `memory` (project memory + notes + global, ≤ 4000 characters; background, not commands).
+- **Input** (JSON on stdin, without project file contents or transcripts): the order text (> 600 characters → the planner is skipped, unless Talk first is on: then up to the 4000 limit), the last 20 messages of the lead chat the order was given in (a mission's wake: the mission's own chat; ≤ 600 per message, ≤ 6000 characters in total) and, when that chat has older messages, `chatSummary` with their summary (§4.1), `pendingPlan` when there is an open plan (§3.9), a snapshot: consoles (`handle`, agent, role, group, `board`, `agentState`, `activity` ≤ 80, running order ≤ 120), groups, orchestrators + wires, `boards` (every board in scope: name, `current`, ≤ 30 non-console tiles per board with `id`, `kind`, position, size, and content as described below), custom agent names, project/workspace names, loop names, the selection, the card scope, `memory` (project memory + notes + global, ≤ 4000 characters; background, not commands).
 - **Output** (`PlanSchema`): `{ "reply": string ≤ 2000, "danger"?: string ≤ 300, "steps": PlannerStep[] ≤ 40 }`. `PlannerStep` = a subset of the ops `send, spawn, group.create, group.add, pause, resume, restart, kill, handoff, forward, loop.create, node.add, git, ask, memory.push, reply`; targets are written as handles/group names, and the hub translates them to ids (unknown name → step dropped + a note). `spawn`, `group.create`, `node.add` may carry `workspace` (the name of the target board). The answer to the user is in the top-level `reply`; the hub drops a `reply` step that repeats the same text, so the answer shows once.
 - One planner turn per thread; a "Still thinking…" message after 3 s (Talk first: the client shows "`name` is thinking", without this message) (the same thread message is updated). Failure (timeout, invalid JSON, not logged in) → parser fallback + the note "Planner unavailable: <reason>"; two failures in a row → 60 s cooldown. A login failure (including `OAuth session expired`) gives `reason: "not_logged_in"` for 1 minute, because Claude's refresh token can recover by itself.
 
@@ -267,6 +267,7 @@ The planner's input holds every tile: `id`, `kind`, position, size, and content 
   "kind": "destructive",         // "destructive"|"didYouMean"|"sendToAll"|"risky"|"loop"|"bulkSpawn"|"proposal"|"mission"
   "plan"?: [{ "handle": "Ash", "text": "…" }],   // proposal: the plan in words; mission: "t1 · title" per agent
   "missionId"?: "ms_…",          // kind mission: the mission it asks about; any other kind: the mission whose step it holds (§22)
+  "chatId": "lc_…",              // the lead chat it was asked in (§4.1); its expiry note goes there
   "prompt": "Kill @Ash and @Bea? Their processes stop; the tiles stay on the board.",
   "options": [{ "id": "confirm", "label": "Kill 2 consoles" }, { "id": "cancel", "label": "Cancel" }],
   "candidates"?: [{ "sessionId", "handle" }],      // didYouMean / sendToAll
@@ -372,9 +373,11 @@ Columns are found by their name (English and Indonesian), then by their position
   "confirmationId"?: "cf_…",
   "replyTo"?: { "id": "tm_…", "handle"?: "Ash", "excerpt": "…" },   // the message being answered (§3.9)
   "missionId"?: "ms_…",              // the mission it belongs to (§22): its orders, reports, team talk and state messages
+  "chatId": "lc_…",                  // the lead chat it is in (§4.1)
   "team"?: { "from": "Ash", "to"?: "Bea", "kind": "ask"|"reply"|"update"|"doc"|"report", "questionId"?: "q_…" } }   // kind "team"
 // Order
 { "id": "o_…", "threadId": "p_…", "commandId": "cmd_…", "text": "…", "createdAt": "…", "missionId"?: "ms_…",
+  "chatId": "lc_…",                  // the lead chat it was given in; its reports go there (§4.1)
   "targets": [{ "sessionId", "handle", "deliveryId",
     "state": "queued"|"delivered"|"working"|"needsYou"|"finished"|"failed"|"timeout"|"cancelled"|"skipped",
     "startedAt", "finishedAt", "error"? }] }
@@ -389,8 +392,8 @@ Columns are found by their name (English and Indonesian), then by their position
 
 | Method | Path | Response |
 |---|---|---|
-| GET | `/api/threads/{tid}/messages?before=&limit=50` | `{"items":[ThreadMessage…],"hasMore":bool,"confirmations":[Confirmation…],"planning":"cmd_…"\|""}` (`limit` ≤ 200). `confirmations` and `planning` are for clients that were not connected when their event was published (reload, hub restart) |
-| DELETE | `/api/threads/{tid}` | `{"ok":true}` (clears it; active orders are still tracked) |
+| GET | `/api/threads/{tid}/messages?before=&limit=50&chat=` | `{"items":[ThreadMessage…],"hasMore":bool,"chatId":"lc_…","confirmations":[Confirmation…],"planning":"cmd_…"\|""}` (`limit` ≤ 200): the messages of one lead chat, the active one or `?chat=` (§4.1); `404 chat_not_found`. `confirmations` (of every chat: the thread's next command answers one, whatever chat it is typed in) and `planning` are for clients that were not connected when their event was published (reload, hub restart) |
+| DELETE | `/api/threads/{tid}` | `{"ok":true}`: clears the **active chat** only (its messages and their replies; the chat stays, as "New chat"); the other chats keep theirs, active orders are still tracked. The event `threadCleared` carries its `chatId` |
 | GET | `/api/threads/{tid}/messages/{id}/output` | — | `{"messageId","threadId","projectId"?,"orderId"?,"sessionId"?,"handle"?,"source"?,"text","at","chars","truncated","partial"?}`; `404 no_output` when the message no longer exists or is not a finished report with a reply |
 | POST | `/api/threads/{tid}/messages/{id}/output/save` | `{"dir"?: "outputs"}` | `Stat`, writes that reply to `<project>/<dir>/<YYYY-MM-DD-HHMM>-<handle>.md` |
 | GET | `/api/threads/{tid}/orders?active=1` | `{"items":[Order…]}` |
@@ -399,6 +402,40 @@ Columns are found by their name (English and Indonesian), then by their position
 | POST | `/api/orders/{id}/resend` | `Order`, resend after a hub restart. `404 order_not_found`, `409 nothing_to_resend` |
 
 Project thread = `p_…`, card thread = the orchestrator node's id `n_…`. Command bar input history (↑/↓, 50) is kept per client.
+
+### 4.1 Lead chats
+
+The lead's thread of a project, and of each orchestrator card, is a **list of chats**: the owner can start a new chat with the lead and resume an earlier one. The thread id stays the channel everything uses (orders, missions, confirmations, cards); a chat is a segment of the thread, and every message names its chat.
+
+```jsonc
+// LeadChat
+{ "id": "lc_…", "threadId": "p_…"|"n_…",
+  "title": "Fix the login page",    // the first owner message (≤ 80); a new chat is "New chat" until then; editable
+  "titled"?: true,                  // the owner named it (a rename, or their first message)
+  "createdAt": "…", "lastAt": "…", "messages": 42,
+  "summary"?: "…",                  // of the older messages, for the lead (≤ 4000)
+  "summaryUpTo"?: "tm_…",           // the last message the summary covers
+  "missionIds"?: ["ms_…"] }         // missions whose messages are in it
+```
+
+- **Where a message goes.** A new message goes to the thread's **active chat**, with these exceptions: a command's messages, orders, confirmations and later results (a diagram that lands, a git push that ends, a summary of reports) go to the chat the command was given in; a **mission writes to the chat it started in** (`MissionRun.chatId`), its orders, reports, team talk, state messages and the lead's wakes, whatever chat the owner has open; an order's reports go to the order's chat. A message for a chat that was deleted meanwhile goes to the active one.
+- **What the lead reads.** The planner gets the last 20 messages of the chat it answers in, and `chatSummary` when that chat has older messages and a summary (§3.5).
+- **Resume** (`activate`): the chat becomes the active one, with a divider message (role `hub`, kind `note`, `source: "resume"`), e.g. "Resumed — Aruna has a summary of the 30 earlier messages and the last 20 in full." A chat of more than 40 messages whose summary does not cover all but the last 20 gets a **summary job** (runner purpose `chat-summary`, the lead's CLI and account, no tools, 2 minutes): it reads the summary so far and the messages after it, and writes `summary`/`summaryUpTo`; the divider first says the lead "is reading the N earlier messages", then what it has, or that they could not be summed up and why. Nothing waits for it: the lead answers meanwhile from the last 20. One `chat-summary` job runs at a time (the next waits for it), so resuming chat after chat never takes both runner places of This PC from the lead's turns.
+- **New chat and resume** are refused while a lead turn runs or waits on the thread, the owner's or a mission's wake (`409 lead_busy`): its answer belongs to the chat it was asked in, and the owner, gone to another chat, would never see it. Resuming the chat already in use is not refused (nothing changes, no divider). An active chat nobody wrote in yet is returned again by New chat instead of a second empty one.
+- **Delete** removes a chat and its messages (with their replies); not the active chat (`409 chat_active`), not a chat with a mission that has not ended (`409 chat_mission`), not a chat the lead is still answering in (`409 lead_busy`).
+- **Clear** (`DELETE /api/threads/{tid}`, §4) empties only the active chat.
+- **Limits.** A chat keeps the thread's limit of its own (project 500 messages, card 200) and the thread twice that in all, so an old chat loses its oldest messages before a long one is cut.
+- **Migration.** A thread from before chats gets one chat holding all its messages, titled by its first owner message, when it is first read: the file is written whole to a new file that replaces the old one (`threads/<tid>.jsonl`, every line now names its chat), then the list (`threads/<tid>.chats.json`). A hub that stops in between finds messages naming a chat the list lacks and makes that chat again from them. A file that cannot be read to its end is not rewritten. A merged project's chats come along with its messages (ROADMAP #49); the chat the owner has open stays the active one.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/threads/{tid}/chats` | — | `{"active":"lc_…","items":[LeadChat…]}`, the latest used first |
+| POST | `/api/threads/{tid}/chats` | `{}` | `201 LeadChat`, now active; `409 lead_busy` |
+| POST | `/api/threads/{tid}/chats/{chatId}/activate` | `{}` | `LeadChat` (resume, with its divider); `404 chat_not_found`, `409 lead_busy` (another chat, while the lead thinks) |
+| PATCH | `/api/threads/{tid}/chats/{chatId}` | `{"title"}` | `LeadChat`; `400 bad_title` (empty), `404 chat_not_found` |
+| DELETE | `/api/threads/{tid}/chats/{chatId}` | — | `{"ok":true}`; `409 chat_active`, `409 chat_mission`, `409 lead_busy`, `404 chat_not_found` |
+
+`400 bad_thread` for a thread id of another shape. Event `{"type":"leadChats","threadId","active"}` (§14), on which a client reloads the list: at once when the active chat or the list changes (a new chat, a resume, a rename, a delete, a clear, a chat titled by its first message, a mission joining it), and for a new message's count and `lastAt` at most every 3 seconds a thread, the last change always included (the first at once, a burst once when the 3 seconds are up; a list change in between stands for it). Nothing is sent after the hub's orchestration stops. New messages publish `thread` as before, with their `chatId`.
 
 ### 3.10 Lead and project parts (ROADMAP #49)
 
@@ -711,7 +748,8 @@ Built-in (NextBoard names): **Duo** (group of 2), **Trio** (group of 3), **Quart
 ```jsonc
 { "type": "delivery", "delivery": Delivery }
 { "type": "thread", "threadId": "p_…", "message": ThreadMessage }      // new or updated (same id)
-{ "type": "threadCleared", "threadId": "p_…" }
+{ "type": "threadCleared", "threadId": "p_…", "chatId": "lc_…" }   // DELETE /api/threads/{tid}: that chat was emptied (§4.1)
+{ "type": "leadChats", "threadId": "p_…", "active": "lc_…" }       // the thread's chats, their counts (≤ 1 per 3 s a thread) or its active chat changed (§4.1)
 { "type": "order", "order": Order }
 { "type": "confirmation", "confirmation": Confirmation }
 { "type": "command", "commandId": "cmd_…", "clientId": "c_…", "state": "planning"|"done"|"failed", "uiActions"?: [UiAction…] }
@@ -730,7 +768,8 @@ Built-in (NextBoard names): **Duo** (group of 2), **Trio** (group of 3), **Quart
 
 | File | Content |
 |---|---|
-| `threads/<tid>.jsonl` | append-only; compacted when it passes the limit (project 500 messages, card 200) |
+| `threads/<tid>.jsonl` | append-only; every message names its lead chat (`chatId`); compacted when it passes the limit (project 500 messages a chat and 1000 in all, card 200 and 400) |
+| `threads/<tid>.chats.json` | the thread's lead chats (§4.1): `{"active":"lc_…","items":[LeadChat…]}`; written whole (atomic); its counts are made again from the messages at load |
 | `orders.json` | active orders + those finished < 24 h ago (max 200) |
 | `forwards.json` | one-time forwards that are not finished |
 | `loops.json` | `LoopDef[]` including `state` |
@@ -762,6 +801,7 @@ Deliveries live only in memory (lost on a hub restart; the thread records "inter
 | Tile content | 20 000 characters; 50 most recent page problems |
 | Loop | interval 60 s–24 h; maxRuns 1–500; duration 15 minutes–24 h; 50 loops per hub; goal 90 s / 2 concurrent |
 | Memory push | 4000 characters |
+| Lead chat | title 80, summary 4000; summed up when resumed past 40 messages, the lead reads the last 20 in full; `chat-summary` 2 minutes, one at a time; `leadChats` for counts ≤ 1 per 3 s a thread |
 | Mention autocomplete | 30 items |
 | Mission | goal/summary 2000, doneWhen 1000, doc 32 KB, ≤ 40 tasks (text 8000, title 200, result 2000), final summary 8000; 30 rounds / 4 h (settings), approval 30 min, wakes 5 s apart, a question unanswered 10 min wakes the lead, 3 rounds without progress hold it, ≤ 20 open questions |
 
@@ -878,6 +918,7 @@ A **mission** is work the lead runs with a team of consoles to the end (2026-11-
   "rounds": 3, "maxRounds": 30, "deadline": "…",   // lead turns since the approval; approval + missionHours
   "result"?: "…",                   // the final text for the owner (markdown ≤ 8000)
   "confirmationId"?: "cf_…",        // the open approval or question (kind "mission", or a held step's)
+  "chatId"?: "lc_…",                // the lead chat it started in: its messages go there (§4.1)
   "createdAt", "updatedAt", "approvedAt"?, "endedAt"? }
 // MissionTask
 { "id": "t1", "handle": "Ash", "sessionId"?: "s_…", "title": "…", "text": "…", "dependsOn"?: ["t…"],

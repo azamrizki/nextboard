@@ -33,6 +33,9 @@ import type { Mention } from './types';
 import { replyDraftOf, replyText, useLeadName, type ReplyDraft } from './lead';
 import { LeadAvatar, ReplyChip } from './OrderBits';
 import { ConfirmationCard, ThreadList } from './ThreadView';
+import { inChat, nextSeen, unreadOf, type Seen } from '../chats/helpers';
+import { LeadChatSwitcher, NewChatButton } from '../chats/LeadChatSwitcher';
+import { useLeadActive } from '../chats/store';
 
 interface CommandBarProps {
   ctl: BoardController;
@@ -57,6 +60,8 @@ interface Chip {
 
 export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead = false }: CommandBarProps) {
   const compact = useMediaQuery('(max-width: 899px)');
+  // a phone's thread head: the chat's title gets the room, the buttons are icons
+  const narrow = useMediaQuery('(max-width: 559px)');
   const shortcuts = useShortcuts();
   const doc = useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
   const threadId = project.id;
@@ -76,7 +81,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
       if (o && !next) userClosed.current = true;
       return next;
     });
-  const [seen, setSeen] = useState(0);
+  const [seen, setSeen] = useState<Seen | null>(null);
   const [killArm, setKillArm] = useState(false);
   const [killConfirm, setKillConfirm] = useState(false);
   const [reply, setReply] = useState<ReplyDraft | null>(null);
@@ -104,16 +109,26 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
     if (!orchStore.get().planner) void orchStore.loadPlanner();
   }, [threadId]);
 
-  // unread = messages that arrived while the drawer was closed
-  const count = thread.messages.length;
+  // the Chats panel resumed a chat of this thread: show it
+  const openAsk = useSyncExternalStore(ui.subscribe, () => ui.get().leadThread);
+  const openSeen = useRef(openAsk);
   useEffect(() => {
-    if (open) setSeen(count);
-  }, [open, count]);
-  useEffect(() => {
-    if (thread.status === 'ready' && seen === 0) setSeen(count);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thread.status]);
-  const unread = open ? 0 : Math.max(0, count - seen);
+    if (openAsk === openSeen.current) return;
+    openSeen.current = openAsk;
+    setOpenState(true);
+  }, [openAsk]);
+  // the board's orchestrator cards: their chats are in this thread's chat list too
+  const cards = useMemo(
+    () => doc.nodes.filter((n) => n.kind === 'orchestrator').map((n) => ({ id: n.id, card: typeof n.data.title === 'string' && n.data.title ? n.data.title : 'Orchestrator' })),
+    [doc.nodes],
+  );
+
+  // unread = messages that arrived while the drawer was closed (in the chat in use)
+  const activeChat = useLeadActive(threadId);
+  const count = activeChat ? thread.messages.filter((m) => inChat(m, activeChat)).length : thread.messages.length;
+  const ready = thread.status === 'ready';
+  useEffect(() => setSeen((s) => nextSeen(s, { open, ready, chat: activeChat, count })), [open, ready, activeChat, count]);
+  const unread = unreadOf(seen, open, activeChat, count);
 
   // Ctrl/⌘K focuses the bar (not while a console has the keyboard: there it belongs to the program)
   useEffect(() => {
@@ -281,7 +296,13 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
           <header className="thread-head">
             <LeadAvatar name={leadName} />
             <h2>{leadName}</h2>
-            <span className="text-3 fs-xs truncate">{project.name}</span>
+            <LeadChatSwitcher
+              threadId={threadId}
+              lead={leadName}
+              scope={project.name}
+              others={cards}
+              onOpenOther={(id) => orchStore.runUiActions([{ action: 'focus', target: id }])}
+            />
             {plannerLabel && (
               <button
                 type="button"
@@ -291,15 +312,19 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
                 onClick={() => void togglePlanner()}
               >
                 <Icon name={planner?.available ? 'sparkle' : 'keyboard'} />
-                {plannerLabel}
+                <span className="thread-planner-text">{plannerLabel}</span>
               </button>
             )}
             <span className="spacer" />
+            <NewChatButton threadId={threadId} lead={leadName} />
             <Button
               size="sm"
               variant="ghost"
               icon="broom"
-              disabled={!thread.messages.length}
+              iconOnly={narrow}
+              aria-label="Clear"
+              title="Clear this chat"
+              disabled={!count}
               onClick={() =>
                 void orchApi
                   .clearThread(threadId)
@@ -307,7 +332,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
                   .catch((err) => toast.error(`Could not clear the thread: ${orchError(err)}`))
               }
             >
-              Clear
+              {narrow ? null : 'Clear'}
             </Button>
             <Button size="sm" variant="ghost" iconOnly icon="sliders" aria-label="Lead agent settings" title="Name and personality" onClick={() => navigate('/settings/lead')} />
             {!lead && <Button size="sm" variant="ghost" iconOnly icon="chevronDown" aria-label="Close the thread" onClick={() => setOpen(false)} />}
@@ -417,7 +442,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
               <Icon name={open ? 'chevronDown' : 'chevronUp'} />
               {unread > 0 && <span className="toggle-dot tabular">{unread > 9 ? '9+' : unread}</span>}
             </button>
-            <AgentChip nt={nt} anchor={barRef} />
+            <AgentChip nt={nt} anchor={barRef} resume={{ workspaceId: ctl.workspaceId, onResume: (chat) => ui.set({ resumeChat: { chat } }) }} />
             {live && <Button size="sm" variant="ghost" iconOnly icon="close" className="voice-cancel" aria-label="Cancel" title="Cancel (Esc)" onClick={voice.cancel} />}
             {voice.active && (
               <button

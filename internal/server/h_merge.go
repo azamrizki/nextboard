@@ -157,6 +157,9 @@ func (s *Server) handleMerge(w http.ResponseWriter, r *http.Request, p *principa
 		return plan.PartIDs[""]
 	}
 	sessions := s.sessions.MoveProject(b.ID, a.ID, part)
+	if s.chats != nil { // its agent chats too, in the folders they ran in (docs/API-agents.md §29)
+		s.publishChats(s.chats.idx.MoveProject(b.ID, a.ID, plan.PartIDs))
+	}
 	monitors := s.uptime.MoveProject(b.ID, a.ID, func(old string) string {
 		if old == "" {
 			return part("") // it watched what the other project was: its first folder
@@ -285,6 +288,9 @@ func (s *Server) handleSplit(w http.ResponseWriter, r *http.Request, p *principa
 	s.unlabelMonitors(pid, partID)
 	if s.orch != nil {
 		s.orch.PartSplit(before, np.ID, partID) // its memory becomes the new project's main memory
+	}
+	if s.chats != nil { // the part's agent chats go with it; the root's stay (docs/API-agents.md §29)
+		s.publishChats(s.chats.idx.MovePart(pid, np.ID, partID))
 	}
 	s.emitProject(pr.ID)
 	s.emitProject(np.ID)

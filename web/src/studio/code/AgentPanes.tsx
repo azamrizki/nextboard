@@ -39,6 +39,12 @@ import { keyOfUri, LOCAL_MACHINE, type FileKey } from './paths';
 import { orderText, type AgentContext } from './SidePanels';
 import { useWs } from './useWs';
 import { nameOf, ORCHESTRATOR_PANE, type Workspace } from './workspace';
+import { Modal } from '../../components/Modal';
+import { LeadChatSwitcher, NewChatButton } from '../../chats/LeadChatSwitcher';
+import { ResumeChatList } from '../../chats/ResumeChatList';
+import { ResumeDialog } from '../../chats/ResumeDialog';
+import { useLeadActive } from '../../chats/store';
+import type { ChatView } from '../../chats/types';
 
 /** What a pane needs from the board around the card; nodeId is the card's (the editor node). */
 export const PaneEnv = createContext<{ project: Project; ctl: BoardController; nodeId?: string } | null>(null);
@@ -144,8 +150,61 @@ export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced
       onSelect: () => void startAgentPane(ws, workspaceId, a, where, agentPlace(ws), card),
     })),
     ...(agents.length ? (['sep'] as MenuEntry[]) : []),
+    { label: 'Resume a chat…', icon: 'resume', title: 'A conversation an agent had in this editor’s place', onSelect: () => askResume(ws, where) },
     { label: 'Orchestrator', icon: 'orchestrator', title: 'Give orders to the agents of this board', onSelect: () => ws.placePane(ORCHESTRATOR_PANE, where) },
   ];
+}
+
+/** Open "Resume a chat…" for this card; the console it resumes opens where asked. */
+function askResume(ws: Workspace, where: Where) {
+  ws.resumingChats = where;
+  ws.changed();
+}
+
+/**
+ * "Resume a chat…" of an editor card's agent panes: the chats of the card's place (a Root card's:
+ * the place picked to start in), resumed as a pane of this card (a panel session with `card`).
+ */
+export function ResumeChatsDialog({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) {
+  useWs(ws);
+  const env = useContext(PaneEnv);
+  const project = useProject(ws.projectId);
+  const where = ws.resumingChats;
+  const [chat, setChat] = useState<ChatView | null>(null);
+  if (!where || !project) return null;
+  const close = () => {
+    ws.resumingChats = '';
+    setChat(null);
+    ws.changed();
+  };
+  const place = agentPlace(ws);
+  if (chat)
+    return (
+      <ResumeDialog
+        chat={chat}
+        project={project}
+        workspaceId={workspaceId}
+        pane={env?.nodeId ? { card: env.nodeId } : undefined}
+        onClose={() => setChat(null)}
+        onResumed={(s) => {
+          close();
+          if (s?.id) ws.placePane(s.id, where);
+        }}
+      />
+    );
+  return (
+    <Modal title="Resume a chat" icon="resume" size="md" onClose={close} footer={<Button onClick={close}>Cancel</Button>} help={<span>Chats started in another place are under that place.</span>}>
+      <ResumeChatList
+        project={project}
+        workspaceId={workspaceId}
+        place={isMultiPart(project) ? placeValue(place) : ''}
+        onPlace={ws.paths.multi ? (v) => pickPlace(ws, v) : undefined}
+        agent=""
+        onResume={setChat}
+        onShown={close}
+      />
+    </Modal>
+  );
 }
 
 function paneLabel(id: string, s: ReturnType<typeof useSession>) {
@@ -334,12 +393,14 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
     void orchStore.loadThread(threadId);
   }, [threadId]);
 
+  // one asked in another chat of the thread is pinned in the thread itself
+  const activeChat = useLeadActive(threadId);
   const pending = useMemo(
     () =>
       Object.values(confirmations)
-        .filter((c) => c.threadId === threadId && c.state === 'pending' && Date.parse(c.expiresAt) > Date.now())
+        .filter((c) => c.threadId === threadId && c.state === 'pending' && Date.parse(c.expiresAt) > Date.now() && (!activeChat || !c.chatId || c.chatId === activeChat))
         .sort((a, b) => b.expiresAt.localeCompare(a.expiresAt))[0],
-    [confirmations, threadId],
+    [confirmations, threadId, activeChat],
   );
 
   const context = currentContext(ws);
@@ -398,6 +459,11 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
           </select>
         )}
       </header>
+      <div className="orch-chatbar wb-orch-chats">
+        <LeadChatSwitcher threadId={threadId} lead={name} scope={card ? (typeof cardTitle === 'string' && cardTitle ? cardTitle : 'Orchestrator') : project.name} />
+        <span className="spacer" />
+        <NewChatButton threadId={threadId} lead={name} />
+      </div>
       <div className="wb-agents-thread nowheel">
         <ThreadList
           key={threadId}
@@ -541,6 +607,9 @@ export function AgentSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: 
                 {a.name}
               </Button>
             ))}
+            <Button variant="ghost" icon="resume" onClick={() => askResume(ws, 'side')}>
+              Resume a chat…
+            </Button>
             <Button variant="ghost" icon="orchestrator" onClick={() => ws.placePane(ORCHESTRATOR_PANE, 'side')}>
               Orchestrator
             </Button>

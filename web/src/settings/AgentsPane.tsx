@@ -118,6 +118,12 @@ export function AgentsPane() {
           />
         </SettingRow>
         <SwitchRow
+          title="Tell an agent what changed when its chat resumes"
+          hint="A chat resumed from Chats or a new console gets one message first: the new commits in its part since its last message, and the project memory added since. Nothing is sent when nothing changed. The Resume dialog can turn it off for one chat."
+          checked={ag.resumeTellChanges ?? true}
+          onChange={(v) => void save({ agents: { resumeTellChanges: v } }, 'telling resumed chats what changed').catch(() => undefined)}
+        />
+        <SwitchRow
           title="Start agents when they are needed"
           hint="After a hub restart, agents wait asleep until you open their board, type into them or the lead sends them work, instead of all starting at once. Each agent takes 120–250 MB while it runs. Applies with Resume."
           checked={ag.lazyStart ?? true}

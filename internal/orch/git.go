@@ -19,13 +19,13 @@ func (s *Service) gitStep(c *execCtx, st Step) error {
 		s.say(c, ThreadMessage{Kind: "reply", Text: "Git actions are not available yet."})
 		return nil
 	}
-	threadID := c.threadID
+	threadID, chat := c.threadID, s.chatOf(c) // a later outcome lands in the chat it was asked in
 	text, err := s.Git.GitStep(c.projectID, st.Repo, st.Action, st.Message, func(t string, failed bool) {
 		kind := "note"
 		if failed {
 			kind = "error"
 		}
-		s.Threads.Add(ThreadMessage{ThreadID: threadID, Role: "hub", Kind: kind, Text: t})
+		s.Threads.Add(ThreadMessage{ThreadID: threadID, ChatID: chat, Role: "hub", Kind: kind, Text: t})
 	})
 	if err != nil {
 		return err

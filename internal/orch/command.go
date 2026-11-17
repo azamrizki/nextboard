@@ -80,6 +80,9 @@ type execCtx struct {
 	wakeReasons []string
 	// teamOK: the owner agreed to these steps adding consoles to the mission's team.
 	teamOK bool
+	// chatID: the lead chat the command was given in (§4.1), a mission's own chat for its
+	// wakes; its messages and orders go there. "" = the active one when they are written.
+	chatID string
 }
 
 // spawnFallback is where a command's spawns go when they name no placement: the command's
@@ -98,6 +101,9 @@ func (s *Service) say(c *execCtx, m ThreadMessage) ThreadMessage {
 	}
 	if m.MissionID == "" {
 		m.MissionID = c.missionID
+	}
+	if m.ChatID == "" {
+		m.ChatID = c.chatID
 	}
 	m = s.Threads.Add(m)
 	c.msgs = append(c.msgs, m)
@@ -165,7 +171,7 @@ func (s *Service) Command(req CommandRequest) (CommandResponse, error) {
 	}
 	c := &execCtx{commandID: auth.RandomID("cmd_"), threadID: tid, projectID: proj.ID, workspaceID: ws.ID,
 		cardID: req.CardID, clientID: req.ClientID, source: src, by: req.By, selection: req.Selection, plannerMode: req.Planner,
-		reply: s.replyRef(tid, req.ReplyTo), place: place}
+		reply: s.replyRef(tid, req.ReplyTo), place: place, chatID: s.Threads.ActiveChat(tid)}
 	// "stop mission" does not wait behind a planner turn: it is for now (§22)
 	if what := missionControl(text); what != "" {
 		if ms, ok := s.Missions.Active(tid); ok {
@@ -324,6 +330,7 @@ func agentIDs(l []agent.Agent) []string {
 
 func (s *Service) addConfirm(c *execCtx, cf *Confirmation) *Confirmation {
 	cf.ThreadID, cf.CommandID = c.threadID, c.commandID
+	cf.ChatID = s.chatOf(c)
 	cf.ctx = c
 	ttl := time.Duration(s.hub.Settings().Commands.ConfirmTTLSec) * time.Second
 	if cf.Kind == ConfProposal {

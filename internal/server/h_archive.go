@@ -122,6 +122,9 @@ func (s *Server) deleteProjectForever(id string) error {
 	if s.orch != nil {
 		s.orch.ForgetProject(pr.ID, cards)
 	}
+	if s.chats != nil {
+		s.chats.idx.DeleteProject(pr.ID)
+	}
 	if s.studio != nil && s.studio.docs != nil {
 		if err := s.studio.docs.RemoveProject(pr.ID); err != nil {
 			log.Printf("documents of %s: %v", pr.ID, err)

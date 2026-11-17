@@ -54,6 +54,7 @@ var purposes = map[string]purposePolicy{
 	"handoff-summary": {timeout: 4 * time.Minute},
 	"commit-subject":  {timeout: 2 * time.Minute},
 	"thread-summary":  {timeout: 30 * time.Second},
+	"chat-summary":    {timeout: 2 * time.Minute},
 	"code-edit":       {readOnly: true, timeout: 3 * time.Minute},
 	"code-complete":   {timeout: 30 * time.Second},
 	"code-ask":        {readOnly: true, partial: true, timeout: 5 * time.Minute},

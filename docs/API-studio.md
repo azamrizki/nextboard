@@ -27,7 +27,7 @@ Additions to [API.md](API.md), [API-board.md](API-board.md), [API-agents.md](API
 
 ```jsonc
 { "id": "jb_…", "kind": "runner"|"git"|"publish"|"usage",
-  "purpose": "document",   // runner: "document"|"diagram"|"memory-scan"|"memory-init"|"memory-refresh"|"loop-goal"|"planner"|"handoff-summary"|"commit-subject"|"thread-summary"|"code-*" (§7.4)
+  "purpose": "document",   // runner: "document"|"diagram"|"memory-scan"|"memory-init"|"memory-refresh"|"loop-goal"|"planner"|"handoff-summary"|"commit-subject"|"thread-summary"|"chat-summary"|"code-*" (§7.4)
   "projectId": "p_…", "machineId": "local", "agent": "claude",
   "state": "queued"|"running"|"done"|"failed"|"cancelled",
   "progress": { "phase": "launching"|"thinking"|"writing"|"finishing"|"pushing"|"…", "text": "Writing…", "pct": null },
@@ -57,8 +57,8 @@ Decision: the built-ins use **headless mode** (more reliable than reading the TU
 
 - The `planner` purpose and other purposes without streaming may use `--output-format json` (one result object) instead of `stream-json`.
 - **Never**: `--dangerously-*`, `yoloArgs`, NextBoard `--settings` hooks, `--bare` (asserted in `TestRunnerArgvNeverUnsafe`, as are `bypassPermissions`, `acceptEdits`, `danger-full-access`, `--approve-for-me`).
-- Phase 5 implementation: `internal/jobs` (Job + queue + runner) and `machine.Exec`; endpoints `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel` (`404 job_not_found`), events `job` (state changes immediately, progress ≤ 2×/s) and `jobOutput`. There is no job-creating endpoint yet (jobs are created by Phase 6/7 purposes through `SubmitRunner`). A `queued`/`running` job when the hub stops/starts → `failed` with `code:"hub_restart"`. Purpose time limits: planner 45 s, handoff-summary 4 min, thread-summary 30 s, the rest 10 min / idle 200 s.
-- Tool policy per purpose: `document`, `diagram`, `memory-scan`, `memory-init`, `memory-refresh` → read-only (`Read,Glob,Grep`), write/exec tools refused; `planner`, `loop-goal`, `handoff-summary`, `commit-subject`, `thread-summary` → no tools (`--max-turns 1`).
+- Phase 5 implementation: `internal/jobs` (Job + queue + runner) and `machine.Exec`; endpoints `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel` (`404 job_not_found`), events `job` (state changes immediately, progress ≤ 2×/s) and `jobOutput`. There is no job-creating endpoint yet (jobs are created by Phase 6/7 purposes through `SubmitRunner`). A `queued`/`running` job when the hub stops/starts → `failed` with `code:"hub_restart"`. Purpose time limits: planner 45 s, handoff-summary 4 min, thread-summary 30 s, chat-summary 2 min (a lead chat resumed, API-orchestration §4.1; one at a time), the rest 10 min / idle 200 s.
+- Tool policy per purpose: `document`, `diagram`, `memory-scan`, `memory-init`, `memory-refresh` → read-only (`Read,Glob,Grep`), write/exec tools refused; `planner`, `loop-goal`, `handoff-summary`, `commit-subject`, `thread-summary`, `chat-summary` → no tools (`--max-turns 1`).
 - Machine: the project's machine (cwd = project path) for repo-based purposes; This PC for `planner` (cwd `<data>/runner/planner`). Handoff: see API-orchestration §9.
 - Profile: request `profileId` → default profile `settings.agents.profiles` → default login.
 - Progress from the stream: `system init` → `launching`; an `assistant` event with tool/thinking → `thinking`; first text → `writing` (+ `jobOutput`); `result` → `finishing`. Final text = the `result` field (Claude) / the last `agent_message` (Codex).

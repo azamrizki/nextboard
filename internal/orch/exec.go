@@ -291,7 +291,7 @@ func (s *Service) handlesOf(sids []string) string {
 func (s *Service) sendOrder(c *execCtx, targets []string, text, source string, depth int) Order {
 	now := s.Now()
 	o := Order{ID: auth.RandomID("o_"), ThreadID: c.threadID, ProjectID: c.projectID, CommandID: c.commandID,
-		Text: text, Source: source, CreatedAt: now.UTC(), MissionID: c.missionID}
+		Text: text, Source: source, CreatedAt: now.UTC(), MissionID: c.missionID, ChatID: s.chatOf(c)}
 	var plan []PlanNote
 	for _, sid := range uniq(targets) {
 		in, _ := s.hub.SessionInfo(sid)
@@ -413,7 +413,7 @@ func (s *Service) ResendOrder(id string) (Order, error) {
 	if !ok {
 		return Order{}, ErrNothingToResend
 	}
-	c := &execCtx{threadID: o.ThreadID, projectID: o.ProjectID, commandID: o.CommandID}
+	c := &execCtx{threadID: o.ThreadID, projectID: o.ProjectID, commandID: o.CommandID, chatID: o.ChatID}
 	var sent, delivered []string
 	for _, t := range claimed {
 		d, err := s.hub.Deliver(t.SessionID, delivery.Request{Text: o.Text, Source: o.Source, OrderID: o.ID, ForwardDepth: t.Depth})
@@ -588,7 +588,7 @@ func (sc *scope) perBoard(agents []session.Info) string {
 // summarise asks the runner for a short summary (≤ 30 s); the raw
 // excerpts are the fallback.
 func (s *Service) summarise(c *execCtx, raw string) {
-	tid := c.threadID
+	tid, chat := c.threadID, s.chatOf(c) // it lands in the chat it was asked in (§4.1)
 	ask := "Summarise these agent reports for the user in at most 5 short sentences"
 	if l := settings.LeadLanguages[s.hub.Settings().Lead.Language]; l != "" {
 		ask += ", in " + l // the language the owner chose for the lead
@@ -605,7 +605,7 @@ func (s *Service) summarise(c *execCtx, raw string) {
 					text = r.Text
 				}
 			}
-			s.Threads.Add(ThreadMessage{ThreadID: tid, Role: "hub", Kind: "reply", Text: text})
+			s.Threads.Add(ThreadMessage{ThreadID: tid, ChatID: chat, Role: "hub", Kind: "reply", Text: text})
 		}})
 	if err == nil {
 		_, err = s.hub.SubmitRunner(req)

@@ -34,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
     sleepAfterMin: 30,
     lazyStart: true,
     keepRecentProjects: 2,
+    resumeTellChanges: true,
   },
   notifications: { needsYou: true, finished: true, error: true, finishedMinSec: 30 },
   shortcuts: DEFAULT_SHORTCUTS,

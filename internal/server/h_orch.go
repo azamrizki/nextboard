@@ -38,6 +38,7 @@ func (s *Server) orchRoutes(authed func(string, handler)) {
 	authed("GET /api/threads/{tid}/messages/{mid}/output", s.handleMessageOutput)
 	authed("POST /api/threads/{tid}/messages/{mid}/output/save", s.handleMessageOutputSave)
 	authed("GET /api/threads/{tid}/orders", s.handleThreadOrders)
+	s.leadChatRoutes(authed)
 	authed("GET /api/orders/{id}", s.handleOrderGet)
 	authed("POST /api/orders/{id}/cancel", s.handleOrderCancel)
 	authed("POST /api/orders/{id}/resend", s.handleOrderResend)
@@ -426,8 +427,13 @@ func (s *Server) handleThreadMessages(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	items, more := s.orch.Threads.List(tid, r.URL.Query().Get("before"), limit)
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "hasMore": more,
+	// one lead chat: the active one, or ?chat= (§4.1)
+	items, more, chat, err := s.orch.Threads.ListChat(tid, r.URL.Query().Get("chat"), r.URL.Query().Get("before"), limit)
+	if err != nil {
+		leadChatErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "hasMore": more, "chatId": chat,
 		"confirmations": s.orch.Confirms.ForThread(tid), "planning": s.orch.Planning(tid)})
 }
 
@@ -490,8 +496,8 @@ func (s *Server) handleThreadClear(w http.ResponseWriter, r *http.Request, p *pr
 	if !ok {
 		return
 	}
-	s.orch.Threads.Clear(tid)
-	s.events.Publish(map[string]any{"type": "threadCleared", "threadId": tid})
+	chat := s.orch.ClearLeadChat(tid) // only the active chat (§4.1)
+	s.events.Publish(map[string]any{"type": "threadCleared", "threadId": tid, "chatId": chat})
 	writeJSON(w, http.StatusOK, okBody)
 }
 

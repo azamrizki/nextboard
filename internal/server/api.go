@@ -236,6 +236,7 @@ func (s *Server) routes() {
 	authed("POST /api/jobs/{id}/cancel", s.handleJobCancel)
 
 	s.orchRoutes(authed)
+	s.chatRoutes(authed)
 	s.routesMCP(authed, admin)
 	s.routesGitPreview(authed)
 	s.routesReview(authed)
