@@ -655,7 +655,7 @@ Agent consoles and the orchestrator can be opened inside the editor card, withou
 
 ### 7.9 Pasting files and images
 
-Applies to consoles (tiles and the workbench's terminal panel), order inputs (orchestrator card, command bar, agent panel) and the editor. Plain text still works as before.
+Applies to consoles (tiles and the workbench's terminal panel), order inputs (orchestrator card, command bar, agent panel) and the editor. Plain text still works as before. A file dropped from the computer on any of these, or on a folder of the file tree, goes the same way as a pasted one (DESIGN §3.13); there is no other route.
 
 | Method | Path | Body | Response |
 |---|---|---|---|

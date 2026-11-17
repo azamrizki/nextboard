@@ -23,6 +23,7 @@ import { orchError, sendCommand } from '../../orch/actions';
 import { useStoreSessions } from '../../orch/hooks';
 import { localMentions } from '../../orch/mentions';
 import { AttachChips, useAttachments } from '../../orch/Attachments';
+import { useFileDrop } from '../../lib/fileDrop';
 import { MentionInput } from '../../orch/MentionInput';
 import { replyDraftOf, replyText, useLeadName, useTalkFirst, type ReplyDraft } from '../../orch/lead';
 import { AgentChip, GENERAL_IDEAS, LeadAvatar, OrderWelcome, ReplyChip } from '../../orch/OrderBits';
@@ -381,6 +382,11 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
   const att = useAttachments(project.id);
   const [dropped, setDropped] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // files dropped on the pane are attached, as pasted ones are
+  const dropRef = useFileDrop<HTMLDivElement>((files) => {
+    att.add(files);
+    inputRef.current?.focus();
+  }, 'Drop to attach');
   const [reply, setReply] = useState<ReplyDraft | null>(null);
 
   const cards = doc.nodes.filter((n) => n.kind === 'orchestrator');
@@ -439,7 +445,7 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
   };
 
   return (
-    <div className="wb-pane-orch wb-orch">
+    <div className="wb-pane-orch wb-orch" ref={dropRef}>
       <header className="wb-orch-head">
         <LeadAvatar name={name} size="md" />
         <div className="wb-orch-who">

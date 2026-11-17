@@ -24,6 +24,7 @@ import { useSessionList } from '../../orch/hooks';
 import { localMentions, mentionToken } from '../../orch/mentions';
 import { AttachChips, useAttachments } from '../../orch/Attachments';
 import { MentionInput } from '../../orch/MentionInput';
+import { useFileDrop } from '../../lib/fileDrop';
 import { orchApi } from '../../orch/api';
 import { replyDraftOf, replyText, useLeadName, useTalkFirst, messageAuthor, messageText, type ReplyDraft } from '../../orch/lead';
 import { AgentChip, GENERAL_IDEAS, LeadAvatar, LeadProfileDialog, OrderWelcome, ReplyChip } from '../../orch/OrderBits';
@@ -70,6 +71,11 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const [reply, setReply] = useState<ReplyDraft | null>(null);
   const [profile, setProfile] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // files dropped on the card's body or its box are attached, as pasted ones are
+  const dropRef = useFileDrop<HTMLDivElement>((files) => {
+    att.add(files);
+    inputRef.current?.focus();
+  }, 'Drop to attach');
   const name = useLeadName(d.title);
   const hubName = useLeadName();
   const talkFirst = useTalkFirst();
@@ -299,7 +305,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         menuLabel={`Actions for ${name}`}
         deleteItem={{ label: 'Delete card…', icon: 'trash', danger: true, onSelect: () => setDel(true) }}
       />
-      <div className="orch-body nodrag nowheel">
+      <div className="orch-body nodrag nowheel" ref={dropRef}>
         {taskWires.length > 0 && (
           <ul className="plain orch-tasks" aria-label="Task boards">
             {taskWires.map((w) => {
@@ -493,7 +499,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
           }
         />
       </div>
-      <div className="orch-input nodrag">
+      <div className="orch-input nodrag" ref={dropRef}>
         {reply && <ReplyChip reply={reply} onClear={() => setReply(null)} />}
         <div className="orch-box">
           <AttachChips att={att} inputRef={inputRef} />

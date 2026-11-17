@@ -301,7 +301,7 @@ Two deliberate exceptions to §2.5 and §6, only here: a gradient outline on the
 - **The microphone level** is measured in the browser only while listening, then the microphone is closed; audio goes nowhere because of this. Android hands the microphone to speech recognition, so there the motion follows the words coming in.
 - **Usage:** one accent per CLI (`--usage-claude`, `--usage-codex`) through `data-agent`; amber and red (§10.1 API-studio) still win when the quota runs low, and always come with text. The first window becomes a ring, the rest bars. The heatmap uses quartiles of active days, so one big day does not fade all the other days.
 
-### 3.13 Pasting files
+### 3.13 Pasting and dropping files
 
 The full contract is in API-studio §7.9. What is visible:
 
@@ -309,6 +309,8 @@ The full contract is in API-studio §7.9. What is visible:
 - Order input (command bar, orchestrator card, orchestrator pane in Code): a pasted file becomes a chip in the top row of the box, separated from the text by a thin box-wide line, not a path in the text: an 18 px thumbnail, the name, the image or file size. An × button replaces the size in the same place while the pointer is over the chip or focus is inside it; touch screens always show ×. Clicking empty space in the chip row puts the cursor in the text. During upload the size is replaced by `Attaching…` and Send is disabled; an order may hold only files. Clicking a thumbnail opens its image. An order the hub refuses keeps its text and chips.
 - Thread: images show above the order text at 120 px high and open at full size when clicked, other files become chips, paths are not shown. When a file has already been deleted (7 days), the image turns into a chip. *Edit and send again* brings its chips back.
 - Explorer: a cut row (and its content) dims (`.wb-row.is-cut`) until pasted or Esc. Copy has no mark, as in VS Code.
+
+**Files from the computer** (dropping, `lib/fileDrop.ts`): every place that takes a pasted file takes a dropped one the same way. A console (on the board, an agent pane in Code, the Code terminal panel) gets the file on its machine and its path typed, and keeps the keyboard. The lead's box (command bar and its thread, orchestrator card body and box, orchestrator pane in Code) attaches it as a chip. A Code editor saves it next to the open file and writes its name where it was dropped (a picture link in Markdown); a read-only file says so. The file tree saves it in the folder under the pointer, a file's row meaning its folder; the Root of a Root card says to pick a part first. While files are dragged over such a place, a dashed `--c-primary-300` frame covers it at `--bg` 92 %, with what a drop does there in the middle ("Drop to send to this console", "Drop to attach", "Drop to add here"), and the board's own drop outline goes. Anywhere else on a board, a drop still makes cards. A folder cannot be dropped: a browser hands over none of its files, and a toast says so.
 
 ### 3.14 Uptime card
 

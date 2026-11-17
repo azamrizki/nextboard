@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type DragEvent, type KeyboardEvent } from 'react';
 import { clipboardFiles } from '../../board/files';
+import { dragHasFiles, droppedFiles } from '../../lib/fileDrop';
 import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Icon } from '../../components/Icon';
@@ -367,6 +368,17 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
     e.preventDefault();
     e.stopPropagation();
     setDropOn(null);
+    // files from the computer are saved in that folder, as pasted ones are
+    if (dragHasFiles(e.dataTransfer)) {
+      const files = droppedFiles(e.dataTransfer);
+      if (!files.length) return;
+      if (isRootKey(dir)) {
+        toast.info(ROOT_FIRST);
+        return;
+      }
+      void ws.pasteFiles(dir, files).catch((err) => toast.error(err instanceof Error ? err.message : String(err)));
+      return;
+    }
     const from = asFileKey(e.dataTransfer.getData('application/x-nextboard-path'));
     if (!from || isRootKey(from) || isPartRoot(ws.paths, from) || parentKey(from) === dir || keyUnder(dir, from)) return;
     if (isRootKey(dir)) {
@@ -417,6 +429,7 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
         }}
         onDragOver={(e) => {
           e.preventDefault();
+          e.stopPropagation(); // files dragged over the tree are the tree's, not the board's
           // nothing lands at a Root card's root
           if (!multi) setDropOn(ws.rootKey);
         }}

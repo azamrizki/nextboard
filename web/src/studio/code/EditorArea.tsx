@@ -7,6 +7,7 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { errorMessage } from '../../api';
 import { clipboardFiles } from '../../board/files';
+import { watchFileDrop } from '../../lib/fileDrop';
 import { Button } from '../../components/Button';
 import { SegmentedControl } from '../../components/form';
 import { Icon } from '../../components/Icon';
@@ -165,8 +166,23 @@ function MonacoView({ ws, group, gi, doc, tab }: { ws: Workspace; group: Group; 
       void ws.pasteIntoEditor(ed, pathRef.current, files);
     };
     el.addEventListener('paste', onPaste, true);
+    // a file dropped on the editor is a pasted one, at the place it was dropped
+    const undrop = watchFileDrop(
+      el,
+      (files, e) => {
+        if (ed.getOption(monaco.editor.EditorOption.readOnly)) {
+          toast.info('This file is read-only here.');
+          return;
+        }
+        const at = ed.getTargetAtClientPoint(e.clientX, e.clientY)?.position;
+        if (at) ed.setPosition(at);
+        void ws.pasteIntoEditor(ed, pathRef.current, files);
+      },
+      { label: 'Drop to add here' },
+    );
     return () => {
       el.removeEventListener('paste', onPaste, true);
+      undrop();
       subs.forEach((s) => s.dispose());
       const states = viewStates.get(group);
       if (shown.current && states) states.set(shown.current, ed.saveViewState());

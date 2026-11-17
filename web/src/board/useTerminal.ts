@@ -15,6 +15,7 @@ import type { SessionStatusFrame } from '../lib/types';
 import { store } from '../store';
 import { applyMods, registerConsole } from './consoleKeys';
 import { clipboardFiles, sendPasted } from './files';
+import { watchFileDrop } from '../lib/fileDrop';
 import { registerTerminal } from './webglPool';
 import { disposeTerminal } from './xtermPatches';
 
@@ -306,6 +307,15 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         sendInput('\x16');
       };
       el.addEventListener('paste', onPaste, true);
+      // a file dropped on the console is a pasted one
+      const undrop = watchFileDrop(
+        el,
+        (files) => {
+          term.focus();
+          void attachFiles(files);
+        },
+        { label: 'Drop to send to this console' },
+      );
 
       const unregister = registerConsole(sessionId, {
         send: sendInput,
@@ -338,6 +348,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         unregister();
         window.clearTimeout(resizeTimer);
         el.removeEventListener('paste', onPaste, true);
+        undrop();
         ro.disconnect();
         dataSub.dispose();
         binSub.dispose();

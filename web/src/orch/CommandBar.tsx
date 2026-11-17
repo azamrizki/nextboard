@@ -27,6 +27,7 @@ import { useSessionList } from './hooks';
 import { localMentions, mentionedTargets, removeMention } from './mentions';
 import { AttachChips, useAttachments } from './Attachments';
 import { MentionInput } from './MentionInput';
+import { useFileDrop } from '../lib/fileDrop';
 import { orchApi } from './api';
 import { is404, orchStore, useOrch, useThread } from './store';
 import type { Mention } from './types';
@@ -87,6 +88,11 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
   const [reply, setReply] = useState<ReplyDraft | null>(null);
   const leadName = useLeadName();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // files dropped on the bar or its thread are attached, as pasted ones are
+  const dropRef = useFileDrop<HTMLDivElement>((files) => {
+    att.add(files);
+    inputRef.current?.focus();
+  }, 'Drop to attach');
   const barRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // How tall the bar really is (chips that wrap, a taller field, touch sizes): what sits above
@@ -290,7 +296,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
         }[planner.reason ?? ''] ?? 'The planner is not available.');
 
   return (
-    <div className={`cmdbar-wrap ${open || lead ? 'has-thread' : ''} ${lead ? 'is-lead' : ''}`}>
+    <div className={`cmdbar-wrap ${open || lead ? 'has-thread' : ''} ${lead ? 'is-lead' : ''}`} ref={dropRef}>
       {(open || lead) && (
         <section className="thread-drawer" aria-label="Thread">
           <header className="thread-head">

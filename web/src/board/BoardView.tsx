@@ -45,6 +45,7 @@ import { Icon, type IconName } from '../components/Icon';
 import { ContextMenu, type MenuEntry } from '../components/Menu';
 import { toast } from '../components/Toast';
 import { arrangeOps } from './arrange';
+import { FILE_DROP_ATTR } from '../lib/fileDrop';
 import { prefs } from '../lib/format';
 import { isRoot, placementOfSession, projectParts, ROOT, type Placement } from '../lib/parts';
 import { defaultPlacement, focusedPlacement, isMultiPart, lastPlacement, machineOfPlace, placeFromValue, placeLabel, placeShort, placeValue, rememberPlacement, ROOT_VALUE } from '../lib/placement';
@@ -1707,6 +1708,19 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   };
 
   // ---- drops from the browser ----
+  // A drag over a place that takes files itself (lib/fileDrop.ts, the file tree) is not the
+  // board's, and such a place keeps it from the board: the board's outline goes when one is
+  // under the pointer, and at the end of any drop.
+  useEffect(() => {
+    const check = (e: Event) => {
+      if (e.type !== 'dragover' || (e.target as Element | null)?.closest?.(`[${FILE_DROP_ATTR}], .wb-tree`)) setDropHover(false);
+    };
+    const types = ['dragover', 'drop', 'dragend'] as const;
+    for (const t of types) window.addEventListener(t, check, true);
+    return () => {
+      for (const t of types) window.removeEventListener(t, check, true);
+    };
+  }, []);
   const onDragOver = (e: DragEvent) => {
     if (!Array.from(e.dataTransfer.types).includes('Files')) return;
     e.preventDefault();

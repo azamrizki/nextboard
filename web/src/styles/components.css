@@ -1705,3 +1705,32 @@ textarea.control {
 .center-msg.full {
   min-height: 100%;
 }
+
+/* Files dragged from the computer over a place that takes them (lib/fileDrop.ts): a dashed
+   frame over it saying what a drop does there. The value of data-file-drop is that text. */
+.nb-term.is-file-over,
+.wb-terminal.is-file-over,
+.profile-signin-term.is-file-over,
+.wb-monaco.is-file-over,
+.orch-body.is-file-over,
+.orch-input.is-file-over,
+.wb-pane-orch.is-file-over {
+  position: relative;
+}
+[data-file-drop].is-file-over::after {
+  content: attr(data-file-drop);
+  position: absolute;
+  inset: var(--s-1);
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: var(--s-2);
+  border: 2px dashed var(--c-primary-300);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-align: center;
+  pointer-events: none;
+}
