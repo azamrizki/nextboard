@@ -189,8 +189,11 @@ func TestProjectRoot(t *testing.T) {
 		fi, err := os.Lstat(filepath.Join(dir, "Front"))
 		return gone != nil && err == nil && fi.Mode()&os.ModeSymlink != 0
 	})
-	if !strings.Contains(readText(t, filepath.Join(dir, "AGENTS.md")), "| Front | This PC | "+web+" | ./Front (link)") {
-		t.Fatalf("AGENTS.md after the rename:\n%s", readText(t, filepath.Join(dir, "AGENTS.md")))
+	// one sync writes the entries first and AGENTS.md after them: wait for the file as well
+	for deadline := time.Now().Add(5 * time.Second); !strings.Contains(readText(t, filepath.Join(dir, "AGENTS.md")), "| Front | This PC | "+web+" | ./Front (link)"); time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("AGENTS.md after the rename:\n%s", readText(t, filepath.Join(dir, "AGENTS.md")))
+		}
 	}
 	// a part made writable becomes a link; made read only again, a note, and the link goes
 	h.do("PATCH", "/api/projects/"+pid+"/parts/"+ids["Docs"], map[string]any{"readOnly": false}, nil)
