@@ -840,12 +840,14 @@ func Prompt(kind, brief, name string) string {
 			"glossy enamel body in the dark tone as the object's largest surface, a polished metal rim, edge and raised symbol " +
 			"in the brand colours, and a light accent (ivory, cream or white) on its repeated details; strong, clean " +
 			"reflections, crisp highlights and soft shadows where parts meet, so that it looks precious and solid. " +
-			"Precision as in a vector design: the object faces the viewer and is tilted back a little, about 20°, around its " +
-			"horizontal axis only, like an object lying on a table seen from slightly above, so that its thickness and edge " +
-			"show at the bottom while its left and right stay exact mirror images; its outline an exact circle or ellipse " +
-			"where it is round, straight edges straight, parts that repeat identical in shape and size and evenly spaced " +
-			"along that outline; crisp outlines with no warped, bent, dented, melted or uneven shapes. One soft key light " +
-			"from the upper left. Never one colour family only: a gold object on a gold or brown background is too flat. " +
+			"Seen straight from the front, with no tilt and no perspective, yet clearly a 3D model rendered in a studio, " +
+			"not a flat drawing: the depth comes from the model itself, its layers stepping up toward the viewer (a raised " +
+			"rim, recessed panels, a symbol standing out in high relief), deep bevels and chamfers that catch the light, " +
+			"physically based materials, specular highlights along every edge, ambient occlusion in the grooves and a soft " +
+			"contact shadow under each raised part. Precision as in a vector design: symmetrical about its vertical axis, " +
+			"round parts exact circles, straight edges straight, parts that repeat identical in shape and size and evenly " +
+			"spaced; crisp outlines with no warped, bent, dented, melted or uneven shapes. One soft key light from the upper " +
+			"left and a faint rim light from behind. Never one colour family only: a gold object on a gold or brown background is too flat. " +
 			"The composition, always the same: the object centred, about 80% of the square wide, with equal space on every " +
 			"side; the background a smooth gradient of the dark tone, a little lighter right behind the object and darker " +
 			"toward the corners; nothing else: no second object, sparkles, particles, smoke, frame or border. It must still " +
