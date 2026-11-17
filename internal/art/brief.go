@@ -18,14 +18,20 @@ import (
 
 // What the brief takes from a project, at most.
 const (
-	readmeMax  = 4 << 10
-	readmeMin  = 1 << 10  // each part's README when the project has several
-	manifest   = 64 << 10 // package.json / composer.json / a web app manifest read to find a few fields
-	pageHead   = 32 << 10 // the beginning of index.html, where <head> is
-	descMax    = 300
-	memoryMax  = 1 << 10
-	briefMax   = 12 << 10
-	readWithin = 20 * time.Second
+	readmeMax = 4 << 10
+	readmeMin = 1 << 10  // each part's README when the project has several
+	manifest  = 64 << 10 // package.json / composer.json / a web app manifest read to find a few fields
+	pageHead  = 32 << 10 // the beginning of index.html, where <head> is
+	descMax   = 300
+	listMax   = 900 // a line of names (models, tables, routes, pages)
+	listItems = 80
+	maxApps   = 4  // apps read inside a folder that holds apps
+	maxLook   = 24 // folders looked into for them
+	memoryMax = 1 << 10
+	// the memory goes into a brief whose folders gave less than this
+	memoryWhenUnder = 200
+	briefMax        = 12 << 10
+	readWithin      = 20 * time.Second
 )
 
 // Source is the project the image is about.
@@ -86,17 +92,23 @@ func Brief(ctx context.Context, src Source) string {
 		}()
 	}
 	wg.Wait()
+	said := 0
 	for i, f := range folders {
 		if texts[i] == "" {
 			continue
 		}
+		said += len(texts[i])
 		if f.Part != "" && len(folders) > 1 {
 			b.WriteString("\n## Part " + clean(f.Part, descMax) + "\n")
 		}
 		b.WriteString(texts[i])
 	}
-	if m := clean(src.Memory, memoryMax); m != "" {
-		b.WriteString("\nNotes kept about the project (beginning):\n" + m + "\n")
+	// The memory is mostly notes for agents about the code; it helps only when the folders say
+	// little about the product.
+	if said < memoryWhenUnder {
+		if m := memoryExcerpt(src.Memory); m != "" {
+			b.WriteString("\nNotes kept about the project (beginning, without how it is run):\n" + m + "\n")
+		}
 	}
 	out := b.String()
 	if len(out) > briefMax {
@@ -105,41 +117,286 @@ func Brief(ctx context.Context, src Source) string {
 	return out
 }
 
-// folderBrief is what one folder says about the product.
+// folderBrief is what one folder says about the product. A folder that holds apps instead of
+// being one (a web root with a backend and a front end inside) is read one level down.
 func folderBrief(ctx context.Context, f Folder, readmeCap int) string {
+	top := listing(ctx, f.Host, f.Path)
+	if top == nil {
+		return ""
+	}
+	out := appBrief(ctx, f.Host, f.Path, top, readmeCap)
+	if isApp(top) {
+		return out
+	}
+	names := make([]string, 0, len(top))
+	for name, dir := range top {
+		if dir && !skipDir(name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	found := 0
+	for i, name := range names {
+		if found == maxApps || i == maxLook {
+			break
+		}
+		sub := path.Join(f.Path, name)
+		l := listing(ctx, f.Host, sub)
+		if l == nil || !isApp(l) {
+			continue
+		}
+		found++
+		if t := appBrief(ctx, f.Host, sub, l, max(readmeCap/2, readmeMin/2)); t != "" {
+			out += "\n### Folder " + clean(name, descMax) + "\n" + t
+		}
+	}
+	return out
+}
+
+// appBrief is what one app's folder says: its manifests, web page, README, and above all what
+// its code is about: the names of its models, its tables, its routes and its pages. These say
+// what a product does when its README and descriptions are a framework's defaults.
+func appBrief(ctx context.Context, h machine.Host, dir string, top map[string]bool, readmeCap int) string {
 	var b strings.Builder
-	line := func(label, text string) {
-		if text = clean(text, descMax); text != "" {
+	line := func(label, text string, n int) {
+		if text = clean(text, n); text != "" {
 			b.WriteString(label + ": " + text + "\n")
 		}
 	}
 	for _, name := range []string{"package.json", "composer.json"} {
-		if n, desc := manifestOf(ctx, f.Host, path.Join(f.Path, name)); n != "" || desc != "" {
-			line(name+" name", n)
-			line(name+" description", desc)
+		if _, ok := top[name]; !ok {
+			continue
+		}
+		if n, desc := manifestOf(ctx, h, path.Join(dir, name)); !boilerplateManifest(n, desc) {
+			line(name+" name", n, descMax)
+			line(name+" description", desc, descMax)
 		}
 	}
-	if mod := goModule(ctx, f.Host, path.Join(f.Path, "go.mod")); mod != "" {
-		line("Go module", mod)
+	if _, ok := top["go.mod"]; ok {
+		line("Go module", goModule(ctx, h, path.Join(dir, "go.mod")), descMax)
 	}
-	if pg := webPageOf(ctx, f.Host, f.Path); pg != (webPage{}) {
-		line("Web page title", pg.Title)
-		line("Web page site name", pg.Site)
-		line("Web page description", pg.Description)
-		line("Web page theme colour", pg.Theme)
+	if pg := webPageOf(ctx, h, dir, top); pg != (webPage{}) {
+		line("Web page title", pg.Title, descMax)
+		line("Web page site name", pg.Site, descMax)
+		line("Web page description", pg.Description, descMax)
+		line("Web page theme colour", pg.Theme, descMax)
 	}
-	if am := appManifestOf(ctx, f.Host, f.Path); am != (appManifest{}) {
-		line("Web app name", am.Name)
-		line("Web app short name", am.ShortName)
-		line("Web app description", am.Description)
-		line("Web app theme colour", am.Theme)
-		line("Web app background colour", am.Background)
+	if am := appManifestOf(ctx, h, dir, top); am != (appManifest{}) {
+		line("Web app name", am.Name, descMax)
+		line("Web app short name", am.ShortName, descMax)
+		line("Web app description", am.Description, descMax)
+		line("Web app theme colour", am.Theme, descMax)
+		line("Web app background colour", am.Background, descMax)
 	}
-	if name, text := readme(ctx, f.Host, f.Path, readmeCap); text != "" {
-		b.WriteString("\n" + name + " (beginning):\n" + text + "\n")
+	c := codeOf(ctx, h, dir, top)
+	line("What the code keeps (models)", strings.Join(c.models, ", "), listMax)
+	line("Database tables", strings.Join(c.tables, ", "), listMax)
+	line("Routes (first part of each path)", strings.Join(c.routes, ", "), listMax)
+	line("Pages", strings.Join(c.pages, ", "), listMax)
+	if name, text := readme(ctx, h, dir, readmeCap); text != "" && !boilerplateReadme(text) {
+		b.WriteString("\n" + name + " (beginning):\n" + redact(text) + "\n")
 	}
 	return b.String()
 }
+
+// listing is a folder's entries (name → is a folder), or nil.
+func listing(ctx context.Context, h machine.Host, dir string) map[string]bool {
+	l, err := h.ListDir(ctx, dir)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]bool, len(l.Entries))
+	for _, e := range l.Entries {
+		out[e.Name] = e.Dir
+	}
+	return out
+}
+
+// isApp says whether a folder is an app of its own: it has a manifest, a README or a page.
+func isApp(top map[string]bool) bool {
+	for _, n := range []string{"package.json", "composer.json", "go.mod", "pyproject.toml", "requirements.txt", "Gemfile",
+		"Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts", "manage.py", "pubspec.yaml", "index.html", "artisan"} {
+		if _, ok := top[n]; ok {
+			return true
+		}
+	}
+	for n, dir := range top {
+		if l := strings.ToLower(n); !dir && (l == "readme" || strings.HasPrefix(l, "readme.")) {
+			return true
+		}
+	}
+	return false
+}
+
+// skipDir is a folder that is never an app of the project.
+func skipDir(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch strings.ToLower(name) {
+	case "node_modules", "vendor", "storage", "dist", "build", "target", "cache", "tmp", "temp", "logs", "log",
+		"backup", "backups", "cgi-bin", "well-known", "uploads":
+		return true
+	}
+	return false
+}
+
+// code is what an app's code is about.
+type code struct{ models, tables, routes, pages []string }
+
+var (
+	migrationRe = regexp.MustCompile(`create_([a-z0-9_]+?)_table`)
+	prismaRe    = regexp.MustCompile(`(?m)^\s*model\s+([A-Za-z0-9_]+)\s*\{`)
+	routeRe     = regexp.MustCompile(`Route::(?:get|post|put|patch|delete|any|match|resource|apiResource|view|prefix)\(\s*(?:\[[^\]]*\]\s*,\s*)?['"]([^'"]*)['"]`)
+	// a framework's own tables say nothing about the product
+	frameworkTables = map[string]bool{"cache": true, "cache_locks": true, "jobs": true, "job_batches": true, "failed_jobs": true,
+		"sessions": true, "password_resets": true, "password_reset_tokens": true, "personal_access_tokens": true,
+		"telescope_entries": true, "telescope_entries_tags": true, "telescope_monitoring": true, "migrations": true,
+		"notifications": true, "permissions": true, "model_has_permissions": true, "model_has_roles": true, "role_has_permissions": true}
+	notAModel = map[string]bool{"index": true, "base": true, "concerns": true, "traits": true, "scopes": true, "__init__": true,
+		"application_record": true, "applicationrecord": true, "model": true, "basemodel": true, "types": true}
+	notAPage = map[string]bool{"_app": true, "_document": true, "_error": true, "layout": true, "layouts": true, "index": true,
+		"api": true, "components": true, "page": true, "loading": true, "error": true, "not-found": true, "+layout": true,
+		"+page": true, "+error": true, "404": true, "500": true, "partials": true, "shared": true}
+)
+
+// codeOf reads names only: file names in the usual folders of models and pages, table names in
+// migration file names, and the paths in route files. Bounded: a few listings and two files.
+func codeOf(ctx context.Context, h machine.Host, dir string, top map[string]bool) code {
+	var c code
+	names := func(rel string, skip map[string]bool) []string {
+		first, _, _ := strings.Cut(rel, "/")
+		if isDir, ok := top[first]; !ok || !isDir {
+			return nil
+		}
+		l := listing(ctx, h, path.Join(dir, rel))
+		var out []string
+		for n := range l {
+			base := strings.TrimSuffix(n, path.Ext(n))
+			if base == "" || strings.HasPrefix(base, ".") || strings.HasPrefix(base, "[") || skip[strings.ToLower(base)] {
+				continue
+			}
+			out = append(out, base)
+		}
+		return out
+	}
+	for _, rel := range []string{"app/Models", "app/models", "app/Entity", "src/Entity", "models", "src/models", "src/entities", "src/entity"} {
+		c.models = append(c.models, names(rel, notAModel)...)
+	}
+	if isDir, ok := top["prisma"]; ok && isDir {
+		for _, m := range prismaRe.FindAllStringSubmatch(string(readHead(ctx, h, path.Join(dir, "prisma", "schema.prisma"), manifest)), -1) {
+			c.models = append(c.models, m[1])
+		}
+	}
+	if isDir, ok := top["database"]; ok && isDir {
+		for n := range listing(ctx, h, path.Join(dir, "database", "migrations")) {
+			if m := migrationRe.FindStringSubmatch(n); m != nil && !frameworkTables[m[1]] {
+				c.tables = append(c.tables, m[1])
+			}
+		}
+	}
+	if isDir, ok := top["routes"]; ok && isDir {
+		seen := map[string]bool{}
+		for _, f := range []string{"web.php", "api.php"} {
+			for _, m := range routeRe.FindAllStringSubmatch(string(readHead(ctx, h, path.Join(dir, "routes", f), manifest)), -1) {
+				for _, seg := range strings.Split(m[1], "/") {
+					if seg == "" || seg == "api" || strings.HasPrefix(seg, "{") || strings.HasPrefix(seg, ":") || (len(seg) == 2 && seg[0] == 'v') {
+						continue
+					}
+					if !seen[seg] {
+						seen[seg] = true
+						c.routes = append(c.routes, seg)
+					}
+					break
+				}
+			}
+		}
+	}
+	for _, rel := range []string{"resources/js/Pages", "resources/js/pages", "src/pages", "pages", "src/views", "src/routes", "src/app", "app/routes", "lib/screens", "src/screens"} {
+		c.pages = append(c.pages, names(rel, notAPage)...)
+	}
+	sort.Strings(c.models)
+	sort.Strings(c.tables)
+	sort.Strings(c.pages)
+	c.models, c.tables, c.routes, c.pages = firstN(dedupe(c.models), listItems), firstN(c.tables, listItems), firstN(c.routes, listItems), firstN(dedupe(c.pages), listItems)
+	return c
+}
+
+func dedupe(list []string) []string {
+	out := list[:0]
+	for i, s := range list {
+		if i == 0 || s != list[i-1] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func firstN(list []string, n int) []string {
+	if len(list) > n {
+		return list[:n]
+	}
+	return list
+}
+
+// boilerplateManifest is a framework's starter name and description, which say nothing about the product.
+func boilerplateManifest(name, desc string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "laravel/laravel", "laravel/lumen", "symfony/skeleton", "symfony/website-skeleton", "vite-project", "my-app",
+		"react-app", "nuxt-app", "next-app", "svelte-app", "my-vue-app", "vue-project":
+		return true
+	}
+	return strings.Contains(strings.ToLower(desc), "skeleton application")
+}
+
+// boilerplateReadme is a framework's starter README.
+func boilerplateReadme(text string) bool {
+	for _, mark := range []string{"laravel.com/img/logomark", "laravel/art/master", "Laravel is a web application framework", "The Laravel framework is open-sourced software", "This template should help get you started",
+		"Getting Started with Create React App", "bootstrapped with [`create-next-app`]", "Nuxt Minimal Starter", "Everything you need to build a Svelte project",
+		"Symfony Standard Edition", "This project was generated with [Angular CLI]"} {
+		if strings.Contains(text, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+// memoryExcerpt is the beginning of the project memory without what is about running it (servers,
+// ports, certificates, deploys): that says nothing about the product. Host names, addresses,
+// mail addresses and paths are taken out before anything goes to the model.
+func memoryExcerpt(m string) string {
+	var keep []string
+	for _, l := range strings.Split(m, "\n") {
+		l = redact(l)
+		if infraLineRe.MatchString(l) {
+			continue
+		}
+		keep = append(keep, l)
+	}
+	return clean(strings.Join(keep, "\n"), memoryMax)
+}
+
+// redact takes host names, addresses, mail addresses and paths out of a text, line by line.
+func redact(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		l = urlRe.ReplaceAllString(l, "<url>")
+		l = mailRe.ReplaceAllString(l, "<mail>")
+		l = ipRe.ReplaceAllString(l, "<address>")
+		l = hostRe.ReplaceAllString(l, "<host>")
+		lines[i] = localPathRe.ReplaceAllString(l, "$1<path>")
+	}
+	return strings.Join(lines, "\n")
+}
+
+var (
+	infraLineRe = regexp.MustCompile(`(?i)\b(architecture|infrastructure|nginx|apache|caddy|certbot|let'?s encrypt|ssl|tls|cert(ificate)?s?|vhosts?|port|ports|supervisor|systemd|cron(tab)?|reverb|redis|mysql|mariadb|postgres(ql)?|docker|compose|kubernetes|k8s|whitelist|allow ?list|firewall|cloudflare|dns|deploy(ed|s|ment)?|ssh|sudo|env|\.env|ci|pipeline|backup|proxy|php-fpm|queue|worker|server|servers|host|hosting|vps|ip)\b`)
+	urlRe       = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://\S+`)
+	mailRe      = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+`)
+	ipRe        = regexp.MustCompile(`\b\d{1,3}(\.\d{1,3}){3}(:\d+)?\b`)
+	hostRe      = regexp.MustCompile(`\b([a-z0-9-]+\.)+[a-z]{2,24}\b`)
+	localPathRe = regexp.MustCompile("(^|[\\s(=`'\"])(~|\\.)?(/[A-Za-z0-9._@-]+){2,}/?")
+)
 
 // clean keeps printable text and line breaks, cut to max bytes.
 func clean(s string, max int) string {
@@ -253,8 +510,11 @@ var (
 )
 
 // webPageOf reads the head of the folder's index.html (the usual places of a web front end).
-func webPageOf(ctx context.Context, h machine.Host, dir string) webPage {
+func webPageOf(ctx context.Context, h machine.Host, dir string, top map[string]bool) webPage {
 	for _, rel := range []string{"index.html", "public/index.html", "src/index.html", "web/index.html", "frontend/index.html"} {
+		if first, _, _ := strings.Cut(rel, "/"); !hasEntry(top, first) {
+			continue
+		}
 		b := readHead(ctx, h, path.Join(dir, rel), pageHead)
 		if len(b) == 0 {
 			continue
@@ -295,6 +555,11 @@ func webPageOf(ctx context.Context, h machine.Host, dir string) webPage {
 	return webPage{}
 }
 
+func hasEntry(top map[string]bool, name string) bool {
+	_, ok := top[name]
+	return ok
+}
+
 // pageText is the text of an HTML attribute or element, or "" for a template placeholder.
 func pageText(s string) string {
 	s = strings.Join(strings.Fields(strings.NewReplacer("&amp;", "&", "&#39;", "'", "&quot;", `"`, "&lt;", "<", "&gt;", ">").Replace(s)), " ")
@@ -307,8 +572,11 @@ func pageText(s string) string {
 // appManifest is what a web app manifest says about the product.
 type appManifest struct{ Name, ShortName, Description, Theme, Background string }
 
-func appManifestOf(ctx context.Context, h machine.Host, dir string) appManifest {
+func appManifestOf(ctx context.Context, h machine.Host, dir string, top map[string]bool) appManifest {
 	for _, rel := range []string{"public/manifest.json", "public/site.webmanifest", "public/manifest.webmanifest", "manifest.json", "site.webmanifest", "static/manifest.json"} {
+		if first, _, _ := strings.Cut(rel, "/"); !hasEntry(top, first) {
+			continue
+		}
 		b := readHead(ctx, h, path.Join(dir, rel), manifest)
 		if len(b) == 0 || len(b) >= manifest {
 			continue
@@ -334,34 +602,36 @@ func appManifestOf(ctx context.Context, h machine.Host, dir string) appManifest 
 // Prompt asks for exactly one image of the kind. The brief is marked as data.
 func Prompt(kind, brief string) string {
 	// What the image is about: the product as its users know it, never how it is built. Without
-	// this a model draws metaphors (a backend became a floating castle in a glass dome).
-	about := "Picture the product this project is, as the people who use it know it: read the brief for what it offers, " +
-		"to whom, what it is called and how it looks. A project of several parts (backend, API, admin panel, engine, " +
-		"front end) is one product: picture the product, not its parts or how it is built."
+	// this a model draws metaphors (a backend became a floating castle in a glass dome). No
+	// example scenes here: a model copies them (an example hotel lobby became the cover of a
+	// product that is not a hotel).
+	about := "First work out what the product is and does for its users from the whole brief: what its code keeps (the " +
+		"names of its models and tables), its routes and pages, its descriptions and notes. Those names say more than " +
+		"the project's name, which may be only a working label, and more than a framework's default text. A project of " +
+		"several parts or folders (backend, API, admin panel, service, front end) is one product: picture that product " +
+		"as the people who use it know it, not its parts or how it is built."
 	var want string
 	switch kind {
 	case KindIcon:
 		want = "A square app icon, 1024×1024, like the icon of a polished app in an app store for this kind of product: " +
-			"one clear symbol of what the product offers its users (a crown for a members' club, a ball for a sports app, " +
-			"a chef's hat for a recipe app), not of how it is built: no servers, gears, code brackets, network nodes, clouds " +
-			"or databases unless that is what the product sells. A solid or softly graded background in the product's own " +
-			"colours when the brief names them, else colours that suit its users; the symbol with some depth and material, " +
-			"filling most of the square, with strong contrast so that it still reads at 32 px. " +
+			"one clear symbol of what the product offers its users, not of how it is built: no servers, gears, code brackets, " +
+			"network nodes, clouds or databases unless that is what the product sells. A solid or softly graded background in " +
+			"the product's own colours when the brief names them, else colours that suit its users; the symbol with some depth " +
+			"and material, filling most of the square, with strong contrast so that it still reads at 32 px. " +
 			"No text, no letters, no numbers, no logos or trademarks of real companies or products."
 	default:
-		want = "A wide banner in 3:2, 1536×1024, like the hero banner of the product's own website or an app store " +
-			"feature graphic: a literal, recognisable scene of what the product offers and who uses it, in its real " +
-			"setting (a hotel lobby for a booking service, a stadium at night for a football app, a bright kitchen for a " +
-			"recipe app). Polished commercial photography or a high-end 3D render with cinematic lighting, in the product's " +
-			"own colours when the brief names them (theme colours, its look), else colours that suit its users. " +
-			"Never servers, data centres, cables, code, dashboards, network diagrams or glowing lines, and no fantasy or " +
-			"metaphor (floating islands, castles, domes, portals, planets, abstract cities) unless the product itself is about that. " +
-			"People, if any, are adults, fully clothed and tastefully shown. " +
-			"Text: at most the product's own name as one elegant headline, spelled exactly as the brief writes it, with an " +
-			"optional tagline of two to five words taken from the brief, set where it does not cover the scene's subject. " +
-			"Leave all text out when the brief gives no clear product name (a folder name, or a working name such as dev, " +
-			"staging, backend or api, is not one). No other text, no logos or trademarks of other companies, no screenshots " +
-			"of a user interface."
+		want = "A wide banner in 3:2, 1536×1024, like the hero banner of the product's own website or app: a scene that " +
+			"anyone who uses this kind of product recognises at once as being about it, showing what it offers and who it " +
+			"is for, in the setting where it is used. Polished commercial photography or a high-end 3D render with cinematic " +
+			"lighting, in the product's own colours when the brief names them (theme colours, its look), else colours and a " +
+			"mood that suit its users. Never servers, data centres, cables, code, dashboards, network diagrams or glowing " +
+			"lines, and no fantasy or metaphor (floating islands, castles, domes, portals, planets, abstract cities) unless " +
+			"the product itself is about that. People, if any, are adults, fully clothed and tastefully shown. " +
+			"Text: one elegant headline and at most one short line under it, set where it does not cover the scene's subject. " +
+			"The headline is the product's own name, spelled exactly as the brief writes it, when the brief gives one; a " +
+			"folder name or a working label (dev, prod, staging, backend, api, a code name in capitals) is not one, and then " +
+			"the headline names what the product is in two to five plain words. Spell every word correctly. No other text, " +
+			"no logos or trademarks of other companies, no screenshots of a user interface."
 	}
 	return "Create exactly one image with your built-in image generation tool, and do nothing else: " +
 		"do not run commands, do not read, write or search files, do not browse or use any other tool.\n\n" +
