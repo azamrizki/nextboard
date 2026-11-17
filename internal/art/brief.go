@@ -834,17 +834,22 @@ func Prompt(kind, brief, name string) string {
 			"The symbol: one object that stands for what the product offers its users, joined with what sets this product " +
 			"apart when the brief or its name makes that clear (its standing, its audience, its theme), not for how it is " +
 			"built: no servers, gears, code brackets, network nodes, clouds or databases unless that is what the product sells. " +
-			"Precision comes first, as in a vector design rendered in 3D: the object seen straight from the front, not tilted " +
-			"and with no perspective; symmetrical about its vertical axis; circles perfectly round, straight edges straight, " +
-			"parts that repeat identical in shape and size and evenly spaced; clean, crisp outlines with no warped, bent, " +
-			"dented, melted or uneven shapes. Its material: polished and glossy with a clean bevel that gives it thickness, " +
-			"one soft light from the upper left, highlights and reflections smooth and even. Two contrasting tones: a precious " +
-			"or bright material in the brand colours, and a deep second tone taken from the dark colours the brief lists " +
-			"(else a deep colour that suits the brand); never one colour family only, as a gold object on a gold or brown " +
-			"background is too flat. The composition, always the same: the object centred, about 80% of the square wide, " +
-			"with equal space on every side; the background a plain field in that dark tone with one soft, even radial glow " +
-			"of the brand colour right behind the object; nothing else: no second object, sparkles, particles, smoke, frame " +
-			"or border. It must still read at 32 px. No text, no letters, no numbers, no logos or trademarks of real companies or products."
+			"Its colours: the brand colours, and a dark tone taken from the dark colours the brief lists (else a deep colour " +
+			"that suits the brand). " +
+			"The look: a luxurious, richly detailed 3D icon like those of premium mobile games: layered materials, a deep " +
+			"glossy enamel body in the dark tone as the object's largest surface, a polished metal rim, edge and raised symbol " +
+			"in the brand colours, and a light accent (ivory, cream or white) on its repeated details; strong, clean " +
+			"reflections, crisp highlights and soft shadows where parts meet, so that it looks precious and solid. " +
+			"Precision as in a vector design: the object faces the viewer and is tilted back a little, about 20°, around its " +
+			"horizontal axis only, like an object lying on a table seen from slightly above, so that its thickness and edge " +
+			"show at the bottom while its left and right stay exact mirror images; its outline an exact circle or ellipse " +
+			"where it is round, straight edges straight, parts that repeat identical in shape and size and evenly spaced " +
+			"along that outline; crisp outlines with no warped, bent, dented, melted or uneven shapes. One soft key light " +
+			"from the upper left. Never one colour family only: a gold object on a gold or brown background is too flat. " +
+			"The composition, always the same: the object centred, about 80% of the square wide, with equal space on every " +
+			"side; the background a smooth gradient of the dark tone, a little lighter right behind the object and darker " +
+			"toward the corners; nothing else: no second object, sparkles, particles, smoke, frame or border. It must still " +
+			"read at 32 px. No text, no letters, no numbers, no logos or trademarks of real companies or products."
 	default:
 		var headline string
 		if name != "" {
