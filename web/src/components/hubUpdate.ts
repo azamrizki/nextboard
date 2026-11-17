@@ -77,6 +77,23 @@ export function loadUpdateCheck(force = false) {
   );
 }
 
+/**
+ * Check for updates: the hub asks GitHub now instead of its hour-old answer, and the result is
+ * said. Resolves with the check (null when the hub could not be asked).
+ */
+export async function checkNow(): Promise<HubUpdate | null> {
+  set({ checking: true });
+  try {
+    const c = await api.hubUpdate(true);
+    checkedAt = Date.now();
+    set({ check: c, checking: false, checkError: '' });
+    return c;
+  } catch (err) {
+    set({ checking: false, checkError: errorMessage(err) });
+    return null;
+  }
+}
+
 /** Records the owner's answer to the update popup, here and on the hub (for every browser). */
 export async function answerReminder(action: 'skip' | 'later', version: string): Promise<void> {
   const r = await api.remindHubUpdate(action === 'skip' ? { action, version } : { action });

@@ -332,3 +332,31 @@ func TestHubUpdateReminderDevBuild(t *testing.T) {
 		t.Fatalf("dev %d %v", st, c)
 	}
 }
+
+// Check for updates (?fresh=1) asks GitHub now instead of the hour-old answer, though not twice
+// within 30 seconds: a release out a minute after the last check is seen at once.
+func TestHubUpdateCheckNow(t *testing.T) {
+	h := newTestHub(t)
+	h.setup()
+	f := withFakeRelease(t, h, "0.9.0")
+	f.gh.Publish(t, "v0.9.0", false, []byte("hub 0.9.0"))
+	if _, c := h.do("GET", "/api/hub/update", nil, nil); c["status"] != "current" {
+		t.Fatalf("first check %v", c)
+	}
+	f.gh.Publish(t, "v0.9.1", false, []byte("hub 0.9.1"))
+	// the cached answer, also when pressed right away (under 30 s)
+	if _, c := h.do("GET", "/api/hub/update", nil, nil); c["status"] != "current" {
+		t.Fatalf("cached %v", c)
+	}
+	asked := len(f.gh.Requests())
+	if _, c := h.do("GET", "/api/hub/update?fresh=1", nil, nil); c["status"] != "current" || len(f.gh.Requests()) != asked {
+		t.Fatalf("asked again within 30 s: %v", c)
+	}
+	// later than that, it asks
+	h.srv.hubUpdate.mu.Lock()
+	h.srv.hubUpdate.at = time.Now().Add(-time.Minute)
+	h.srv.hubUpdate.mu.Unlock()
+	if _, c := h.do("GET", "/api/hub/update?fresh=1", nil, nil); c["status"] != "available" || c["latest"] != "v0.9.1" || c["remind"] != true {
+		t.Fatalf("check now %v", c)
+	}
+}

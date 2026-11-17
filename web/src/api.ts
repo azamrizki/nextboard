@@ -242,7 +242,8 @@ export const api = {
   /** New instance… (admin, this instance's password again): its single-use setup link. */
   createInstance: (body: NewInstanceBody) => post<CreatedInstance>('/api/instances', body),
   /** Whether a newer release is out; the hub asks GitHub at most once an hour. */
-  hubUpdate: () => get<HubUpdate>('/api/hub/update'),
+  /** fresh: About this hub's Check for updates, GitHub asked now (not within 30 s of the last check). */
+  hubUpdate: (fresh = false) => get<HubUpdate>(fresh ? '/api/hub/update?fresh=1' : '/api/hub/update'),
   /** Install it (admin): a job, then the hub restarts. */
   startHubUpdate: (version: string) => post<Job>('/api/hub/update', { version }),
   /** The update popup's answer (admin): skip that release for good, or put it off for a day. */

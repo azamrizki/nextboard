@@ -29,8 +29,12 @@ import (
 )
 
 const (
-	updateCheckTTL   = time.Hour
-	updateFailTTL    = 10 * time.Minute
+	updateCheckTTL = time.Hour
+	updateFailTTL  = 10 * time.Minute
+	// updateFreshGap is how soon after a check a "Check for updates" (?fresh=1) asks GitHub again:
+	// within it the last answer stands, so a button pressed again and again stays within
+	// GitHub's limit for clients without a token (60 an hour)
+	updateFreshGap   = 30 * time.Second
 	updateCheckWait  = 15 * time.Second
 	updateInstallMax = 10 * time.Minute
 	jobKindHubUpdate = "hubUpdate"
@@ -321,7 +325,14 @@ func (u *hubUpdater) runningJob(s *Server) string {
 
 func (s *Server) handleHubUpdateCheck(w http.ResponseWriter, r *http.Request, p *principal) {
 	u := &s.hubUpdate
-	c, _ := u.get(r.Context(), false)
+	// ?fresh=1 is "Check for updates": GitHub is asked now instead of the hour-old answer
+	fresh := r.URL.Query().Get("fresh") == "1"
+	if fresh {
+		u.mu.Lock()
+		fresh = u.at.IsZero() || time.Since(u.at) >= updateFreshGap
+		u.mu.Unlock()
+	}
+	c, _ := u.get(r.Context(), fresh)
 	v := hubUpdateView{Check: c, JobID: u.runningJob(s)}
 	if c.Status == update.StatusAvailable {
 		if why, bin := u.blocked(s.instanceLabel()); why != nil {

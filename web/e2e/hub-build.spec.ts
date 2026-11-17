@@ -236,6 +236,29 @@ test('a release hub run by its service updates itself from About this hub', asyn
     expect(Date.parse(putOff.remindAfter) - Date.now()).toBeGreaterThan(23 * 3600_000);
     await page.unroute('**/api/hub/update');
 
+    // Check for updates: as if the hub's hour-old answer said "up to date", the button makes it
+    // ask GitHub now (?fresh=1), and the release shows
+    await page.route('**/api/hub/update', async (route) => {
+      if (route.request().method() !== 'GET' || route.request().url().includes('fresh=1')) return route.continue();
+      const real = await route.fetch();
+      const { latest: _l, url: _u, restarts: _r, ...rest } = await real.json();
+      await route.fulfill({ response: real, json: { ...rest, status: 'current', remind: false } });
+    });
+    await page.reload();
+    await page.getByRole('button', { name: /^About this hub: NextBoard v0\.9\.0/ }).click();
+    const panel = page.getByRole('dialog', { name: 'About this hub' });
+    const updateRow = panel.locator('dt', { hasText: /^Update$/ }).locator('xpath=following-sibling::dd[1]');
+    await expect(updateRow).toContainText('Up to date');
+    await expect(updateRow).toContainText(/checked (just now|\d+ min ago)/);
+    const fresh = page.waitForRequest((r) => r.url().includes('/api/hub/update?fresh=1'));
+    await updateRow.getByRole('button', { name: 'Check for updates' }).click();
+    await fresh;
+    await expect(updateRow.getByRole('link', { name: 'v0.9.1 available' })).toBeVisible();
+    await shot(page, 'release-check-now');
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await page.unroute('**/api/hub/update');
+
     // the label, with a dot: a newer release is out
     const label = page.getByRole('button', { name: 'About this hub: NextBoard v0.9.0 · abc1234, v0.9.1 available' });
     await expect(label).toHaveText('v0.9.0 · abc1234');

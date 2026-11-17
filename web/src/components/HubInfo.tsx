@@ -20,7 +20,8 @@ import { ISOLATION_NOTE, markAddresses, serviceText } from '../setup/wizard';
 import { Button } from './Button';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Icon } from './Icon';
-import { loadUpdateCheck, startUpdate, useHubUpdate } from './hubUpdate';
+import { checkNow, loadUpdateCheck, startUpdate, useHubUpdate } from './hubUpdate';
+import { toast } from './Toast';
 import { Modal } from './Modal';
 import { NewInstanceDialog } from './NewInstanceDialog';
 
@@ -312,7 +313,12 @@ function UpdateRow({ hub, onAskUpdate }: { hub: Hub; onAskUpdate: (target: strin
   }
   switch (check.status) {
     case 'current':
-      return <span>Up to date</span>;
+      return (
+        <div className="update-row">
+          <span>Up to date{check.checkedAt && <span className="text-3"> · checked {sinceText(check.checkedAt)}</span>}</span>
+          <CheckNowButton />
+        </div>
+      );
     case 'dev':
       return <span className="text-2">dev build</span>;
     case 'available':
@@ -347,11 +353,43 @@ function UpdateRow({ hub, onAskUpdate }: { hub: Hub; onAskUpdate: (target: strin
       );
     default:
       return (
-        <span className="text-3" title={check.error}>
-          Could not check
-        </span>
+        <div className="update-row">
+          <span className="text-3" title={check.error}>
+            Could not check
+          </span>
+          <CheckNowButton />
+        </div>
       );
   }
+}
+
+/** Asks the hub to ask GitHub now, and says what it found. */
+function CheckNowButton() {
+  const { checking } = useHubUpdate();
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      icon="refresh"
+      loading={checking}
+      onClick={() =>
+        void checkNow().then((c) => {
+          if (!c) toast.error('Could not reach the hub to check for updates.');
+          else if (c.status === 'current') toast.success(`NextBoard ${c.current} is the newest release.`);
+          else if (c.status === 'unknown') toast.error(`Could not check for updates: ${c.error || 'GitHub did not answer'}.`);
+        })
+      }
+    >
+      Check for updates
+    </Button>
+  );
+}
+
+/** "just now", "5 min ago", "2 h ago" for a time of the past. */
+function sinceText(at: string): string {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60_000));
+  if (!Number.isFinite(min) || min < 1) return 'just now';
+  return min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`;
 }
 
 /** What the update does, before it does it. */

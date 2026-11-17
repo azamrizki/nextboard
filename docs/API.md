@@ -62,7 +62,7 @@ The web's way to run `nextboard update` (README, Update): whether a newer releas
 
 | Method | Path | Auth | Request | Response |
 |---|---|---|---|---|
-| GET | `/api/hub/update` | yes | — | `HubUpdate`. Asks GitHub at most once an hour (after a failure, again after 10 minutes); a dev build asks nothing. |
+| GET | `/api/hub/update` | yes | `?fresh=1` (optional) | `HubUpdate`. Asks GitHub at most once an hour (after a failure, again after 10 minutes); a dev build asks nothing. `fresh=1` is About this hub's Check for updates: GitHub is asked now, unless the last check is under 30 seconds old (then that one stands), so pressing it again and again stays within GitHub's limit. |
 | POST | `/api/hub/update` | admin | `{"version":"v0.9.1"}` (optional: the release the owner confirmed) | `202 Job` (kind `hubUpdate`, purpose = the tag). `409` `dev_build` · `not_service` (not started by its service, so it cannot restart itself: use `nextboard update` where it runs) · `not_writable` (the binary's folder) · `update_running` (`jobId`) · `restart_pending` (swapped in, not restarted yet) · `up_to_date` · `version_changed` (the newest release is no longer the one asked). `502 check_failed` (GitHub could not be asked). `403` for a device. |
 | POST | `/api/hub/update/remind` | admin | `{"action":"skip","version":"v0.9.1"}` or `{"action":"later"}` | `{"skipped"?,"remindAfter"?,"remind":false}`: the owner's answer to the update popup. `skip` never asks for that release again (a newer one asks); `later` keeps it away for 24 hours. Kept by the hub (`<data>/update-reminder.json`), so every browser and device follows it. `400 bad_action`, `400 bad_version` (not a release tag). |
 
