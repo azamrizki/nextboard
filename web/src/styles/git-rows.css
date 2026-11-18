@@ -1,0 +1,100 @@
+/* A part's repositories as rows (git/RepoRows.tsx): the same rows in the board's Git panel, the
+   editor's Source control and the Branches card, so they come with the component, wherever it is. */
+.git-part-toggle:focus-visible,
+.git-part-repo:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.git-part-stat {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.git-part-stat .git-branch {
+  max-width: calc(var(--s-12) * 3);
+}
+.git-part-changed {
+  color: var(--git-modified);
+  font-weight: var(--fw-medium);
+}
+.git-part-repos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding-left: var(--s-6);
+}
+.git-part-repo {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--h-control-sm);
+  padding: 0 var(--s-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.git-part-repo:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.git-part-repo.is-current {
+  background: var(--surface-active);
+  color: var(--text);
+}
+.git-part-repo:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.git-part-repo-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+}
+.git-part-repo.is-current .git-part-repo-icon {
+  color: var(--text);
+}
+/* a project of one part with several repositories: its rows under the panel's head */
+.git-part-repos.git-repo-rows {
+  margin-bottom: var(--s-3);
+  padding-left: 0;
+}
+/* the Branches card: its parts (or repositories) as rows above the branches, scrolling on their own */
+.branches-scope {
+  flex: 0 1 auto;
+  max-height: 45%;
+  overflow-y: auto;
+  padding-left: 0;
+}
+.git-part-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.git-part-row .git-part-repo-name {
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.git-part-repos.git-part-nested {
+  margin-top: var(--s-1);
+  padding-left: var(--s-5);
+}
+.git-part-repo-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}

@@ -27,12 +27,12 @@ import { gitApi, jobApi } from '../studio/api';
 import { HistorySection, RefPills, type GitHost } from '../studio/code/CommitGraph';
 import { StashSection } from '../studio/code/StashSection';
 import { jobActive, studioStore, useJob, useStudio } from '../studio/store';
-import type { GitBranch, GitCommitDetail, GitDiff, GitFile, GitRepoInfo, GitStatus, GitSummary, GitTarget, GitTrashItem } from '../studio/types';
+import type { GitBranch, GitCommitDetail, GitDiff, GitFile, GitRepoInfo, GitStatus, GitTarget, GitTrashItem } from '../studio/types';
 import { formatBytes, gitError, jobSummary, lineCounts, splitPath, STATUS_LABEL, STATUS_LETTER } from './common';
 import { LargeInCommits } from './LargeInCommits';
 import { showCommitInEditor, type ShowEditorCard } from './openInEditor';
-import { openPartsFrom, partRef, sumRepos, summaryLabel } from './parts';
-import { RepoPicker } from './RepoPicker';
+import { openPartsFrom, partRef, sumRepos } from './parts';
+import { RepoRows, RepoStat } from './RepoRows';
 import { SUGGEST_LABEL, SUGGEST_LABEL_OFFLINE, suggestCommitMessage } from './suggest';
 import '../styles/workbench.css';
 import '../styles/git-panel.css';
@@ -140,29 +140,6 @@ function AllParts(props: GitPanelProps & { parts: ProjectPart[] }) {
   );
 }
 
-function RepoStat({ s, error }: { s: GitSummary; error?: string }) {
-  if (error)
-    return (
-      <span className="git-part-stat text-3 truncate" title={error}>
-        Could not read it
-      </span>
-    );
-  return (
-    <span className="git-part-stat tabular">
-      <span className="sr-only">{summaryLabel(s)}</span>
-      <span className="badge git-branch" aria-hidden="true">
-        <Icon name="branch" />
-        <span className="truncate">{s.branch || 'detached'}</span>
-      </span>
-      {!!s.ahead && <span aria-hidden="true">↑{s.ahead}</span>}
-      {!!s.behind && <span aria-hidden="true">↓{s.behind}</span>}
-      <span className={s.changed ? 'git-part-changed' : 'text-3'} aria-hidden="true">
-        {s.changed > 999 ? '999+' : s.changed} changed
-      </span>
-    </span>
-  );
-}
-
 /** One part: a header with its repositories' state, and the whole panel for it when open. */
 function PartSection(props: GitPanelProps & { part: ProjectPart; pref: string; machine: string; open: boolean; onToggle: (to?: boolean) => void; refresh: number }) {
   const { part, pref, machine, open, onToggle } = props;
@@ -200,29 +177,7 @@ function PartSection(props: GitPanelProps & { part: ProjectPart; pref: string; m
           )}
         </button>
       </h3>
-      {items && items.length > 1 && (
-        <ul className="plain git-part-repos" aria-label={`Repositories of ${part.name}`}>
-          {items.map((r) => (
-            <li key={r.path}>
-              <button
-                type="button"
-                className={`git-part-repo ${open && r.path === repo ? 'is-current' : ''}`}
-                aria-current={open && r.path === repo ? 'true' : undefined}
-                disabled={busy}
-                title={r.root || r.path}
-                onClick={() => {
-                  studioStore.selectGitRepo(pref, r.path);
-                  onToggle(true);
-                }}
-              >
-                <span className="git-part-repo-name truncate">{r.path || `${r.name} (part folder)`}</span>
-                <RepoStat s={r} error={r.error} />
-              </button>
-            </li>
-          ))}
-          {list?.truncated && <li className="fs-xs text-3">Not every repository is listed</li>}
-        </ul>
-      )}
+      <RepoRows pid={pref} label={`Repositories of ${part.name}`} disabled={busy} marked={open} onPick={() => onToggle(true)} />
       {open && (
         <div className="git-part-body" id={bodyId}>
           {!items ? (
@@ -469,7 +424,7 @@ function RepoPanel({ project, part, pref, label, workspaceId, onClose, openEdito
         </div>
       )}
 
-      {picker && <RepoPicker pid={pref} className="git-repo-row" disabled={running || !!committing} />}
+      {picker && <RepoRows pid={pref} label={`Repositories of ${label}`} className="git-repo-rows" disabled={running || !!committing} />}
 
       {loading && !st && (
         <div className="list-msg" role="status">

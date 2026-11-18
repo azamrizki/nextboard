@@ -9,7 +9,8 @@ import { Icon } from '../../components/Icon';
 import { toast } from '../../components/Toast';
 import { gitError, gitSideChanged, jobSummary, splitPath, STATUS_LABEL, STATUS_LETTER, STATUS_TONE } from '../../git/common';
 import { LargeInCommits } from '../../git/LargeInCommits';
-import { RepoPicker } from '../../git/RepoPicker';
+import { RepoRows } from '../../git/RepoRows';
+import { sumRepos } from '../../git/parts';
 import { SUGGEST_LABEL, SUGGEST_LABEL_OFFLINE, suggestCommitMessage } from '../../git/suggest';
 import { gitApi } from '../api';
 import { studioStore, useStudio, waitJob } from '../store';
@@ -49,24 +50,32 @@ function RootScm({ ws }: { ws: Workspace }) {
         <Button size="sm" variant="ghost" iconOnly icon="refresh" aria-label="Refresh every part" title="Refresh every part" onClick={refreshAll} />
       </header>
       <div className="wb-tree nowheel wb-scm-parts">
-        {ws.parts.map((p) => {
-          const isOpen = open.has(p.partId);
-          const changed = p.git?.files?.length ?? 0;
-          return (
-            <section key={p.partId} className={`wb-scm-part ${isOpen ? 'is-open' : ''}`} aria-label={`Source control of ${p.name}`}>
-              <button type="button" className="wb-section-title wb-section-toggle wb-part-head" aria-expanded={isOpen} title={`${p.name}: ${p.root}`} onClick={() => toggle(p.partId)}>
-                <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} className="wb-chev" />
-                <span className="truncate">{p.name}</span>
-                {p.git?.branch && <span className="wb-result-dir truncate">{p.git.branch}</span>}
-                <span className="spacer" />
-                {p.git && !p.git.isRepo ? <span className="text-3">No repository</span> : <span className="wb-result-count tabular">{changed}</span>}
-              </button>
-              {isOpen && <PartScm ws={ws} part={p} grouped />}
-            </section>
-          );
-        })}
+        {ws.parts.map((p) => (
+          <ScmPartGroup key={p.partId} ws={ws} part={p} open={open.has(p.partId)} onToggle={() => toggle(p.partId)} />
+        ))}
       </div>
     </div>
+  );
+}
+
+/** One part's group in a Root card: its head (the repositories' state) and, open, its source control. */
+function ScmPartGroup({ ws, part: p, open: isOpen, onToggle }: { ws: Workspace; part: PartService; open: boolean; onToggle: () => void }) {
+  useWs(ws);
+  const repos = useStudio((s) => s.gitRepos[p.ref]?.items);
+  const many = (repos?.length ?? 0) > 1;
+  const sum = sumRepos(repos);
+  const changed = many ? sum.changed : (p.git?.files?.length ?? 0);
+  return (
+    <section className={`wb-scm-part ${isOpen ? 'is-open' : ''}`} aria-label={`Source control of ${p.name}`}>
+      <button type="button" className="wb-section-title wb-section-toggle wb-part-head" aria-expanded={isOpen} title={`${p.name}: ${p.root}`} onClick={onToggle}>
+        <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} className="wb-chev" />
+        <span className="truncate">{p.name}</span>
+        {many ? <span className="wb-result-dir truncate">{repos!.length} repositories</span> : p.git?.branch && <span className="wb-result-dir truncate">{p.git.branch}</span>}
+        <span className="spacer" />
+        {!many && p.git && !p.git.isRepo ? <span className="text-3">No repository</span> : <span className="wb-result-count tabular">{changed}</span>}
+      </button>
+      {isOpen && <PartScm ws={ws} part={p} grouped />}
+    </section>
   );
 }
 
@@ -152,7 +161,7 @@ function PartScm({ ws, part, grouped = false }: { ws: Workspace; part: PartServi
             <h2>Source control</h2>
           </header>
         )}
-        <RepoPicker pid={part.ref} className="wb-repo-picker" />
+        <RepoRows pid={part.ref} label={`Repositories of ${grouped ? part.name : ws.name}`} className="wb-repo-rows" />
         {repos?.length ? (
           <div className="wb-view-empty">
             <p>{target.repo || (grouped ? part.name : ws.name)} is no longer a Git repository.</p>
@@ -192,7 +201,7 @@ function PartScm({ ws, part, grouped = false }: { ws: Workspace; part: PartServi
         <Button size="sm" variant="ghost" iconOnly icon="arrowUp" aria-label="Push" title={st?.ahead ? `Push ${st.ahead} commit${st.ahead === 1 ? '' : 's'}` : 'Push'} loading={busy === 'push'} disabled={!!busy || !st?.hasRemote} onClick={() => void job('push', () => gitApi.push(target, !st?.upstream))} />
         <Button size="sm" variant="ghost" iconOnly icon="download" aria-label="Fetch" title="Fetch" loading={busy === 'fetch'} disabled={!!busy || !st?.hasRemote} onClick={() => void job('fetch', () => gitApi.fetch(target))} />
       </header>
-      <RepoPicker pid={part.ref} className="wb-repo-picker" disabled={!!busy} />
+      <RepoRows pid={part.ref} label={`Repositories of ${grouped ? part.name : ws.name}`} className="wb-repo-rows" disabled={!!busy} />
       <LargeInCommits key={target.repo ?? ''} target={target} unpushed={st?.ahead ?? 0} rescan={largeRescan} disabled={!!busy} onStatus={() => void part.refreshGit()} />
       <div className="wb-commit">
         <textarea

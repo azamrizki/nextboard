@@ -2,7 +2,8 @@
 // ahead/behind, changed files and up to 200 local branches. Click = switch (no
 // confirmation: Git itself refuses a switch that would overwrite work), New branch,
 // delete with `git branch -d` (refuses unmerged branches), Panel opens the Git panel. In a project
-// of several parts the card is about one part (data.partId, v0.9.0-beta.2), picked in the card.
+// of several parts the card is about one part (data.partId, v0.9.0-beta.2), picked from its rows of
+// parts; a part with several repositories lists them under it (git/RepoRows.tsx).
 
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { NodeProps } from '@xyflow/react';
@@ -17,8 +18,10 @@ import { gitApi } from '../studio/api';
 import { studioStore, useStudio } from '../studio/store';
 import type { GitBranch } from '../studio/types';
 import { partRef, projectParts } from '../lib/parts';
+import type { Project, ProjectPart } from '../lib/types';
+import { sumRepos } from './parts';
 import { gitError } from './common';
-import { RepoPicker } from './RepoPicker';
+import { RepoRows, RepoStat } from './RepoRows';
 
 function BranchesTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
   const { ui, project, ctl } = useBoardEnv();
@@ -100,17 +103,15 @@ function BranchesTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         menuLabel="Branches card actions"
       />
       <div className="branches-body nodrag nowheel">
-        {parts.length > 1 && (
-          <select className="control control-sm" aria-label="Part" title="Which part’s repository" value={part?.id ?? ''} onChange={(e) => pickPart(e.target.value)} disabled={!!busy}>
-            {!part && <option value="">Pick a part</option>}
+        {parts.length > 1 ? (
+          <ul className="plain git-part-rows branches-scope" aria-label="Parts">
             {parts.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
+              <PartRow key={p.id} project={project} part={p} current={p.id === part?.id} disabled={!!busy} onPick={() => pickPart(p.id)} />
             ))}
-          </select>
+          </ul>
+        ) : (
+          pid && <RepoRows pid={pid} label="Repositories" className="branches-scope" disabled={!!busy} />
         )}
-        {pid && <RepoPicker pid={pid} disabled={!!busy} />}
         <div className="branches-now">
           <span className="badge git-branch">
             <Icon name="branch" />
@@ -197,3 +198,34 @@ function BranchesTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
 }
 
 export const BranchesTile = memo(BranchesTileImpl);
+
+/** A part of the project as a row of the card: its repositories' state; picked, its repositories under it. */
+function PartRow({ project, part, current, disabled, onPick }: { project: Project; part: ProjectPart; current: boolean; disabled: boolean; onPick: () => void }) {
+  const pref = partRef(project, part);
+  const items = useStudio((s) => s.gitRepos[pref]?.items);
+  useEffect(() => {
+    void studioStore.loadGitRepos(pref);
+  }, [pref]);
+  const sum = sumRepos(items);
+  return (
+    <li>
+      <button type="button" className={`git-part-repo git-part-row nodrag ${current ? 'is-current' : ''}`} aria-current={current ? 'true' : undefined} disabled={disabled} title={part.path} onClick={onPick}>
+        <Icon name={current ? 'chevronDown' : 'chevronRight'} className="git-part-repo-icon" />
+        <span className="git-part-repo-name truncate">{part.name}</span>
+        {!items ? (
+          <span className="spinner" role="status" aria-label="Reading" />
+        ) : items.length === 0 ? (
+          <span className="git-part-stat text-3">No Git repository</span>
+        ) : items.length === 1 ? (
+          <RepoStat s={items[0]} error={items[0].error} />
+        ) : (
+          <span className="git-part-stat tabular">
+            <span>{items.length} repositories</span>
+            <span className={sum.changed ? 'git-part-changed' : 'text-3'}>{sum.changed} changed</span>
+          </span>
+        )}
+      </button>
+      {current && <RepoRows pid={pref} label={`Repositories of ${part.name}`} className="git-part-nested" disabled={disabled} />}
+    </li>
+  );
+}

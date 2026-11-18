@@ -158,7 +158,7 @@ Errors: `409 gh_missing`, `409 gh_auth`, `409 no_github_remote`, `502 gh_failed`
 
 The `git` step from API-orchestration §3.4: `commitPush` = commit the files last checked in the panel (or `all` when there is no panel state), then push; `commit` with a message; `push`; `pull`. Typed by the user → immediate, no confirmation; from the planner → `risky` confirmation.
 
-New node `branches` `{ "projectId": "p_…" }`: current branch, ahead/behind, number of changed files, ≤ 200 local branches; click = switch, "New branch", delete = `branch -d`, "Panel" opens the Git panel.
+New node `branches` `{ "projectId": "p_…" }`: current branch, ahead/behind, number of changed files, ≤ 200 local branches; click = switch, "New branch", delete = `branch -d`, "Panel" opens the Git panel. In a project of several parts the card is about one part (`data.partId`), picked from rows of its parts (each with its repositories' state); the picked part's repositories are rows under it when it has several, as in §3.6. A project of one part shows only its repository rows, when it has several.
 
 ### 3.5 Hub implementation (Phase 7 part A) — deviations and verification
 
@@ -219,7 +219,7 @@ A project folder may be a parent folder holding several repositories, with or wi
 - Without a name: 0 repositories → the old message; 1 repository → that repository automatically; ≥ 2 → refused with the list of names and nothing runs. Never commits to every repository.
 - Thread messages for a repository below the project folder start with its path: `app-a: Push done.`
 
-**Web:** the repository choice is kept per project in the browser and shared by the pill, the Git panel, the Branches card and Source Control in the Code studio. The picker is hidden when there are fewer than two repositories. Explorer decorations and the editor gutter follow the chosen repository only.
+**Web:** the repository choice is kept per project in the browser and shared by the pill, the Git panel, the Branches card and Source Control in the Code studio. A part of two or more repositories lists them as **rows** (`git/RepoRows.tsx`: the folder, branch, ↑ ↓ and changed files, the chosen one marked), the same rows everywhere: under the Git panel's head in a project of one part, inside a part's section in a project of several, above the editor's Source control, and in the Branches card; no dropdown. A part of one repository or none shows no rows. Explorer decorations and the editor gutter follow the chosen repository only.
 
 **A parent folder that is not a repository:**
 - Go to file reads every repository below it (≤ 5 levels, ≤ 50 repositories) through its own git, so its `.gitignore` applies. The rest goes through `find` with the prune list, `source` stays `walk`.
@@ -227,7 +227,7 @@ A project folder may be a parent folder holding several repositories, with or wi
 - A folder that cannot be read drops only that folder, not the whole list or search.
 - The project's row on the home screen adds up the repositories below that folder.
 
-Explorer also dims ignored files in repositories below the parent folder: in a project that is not a work tree, `files/ignored` asks the git of each path's folder (≤ 16 folders per request). **Not yet:** Android and desktop have no picker yet; without `?repo=` the behavior is unchanged.
+Explorer also dims ignored files in repositories below the parent folder: in a project that is not a work tree, `files/ignored` asks the git of each path's folder (≤ 16 folders per request). **Not yet:** Android and desktop have no repository rows yet; without `?repo=` the behavior is unchanged.
 
 **Verification (This PC, 2026-11-03):** `go test -race ./internal/gitsvc` (`TestRepos*`, `TestSubRepo*`, `TestNestedInOuterRepo`, `TestInitRefusedAboveRepos`, `TestPick`), `internal/server TestGitMultiRepo`, `internal/orch TestGitSteps`. `NEXTBOARD_SSHD_TEST=1 go test ./internal/machine -run TestGitReposOverSSH` (temporary sshd, zsh login shell, folder names with spaces). Headless Chrome through Playwright against a temporary hub and Vite: parent folder, repository + nested, one repository, empty folder (panel, pill, Branches card, Source Control, command bar).
 
@@ -256,7 +256,7 @@ No new endpoint: each part's git is already served under its project ref (`<proj
 
 - **Several parts:** the panel (G) lists every part at once, in the project's order and under its own name. No part is marked as the main one. Each header shows the part's machine and its repository: branch, ahead/behind and the number of changed files. A part with several repositories (§3.6) shows one line per repository; a click picks that repository. A part with none says so. Opening the panel scans every part (`GET …~<part>/git/repos`). Refresh reads every part again.
 - **Opening a part:** each part opens and closes on its own, and several can be open at once. Which parts are open is kept per project in the browser (`nb.git.parts.<project>`). An open part has the whole panel for its picked repository: changes and diffs, commit, push, pull, fetch, publish to GitHub through the `gh` of that part's machine, discard and trash, and files over 100 MB. Its ticks go to its own `PUT …/git/selection`. Messages about a job say which part they are about (`Web: Push done.`).
-- **One part:** the panel looks as before, with the repository picker of §3.6.
+- **One part:** the panel looks as before; with several repositories they are rows under its head, as inside a part's section (§3.6).
 - **Branches, Stash, History, Discarded:** the sections of the editor's Source Control, closed until opened. History is the commit graph of the workbench (the same component, all branches or the current one, the right-click menu for checkout, branch, tag, merge, cherry-pick, revert and reset). A commit picked there, or a stash, shows its files with their line counts (`GET …/git/commits/{ref}`). **Open in editor** shows it in a tab of the editor card, with the diff of each file. When the card shows another part, a file of that commit moves the card to the commit's part.
 - **`github` event:** it carries only `projectId`. A part's publish card reads `GET …~<part>/github` again on each one, so a sign-in on another machine shows without a reload.
 

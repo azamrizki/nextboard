@@ -44,11 +44,6 @@
 .git-part-toggle:hover {
   background: var(--surface-hover);
 }
-.git-part-toggle:focus-visible,
-.git-part-repo:focus-visible {
-  outline: 2px solid var(--focus-ring-color);
-  outline-offset: 2px;
-}
 .git-part-chev {
   flex: 0 0 auto;
   width: var(--size-icon);
@@ -68,64 +63,6 @@
 .git-part-machine {
   font-size: var(--fs-xs);
   color: var(--text-3);
-}
-.git-part-stat {
-  flex: 0 1 auto;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  font-size: var(--fs-xs);
-  color: var(--text-2);
-  white-space: nowrap;
-}
-.git-part-stat .git-branch {
-  max-width: calc(var(--s-12) * 3);
-}
-.git-part-changed {
-  color: var(--git-modified);
-  font-weight: var(--fw-medium);
-}
-.git-part-repos {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-  padding-left: var(--s-6);
-}
-.git-part-repo {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  width: 100%;
-  min-width: 0;
-  min-height: var(--h-control-sm);
-  padding: 0 var(--s-2);
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--text-2);
-  font: inherit;
-  font-size: var(--fs-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.git-part-repo:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.git-part-repo.is-current {
-  background: var(--surface-active);
-  color: var(--text);
-}
-.git-part-repo:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-.git-part-repo-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
 }
 .git-part-body {
   display: flex;

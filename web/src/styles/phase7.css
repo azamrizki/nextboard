@@ -697,18 +697,6 @@
     max-height: calc(100dvh - var(--shell-top) - var(--h-cmdbar) - var(--s-6));
   }
 }
-.git-repo-picker {
-  width: 100%;
-  min-width: 0;
-}
-.git-repo-row {
-  margin-bottom: var(--s-3);
-}
-.wb-repo-picker {
-  flex: 0 0 auto;
-  width: auto;
-  margin: 0 var(--s-3) var(--s-2);
-}
 .git-sync {
   display: flex;
   align-items: center;

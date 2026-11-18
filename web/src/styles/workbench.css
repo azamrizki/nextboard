@@ -900,8 +900,13 @@
 .wb-change .wb-row-mark {
   margin-left: 0;
 }
-.wb-repo-picker {
+/* a part's repositories as rows (git/RepoRows.tsx), as in the board's Git panel */
+.git-part-repos.wb-repo-rows {
+  flex: 0 0 auto;
+  max-height: 40%;
+  overflow-y: auto;
   margin: 0 var(--s-2) var(--s-2);
+  padding-left: 0;
 }
 .wb-ask-target {
   flex: 0 0 auto;
