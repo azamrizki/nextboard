@@ -57,6 +57,18 @@
 .board-canvas .react-flow__panel.bottom {
   margin-bottom: calc(var(--safe-b) + var(--s-4));
 }
+/* While the view pans or zooms (setMoving in BoardView), the glass over the board goes solid:
+   a backdrop blur is redone on every frame the board under it moves. The tokens are swapped
+   on these elements only, so the rest of the page is not restyled. */
+:root[data-board-moving] :is(.board-canvas .react-flow__panel, .rail, .inspector, .insp-toggle, .side-panel, .dock, .cmdbar-wrap, .connect-banner) {
+  --glass-1: var(--solid-1);
+  --glass-2: var(--solid-2);
+  --glass-3: var(--solid-3);
+  --glass-blur-1: none;
+  --glass-blur-2: none;
+  --glass-blur-3: none;
+  --xy-minimap-background-color: var(--solid-1);
+}
 /* The zoom controls, the Git pill and the minimap stay clear of the command bar where they would
    meet it. Here and not in orch.css: this file can load after that one, and would win. */
 @media (max-width: 1379px) {

@@ -1307,6 +1307,11 @@
     stroke-dashoffset: -14;
   }
 }
+/* held while the view moves: a moving dash would repaint the panned layer on every frame
+   (the sparks are paused with it, in BoardView's setMoving) */
+.board-canvas.is-moving .nb-wire-stream {
+  animation-play-state: paused;
+}
 @media (prefers-reduced-motion: reduce) {
   .nb-wire-stream {
     animation: none;

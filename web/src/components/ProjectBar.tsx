@@ -12,7 +12,8 @@ import { boardPath, navigate } from '../lib/router';
 import { openBoard, openCode, openProject } from '../home/OpenChoice';
 import type { CloseAllPreview, Project, Workspace } from '../lib/types';
 import { isActive } from '../agents/state';
-import { store, useMachines, useProjectGroups, useProjects, useSessions } from '../store';
+import { store, useMachines, useProjectGroups, useProjects } from '../store';
+import { useSessionsValue } from '../orch/hooks';
 import { Button } from './Button';
 import { ConfirmDialog } from './ConfirmDialog';
 import { TextField } from './form';
@@ -289,12 +290,25 @@ export function ProjectSwitcher({ project }: { project: Project }) {
 /** What every workspace control does: add, rename, move, close (with its confirmation). */
 function useWorkspaceActions(project: Project, activeId?: string) {
   const workspaces = project.workspaces ?? [];
-  const sessions = useSessions();
+  // [terminals, working] per workspace as one string, so that a busy agent's session events
+  // re-render the bar only when a count changes
+  const countsKey = useSessionsValue((all) => {
+    const counts: Record<string, [number, number]> = {};
+    for (const w of workspaces) counts[w.id] = [0, 0];
+    for (const s of Object.values(all)) {
+      const c = s.workspaceId && Object.hasOwn(counts, s.workspaceId) ? counts[s.workspaceId] : undefined;
+      if (!c) continue;
+      c[0]++;
+      if (isActive(s)) c[1]++;
+    }
+    return JSON.stringify(counts);
+  });
+  const counts = useMemo(() => JSON.parse(countsKey) as Record<string, [number, number] | undefined>, [countsKey]);
   const [closing, setClosing] = useState<Workspace | null>(null);
   const [adding, setAdding] = useState(false);
 
-  const terminalsIn = (w: Workspace) => Math.max(w.sessionCount ?? 0, sessions.filter((s) => s.workspaceId === w.id).length);
-  const workingIn = (w: Workspace) => sessions.filter((s) => s.workspaceId === w.id && isActive(s)).length;
+  const terminalsIn = (w: Workspace) => Math.max(w.sessionCount ?? 0, counts[w.id]?.[0] ?? 0);
+  const workingIn = (w: Workspace) => counts[w.id]?.[1] ?? 0;
 
   const add = async () => {
     if (adding) return;

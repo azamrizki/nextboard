@@ -13,7 +13,7 @@ import { readGroup } from '../../board/kinds';
 import type { BoardController } from '../../board/controller';
 import { isAgentSession, sendCommand } from '../../orch/actions';
 import { ThreadList } from '../../orch/ThreadView';
-import { useSessions } from '../../store';
+import { useSessionsValue } from '../../orch/hooks';
 import { MarkdownView } from '../MarkdownView';
 import { useStudio } from '../store';
 import { useWs } from './useWs';
@@ -53,7 +53,13 @@ interface Target {
 
 /** Everything on this board that can take a question, wired ones first. */
 function useTargets(ctl: BoardController, nodeId: string): Target[] {
-  const sessions = useSessions();
+  // only the agents' handles, by session id: a string, so a console's busy tick renders nothing
+  const handlesKey = useSessionsValue((all) =>
+    Object.values(all)
+      .flatMap((s) => (s.handle && isAgentSession(s) ? [`${s.id}\t${s.handle}`] : []))
+      .join('\n'),
+  );
+  const handles = useMemo(() => new Map(handlesKey ? handlesKey.split('\n').map((l) => l.split('\t') as [string, string]) : []), [handlesKey]);
   // follows wires drawn on the board, or made by the planner
   useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
   const wired = new Set(ctl.sync.state.edges.filter((e) => e.source === nodeId && e.kind === 'wire').map((e) => e.target));
@@ -61,8 +67,8 @@ function useTargets(ctl: BoardController, nodeId: string): Target[] {
   const add = (nid: string, t: Target) => out.push(wired.has(nid) ? { ...t, group: 'Connected' } : t);
   for (const n of ctl.nodes) {
     if (n.kind === 'terminal') {
-      const s = sessions.find((x) => x.id === n.data.sessionId);
-      if (s?.handle && isAgentSession(s)) add(n.id, { value: `console:${s.handle}`, label: `@${s.handle}`, group: 'Consoles', mention: `@${s.handle}` });
+      const handle = handles.get(n.data.sessionId as string);
+      if (handle) add(n.id, { value: `console:${handle}`, label: `@${handle}`, group: 'Consoles', mention: `@${handle}` });
     } else if (n.kind === 'group') {
       const name = readGroup(n).name;
       if (name) add(n.id, { value: `group:${name}`, label: `@${name}`, group: 'Groups', mention: `@${name}` });

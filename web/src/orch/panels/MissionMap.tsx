@@ -78,11 +78,18 @@ export default function MissionMap({ ctl, onClose, show }: { ctl: BoardControlle
   // hub-only details (subagents, current orders, last tasks); states come live from the store
   useEffect(() => {
     let alive = true;
+    // the same answer as 5 s ago re-renders nothing: the whole map is built again on a new one
+    let last = '';
     const load = () =>
       !document.hidden &&
       orchApi
         .mission(ctl.workspaceId)
-        .then((m) => alive && setHub(m))
+        .then((m) => {
+          const json = JSON.stringify(m);
+          if (!alive || json === last) return;
+          last = json;
+          setHub(m);
+        })
         .catch(() => undefined);
     void load();
     const t = window.setInterval(load, 5000);

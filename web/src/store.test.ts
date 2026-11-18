@@ -73,4 +73,18 @@ describe('live values over copies taken earlier', () => {
     store.patchProject('p_gone', (p) => ({ ...p, name: 'x' }));
     expect(store.getState().projects.p_gone).toBeUndefined();
   });
+
+  it('a project event that changes nothing keeps the record and notifies no one', () => {
+    store.seedProjects([{ ...project('p_same'), workspaces: [{ id: 'w_a', name: 'Main' }] as Project['workspaces'] }]);
+    const before = store.getState();
+    let notified = 0;
+    const off = store.subscribe(() => notified++);
+    store.apply({ type: 'project', project: { ...project('p_same'), workspaces: [{ id: 'w_a', name: 'Main' }] as Project['workspaces'] } });
+    expect(store.getState()).toBe(before);
+    expect(notified).toBe(0);
+    store.apply({ type: 'project', project: { ...project('p_same'), workspaces: [{ id: 'w_a', name: 'API' }] as Project['workspaces'] } });
+    expect(store.getState().projects.p_same.workspaces?.[0].name).toBe('API');
+    expect(notified).toBe(1);
+    off();
+  });
 });

@@ -27,7 +27,7 @@ import { RemoveDialog, restoreProjects } from '../home/RemoveDialog';
 import type { RemoveChoice } from '../home/remove';
 import type { Project, ProjectGroup } from '../lib/types';
 import { isActive } from '../agents/state';
-import { store, useArchivedProjects, useMachines, useProjectGroups, useProjects, useProjectsReady, useRunningSessions } from '../store';
+import { store, useArchivedProjects, useMachines, useProjectGroups, useProjects, useProjectsReady, useRunningCount } from '../store';
 
 type HomeView = 'grid' | 'list';
 type HomeSort = 'recent' | 'name';
@@ -222,7 +222,8 @@ export function HomePage() {
   }, [tab, archived.length, groupList.length, select.on]);
 
   const mostRecent = projects[0]?.id;
-  const activeConsoles = useRunningSessions().filter(isActive).length;
+  // a count, not the list: the page does not render again for every busy agent's session event
+  const activeConsoles = useRunningCount(isActive);
   const machineCount = new Set(projects.flatMap(machinesOf)).size;
 
   const changeView = (v: HomeView) => {

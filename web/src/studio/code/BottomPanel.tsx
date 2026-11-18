@@ -23,7 +23,7 @@ import { mountedPart } from './partGit';
 import { asFileKey, isRootKey, LOCAL_MACHINE, splitKey, type FileKey } from './paths';
 import { PortsPanel } from './PortsPanel';
 import { TasksPanel } from './TasksPanel';
-import { useWs } from './useWs';
+import { useMarkers, useWs } from './useWs';
 import { dirOf, isTerminalPane, nameOf, type PanelView, type Workspace } from './workspace';
 
 export const TerminalView = memo(function TerminalView({ sessionId }: { sessionId: string }) {
@@ -240,6 +240,7 @@ function Terminals({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) 
 /** The problems of the files this card shows or holds (every mounted part's servers), by file, and how many. */
 export function useProblems(ws: Workspace) {
   const version = ws.version;
+  const markers = useMarkers(ws);
   return useMemo(() => {
     const files = ws.problems();
     let errors = 0;
@@ -253,7 +254,7 @@ export function useProblems(ws: Workspace) {
     return { files, errors, warnings };
     // the workspace mutates in place: its version is the dependency
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, version]);
+  }, [ws, version, markers]);
 }
 
 const SEVERITY_ICON = (s: number): { icon: IconName; cls: string } =>

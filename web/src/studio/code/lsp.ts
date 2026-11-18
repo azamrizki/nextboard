@@ -618,7 +618,10 @@ export class LspHub {
           relatedInformation: d.relatedInformation?.map((r: Json) => ({ resource: isFileUri(r.location.uri) ? this.modelUri(r.location.uri) : monaco.Uri.parse(r.location.uri), ...fromLspRange(r.location.range), message: r.message })),
         })),
       );
+      // the markers' own channel (workspace.ts markerVersion) tells the Problems panel
+      return;
     }
+    // no model: the Problems panel reads these through closedDiagnostics()
     this.host.changed();
   }
 

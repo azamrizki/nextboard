@@ -330,8 +330,11 @@ export class Workspace implements ViewApi, PartView {
 
   version = 0;
   cursorVersion = 0;
+  /** Bumped when any model's markers change: its own channel, as they change on every keystroke. */
+  markerVersion = 0;
   private listeners = new Set<() => void>();
   private cursorListeners = new Set<() => void>();
+  private markerListeners = new Set<() => void>();
 
   readonly docs: ViewDocs;
   /** In the layout's reading order (grid.ts leaves): group 1 is the top left one. */
@@ -464,7 +467,8 @@ export class Workspace implements ViewApi, PartView {
     this.ide = new IdeLink(this);
     this.setParts(project, mounts);
     this.debug = new Debugger(this);
-    const markers = monaco.editor.onDidChangeMarkers(() => this.changed());
+    // not changed(): that renders the whole view and persists, and nothing persisted reads markers
+    const markers = monaco.editor.onDidChangeMarkers(() => this.markersChanged());
     this.offs.push(() => markers.dispose());
     this.offs.push(editorPrefs.subscribe(() => this.changed()));
 
@@ -740,6 +744,13 @@ export class Workspace implements ViewApi, PartView {
   };
   getVersion = () => this.version;
   getCursorVersion = () => this.cursorVersion;
+  subscribeMarkers = (fn: () => void) => {
+    this.markerListeners.add(fn);
+    return () => {
+      this.markerListeners.delete(fn);
+    };
+  };
+  getMarkerVersion = () => this.markerVersion;
 
   changed() {
     this.version++;
@@ -753,6 +764,11 @@ export class Workspace implements ViewApi, PartView {
     this.cursor = { line, col, selected };
     this.cursorVersion++;
     for (const fn of this.cursorListeners) fn();
+  }
+
+  private markersChanged() {
+    this.markerVersion++;
+    for (const fn of this.markerListeners) fn();
   }
 
   // ---- what the store tells a holder (docs.ts Holder) -----------------------------------

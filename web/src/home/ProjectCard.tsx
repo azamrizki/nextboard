@@ -17,7 +17,7 @@ import { projectParts } from '../lib/parts';
 import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import type { GitInfo, Project } from '../lib/types';
 import { isActive } from '../agents/state';
-import { store, useMachines, useRunningSessions } from '../store';
+import { store, useMachines, useRunningCount } from '../store';
 import { gitApi } from '../studio/api';
 import { ArtDialog } from './ArtDialog';
 import { FolderPath } from './FolderPath';
@@ -208,9 +208,10 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
           return { icon: 'server', label: `${ids.length} machine${ids.length === 1 ? '' : 's'}`, title: `On ${names.join(', ')}` };
         })()
       : undefined;
-  const consoles = useRunningSessions().filter((s) => s.projectId === p.id);
-  const activeCount = consoles.filter(isActive).length;
-  const idleCount = consoles.length - activeCount;
+  // counts, not the list: a card renders again only when its own numbers change
+  const consoleCount = useRunningCount((s) => s.projectId === p.id);
+  const activeCount = useRunningCount((s) => s.projectId === p.id && isActive(s));
+  const idleCount = consoleCount - activeCount;
   const [renaming, setRenaming] = useState(false);
   const draft = useRenameDraft(p.name);
   const [confirm, setConfirm] = useState(false);

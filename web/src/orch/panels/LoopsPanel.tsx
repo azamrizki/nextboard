@@ -2,7 +2,7 @@
 // hub runs 24/7 — on a schedule, a cron line, when an agent finishes a turn, or when its
 // output shows a pattern — with stop conditions and goals. Live status and history.
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { agentById } from '../../agents/catalog';
 import type { BoardController } from '../../board/controller';
 import { readGroup, readOrchestrator } from '../../board/kinds';
@@ -12,10 +12,11 @@ import { Checkbox, Field, SegmentedControl, SelectField, TextField } from '../..
 import { Icon, type IconName } from '../../components/Icon';
 import { toast } from '../../components/Toast';
 import { formatCountdown, formatDateTime, timeAgo } from '../../lib/format';
+import { tickWhileVisible } from '../../lib/visibleTick';
 import type { Project } from '../../lib/types';
 import { isAgentSession, orchError } from '../actions';
 import { orchApi } from '../api';
-import { useNow, useWorkspaceSessions } from '../hooks';
+import { useWorkspaceSessions } from '../hooks';
 import { is404, orchStore, useOrch } from '../store';
 import type { LoopDef, LoopGoal, LoopHistoryEntry, LoopInput, LoopTargets, LoopTemplate, LoopTrigger } from '../types';
 
@@ -73,7 +74,8 @@ export default function LoopsPanel({ ctl, project, onClose }: { ctl: BoardContro
   const [editing, setEditing] = useState<LoopDef | 'new' | null>(null);
   const [history, setHistory] = useState<string | null>(null);
   const [del, setDel] = useState<LoopDef | null>(null);
-  const now = useNow(1000);
+  const [now, setNow] = useState(() => Date.now());
+  const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     void orchStore.loadLoops(project.id, true);
@@ -92,6 +94,22 @@ export default function LoopsPanel({ ctl, project, onClose }: { ctl: BoardContro
     [all, project.id],
   );
   const running = loops.filter((l) => l.state?.status === 'running').length;
+
+  // The clock ticks only while the list shows a time, on screen with the tab shown: every second
+  // for a countdown or a "last 12s ago", every 15 s while the times shown are in minutes or more.
+  const timed = !editing && loops.some((l) => l.state?.nextRunAt || l.state?.lastRunAt);
+  const fast = loops.some((l) => {
+    const st = l.state?.status ?? (l.enabled ? 'running' : 'stopped');
+    return (st === 'running' && !!l.state?.nextRunAt) || (!!l.state?.lastRunAt && now - Date.parse(l.state.lastRunAt) < 90_000);
+  });
+  useEffect(() => {
+    const el = listRef.current;
+    if (!timed || !el) return;
+    const tick = () => setNow(Date.now());
+    // a list shown again, or a countdown just come: from the time it is now, not at the last tick
+    tick();
+    return tickWhileVisible(el, fast ? 1000 : 15_000, tick);
+  }, [timed, fast]);
 
   const act = async (fn: () => Promise<LoopDef>, done?: string) => {
     try {
@@ -133,7 +151,7 @@ export default function LoopsPanel({ ctl, project, onClose }: { ctl: BoardContro
             </Button>
           )}
           {loaded === 'ready' && loops.length === 0 && <div className="list-msg">No loops yet. Start from a template, like “Test guard”.</div>}
-          <ul className="loop-list">
+          <ul ref={listRef} className="loop-list">
             {loops.map((l) => {
               const st = l.state?.status ?? (l.enabled ? 'running' : 'stopped');
               const next = l.state?.nextRunAt ? Date.parse(l.state.nextRunAt) - now : NaN;

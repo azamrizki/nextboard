@@ -40,6 +40,11 @@ const MAX_K = 5;
 // Turns per second: slow enough that it reads as life, not as motion to follow.
 const DISC_TURN = TAU / 3600;
 const ORBIT: Record<NodeKind, number> = { core: 0, star: DISC_TURN, critical: TAU / 900, page: TAU / 1200, note: TAU / 1500, section: TAU / 420 };
+/**
+ * Between frames when nothing but the slow ambient motion runs (orbits, twinkles, pulses): a full
+ * canvas at 30 fps instead of 60+ still reads the same and halves the cost of an idle map.
+ */
+const IDLE_FRAME_MS = 1000 / 30;
 /** Of each frame, what painting the disc may take. */
 const DISC_SLICE_MS = 12;
 const ARM_TIGHTNESS = 2.1;
@@ -157,6 +162,8 @@ export class GalaxyEngine {
   private dragging: N | null = null;
   private reduced = false;
   private dirty = true;
+  /** When the canvas was last painted (rAF time). */
+  private drawnAt = 0;
   private settle = 0;
   private sprites = new Map<string, HTMLCanvasElement>();
   private starTiles: HTMLCanvasElement[] = [];
@@ -882,7 +889,11 @@ export class GalaxyEngine {
 
     const camMoving = Math.abs(this.cam.k - this.target.k) > 0.0005 || Math.hypot(this.cam.x - this.target.x, this.cam.y - this.target.y) > 0.05;
     const fading = this.nodes.some((n) => Math.abs(n.fade - this.fadeTarget(n)) > 0.01) || (!!this.disc && this.discIn < 1);
-    if (this.reduced && !this.dirty && !camMoving && !fading && !this.settle && !this.discJob) return;
+    const still = !this.dirty && !camMoving && !fading && !this.settle && !this.discJob;
+    if (this.reduced && still) return;
+    // a followed node keeps moving the camera's target, a hover or a drag wants every frame
+    if (still && !this.follow && !this.hover && !this.dragging && now - this.drawnAt < IDLE_FRAME_MS - 4) return;
+    this.drawnAt = now;
     this.dirty = false;
     this.stepDisc(DISC_SLICE_MS);
     if (this.disc) this.discIn = this.reduced ? 1 : Math.min(1, this.discIn + dt * 2.5);

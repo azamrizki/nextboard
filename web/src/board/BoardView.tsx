@@ -29,6 +29,7 @@ import {
   type NodeChange,
   type NodeTypes,
   type OnConnectEnd,
+  type ReactFlowProps,
   type Viewport,
 } from '@xyflow/react';
 import { AgentFlyout, AllAgentsDialog } from '../agents/AgentPicker';
@@ -175,6 +176,23 @@ const NODE_TYPES: NodeTypes = {
 
 /** Keep fitted nodes clear of the floating header (top), rails (sides) and dock (bottom). */
 const FIT_PAD = { top: 132, bottom: 200, left: 88, right: 88 };
+/** Stable props: React Flow copies each changed prop into its store on every render. */
+const MINIMAP_STYLE = { width: MINIMAP_W, height: MINIMAP_H } as const;
+const PRO_OPTIONS = { hideAttribution: true } as const;
+
+/** Pan / zoom under way. The canvas gets its own layer (tiles.css), the chrome drops its blur
+ *  (board.css) and busy wires hold still: each would otherwise repaint on every frame. */
+function setMoving(canvas: HTMLElement | null, on: boolean) {
+  canvas?.classList.toggle('is-moving', on);
+  document.documentElement.toggleAttribute('data-board-moving', on);
+  // SMIL sparks (edges.tsx) ignore CSS; every edge is its own <svg>, so this pauses only them
+  canvas?.querySelectorAll<SVGGElement>('.nb-wire-flow').forEach((g) => {
+    const svg = g.ownerSVGElement;
+    if (on) svg?.pauseAnimations?.();
+    else svg?.unpauseAnimations?.();
+  });
+}
+
 const FIT_OPTIONS = { maxZoom: 1, padding: { top: `${FIT_PAD.top}px`, bottom: `${FIT_PAD.bottom}px`, left: `${FIT_PAD.left}px`, right: `${FIT_PAD.right}px` } } as const;
 const EXTENT: [[number, number], [number, number]] = [
   [-20000, -20000],
@@ -1805,6 +1823,113 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   const fitOnInit = fitRef.current ?? false;
   const moveTimer = useRef(0);
   const layerTimer = useRef(0);
+  useEffect(
+    () => () => {
+      window.clearTimeout(layerTimer.current);
+      document.documentElement.removeAttribute('data-board-moving');
+    },
+    [],
+  );
+
+  type Props = ReactFlowProps<FlowNode, FlowEdge>;
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<FlowEdge>[]) => {
+      let next: Set<string> | null = null;
+      for (const c of changes) {
+        if (c.type !== 'select') continue;
+        next ??= new Set(edgeSel);
+        if (c.selected) next.add(c.id);
+        else next.delete(c.id);
+      }
+      if (next) setEdgeSel(next);
+    },
+    [edgeSel],
+  );
+  const onEdgeClick: NonNullable<Props['onEdgeClick']> = useCallback(
+    (e, edge) => {
+      setEdgeSel(new Set([edge.id]));
+      ctl.select([]);
+      // a finger has no right-click: a tap on a line opens what right-click does
+      if (coarse) setMenu({ x: e.clientX, y: e.clientY, at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), ids: null, edge: edge.id });
+    },
+    [ctl, coarse, rf],
+  );
+  const onEdgeContextMenu: NonNullable<Props['onEdgeContextMenu']> = useCallback(
+    (e, edge) => {
+      e.preventDefault();
+      setEdgeSel(new Set([edge.id]));
+      setMenu({ x: e.clientX, y: e.clientY, at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), ids: null, edge: edge.id });
+    },
+    [rf],
+  );
+  const onConnectStart = useCallback(() => setConnecting(true), []);
+  const onNodeClick: NonNullable<Props['onNodeClick']> = useCallback(
+    (e, node) => {
+      const from = ui.get().connectFrom;
+      if (!from || node.id === from) return;
+      const fromNode = ctl.node(from);
+      if (!fromNode) {
+        ui.set({ connectFrom: null });
+        return;
+      }
+      e.stopPropagation();
+      const ok = connectTo(from, node.id);
+      // a forward from a console is one target at a time
+      if (ok && (fromNode.kind === 'terminal' || fromNode.kind === 'group')) {
+        ui.set({ connectFrom: null });
+        toast.success('Forward added: finished turns are passed on. Right-click the dashed line to change it.');
+      }
+    },
+    [ui, ctl, connectTo],
+  );
+  const onNodeDragStart: NonNullable<Props['onNodeDragStart']> = useCallback((e, _n, ns) => onDragStart(e, ns), [onDragStart]);
+  const onNodeDrag: NonNullable<Props['onNodeDrag']> = useCallback((e, _n, ns) => onDrag(e, ns), [onDrag]);
+  const onNodeContextMenu: NonNullable<Props['onNodeContextMenu']> = useCallback(
+    (e, node) => {
+      e.preventDefault();
+      const ids = ctl.selection.has(node.id) ? [...ctl.selection] : [node.id];
+      if (!ctl.selection.has(node.id)) ctl.select([node.id]);
+      openMenu(e.clientX, e.clientY, ids, sizesInMenu(e.target, ctl.node(node.id)?.kind ?? '', ids.length));
+    },
+    [ctl, openMenu],
+  );
+  const onSelectionContextMenu: NonNullable<Props['onSelectionContextMenu']> = useCallback(
+    (e) => {
+      e.preventDefault();
+      openMenu(e.clientX, e.clientY, [...ctl.selection]);
+    },
+    [ctl, openMenu],
+  );
+  const onPaneContextMenu: NonNullable<Props['onPaneContextMenu']> = useCallback(
+    (e) => {
+      e.preventDefault();
+      openMenu(e.clientX, e.clientY, null);
+    },
+    [openMenu],
+  );
+  const onPaneClick = useCallback(() => {
+    setEdgeSel(EMPTY);
+    if (ui.get().editing) ui.set({ editing: null });
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    canvasRef.current?.focus({ preventScroll: true });
+  }, [ui]);
+  const onMoveStart = useCallback(() => {
+    // Own compositor layer while the view moves: panning then just moves pixels
+    // instead of repainting every tile each frame (~10× cheaper with 100 tiles).
+    // Removed at the end so text is re-rasterised crisply at the new zoom.
+    window.clearTimeout(layerTimer.current);
+    setMoving(canvasRef.current, true);
+  }, []);
+  const onMoveEnd: NonNullable<Props['onMoveEnd']> = useCallback(
+    (_e, vp) => {
+      window.clearTimeout(layerTimer.current);
+      layerTimer.current = window.setTimeout(() => setMoving(canvasRef.current, false), 400);
+      window.clearTimeout(moveTimer.current);
+      // the focused view is this card's, not the board's
+      if (!focusedRef.current) moveTimer.current = window.setTimeout(() => saveViewport(ctl.workspaceId, vp), 300);
+    },
+    [ctl.workspaceId],
+  );
 
   return (
     <BoardEnvContext.Provider value={env}>
@@ -1845,89 +1970,28 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             nodeTypes={NODE_TYPES}
             edges={edges}
             edgeTypes={EDGE_TYPES}
-            onEdgesChange={(changes: EdgeChange<FlowEdge>[]) => {
-              let next: Set<string> | null = null;
-              for (const c of changes) {
-                if (c.type !== 'select') continue;
-                next ??= new Set(edgeSel);
-                if (c.selected) next.add(c.id);
-                else next.delete(c.id);
-              }
-              if (next) setEdgeSel(next);
-            }}
-            onEdgeClick={(e, edge) => {
-              setEdgeSel(new Set([edge.id]));
-              ctl.select([]);
-              // a finger has no right-click: a tap on a line opens what right-click does
-              if (coarse) setMenu({ x: e.clientX, y: e.clientY, at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), ids: null, edge: edge.id });
-            }}
-            onEdgeContextMenu={(e, edge) => {
-              e.preventDefault();
-              setEdgeSel(new Set([edge.id]));
-              setMenu({ x: e.clientX, y: e.clientY, at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), ids: null, edge: edge.id });
-            }}
-            onConnectStart={() => setConnecting(true)}
+            onEdgesChange={onEdgesChange}
+            onEdgeClick={onEdgeClick}
+            onEdgeContextMenu={onEdgeContextMenu}
+            onConnectStart={onConnectStart}
             onConnectEnd={onConnectEnd}
             connectionRadius={36}
             connectionLineComponent={ConnectionWire}
-            onNodeClick={(e, node) => {
-              const from = ui.get().connectFrom;
-              if (!from || node.id === from) return;
-              const fromNode = ctl.node(from);
-              if (!fromNode) {
-                ui.set({ connectFrom: null });
-                return;
-              }
-              e.stopPropagation();
-              const ok = connectTo(from, node.id);
-              // a forward from a console is one target at a time
-              if (ok && (fromNode.kind === 'terminal' || fromNode.kind === 'group')) {
-                ui.set({ connectFrom: null });
-                toast.success('Forward added: finished turns are passed on. Right-click the dashed line to change it.');
-              }
-            }}
+            onNodeClick={onNodeClick}
             onNodesChange={onNodesChange}
-            onNodeDragStart={(e, _n, ns) => onDragStart(e, ns)}
-            onNodeDrag={(e, _n, ns) => onDrag(e, ns)}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
             onNodeDragStop={onDragStop}
-            onSelectionDragStart={(e, ns) => onDragStart(e, ns)}
-            onSelectionDrag={(e, ns) => onDrag(e, ns)}
+            onSelectionDragStart={onDragStart}
+            onSelectionDrag={onDrag}
             onSelectionDragStop={onDragStop}
             onNodeDoubleClick={onNodeDoubleClick}
-            onNodeContextMenu={(e, node) => {
-              e.preventDefault();
-              const ids = ctl.selection.has(node.id) ? [...ctl.selection] : [node.id];
-              if (!ctl.selection.has(node.id)) ctl.select([node.id]);
-              openMenu(e.clientX, e.clientY, ids, sizesInMenu(e.target, ctl.node(node.id)?.kind ?? '', ids.length));
-            }}
-            onSelectionContextMenu={(e) => {
-              e.preventDefault();
-              openMenu(e.clientX, e.clientY, [...ctl.selection]);
-            }}
-            onPaneContextMenu={(e) => {
-              e.preventDefault();
-              openMenu(e.clientX, e.clientY, null);
-            }}
-            onPaneClick={() => {
-              setEdgeSel(EMPTY);
-              if (ui.get().editing) ui.set({ editing: null });
-              (document.activeElement as HTMLElement | null)?.blur?.();
-              canvasRef.current?.focus({ preventScroll: true });
-            }}
-            onMoveStart={() => {
-              // Own compositor layer while the view moves: panning then just moves pixels
-              // instead of repainting every tile each frame (~10× cheaper with 100 tiles).
-              // Removed at the end so text is re-rasterised crisply at the new zoom.
-              window.clearTimeout(layerTimer.current);
-              canvasRef.current?.classList.add('is-moving');
-            }}
-            onMoveEnd={(_e, vp) => {
-              window.clearTimeout(layerTimer.current);
-              layerTimer.current = window.setTimeout(() => canvasRef.current?.classList.remove('is-moving'), 400);
-              window.clearTimeout(moveTimer.current);
-              // the focused view is this card's, not the board's
-              if (!focusedRef.current) moveTimer.current = window.setTimeout(() => saveViewport(ctl.workspaceId, vp), 300);
-            }}
+            onNodeContextMenu={onNodeContextMenu}
+            onSelectionContextMenu={onSelectionContextMenu}
+            onPaneContextMenu={onPaneContextMenu}
+            onPaneClick={onPaneClick}
+            onMoveStart={onMoveStart}
+            onMoveEnd={onMoveEnd}
             defaultViewport={initialViewport}
             fitView={fitOnInit}
             fitViewOptions={FIT_OPTIONS}
@@ -1950,7 +2014,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
             panActivationKeyCode={null}
             nodeDragThreshold={2}
             colorMode="dark"
-            proOptions={{ hideAttribution: true }}
+            proOptions={PRO_OPTIONS}
           >
             <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} />
             <Panel position="bottom-left" className="bl-panel">
@@ -1962,7 +2026,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
               zoomable
               nodeColor={minimapColor}
               nodeBorderRadius={8}
-              style={{ width: MINIMAP_W, height: MINIMAP_H }}
+              style={MINIMAP_STYLE}
               ariaLabel="Board overview"
             />
             {guides.length > 0 && (

@@ -9,7 +9,7 @@
 // do it from the tab, and the sashes between them are dragged. Under 640 px only the active
 // group shows. A tab can also be a console (an agent, a terminal, a board's agent) or a tool.
 
-import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import '../../styles/editor-grid.css';
 import { errorMessage } from '../../api';
 import { clipboardFiles } from '../../board/files';
@@ -378,35 +378,42 @@ const headingId = (text: string) =>
 function MarkdownReader({ ws, doc, scrollRef }: { ws: Workspace; doc: Doc; scrollRef?: RefObject<HTMLDivElement | null> }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const text = useModelText(doc.model);
-  // URL math on the real path, on the file's own machine, then a key again
-  const { machineId, abs: docAbs } = splitKey(doc.path);
-  const dir = dirOf(docAbs);
-  const keyAt = (rel: string): FileKey | null => {
-    const p = cleanAbs(decodeURI(new URL(rel, `file://${dir === '/' ? '' : dir}/`).pathname));
-    return p ? fileKey(machineId, p) : null;
-  };
-  const resolve = (src: string) => {
-    if (/^[a-z]+:/i.test(src) || src.startsWith('/')) return null;
-    const k = keyAt(src);
-    return k && ws.partOf(k) ? rawUrlOf(k) : null;
-  };
-  const onLink = (href: string) => {
-    if (/^[a-z]+:/i.test(href)) return false;
-    const [target] = href.split('#');
-    if (!target) {
-      // same page: only this reader may scroll
-      ref.current?.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ block: 'start' });
+  // stable between renders: MarkdownView renders the text again when resolveImage changes. What
+  // they read of the card (partOf) follows its project, and setProject always makes new paths.
+  const paths = ws.paths;
+  const { resolve, onLink } = useMemo(() => {
+    // URL math on the real path, on the file's own machine, then a key again
+    const { machineId, abs: docAbs } = splitKey(doc.path);
+    const dir = dirOf(docAbs);
+    const keyAt = (rel: string): FileKey | null => {
+      const p = cleanAbs(decodeURI(new URL(rel, `file://${dir === '/' ? '' : dir}/`).pathname));
+      return p ? fileKey(machineId, p) : null;
+    };
+    const resolve = (src: string) => {
+      if (/^[a-z]+:/i.test(src) || src.startsWith('/')) return null;
+      const k = keyAt(src);
+      return k && ws.partOf(k) ? rawUrlOf(k) : null;
+    };
+    const onLink = (href: string) => {
+      if (/^[a-z]+:/i.test(href)) return false;
+      const [target] = href.split('#');
+      if (!target) {
+        // same page: only this reader may scroll
+        ref.current?.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ block: 'start' });
+        return true;
+      }
+      const k = keyAt(target);
+      if (!k || !MARKDOWN_EXT.has(extOf(k))) return false;
+      if (!ws.partOf(k)) {
+        toast.error('That link points outside the project.');
+        return true;
+      }
+      ws.open(k, { pin: true });
       return true;
-    }
-    const k = keyAt(target);
-    if (!k || !MARKDOWN_EXT.has(extOf(k))) return false;
-    if (!ws.partOf(k)) {
-      toast.error('That link points outside the project.');
-      return true;
-    }
-    ws.open(k, { pin: true });
-    return true;
-  };
+    };
+    return { resolve, onLink };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws, paths, doc.path]);
   // code blocks in the file's own language, coloured by the editor; copy buttons, heading links
   useEffect(() => {
     const t = window.setTimeout(() => {

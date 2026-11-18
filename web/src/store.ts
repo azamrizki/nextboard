@@ -294,6 +294,10 @@ class LiveStore {
   }
   /** An archived one moves to the archived list, a restored one back. */
   upsertProject(p: Project) {
+    // an event that repeats the project as it is would re-render every board tile showing it
+    const [mine, other] = p.archivedAt ? [this.state.archivedProjects, this.state.projects] : [this.state.projects, this.state.archivedProjects];
+    const cur = mine[p.id];
+    if (cur && !(p.id in other) && sameRecord(cur, p)) return;
     if (p.archivedAt) {
       this.set({ projects: without(this.state.projects, p.id), archivedProjects: { ...this.state.archivedProjects, [p.id]: p } });
       return;
@@ -416,13 +420,22 @@ export function useSessions(): Session[] {
  * are added or removed, not on every status/busy update.
  */
 export function useSessionIds(): string[] {
-  const key = useSlice((s) =>
-    Object.values(s.sessions)
+  const key = useSlice((s) => sessionIdsKey(s.sessions));
+  return useMemo(() => (key ? key.split('\n') : []), [key]);
+}
+
+// one sort per sessions record, not one per subscriber on every notify
+let idsKeyOf: Record<string, Session> | null = null;
+let idsKey = '';
+function sessionIdsKey(rec: Record<string, Session>): string {
+  if (rec !== idsKeyOf) {
+    idsKey = Object.values(rec)
       .sort(byCreation)
       .map((x) => x.id)
-      .join('\n'),
-  );
-  return useMemo(() => (key ? key.split('\n') : []), [key]);
+      .join('\n');
+    idsKeyOf = rec;
+  }
+  return idsKey;
 }
 
 /** Machines with "local" first, then by name. */
@@ -480,14 +493,25 @@ export function useProjectGroups(): ProjectGroup[] {
   return useMemo(() => Object.values(rec), [rec]);
 }
 
+// the editor's own terminals are the user's shells; an agent there counts
+const isRunning = (s: Session) => (!s.panel || s.agentKind === 'agent') && (s.status === 'running' || s.status === 'starting');
+
 /** Sessions that are currently running (live chip). */
 export function useRunningSessions(): Session[] {
   const rec = useSlice((s) => s.sessions);
-  return useMemo(
-    // the editor's own terminals are the user's shells; an agent there counts
-    () => Object.values(rec).filter((s) => (!s.panel || s.agentKind === 'agent') && (s.status === 'running' || s.status === 'starting')).sort(byCreation),
-    [rec],
-  );
+  return useMemo(() => Object.values(rec).filter(isRunning).sort(byCreation), [rec]);
+}
+
+/**
+ * How many running sessions `keep` takes. A number, so that a busy agent's ~1/s session events
+ * re-render a count only when it changes.
+ */
+export function useRunningCount(keep: (s: Session) => boolean = () => true): number {
+  return useSlice((s) => {
+    let n = 0;
+    for (const x of Object.values(s.sessions)) if (isRunning(x) && keep(x)) n++;
+    return n;
+  });
 }
 
 /** Agents whose process the hub ended to free memory (ROADMAP #50). */

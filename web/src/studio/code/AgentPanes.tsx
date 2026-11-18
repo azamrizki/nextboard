@@ -7,7 +7,7 @@
 // with the Quick actions in its composer (LeadPane), and Agents, the project's consoles on every
 // board with "Open as tab" (AgentsList): one console, one more view of it.
 
-import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { api, errorMessage } from '../../api';
 import { AgentBadge } from '../../agents/AgentBadge';
 import { useEffectiveSettings } from '../../agents/settings';
@@ -27,7 +27,7 @@ import { useLayout } from '../../lib/layout';
 import type { Agent, BoardNode, Project, Session } from '../../lib/types';
 import { isAgentSession, killSessions, orchError, pauseAll, resumeAll, sendCommand } from '../../orch/actions';
 import { QuickActions, type QuickAction } from '../../orch/QuickActions';
-import { useStoreSessions } from '../../orch/hooks';
+import { useSessionList, useSessionsValue, useStoreSessions } from '../../orch/hooks';
 import { localMentions } from '../../orch/mentions';
 import { AttachChips, useAttachments } from '../../orch/Attachments';
 import { useFileDrop } from '../../lib/fileDrop';
@@ -36,7 +36,7 @@ import { replyDraftOf, replyText, useLeadName, useTalkFirst, type ReplyDraft } f
 import { AgentChip, GENERAL_IDEAS, LeadAvatar, OrderWelcome, ReplyChip } from '../../orch/OrderBits';
 import { orchStore, useOrch } from '../../orch/store';
 import { ConfirmationCard, ThreadList } from '../../orch/ThreadView';
-import { store, useProject, useSession, useSessions, useStoreReady } from '../../store';
+import { store, useProject, useSession, useStoreReady } from '../../store';
 import { PlacePicker } from '../../board/PlacePicker';
 import { isMultiPart, placeFromValue, placeShort, placeValue } from '../../lib/placement';
 import { isRoot, placementOfSession, type Placement } from '../../lib/parts';
@@ -124,17 +124,21 @@ export interface PaneChoices {
   card?: string;
 }
 
+/** useSessions' order (store.ts): creation time, then id. */
+const byCreation = (a: Session, b: Session) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+
 export function usePaneChoices(ws: Workspace, workspaceId: string): PaneChoices {
   // agents run on the part's machine, or on This PC (a root, or a server part through the hub)
   const { agents } = useMachineAgents(ws.paths.multi ? LOCAL_MACHINE : ws.parts[0].machineId);
-  const sessions = useSessions();
   const project = useProject(ws.projectId);
   const multiPart = !!project && isMultiPart(project);
   const remote = !!useEffectiveSettings().agents?.remoteTools;
   const sorted = useMemo(() => agents.filter((a) => a.kind === 'agent' && a.available !== false).sort(byPriority), [agents]);
   const placed = ws.paneConsoles;
   // a card of one part offers its own part's agents; a Root card every one
-  const unplaced = sessions.filter((s) => s.panel && s.agentKind === 'agent' && s.workspaceId === workspaceId && s.status !== 'exited' && !placed.includes(s.id) && fitsCard(s, ws.paths, multiPart));
+  // only these sessions: not a render for every console's busy tick on the hub
+  const unplacedList = useSessionList((s) => !!s.panel && s.agentKind === 'agent' && s.workspaceId === workspaceId && s.status !== 'exited' && !placed.includes(s.id) && fitsCard(s, ws.paths, multiPart));
+  const unplaced = useMemo(() => [...unplacedList].sort(byCreation), [unplacedList]);
   // a part on a server (a Root card: any) while agents on servers are off
   const onServer = ws.paths.multi ? ws.parts.some((p) => p.machineId !== LOCAL_MACHINE) : ws.parts[0].machineId !== LOCAL_MACHINE;
   const serverOff = onServer && !remote ? () => navigate('/settings/agents') : null;
@@ -609,12 +613,15 @@ function LeadQuickActions({ ws }: { ws: Workspace }) {
   const project = env!.project;
   const workspaceId = env!.ctl.workspaceId;
   const choices = usePaneChoices(ws, workspaceId);
-  const sessions = useSessions();
   const [killArm, setKillArm] = useState(false);
   const [killConfirm, setKillConfirm] = useState(false);
-  const mine = sessions.filter((s) => s.projectId === project.id);
-  const anyPaused = mine.some((s) => isAgentSession(s) && s.status === 'running' && s.paused);
-  const live = mine.filter((s) => s.status !== 'exited');
+  // a flag and a count, not the sessions: they change on every console's event
+  const anyPaused = useSessionsValue((all) => Object.values(all).some((s) => s.projectId === project.id && isAgentSession(s) && s.status === 'running' && s.paused));
+  const liveCount = useSessionsValue((all) => Object.values(all).filter((s) => s.projectId === project.id && s.status !== 'exited').length);
+  const mine = () =>
+    Object.values(store.getState().sessions)
+      .filter((s) => s.projectId === project.id)
+      .sort(byCreation);
   const boardIds = (project.workspaces ?? []).map((w) => w.id);
   const first = choices.agents[0];
   const actions: QuickAction[] = [
@@ -647,7 +654,7 @@ function LeadQuickActions({ ws }: { ws: Workspace }) {
     <>
       <QuickActions actions={actions} dot={anyPaused} title="Quick actions: a new agent, the tools, pause, resume" className="wb-lead-fab" />
       {killConfirm && (
-        <ConfirmDialog title="Kill every console in this project?" confirmLabel={`Kill ${live.length === 1 ? '1 console' : `${live.length} consoles`}`} danger onClose={() => setKillConfirm(false)} onConfirm={() => killSessions(mine)}>
+        <ConfirmDialog title="Kill every console in this project?" confirmLabel={`Kill ${liveCount === 1 ? '1 console' : `${liveCount} consoles`}`} danger onClose={() => setKillConfirm(false)} onConfirm={() => killSessions(mine())}>
           <p>All running processes on every board of this project stop. The tiles stay, marked DONE; restart them from their menus.</p>
         </ConfirmDialog>
       )}
@@ -661,14 +668,15 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
 }
 
 /** The code view's Lead (contract: LeadPane): the project's main thread, its chats, and the Quick actions. */
-export function LeadPane({ ws }: { ws: Workspace }) {
+// memo: its props are the workspace only, and LeadThread subscribes to what it shows itself
+export const LeadPane = memo(function LeadPane({ ws }: { ws: Workspace }) {
   if (!useContext(PaneEnv)) return null;
   return (
     <div className="wb-lead-pane">
       <LeadThread ws={ws} main />
     </div>
   );
-}
+});
 
 /** What a pane shows, in the side bar and in a tab alike. */
 export function PaneBody({ ws, id }: { ws: Workspace; id: string }) {
@@ -735,7 +743,9 @@ export function AgentsList({ ws, onOpen }: { ws: Workspace; onOpen?: (id: string
   const env = useContext(PaneEnv);
   const workspaceId = env?.ctl.workspaceId ?? '';
   const project = useProject(ws.projectId);
-  const sessions = useSessions();
+  // the project's agents and any panel agent (this editor's own, below), not every session
+  const list = useSessionList((s) => s.agentKind === 'agent' && (s.projectId === ws.projectId || !!s.panel));
+  const sessions = useMemo(() => [...list].sort(byCreation), [list]);
   const choices = usePaneChoices(ws, workspaceId);
   if (!project) return null;
   const multi = isMultiPart(project);
@@ -788,11 +798,11 @@ export function AgentsList({ ws, onOpen }: { ws: Workspace; onOpen?: (id: string
 
 /** The code view's right side bar: Lead | Agents, then a pane put there (an agent's menu "in the side bar"). */
 function PageSideBar({ ws }: { ws: Workspace }) {
-  const sessions = useSessions();
+  // a count, not the sessions: they change on every console's event
+  const agents = useSessionsValue((all) => Object.values(all).filter((s) => s.projectId === ws.projectId && s.agentKind === 'agent' && s.status !== 'exited' && (!s.panel || ws.paneConsoles.includes(s.id))).length);
   const uid = useId();
   const tabId = (t: string) => `${uid}-tab-${t}`;
   const panelId = `${uid}-panel`;
-  const agents = sessions.filter((s) => s.projectId === ws.projectId && s.agentKind === 'agent' && s.status !== 'exited' && (!s.panel || ws.paneConsoles.includes(s.id))).length;
   const pane = ws.rightPanes.includes(ws.rightActive) ? ws.rightActive : ws.rightPanes[0];
   const tab: RightTab = ws.rightTab === 'pane' && !pane ? 'lead' : ws.rightTab;
   const show = (t: RightTab, id?: string) => {

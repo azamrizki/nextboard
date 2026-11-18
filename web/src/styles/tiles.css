@@ -1821,10 +1821,14 @@ textarea.text-body {
 :root[data-phone-tab='board'] .bl-panel {
   display: none;
 }
-/* Cards and Lead: the canvas stays laid out (focus mode shows its cards, consoles keep their
-   size) but out of sight; opacity, because React Flow sets each node's visibility inline */
+/* Cards and Lead: the canvas keeps its box and its layout state (focus mode shows its cards,
+   consoles keep their size) but out of sight. content-visibility, not opacity: opacity still
+   painted every console, wire and spark under the list; this skips them all, whatever
+   visibility React Flow sets inline on each node. Skipped content sends no resize observations,
+   so no console is refitted for it. Opacity stays for browsers without it (Safari < 18). */
 :root[data-phone-tab='cards']:not([data-card-focus]) .board-canvas,
 :root[data-phone-tab='lead']:not([data-card-focus]) .board-canvas {
+  content-visibility: hidden;
   opacity: 0;
   pointer-events: none;
 }
@@ -1891,9 +1895,9 @@ textarea.text-body {
   padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4);
   border: var(--hairline) solid var(--glass-border);
   border-radius: var(--r-lg);
+  /* no backdrop-filter: under the list is only the page's own background (the canvas is
+     hidden on this tab), and blurring that looks the same while costing every scroll frame */
   background: var(--glass-1);
-  -webkit-backdrop-filter: var(--glass-blur-1);
-  backdrop-filter: var(--glass-blur-1);
   color: var(--text);
   font: inherit;
   text-align: left;
