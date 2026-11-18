@@ -17,6 +17,7 @@ import { applyMods, registerConsole } from './consoleKeys';
 import { clipboardFiles, sendPasted } from './files';
 import { watchFileDrop } from '../lib/fileDrop';
 import { registerTerminal } from './webglPool';
+import { SnapshotFeed } from './snapshotQueue';
 import { disposeTerminal } from './xtermPatches';
 
 /** The console's colours (tokens.css, DESIGN.md §3.9), for the theme around this element. */
@@ -126,6 +127,13 @@ function followBoardZoom(term: Terminal) {
   bar._sliderPointerPosition = (ev: unknown) => thumb(ev) / cssScale(selection._screenElement);
 }
 
+/** Any of it inside the window. */
+function onScreen(el: HTMLElement): boolean {
+  if (!el.isConnected) return false;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight;
+}
+
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 const PASTE_GAP_MS = 250;
 
@@ -194,10 +202,11 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
 
       let awaitingSnapshot = true;
       let sent = { c: 0, r: 0 };
-      // Snapshots still being parsed. A snapshot is history: the terminal queries in it (tmux
-      // asks on every attach, agent CLIs on every start) were answered long ago. xterm would
-      // answer them again, and the answers would land in the shell as typed text ("1;2c").
-      let replaying = 0;
+      // Snapshots take turns across consoles (snapshotQueue.ts): the focused one, then those on
+      // screen. While one is parsed, input is held back: it is history, the terminal queries in it
+      // (tmux asks on every attach, agent CLIs on every start) were answered long ago, and xterm's
+      // answers would land in the shell as typed text ("1;2c").
+      const feed = new SnapshotFeed(term, () => (el.contains(document.activeElement) ? 2 : onScreen(el) ? 1 : 0));
 
       const sock = openSessionSocket(sessionId, {
         onStateChange: setConnState,
@@ -216,16 +225,13 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
             }
             return;
           }
+          const data = new Uint8Array(ev.data as ArrayBuffer);
           if (awaitingSnapshot) {
-            term.reset();
             awaitingSnapshot = false;
-            replaying++;
-            term.write(new Uint8Array(ev.data as ArrayBuffer), () => {
-              replaying--;
-            });
+            feed.snapshot(data);
             return;
           }
-          term.write(new Uint8Array(ev.data as ArrayBuffer));
+          feed.live(data);
         },
       });
 
@@ -244,7 +250,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
       }
 
       const sendInput = (d: string) => {
-        if (replaying === 0) sock.sendJSON({ t: 'i', d });
+        if (!feed.replaying) sock.sendJSON({ t: 'i', d });
       };
       // the key bar's armed Ctrl or Alt changes the next key typed (consoleKeys.ts)
       const dataSub = term.onData((d) => sendInput(applyMods(d)));
@@ -353,6 +359,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         dataSub.dispose();
         binSub.dispose();
         sock.close();
+        feed.dispose();
         disposeTerminal(term);
       };
     }

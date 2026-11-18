@@ -16,6 +16,8 @@ export const HOLD_MS = 2000;
 /** Contexts made in one go while panning; more wait for the next tick, so a long pan does not stall a frame. */
 export const ATTACHES_PER_TICK = 4;
 export const TICK_MS = 50;
+/** Contexts made per frame for consoles just mounted: each costs a shader compile and an atlas, a dozen in one task stalled the page. */
+export const ATTACHES_PER_FRAME = 2;
 const SETTLE_MS = 200;
 /** One that has WebGL ranks as if this much more of it showed: two of a size do not trade it back and forth. */
 export const STICKY = 1.25;
@@ -168,6 +170,8 @@ let io: IntersectionObserver | null = null;
 let timer = 0;
 let timerAt = Infinity;
 let queued = false;
+/** A burst is under way: plans meanwhile (the tick, a focus) keep to its pace. */
+let bursting = false;
 let lossBatch: { held: number; lost: number } | null = null;
 
 function currentBudget(): number {
@@ -198,9 +202,10 @@ function schedule(delay: number) {
   }, delay);
 }
 
-function reconcile(cap = ATTACHES_PER_TICK) {
+/** Plans and swaps; true when more would have been attached but for `cap`. */
+function reconcile(cap = bursting ? ATTACHES_PER_FRAME : ATTACHES_PER_TICK): boolean {
   // nothing changes in a background tab; visibilitychange plans again
-  if (document.hidden || !entries.size) return;
+  if (document.hidden || !entries.size) return false;
   const t = now();
   const p = plan([...entries.values()], currentBudget(), t, cap);
   for (const id of p.release) {
@@ -212,6 +217,13 @@ function reconcile(cap = ATTACHES_PER_TICK) {
     if (e) attach(e);
   }
   if (p.again !== null) schedule(Math.max(0, p.again - t));
+  return p.attach.length >= cap;
+}
+
+/** Consoles just mounted: ranked together, their contexts made ATTACHES_PER_FRAME a frame, best first. */
+function burst() {
+  bursting = reconcile(ATTACHES_PER_FRAME);
+  if (bursting) requestAnimationFrame(burst);
 }
 
 function areaOf(r: DOMRectReadOnly): number {
@@ -372,14 +384,15 @@ export function registerTerminal(term: Terminal, el: HTMLElement, refit: () => v
   };
   ta?.addEventListener('focus', onFocus);
   ta?.addEventListener('blur', onBlur);
-  // Every console mounted in this task, ranked together, and all their contexts at once: nothing
-  // is drawn yet then, and contexts made over many frames left the GPU process holding more
-  // (SwiftShader, 16 consoles at ratio 2: about 50 MB).
+  // Every console mounted in this task, ranked together; their contexts then come a few a frame
+  // (burst), not all in one task. Contexts spread over many ticks once left the GPU process holding
+  // more (SwiftShader, 16 consoles at ratio 2: about 50 MB), so the burst runs back to back.
   if (!queued) {
     queued = true;
     queueMicrotask(() => {
       queued = false;
-      reconcile(Infinity);
+      // a burst under way takes them in its next frame
+      if (!bursting) burst();
     });
   }
   return () => {
