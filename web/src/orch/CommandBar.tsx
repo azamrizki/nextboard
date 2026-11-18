@@ -5,7 +5,7 @@
 // Ctrl/⌘K focuses the input, Esc gives the keyboard back to the board.
 // Space-hold is reserved for push-to-talk (Phase 7) and deliberately not bound here.
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { agentById } from '../agents/catalog';
 import { patchSettings, useShortcuts } from '../agents/settings';
 import { AgentChip, type NT } from '../board/NewTerminal';
@@ -34,6 +34,7 @@ import { is404, orchStore, useOrch, useThread } from './store';
 import type { Mention } from './types';
 import { replyDraftOf, replyText, useLeadName, type ReplyDraft } from './lead';
 import { LeadAvatar, ReplyChip } from './OrderBits';
+import { QuickActions, type QuickAction } from './QuickActions';
 import { ConfirmationCard, ThreadList } from './ThreadView';
 import { inChat, nextSeen, unreadOf, type Seen } from '../chats/helpers';
 import { LeadChatSwitcher, NewChatButton } from '../chats/LeadChatSwitcher';
@@ -48,18 +49,6 @@ interface CommandBarProps {
   onArrange: () => void;
   /** A phone's Lead tab: the thread fills the screen and stays open. */
   lead?: boolean;
-}
-
-interface Chip {
-  id: string;
-  label: string;
-  onClick: () => void;
-  title?: string;
-  danger?: boolean;
-  pressed?: boolean;
-  badge?: number;
-  /** The quick actions stay open after it (the kill switch's first, arming click). */
-  keepOpen?: boolean;
 }
 
 export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead = false }: CommandBarProps) {
@@ -87,30 +76,6 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
     });
   const [seen, setSeen] = useState<Seen | null>(null);
   const [killArm, setKillArm] = useState(false);
-  // the Quick actions button and the actions it opens upward
-  const [dial, setDial] = useState(false);
-  const fabRef = useRef<HTMLButtonElement>(null);
-  const dialRef = useRef<HTMLDivElement>(null);
-  /** focus: back to the button (Esc, the button itself), not after an action that opens something. */
-  const closeDial = (focus: boolean) => {
-    setDial(false);
-    if (focus) fabRef.current?.focus();
-  };
-  // open: the first action takes the keyboard; a press anywhere else, or the focus leaving, closes
-  useEffect(() => {
-    if (!dial) return;
-    dialRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-    const outside = (e: Event) => {
-      const t = e.target as Node | null;
-      if (t && !dialRef.current?.contains(t) && !fabRef.current?.contains(t)) setDial(false);
-    };
-    document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('focusin', outside, true);
-    return () => {
-      document.removeEventListener('pointerdown', outside, true);
-      document.removeEventListener('focusin', outside, true);
-    };
-  }, [dial]);
   const [killConfirm, setKillConfirm] = useState(false);
   const [reply, setReply] = useState<ReplyDraft | null>(null);
   const leadName = useLeadName();
@@ -265,7 +230,8 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
     document.querySelector<HTMLElement>('.board-canvas')?.focus({ preventScroll: true });
   };
 
-  const chips: Chip[] = [
+  // the Quick actions button's actions (QuickActions.tsx), opening upward from it
+  const chips: QuickAction[] = [
     { id: 'new', label: 'New console', title: `Start ${nt.agent?.name ?? 'a console'}${nt.place ? ` in ${placeLabel(project, nt.place)}` : ''} next to the others (or press ${shortcuts.spawn.toUpperCase()} and click)`, onClick: () => void nt.create() },
     { id: 'spawn4', label: 'Spawn 4', title: 'Start four consoles at once', onClick: () => ui.set({ composer: { slots: 4, group: false } }) },
     { id: 'group', label: 'Group', title: 'Compose a team with a name and a role', onClick: () => ui.set({ composer: { slots: 6, group: true } }) },
@@ -283,6 +249,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
         id: 'kill',
         label: killArm ? 'Click again to kill all' : 'Kill all',
         danger: true,
+        armed: killArm,
         keepOpen: !killArm,
         title: 'Two clicks, then a confirmation',
         onClick: () => {
@@ -399,63 +366,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
       )}
       <div className={`cmdbar ${live ? 'is-live' : ''}`} role="region" aria-label="Command bar" ref={barRef}>
         <div className="cmd-dock">
-          <div className={`cmd-fab-wrap ${dial ? 'is-open' : ''}`}>
-            {dial && (
-              <div
-                className="cmd-dial"
-                role="menu"
-                aria-label="Quick actions"
-                ref={dialRef}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    closeDial(true);
-                    return;
-                  }
-                  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Home' && e.key !== 'End') return;
-                  // the first action sits next to the button, the list grows upward
-                  const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-                  const i = items.indexOf(document.activeElement as HTMLButtonElement);
-                  e.preventDefault();
-                  const n = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (Math.max(i, 0) + (e.key === 'ArrowUp' ? 1 : items.length - 1)) % items.length;
-                  items[n]?.focus();
-                }}
-              >
-                {chips.map((c, i) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    role="menuitem"
-                    className={`cmd-chip ${c.danger ? 'is-danger' : ''} ${c.id === 'kill' && killArm ? 'is-armed' : ''} ${c.pressed ? 'is-pressed' : ''}`}
-                    style={{ '--i': i } as CSSProperties}
-                    title={c.title ?? c.label}
-                    aria-description={c.pressed ? 'Some agents are paused' : undefined}
-                    onClick={() => {
-                      if (!c.keepOpen) closeDial(false);
-                      c.onClick();
-                    }}
-                  >
-                    <span>{c.label}</span>
-                    {!!c.badge && <span className="chip-count tabular">{c.badge}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              ref={fabRef}
-              className="cmd-fab"
-              aria-label="Quick actions"
-              aria-haspopup="menu"
-              aria-expanded={dial}
-              title={dial ? 'Close quick actions' : 'Quick actions: new consoles, groups, layouts, arrange, pause, memory'}
-              onClick={() => (dial ? closeDial(false) : setDial(true))}
-            >
-              <Icon name={dial ? 'close' : 'plus'} />
-              {!dial && anyPaused && <span className="cmd-fab-dot" aria-hidden="true" />}
-            </button>
-          </div>
+          <QuickActions actions={chips} dot={anyPaused} />
           <div className="cmd-panel">
             <div className={`cmd-row ${live ? 'is-voice' : ''}`}>
               {live && <VoiceStatus label={voice.mode === 'talk' ? 'listening' : 'dictating'} text={voice.text} />}

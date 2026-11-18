@@ -133,7 +133,8 @@ vi.mock('../store', () => ({
   waitJob: async () => ({}),
 }));
 vi.mock('../drafts', () => ({ drafts: { get: async () => undefined, put: async () => undefined, remove: async () => undefined } }));
-vi.mock('../../store', () => ({ store: { getState: () => ({ settings: {} }) } }));
+// ses_1 is an agent of this editor: closing its tab asks first (one the store does not know is never offered to stop)
+vi.mock('../../store', () => ({ store: { getState: () => ({ settings: {}, sessions: { ses_1: { id: 'ses_1', panel: true, agentKind: 'agent' } } }) } }));
 vi.mock('../../components/Toast', () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), notify: vi.fn() } }));
 vi.mock('../../lib/format', () => ({ prefs: { get: (k: string) => saved.get(k) ?? null, set: (k: string, v: string) => saved.set(k, v) } }));
 vi.mock('../../board/files', () => ({ sendPasted: async () => [] }));

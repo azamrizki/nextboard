@@ -1,5 +1,5 @@
-// Settings (docs/API-agents.md §11, §17): hub-wide settings (agents, profiles,
-// notifications, shortcuts — shared by every device) and per-browser preferences
+// Settings (docs/API-agents.md §11, §17): hub-wide settings (where projects open, agents,
+// profiles, notifications, shortcuts — shared by every device) and per-browser preferences
 // (appearance, whether this browser shows notifications, installing the app). A phone shows the list of panes at
 // /settings and one pane at a time, with a way back; the other layouts show both side by side.
 
@@ -12,6 +12,7 @@ import { Link } from '../lib/router';
 import { AgentsPane } from '../settings/AgentsPane';
 import { AppearancePane } from '../settings/AppearancePane';
 import { AppPane } from '../settings/AppPane';
+import { GeneralPane } from '../settings/GeneralPane';
 import { McpPane } from '../settings/McpPane';
 import { NotificationsPane } from '../settings/NotificationsPane';
 import { ProfilesPane } from '../settings/ProfilesPane';
@@ -26,6 +27,7 @@ import { useSettings } from '../store';
 import { pageTitle } from '../lib/instance';
 
 const PANES: { id: string; label: string; icon: IconName; hint: string }[] = [
+  { id: 'general', label: 'General', icon: 'sliders', hint: 'Where projects open' },
   { id: 'agents', label: 'Agents', icon: 'bot', hint: 'Catalog, defaults, your agents' },
   { id: 'lead', label: 'Lead agent', icon: 'orchestrator', hint: 'Its name, how it talks and leads' },
   { id: 'profiles', label: 'Login profiles', icon: 'user', hint: 'Several accounts per CLI' },
@@ -77,7 +79,7 @@ export function SettingsPage({ pane }: { pane: string }) {
           <div className="page-head">
             <div>
               <h1>Settings</h1>
-              <p>Agent, notification and shortcut settings are stored on the hub and apply to every device.</p>
+              <p>General, agent, notification and shortcut settings are stored on the hub and apply to every device.</p>
             </div>
           </div>
         )}
@@ -106,6 +108,7 @@ export function SettingsPage({ pane }: { pane: string }) {
                 <span>This hub doesn’t support agent settings yet. Update NextBoard on the hub, then reload this page.</span>
               </div>
             )}
+            {current.id === 'general' && <GeneralPane />}
             {current.id === 'agents' && <AgentsPane />}
             {current.id === 'profiles' && <ProfilesPane />}
             {current.id === 'providers' && <ProvidersPane />}

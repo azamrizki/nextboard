@@ -572,7 +572,8 @@ Events `{"type":"provider","provider":…}` and `{"type":"providerRemoved","id"}
   },
   "notifications": { "needsYou": true, "finished": true, "error": true, "finishedMinSec": 30 },
   "shortcuts": { "select": "v", "hand": "h", "spawn": "t", "pen": "p", "eraser": "e", "git": "g", "memory": "m",
-                 "skills": "s", "loops": "l", "markdown": "d", "needsYou": "n" }
+                 "skills": "s", "loops": "l", "markdown": "d", "needsYou": "n" },
+  "ui": { "openProjectsIn": "" }                 // where opening a project goes: "" asks, "board", "code"
   // "delivery", "commands", "memory": Phase 6 (API-orchestration.md) · "previews", "usage", "runner", "git", "editor": Phase 7 (API-studio.md)
   // Voice settings are per client (localStorage), not on the hub
 }
@@ -581,6 +582,7 @@ Events `{"type":"provider","provider":…}` and `{"type":"providerRemoved","id"}
 - Shortcut: one printable character (lowercase letter, digit, punctuation), unique across actions, not `x` (Mission Map, fixed) and not space (push-to-talk) → `400 bad_shortcut`.
 - Per-client preferences (theme, text size, armed agent, viewport) are **not** here; they stay in localStorage.
 - `liveStatus:false` → no `--settings`/`-c notify`; state from the screen only.
+- `ui.openProjectsIn` (web, DESIGN.md §3.19): `""` (default) asks "Board view or Code view?" when a project is opened from Home, the project menu or a link `/p/<id>` with no view; `"board"` opens its board, `"code"` its Code view (`/p/<id>/code`). Any other value → `400 bad_setting`; `null` = back to asking. Kept on the hub so every browser and phone follows it; a project card's menu always offers both views. The Android app may treat `"code"` as the board.
 
 ## 12. Notifications (P13)
 

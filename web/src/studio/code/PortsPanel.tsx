@@ -1,14 +1,16 @@
 // The Ports tab of the bottom panel: what listens on the machines of the card's parts, and a way
-// to open it in a web tile on that machine (docs/API-studio.md §7.13). One section per machine
-// ("server-b: admin, api") when the parts are on more than one.
+// to open it in a web tile on that machine (docs/API-studio.md §7.13), or in the Code view, which
+// has no board, in a Browser tab. One section per machine ("server-b: admin, api") when the parts
+// are on more than one.
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { errorMessage } from '../../api';
 import { Button } from '../../components/Button';
 import { toast } from '../../components/Toast';
 import { useMachines } from '../../store';
 import { portsApi } from '../api';
 import type { ListeningPort } from '../types';
+import { PaneEnv } from './AgentPanes';
 import { machinesOf } from './partGroups';
 import { LOCAL_MACHINE } from './paths';
 import type { Workspace } from './workspace';
@@ -51,6 +53,8 @@ export function PortsPanel({ ws }: { ws: Workspace }) {
 function MachinePorts({ ws, machineId, title, all, toggle }: { ws: Workspace; machineId: string; title: string; all: boolean; toggle?: ReactNode }) {
   const [items, setItems] = useState<ListeningPort[] | null>(null);
   const [error, setError] = useState('');
+  // the Code view's editor is no card ("" node, CodeViewPage.tsx): its pages open as tabs
+  const inTab = useContext(PaneEnv)?.nodeId === '';
 
   useEffect(() => {
     let stop = false;
@@ -103,7 +107,7 @@ function MachinePorts({ ws, machineId, title, all, toggle }: { ws: Workspace; ma
                 <td className="mono text-3">{p.address}</td>
                 <td className="wb-ports-actions">
                   <Button size="sm" variant="ghost" icon="globe" onClick={() => ws.actions.openWeb?.(`http://localhost:${p.port}/`, machineId)}>
-                    Open in a tile
+                    {inTab ? 'Open in a tab' : 'Open in a tile'}
                   </Button>
                   <Button size="sm" variant="ghost" icon="copy" onClick={() => void navigator.clipboard?.writeText(`localhost:${p.port}`).then(() => toast.success('Address copied.'))}>
                     Copy

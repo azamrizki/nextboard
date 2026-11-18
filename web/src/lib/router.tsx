@@ -55,11 +55,12 @@ export type Route =
   | { page: 'devices' }
   | { page: 'memory'; projectId?: string }
   | { page: 'board'; projectId: string; workspaceId: string }
+  | { page: 'code'; projectId: string }
   | { page: 'settings'; pane: string }
   | { page: 'print'; kind: 'documents' | 'markdown'; docId?: string; versionId?: string }
   | { page: 'unknown' };
 
-/** Parse an app pathname: "/", "/machines", "/devices", "/memory[/:projectId]", "/p/:projectId[/w/:workspaceId]". */
+/** Parse an app pathname: "/", "/machines", "/devices", "/memory[/:projectId]", "/p/:projectId[/w/:workspaceId]", "/p/:projectId/code". */
 export function parseRoute(path: string): Route {
   if (path === '/' || path === '') return { page: 'home' };
   if (path === '/machines') return { page: 'machines' };
@@ -72,6 +73,8 @@ export function parseRoute(path: string): Route {
   const st = /^\/settings(?:\/([a-z-]+))?\/?$/.exec(path);
   // no pane: a phone shows the list of panes, the others open the first one
   if (st) return { page: 'settings', pane: st[1] ?? '' };
+  const code = /^\/p\/([^/]+)\/code\/?$/.exec(path);
+  if (code) return { page: 'code', projectId: decodeURIComponent(code[1]) };
   const m = /^\/p\/([^/]+)(?:\/w\/([^/]+))?\/?$/.exec(path);
   if (m) return { page: 'board', projectId: decodeURIComponent(m[1]), workspaceId: m[2] ? decodeURIComponent(m[2]) : '' };
   return { page: 'unknown' };
@@ -86,6 +89,43 @@ export function boardPath(projectId: string, workspaceId?: string): string {
   return workspaceId ? `${p}/w/${encodeURIComponent(workspaceId)}` : p;
 }
 
+/** The project's Code view: its editor full screen, no board (docs/DESIGN.md §3.19). */
+export function codePath(projectId: string): string {
+  return `/p/${encodeURIComponent(projectId)}/code`;
+}
+
+// The page this tab was opened on, before any navigation of the app. A link to a project with no
+// view ("/p/<id>" typed, bookmarked or opened from outside) asks where to go once (§3.19); the app's
+// own ways to a board name it or mean the board.
+const entryPath = typeof window === 'undefined' ? '' : window.location.pathname + window.location.search;
+let entryTaken = false;
+const entryListeners = new Set<() => void>();
+
+/** Whether this is that link to this project, not yet answered. The answer is given once. */
+export function isEntryLink(projectId: string): boolean {
+  if (entryTaken) return false;
+  const r = parseRoute(entryPath);
+  return r.page === 'board' && !r.workspaceId && r.projectId === projectId && !entryPath.includes('?');
+}
+
+/** The entry link has been answered: later visits to "/p/<id>" are the board's. */
+export function takeEntryLink() {
+  if (entryTaken) return;
+  entryTaken = true;
+  entryListeners.forEach((fn) => fn());
+}
+
+/** Whether the entry link has been answered, kept up to date (App renders the board page then, once). */
+export function useEntryTaken(): boolean {
+  return useSyncExternalStore(
+    (fn) => {
+      entryListeners.add(fn);
+      return () => entryListeners.delete(fn);
+    },
+    () => entryTaken,
+  );
+}
+
 /** Read (and optionally consume) a query parameter of the current URL. */
 export function takeSearchParam(name: string): string | null {
   const url = new URL(window.location.href);
@@ -95,6 +135,15 @@ export function takeSearchParam(name: string): string | null {
     window.history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
   }
   return v;
+}
+
+/**
+ * The board an editor binds or a project opens on: the one pinned (bound before, while it is
+ * still there), else the one opened last in this browser, else the first.
+ */
+export function boardOf<W extends { id: string }>(workspaces: W[] | null | undefined, pinned?: string | null, last?: string | null): W | undefined {
+  const list = workspaces ?? [];
+  return (pinned ? list.find((w) => w.id === pinned) : undefined) ?? (last ? list.find((w) => w.id === last) : undefined) ?? list[0];
 }
 
 /** Workspace to open for a project (last used on this client). */

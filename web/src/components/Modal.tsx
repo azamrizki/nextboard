@@ -3,7 +3,7 @@
 // On a phone it is a sheet from the bottom edge, and dragging its head down closes it. On a
 // touch screen it does not focus a text field by itself, so the keyboard does not cover it.
 
-import { useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { layoutState } from '../lib/layout';
 import { Button } from './Button';
@@ -11,6 +11,13 @@ import { Icon, type IconName } from './Icon';
 
 // Stack of open modals so only the topmost one reacts to Escape / Tab.
 const stack: symbol[] = [];
+
+/**
+ * Set by a host that shows a dialog's content in place (a tool tab of the code view): the
+ * outermost Modal inside it renders there, with its head, body and foot, and no layer, close
+ * button, focus trap or Escape. Dialogs it opens are real ones again.
+ */
+export const ModalInline = createContext(false);
 
 const stop = (e: SyntheticEvent) => e.stopPropagation();
 
@@ -52,12 +59,14 @@ export function Modal({
 }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const inline = useContext(ModalInline);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   // Captured on first render, before anything inside the modal takes focus.
   const prevFocus = useRef(document.activeElement as HTMLElement | null);
 
   useEffect(() => {
+    if (inline) return;
     const previouslyFocused = prevFocus.current;
     const el = ref.current;
     const token = Symbol('modal');
@@ -104,7 +113,7 @@ export function Modal({
       if (i >= 0) stack.splice(i, 1);
       previouslyFocused?.focus?.();
     };
-  }, []);
+  }, [inline]);
 
   // Phone sheet: drag the head down to close it, like any sheet on the phone.
   const drag = useRef<{ id: number; y: number; dy: number } | null>(null);
@@ -128,6 +137,28 @@ export function Modal({
     if (d.dy > 96) onClose();
     else if (ref.current) ref.current.style.transform = '';
   };
+
+  if (inline)
+    return (
+      <ModalInline.Provider value={false}>
+        <section className={`modal-inline size-${size} ${className ?? ''}`} aria-labelledby={titleId}>
+          <div className={`modal-head ${tone === 'danger' ? 'danger' : ''}`}>
+            <h2 id={titleId}>
+              {icon && <Icon name={icon} />}
+              <span className="truncate">{title}</span>
+            </h2>
+            {actions && <div className="modal-head-actions">{actions}</div>}
+          </div>
+          <div className="modal-body">{children}</div>
+          {(footer || help) && (
+            <div className="modal-foot">
+              {help && <div className="foot-help">{help}</div>}
+              {footer && <div className="foot-actions">{footer}</div>}
+            </div>
+          )}
+        </section>
+      </ModalInline.Provider>
+    );
 
   return createPortal(
     <div

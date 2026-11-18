@@ -32,7 +32,8 @@ interface Props {
   project: Project;
   initialDocument?: string;
   onClose: () => void;
-  onAddToBoard: (doc: StudioDocument, versionId: string) => void;
+  /** Where a board is drawn: a version can go on it as a card. */
+  onAddToBoard?: (doc: StudioDocument, versionId: string) => void;
 }
 
 type View = 'flow' | 'paged';
@@ -246,7 +247,7 @@ function Generator({ project, onStarted, regenerate, place }: { project: Project
   );
 }
 
-function DocView({ project, doc, onDeleted, onAddToBoard }: { project: Project; doc: StudioDocument; onDeleted: () => void; onAddToBoard: (d: StudioDocument, vid: string) => void }) {
+function DocView({ project, doc, onDeleted, onAddToBoard }: { project: Project; doc: StudioDocument; onDeleted: () => void; onAddToBoard?: (d: StudioDocument, vid: string) => void }) {
   const versions = useMemo(() => [...(doc.versions ?? [])].reverse(), [doc.versions]);
   const [vid, setVid] = useState(versions[0]?.id ?? '');
   const v = versions.find((x) => x.id === vid) ?? versions[0];
@@ -373,9 +374,11 @@ function DocView({ project, doc, onDeleted, onAddToBoard }: { project: Project; 
           <Button size="sm" icon="printer" disabled={!text} onClick={() => window.open(printDocUrl(doc.id, v.id, paper), '_blank', 'noopener')}>
             {v.state === 'incomplete' ? 'Export draft PDF' : 'PDF'}
           </Button>
-          <Button size="sm" variant="ghost" icon="plus" onClick={() => onAddToBoard(doc, v.id)}>
-            Add to board
-          </Button>
+          {onAddToBoard && (
+            <Button size="sm" variant="ghost" icon="plus" onClick={() => onAddToBoard(doc, v.id)}>
+              Add to board
+            </Button>
+          )}
           <Menu
             label="More document actions"
             items={[

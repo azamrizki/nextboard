@@ -9,6 +9,7 @@ import { groupChain, groupTree, useCollapsedGroups, useMenuSort, type GroupNode 
 import { projectParts } from '../lib/parts';
 import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import { boardPath, navigate } from '../lib/router';
+import { openBoard, openCode, openProject } from '../home/OpenChoice';
 import type { CloseAllPreview, Project, Workspace } from '../lib/types';
 import { isActive } from '../agents/state';
 import { store, useMachines, useProjectGroups, useProjects, useSessions } from '../store';
@@ -102,6 +103,13 @@ function CloseAllBoards({ project, onClose }: { project: Project; onClose: () =>
   );
 }
 
+/**
+ * Where a project picked in the switcher opens: "ask" (the board header) goes the way the hub's
+ * setting says, or asks (home/OpenChoice.tsx); "code" (the Code view's top bar) opens its Code
+ * view; "board" (an editor card on a board) its board (DESIGN.md §3.19).
+ */
+export type SwitchTarget = 'ask' | 'board' | 'code';
+
 /** The projects by group, each group open or closed; those with no group under All projects. */
 function SwitchMenu({
   x,
@@ -110,14 +118,16 @@ function SwitchMenu({
   onClose,
   onCloseAll,
   first = [],
+  target = 'ask',
 }: {
   x: number;
   y: number;
   project: Project;
   onClose: () => void;
-  onCloseAll: () => void;
+  onCloseAll?: () => void;
   /** Rows before the projects: the phone switcher's workspaces. */
   first?: MenuEntry[];
+  target?: SwitchTarget;
 }) {
   const projects = useProjects();
   const machines = useMachines();
@@ -138,7 +148,8 @@ function SwitchMenu({
       indent,
       title: parts.length > 1 ? `${p.name}\n${parts.map((pt) => `${pt.name}: ${machineName(pt.machineId)} · ${pt.path}`).join('\n')}` : `${p.name}\n${machineName(p.machineId)} · ${p.path}`,
       checked: p.id === project.id ? true : undefined,
-      onSelect: () => navigate(boardPath(p.id)),
+      // the project shown now stays in the view it is shown in
+      onSelect: () => (target === 'code' ? openCode(p) : target === 'board' || p.id === project.id ? openBoard(p) : openProject(p)),
     };
   };
   const groupRows = (n: GroupNode): MenuEntry[] => {
@@ -168,23 +179,82 @@ function SwitchMenu({
     onSelect: (v) => chooseSort(k, v === 'recent' ? 'recent' : 'name'),
   });
 
-  const items: MenuEntry[] = [
-    ...first,
-    { label: 'Home', icon: 'home', onSelect: () => navigate('/') },
-    'sep',
+  const tree: MenuEntry[] = [
     ...roots.flatMap(groupRows),
     ...(loose.length ? [{ type: 'heading', label: 'All projects' } as const, ...loose.map((p) => projectRow(p, 0))] : []),
-    'sep',
+  ];
+  const sorts: MenuEntry[] = [
     ...(roots.length ? [sortRow('groups', 'Sort groups', 'The group with the project opened last first')] : []),
     ...(projects.length > 1 ? [sortRow('projects', 'Sort projects', 'The project opened last first')] : []),
-    ...(roots.length || projects.length > 1 ? (['sep'] as const) : []),
-    { label: 'Add project…', icon: 'plus', onSelect: () => navigate('/?add=1') },
-    { label: 'Settings', icon: 'sliders', onSelect: () => navigate('/settings') },
-    'sep',
-    { label: 'Close all boards…', icon: 'close', danger: true, onSelect: onCloseAll },
   ];
 
+  // in an editor (the Code view, an editor card): which view a pick opens, and the other view of this project
+  const items: MenuEntry[] =
+    target === 'ask'
+      ? [
+          ...first,
+          { label: 'Home', icon: 'home', onSelect: () => navigate('/') },
+          'sep',
+          ...tree,
+          'sep',
+          ...sorts,
+          ...(sorts.length ? (['sep'] as const) : []),
+          { label: 'Add project…', icon: 'plus', onSelect: () => navigate('/?add=1') },
+          { label: 'Settings', icon: 'sliders', onSelect: () => navigate('/settings') },
+          ...(onCloseAll ? (['sep', { label: 'Close all boards…', icon: 'close', danger: true, onSelect: onCloseAll }] as MenuEntry[]) : []),
+        ]
+      : [
+          { type: 'heading', label: target === 'code' ? 'Switch project · opens in Code view' : 'Switch project · opens its board' },
+          ...tree,
+          'sep',
+          target === 'code'
+            ? { label: `Open ${project.name} in Board view`, icon: 'grid', onSelect: () => openBoard(project) }
+            : { label: `Open ${project.name} in Code view`, icon: 'code', onSelect: () => openCode(project) },
+          { label: 'All projects (Home)', icon: 'home', onSelect: () => navigate('/') },
+          ...(sorts.length ? (['sep', ...sorts] as MenuEntry[]) : []),
+        ];
+
   return <ContextMenu x={x} y={y} label="Switch project" items={items} onClose={onClose} anchored className="project-switch-menu" />;
+}
+
+/**
+ * The project switcher of an editor (DESIGN.md §3.19): the Code view's top bar (target "code") and
+ * an editor card's title bar (target "board"). The same menu as the board header's, without the
+ * board's own rows. label: what the button shows, the project's name by default.
+ */
+export function EditorProjectSwitch({ project, target, label, className }: { project: Project; target: 'board' | 'code'; label?: ReactNode; className?: string }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const ref = useRef<HTMLButtonElement>(null);
+  const parts = projectParts(project);
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        // in a card on a board, not the header's .project-switch: that one stays the page's switcher
+        className={`${target === 'code' ? 'project-switch' : ''} editor-switch ${className ?? ''}`}
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        aria-label={`Project ${project.name}. Switch project`}
+        title={parts.length > 1 ? `${project.name} — ${parts.map((pt) => pt.name).join(', ')}` : `${project.name} — ${project.path}`}
+        onClick={() => {
+          const r = ref.current!.getBoundingClientRect();
+          setMenu(menu ? null : { x: r.left, y: r.bottom + 6 });
+        }}
+      >
+        <Icon name="folder" />
+        <span className="truncate">{label ?? project.name}</span>
+        {parts.length > 1 && target === 'code' && <span className="editor-switch-meta">{parts.length} parts</span>}
+        <Icon name="chevronDown" className="chev" />
+      </button>
+      {menu && <SwitchMenu x={menu.x} y={menu.y} project={project} target={target} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
+/** The editor card's ⋯ menu, when its title bar has no room for the switcher: the same menu at that spot. */
+export function SwitchProjectMenu({ project, target, x, y, onClose }: { project: Project; target: 'board' | 'code'; x: number; y: number; onClose: () => void }) {
+  return <SwitchMenu x={x} y={y} project={project} target={target} onClose={onClose} />;
 }
 
 export function ProjectSwitcher({ project }: { project: Project }) {

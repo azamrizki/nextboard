@@ -22,6 +22,7 @@ import { studioStore, waitJob } from '../store';
 import type { TreeEntry } from '../types';
 import type { OpenOptions, PartServiceApi, PartSpecialView, ViewApi, ViewProblems } from './contracts';
 import { Debugger } from './debug';
+import { canSplit, fromSaved, leaf, leaves, neighbour, removeLeaf, resize, splitLeaf, toSaved, type Edge, type GridNode } from './grid';
 import { DEFAULT_EDITOR_PREFS, docStore, editorPrefs, MAX_EDIT, MAX_VIEW, type Doc, type EditorPrefs } from './docs';
 import { fileClip } from './fileClip';
 import { IdeLink } from './ideLink';
@@ -30,14 +31,17 @@ import { PartService, type GitMark, type PartView } from './partsvc';
 import { asFileKey, cleanAbs, fileKey, isRootKey, joinKey, keyOfUri, keyUnder, LOCAL_MACHINE, parentKey, PERSIST_VERSION, ROOT_KEY, splitKey, under, viewKey, ViewPaths, type FileKey, type Mount } from './paths';
 import {
   DEFAULT_SEARCH,
+  LAYOUT_VERSION,
   listUnder,
-  MAX_GROUPS,
   MAX_RECENT,
   mergeBookmarks,
   mergeLegacy,
   readBookmarks,
+  readLayout,
   readState,
   stateUnder,
+  toolTabId,
+  type PersistedTab,
   type SavedBookmark,
   type MdView,
   type PanelView,
@@ -46,9 +50,12 @@ import {
   type SearchState,
   type SideView,
 } from './persist';
+import { toolPerArg, type ToolKind } from './toolKinds';
+import type { RightTab } from './persist';
+import { store } from '../../store';
 
 export { DEFAULT_EDITOR_PREFS, MAX_EDIT, MAX_VIEW };
-export type { Doc, EditorPrefs, GitMark, MdView, PanelView, SearchState, SideView };
+export type { Doc, Edge, EditorPrefs, GitMark, MdView, PanelView, SearchState, SideView };
 
 /**
  * A card closed this long, with nothing unsaved only it holds and no debug session, is let go:
@@ -99,11 +106,18 @@ const viewId = (v: PartSpecialView) =>
 
 export interface Tab {
   id: string;
-  /** The file's key; "" when it shows no file: a pane, a commit or a special view. */
+  /** The file's key; "" when it shows no file: a pane, a tool, a commit or a special view. */
   path: FileKey | '';
   diff?: DiffSource;
-  /** An agent console or the orchestrator instead of a file (AgentPanes.tsx). */
+  /**
+   * A console instead of a file (AgentPanes.tsx): an agent of this editor, the orchestrator, a
+   * terminal moved out of the panel, or a board's agent shown here (one console, two views).
+   */
   pane?: string;
+  /** A tool of the code view instead of a file (ToolTab.tsx): Chats, Memory, Vault, a browser… */
+  tool?: { kind: ToolKind; arg?: string };
+  /** Of a pane: a board's console shown here (one more view of it). Its close never stops it. */
+  board?: boolean;
   /** A commit's details instead of a file (CommitView.tsx). */
   commit?: CommitTab & { part: string };
   view?: PartSpecialView;
@@ -116,6 +130,24 @@ export interface Tab {
 
 /** The id of the orchestrator's pane; a console's pane has its session id. */
 export const ORCHESTRATOR_PANE = 'orchestrator';
+
+/** Why a split did nothing: the grid is full that way. */
+const GRID_FULL = 'The editor holds four groups at most, two across and two down.';
+
+/** A console shown here that lives on a board (a tile): closing its tab only closes this view of it. */
+export function isBoardConsole(id: string): boolean {
+  const s = store.getState().sessions?.[id];
+  return !!s && !s.panel;
+}
+
+/** The hub's console as the browser knows it; undefined before the store has it (just after a reload). */
+const sessionOf = (id: string) => store.getState().sessions?.[id];
+
+/** A shell of this editor (not an agent): closing its tab kills it, as the panel's close does. */
+export function isTerminalPane(id: string): boolean {
+  const s = store.getState().sessions?.[id];
+  return !!s && !!s.panel && s.agentKind !== 'agent';
+}
 
 export interface Group {
   id: string;
@@ -226,6 +258,25 @@ const joinGlobs = (...g: (string | undefined)[]) => g.filter((x) => x && x.trim(
 const views = new Map<string, Workspace>();
 
 /**
+ * A view saves 400 ms after a change: a page put away or left (a reload, a closed tab, a phone
+ * switching apps) writes what is still waiting at once, or a split or a tab just opened is lost.
+ */
+let flushInstalled = false;
+function installFlush() {
+  if (flushInstalled || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  flushInstalled = true;
+  const flush = () => {
+    for (const w of views.values()) w.flushSave();
+  };
+  window.addEventListener('pagehide', flush);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flush();
+    });
+  }
+}
+
+/**
  * The docs a card holds (its tabs) or its parts' language servers borrowed: the shared Doc
  * objects by key. get/has also take a plain absolute path, read as the card reads one (toKey).
  */
@@ -283,7 +334,10 @@ export class Workspace implements ViewApi, PartView {
   private cursorListeners = new Set<() => void>();
 
   readonly docs: ViewDocs;
+  /** In the layout's reading order (grid.ts leaves): group 1 is the top left one. */
   groups: Group[] = [{ id: 'g1', tabs: [], active: null }];
+  /** Where the groups lie: up to four, two by two (grid.ts). */
+  grid: GridNode = leaf('g1');
   activeGroup = 0;
   private groupSeq = 1;
 
@@ -347,6 +401,10 @@ export class Workspace implements ViewApi, PartView {
   rightW = 460;
   rightPanes: string[] = [];
   rightActive = '';
+  /** The code view's right side bar (AgentPanes.tsx): the lead, the Agents list, or the pane shown (rightActive). */
+  rightTab: RightTab = 'lead';
+  /** This view has had a terminal: the panel starts one by itself only before that (BottomPanel). */
+  hadTerminal = false;
   /** Which pane should take the keyboard. */
   paneFocus = { id: '', tick: 0 };
   /** The console asked to be closed: "stop the agent?". */
@@ -359,6 +417,8 @@ export class Workspace implements ViewApi, PartView {
   /** Root card: the part the Debug view runs in (id). */
   debugPart = '';
   private persistTimer = 0;
+  /** A change not saved yet (persistTimer runs). */
+  private persistDue = false;
   /** One watch per machine the card shows files of. */
   private watches = new Map<string, Watch>();
   private watchSeq = new Map<string, number>();
@@ -408,6 +468,7 @@ export class Workspace implements ViewApi, PartView {
     this.offs.push(() => markers.dispose());
     this.offs.push(editorPrefs.subscribe(() => this.changed()));
 
+    installFlush();
     const saved = this.loadState();
     this.side = saved.side ?? 'files';
     this.sideOpen = saved.sideOpen ?? true;
@@ -419,6 +480,8 @@ export class Workspace implements ViewApi, PartView {
     this.rightW = saved.rightW ?? 460;
     this.rightPanes = saved.rightPanes ?? [];
     this.rightActive = saved.rightActive ?? '';
+    this.hadTerminal = saved.hadTerminal === true || (saved.terminals?.length ?? 0) > 0;
+    this.rightTab = saved.rightTab === 'agents' || (saved.rightTab === 'pane' && this.rightPanes.length) ? saved.rightTab : 'lead';
     this.showExcluded = saved.showExcluded ?? true;
     this.search = { ...DEFAULT_SEARCH, ...saved.search };
     this.recent = saved.recent ?? [];
@@ -431,19 +494,46 @@ export class Workspace implements ViewApi, PartView {
     this.expanded = new Set(saved.expanded?.length ? (saved.expanded as FileKey[]) : this.defaultExpanded());
     for (const k of this.defaultExpanded()) this.expanded.add(k);
     this.bookmarks = this.loadBookmarks();
-    const restored = (saved.groups ?? []).filter((g) => g.tabs?.length).slice(0, MAX_GROUPS);
-    if (restored.length) {
-      this.groups = restored.map((g) => ({
+    // the groups with tabs, where they lay (a state of one row is put on the grid)
+    const layout = readLayout(saved);
+    if (layout) {
+      const taken = new Set<string>();
+      this.groups = layout.groups.map((g) => ({
         id: `g${this.groupSeq++}`,
         // pinned first, whatever order a state saved by hand has them in
         tabs: g.tabs
-          .map((t) => withFlags(t.pane ? paneTab(t.pane) : { id: tabId(t.path), path: t.path as FileKey, preview: t.preview }, t))
+          .map((t) => withFlags(this.savedTab(t, taken), t))
           .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned)),
         active: g.active,
       }));
-      this.activeGroup = Math.min(saved.activeGroup ?? 0, this.groups.length - 1);
+      // an active id that names no tab of its group (a browser whose address another tab took
+      // first got "#2"): the tab of that tool and address, else the first
+      for (const g of this.groups) {
+        if (g.tabs.some((t) => t.id === g.active)) continue;
+        g.active = (g.tabs.find((t) => t.tool && toolTabId(t.tool.kind, t.tool.arg) === g.active) ?? g.tabs[0])?.id ?? null;
+      }
+      this.grid = fromSaved(layout.grid, this.groups.map((g) => g.id));
+      this.activeGroup = Math.min(layout.activeGroup, this.groups.length - 1);
       for (const g of this.groups) for (const t of g.tabs) if (t.path) this.holdDoc(t.path);
     }
+  }
+
+  /** A saved tab as a tab again; a tool's id is made from its argument now (one per kind, a browser per address). */
+  private savedTab(t: PersistedTab, taken: Set<string>): Tab {
+    if (t.pane) return { ...paneTab(t.pane), ...(t.board ? { board: true } : {}) };
+    if (t.tool) {
+      const id = this.freeId(toolTabId(t.tool.kind, t.tool.arg), taken);
+      return { id, path: '', tool: { ...t.tool }, preview: false };
+    }
+    return { id: tabId(t.path), path: t.path as FileKey, preview: t.preview };
+  }
+
+  /** An id no tab has yet: a tool opened twice by hand-edited state, or a browser that went to another's address. */
+  private freeId(id: string, taken: Set<string> = new Set(this.groups.flatMap((g) => g.tabs.map((t) => t.id)))): string {
+    let out = id;
+    for (let n = 2; taken.has(out); n++) out = `${id}#${n}`;
+    taken.add(out);
+    return out;
   }
 
   // ---- parts and paths ---------------------------------------------------------------
@@ -655,6 +745,7 @@ export class Workspace implements ViewApi, PartView {
     this.version++;
     for (const fn of this.listeners) fn();
     window.clearTimeout(this.persistTimer);
+    this.persistDue = true;
     this.persistTimer = window.setTimeout(() => this.persist(), 400);
   }
 
@@ -712,14 +803,30 @@ export class Workspace implements ViewApi, PartView {
     if (this.docs.delete(key)) this.changed();
   }
 
+  /** Write what waits for the save timer now (the page is hidden or left). */
+  flushSave() {
+    if (!this.persistDue) return;
+    window.clearTimeout(this.persistTimer);
+    this.persist();
+  }
+
   private persist() {
+    this.persistDue = false;
     const p: Persisted = {
       v: PERSIST_VERSION,
-      groups: this.groups.map((g) => ({
-        tabs: g.tabs.filter((t) => !t.diff && !t.commit && !t.view).map((t) => ({ path: t.path, preview: t.preview, pane: t.pane, ...(t.pinned ? { pinned: true } : {}), ...(t.locked ? { locked: true } : {}) })),
-        active: g.active?.startsWith('diff:') ? null : g.active,
-      })),
+      groups: this.groups.map((g) => {
+        const flags = (t: Tab) => ({ ...(t.pinned ? { pinned: true } : {}), ...(t.locked ? { locked: true } : {}) });
+        const active = g.tabs.find((t) => t.id === g.active);
+        return {
+          tabs: g.tabs
+            .filter((t) => !t.diff && !t.commit && !t.view)
+            .map((t): PersistedTab => (t.tool ? { path: '', preview: false, tool: { ...t.tool }, ...flags(t) } : { path: t.path, preview: t.preview, pane: t.pane, ...(t.board ? { board: true } : {}), ...flags(t) })),
+          // a tool by its id as it is made again (its argument now)
+          active: active?.tool ? toolTabId(active.tool.kind, active.tool.arg) : g.active?.startsWith('diff:') ? null : g.active,
+        };
+      }),
       activeGroup: this.activeGroup,
+      grid: { v: LAYOUT_VERSION, root: toSaved(this.grid, this.groups.map((g) => g.id)) },
       expanded: [...this.expanded],
       side: this.side,
       sideOpen: this.sideOpen,
@@ -731,6 +838,8 @@ export class Workspace implements ViewApi, PartView {
       rightW: this.rightW,
       rightPanes: this.rightPanes,
       rightActive: this.rightActive,
+      rightTab: this.rightTab,
+      ...(this.hadTerminal ? { hadTerminal: true } : {}),
       showExcluded: this.showExcluded,
       search: this.search,
       recent: this.recent,
@@ -1346,11 +1455,109 @@ export class Workspace implements ViewApi, PartView {
     return this.editors.get(this.group.id) ?? null;
   }
 
+  /** "Open to the side": the group to the right, else a new one there, else (the grid full) another group. */
   private groupForSide(from: number): number {
-    if (from + 1 < this.groups.length) return from + 1;
-    if (this.groups.length >= MAX_GROUPS) return from;
-    this.groups = [...this.groups, { id: `g${++this.groupSeq}`, tabs: [], active: null }];
-    return this.groups.length - 1;
+    const g = this.groups[from];
+    if (!g) return from;
+    const right = this.groups.findIndex((x) => x.id === neighbour(this.grid, g.id, 'right'));
+    if (right >= 0) return right;
+    const added = this.splitGroup(from, 'right');
+    if (added) return this.groups.indexOf(added);
+    const other = this.groups.findIndex((x) => x !== g);
+    return other >= 0 ? other : from;
+  }
+
+  // ---- the split grid (grid.ts) ------------------------------------------------------
+
+  /** Whether the group at gi can be split at that edge (the grid holds two across and two down). */
+  canSplit(gi: number, edge: Edge): boolean {
+    const g = this.groups[gi];
+    return !!g && canSplit(this.grid, g.id, edge);
+  }
+
+  /** A new, empty group at an edge of the group at gi; null when the grid is full that way. The groups keep reading order. */
+  private splitGroup(gi: number, edge: Edge): Group | null {
+    const g = this.groups[gi];
+    if (!g) return null;
+    const added: Group = { id: `g${++this.groupSeq}`, tabs: [], active: null };
+    const next = splitLeaf(this.grid, g.id, edge, added.id);
+    if (!next) return null;
+    const active = this.group;
+    const all = [...this.groups, added];
+    this.grid = next;
+    this.groups = leaves(next).map((id) => all.find((x) => x.id === id)!);
+    this.activeGroup = Math.max(0, this.groups.indexOf(active));
+    return added;
+  }
+
+  /** A group leaves the grid (it has no tab left); the last one stays. The active one stays active, or the one in its place is. */
+  private dropGroup(g: Group) {
+    const at = this.groups.indexOf(g);
+    if (at < 0 || this.groups.length <= 1) return;
+    const active = this.group;
+    this.editors.delete(g.id);
+    this.groups = this.groups.filter((x) => x !== g);
+    this.grid = removeLeaf(this.grid, g.id);
+    this.activeGroup = active === g ? Math.min(at, this.groups.length - 1) : this.groups.indexOf(active);
+  }
+
+  /**
+   * Split Right / Split Down of a tab, as in VS Code: a file opens again in a new group at that
+   * edge; a console, a tool, a commit or a view (one place at a time) moves there, unless it is
+   * the group's only tab. With the grid full that way, the group already there takes it.
+   */
+  splitTab(gi: number, id: string, edge: Edge = 'right'): boolean {
+    const from = this.groups[gi];
+    const t = from?.tabs.find((x) => x.id === id);
+    if (!from || !t) return false;
+    if (!t.path && from.tabs.length === 1) return false;
+    const target = this.splitGroup(gi, edge) ?? this.groups.find((x) => x.id === neighbour(this.grid, from.id, edge));
+    if (!target) {
+      toast.info(GRID_FULL);
+      return false;
+    }
+    if (t.path) this.open(t.path, { pin: true, group: this.groups.indexOf(target) });
+    else this.moveTabToGroup(this.groups.indexOf(from), id, this.groups.indexOf(target));
+    if (!target.tabs.length) this.dropGroup(target);
+    this.changed();
+    return true;
+  }
+
+  /** Split the active group's active tab at an edge (Ctrl+\ is right, Ctrl+K Ctrl+\ is down). */
+  split(edge: Edge) {
+    const g = this.group;
+    if (g.active) this.splitTab(this.activeGroup, g.active, edge);
+  }
+
+  /** A tab dragged to a group's edge: it moves into a new group on that side (the whole group's place when it cannot split there). */
+  moveTabToEdge(fromGi: number, id: string, toGi: number, edge: Edge) {
+    const from = this.groups[fromGi];
+    const to = this.groups[toGi];
+    if (!from || !to || !from.tabs.some((t) => t.id === id)) return;
+    // its only tab, to its own edge: nothing would be left behind
+    if (from === to && from.tabs.length === 1) return;
+    const added = this.splitGroup(toGi, edge);
+    if (!added) {
+      this.moveTabToGroup(fromGi, id, toGi);
+      return;
+    }
+    this.moveTabToGroup(this.groups.indexOf(from), id, this.groups.indexOf(added));
+    if (!added.tabs.length) this.dropGroup(added);
+    this.changed();
+  }
+
+  /** A file dragged to a group's edge (from the tree): it opens in a new group on that side. */
+  openAtEdge(path: string, toGi: number, edge: Edge) {
+    const added = this.splitGroup(toGi, edge);
+    this.open(path, { pin: true, group: added ? this.groups.indexOf(added) : toGi });
+    if (added && !added.tabs.length) this.dropGroup(added);
+    this.changed();
+  }
+
+  /** A sash dragged: the split at that path (grid.ts) gives its first side this share. */
+  resizeSplit(path: string, at: number) {
+    this.grid = resize(this.grid, path, at);
+    this.changed();
   }
 
   /** Open a file: a preview tab unless pinned, reusing the group's current preview. */
@@ -1576,6 +1783,7 @@ export class Workspace implements ViewApi, PartView {
   private detachPane(id: string) {
     this.rightPanes = this.rightPanes.filter((p) => p !== id);
     if (this.rightActive === id) this.rightActive = this.rightPanes[0] ?? '';
+    if (!this.rightPanes.length && this.rightTab === 'pane') this.rightTab = 'lead';
     const at = this.paneTabAt(id);
     if (at) this.removeTab(at.gi, at.tab);
   }
@@ -1592,6 +1800,7 @@ export class Workspace implements ViewApi, PartView {
     if (where === 'side') {
       this.rightPanes = [...this.rightPanes, id];
       this.rightActive = id;
+      this.rightTab = 'pane';
       this.rightOpen = true;
     } else {
       const g = this.group;
@@ -1602,6 +1811,104 @@ export class Workspace implements ViewApi, PartView {
     this.focusPane(id);
   }
 
+  /**
+   * A console as a tab (contract: the code view's Agents list, terminals in the editor area): its
+   * tab if it has one, focused; else a new tab in the group asked for (the active one). It leaves
+   * the side bar and the panel: a console has one place in an editor. A board's console stays on
+   * its board; the tab is one more view of it, and opening it wakes it when it sleeps (its
+   * terminal connects).
+   */
+  openPane(id: string, o: { group?: number } = {}) {
+    const at = this.paneTabAt(id);
+    if (at) {
+      this.activate(at.gi, at.tab.id);
+      this.focusPane(id);
+      return;
+    }
+    this.rightPanes = this.rightPanes.filter((p) => p !== id);
+    if (this.rightActive === id) this.rightActive = this.rightPanes[0] ?? '';
+    if (!this.rightPanes.length && this.rightTab === 'pane') this.rightTab = 'lead';
+    this.dropTerminal(id);
+    const g = this.groups[o.group ?? this.activeGroup] ?? this.group;
+    const tab = paneTab(id);
+    if (isBoardConsole(id)) tab.board = true;
+    insertTab(g, tab);
+    g.active = tab.id;
+    this.activeGroup = this.groups.indexOf(g);
+    this.focusChanged();
+    this.focusPane(id);
+  }
+
+  /** A console shown here that lives on a board: marked on its tab, else the store says so. */
+  isBoardPane(id: string): boolean {
+    return !!this.paneTabAt(id)?.tab.board || isBoardConsole(id);
+  }
+
+  /** A terminal of the panel moves to the editor area (a tab of the active group); its shell keeps running. */
+  movePanelTerminalToEditor(id: string, o: { group?: number } = {}) {
+    this.openPane(id, o);
+  }
+
+  /** A terminal's tab goes back to the panel, as its active terminal; its shell keeps running. A locked tab stays. */
+  movePaneToPanel(id: string) {
+    const at = this.paneTabAt(id);
+    if (at?.tab.locked) {
+      toast.info('Locked: unlock it to move it.');
+      return;
+    }
+    this.detachPane(id);
+    this.hadTerminal = true;
+    if (!this.terminals.includes(id)) this.terminals = [...this.terminals, id];
+    this.activeTerminal = id;
+    this.panelOpen = true;
+    this.panelView = 'terminal';
+    this.changed();
+  }
+
+  /** Out of the panel's list (it moved to a tab), its next terminal shown instead. */
+  private dropTerminal(id: string) {
+    if (!this.terminals.includes(id)) return;
+    this.hadTerminal = true;
+    this.terminals = this.terminals.filter((t) => t !== id);
+    if (this.activeTerminal === id) this.activeTerminal = this.terminals[0] ?? '';
+  }
+
+  // ---- tools as tabs (the code view, ToolTab.tsx) -------------------------------------
+
+  /** Where a tool's tab is: one of that kind (a browser: with that address). */
+  toolTabAt(kind: ToolKind, arg?: string): { gi: number; tab: Tab } | null {
+    for (let gi = 0; gi < this.groups.length; gi++) {
+      const tab = this.groups[gi].tabs.find((t) => t.tool?.kind === kind && (!toolPerArg(kind) || (t.tool.arg ?? '') === (arg ?? '')));
+      if (tab) return { gi, tab };
+    }
+    return null;
+  }
+
+  /** Open a tool as a tab: the one open already is focused, else a new tab joins the active group. Never a preview. */
+  openTool(kind: ToolKind, arg?: string) {
+    const at = this.toolTabAt(kind, arg);
+    if (at) {
+      this.activate(at.gi, at.tab.id);
+      return;
+    }
+    const g = this.group;
+    const tab: Tab = { id: this.freeId(toolTabId(kind, arg)), path: '', tool: { kind, ...(arg ? { arg } : {}) }, preview: false };
+    insertTab(g, tab);
+    this.focusChanged();
+    g.active = tab.id;
+    this.changed();
+  }
+
+  /** A tool's tab took another argument (a browser went to another address): kept with the tab, its id stays. */
+  setToolArg(id: string, arg: string) {
+    for (const g of this.groups) {
+      const t = g.tabs.find((x) => x.id === id);
+      if (!t?.tool || (t.tool.arg ?? '') === arg) continue;
+      t.tool = { kind: t.tool.kind, ...(arg ? { arg } : {}) };
+      this.changed();
+    }
+  }
+
   /** Bring a pane to the front wherever it is. False: it has no place here. */
   revealPane(id: string): boolean {
     const at = this.paneTabAt(id);
@@ -1609,6 +1916,7 @@ export class Workspace implements ViewApi, PartView {
       this.activate(at.gi, at.tab.id);
     } else if (this.rightPanes.includes(id)) {
       this.rightActive = id;
+      this.rightTab = 'pane';
       this.rightOpen = true;
     } else {
       return false;
@@ -1629,13 +1937,18 @@ export class Workspace implements ViewApi, PartView {
     this.changed();
   }
 
-  /** The orchestrator just closes; a console asks first, as closing it stops the agent. A locked tab of either stays. */
+  /**
+   * The orchestrator and a board's console just close (the console stays on its board); a console
+   * of this editor asks first, as closing it stops the agent or kills the terminal. A locked tab
+   * of any stays.
+   */
   askClosePane(id: string) {
     if (this.paneTabAt(id)?.tab.locked) {
       toast.info(LOCKED);
       return;
     }
-    if (id === ORCHESTRATOR_PANE) {
+    // a board's console only leaves this editor; one the browser does not know yet is never offered to stop
+    if (id === ORCHESTRATOR_PANE || this.isBoardPane(id) || !sessionOf(id)) {
       this.forgetPane(id);
       return;
     }
@@ -1662,11 +1975,7 @@ export class Workspace implements ViewApi, PartView {
     g.tabs.splice(i, 1);
     if (tab.diff?.startsWith('ide:')) this.ide.tabClosed(tab.diff.slice('ide:'.length));
     if (g.active === tab.id) g.active = g.tabs[Math.min(i, g.tabs.length - 1)]?.id ?? null;
-    if (!g.tabs.length && this.groups.length > 1) {
-      this.editors.delete(g.id);
-      this.groups = this.groups.filter((x) => x !== g);
-      this.activeGroup = Math.min(this.activeGroup, this.groups.length - 1);
-    }
+    if (!g.tabs.length) this.dropGroup(g);
     this.releaseDoc(tab.path);
     this.changed();
   }
@@ -1721,16 +2030,14 @@ export class Workspace implements ViewApi, PartView {
     this.activate(this.activeGroup, g.tabs[(i + delta + g.tabs.length) % g.tabs.length].id);
   }
 
-  /** Show the active file in a new group beside this one. */
+  /** Show the active tab in a new group to the right (Ctrl+\). */
   splitRight() {
-    const t = this.activeTab;
-    if (!t) return;
-    const from = this.activeGroup;
-    const to = this.groupForSide(from);
-    if (to === from) return;
-    // a console has one view at a time: it moves over; a commit or a view has no file to open
-    if (!t.path) this.moveTabToGroup(from, t.id, to);
-    else this.open(t.path, { pin: true, group: to });
+    this.split('right');
+  }
+
+  /** Show the active tab in a new group below (Ctrl+K Ctrl+\). */
+  splitDown() {
+    this.split('bottom');
   }
 
   moveTabToGroup(fromGi: number, id: string, toGi: number) {
@@ -1744,11 +2051,8 @@ export class Workspace implements ViewApi, PartView {
     to.tabs.splice(tab.pinned ? pinnedCount(to) : to.tabs.length, 0, tab);
     to.active = id;
     this.activeGroup = toGi;
-    if (!from.tabs.length && this.groups.length > 1) {
-      this.editors.delete(from.id);
-      this.groups = this.groups.filter((g) => g !== from);
-      this.activeGroup = this.groups.indexOf(to);
-    }
+    if (!from.tabs.length) this.dropGroup(from);
+    this.activeGroup = this.groups.indexOf(to);
     this.changed();
   }
 

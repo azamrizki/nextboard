@@ -4,7 +4,7 @@
 // select mode picks it (§3.18).
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { useWarmIntent, warmProject } from '../agents/warm';
+import { useWarmIntent } from '../agents/warm';
 import { api, errorMessage } from '../api';
 import { Icon, type IconName } from '../components/Icon';
 import { Menu } from '../components/Menu';
@@ -12,7 +12,7 @@ import { NAME_MAX } from '../components/ProjectBar';
 import { SelectBox, type SelectMode } from '../components/SelectBar';
 import { toast } from '../components/Toast';
 import { formatDateTime, timeAgoShort } from '../lib/format';
-import { boardPath, lastWorkspace, navigate } from '../lib/router';
+import { lastWorkspace } from '../lib/router';
 import { projectParts } from '../lib/parts';
 import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import type { GitInfo, Project } from '../lib/types';
@@ -21,6 +21,7 @@ import { store, useMachines, useRunningSessions } from '../store';
 import { gitApi } from '../studio/api';
 import { ArtDialog } from './ArtDialog';
 import { FolderPath } from './FolderPath';
+import { openBoard, openCode, openProject } from './OpenChoice';
 import { OrganizeDialog } from './GroupDialogs';
 import { PartsDialog } from './PartsDialog';
 import { PartsGitLine, PartsLine, usePartsGit } from './PartsLine';
@@ -81,12 +82,8 @@ function useGit(id: string, offline: boolean, skip = false) {
   return state;
 }
 
-export function openProject(p: Project) {
-  const last = lastWorkspace(p.id);
-  const ws = p.workspaces?.find((w) => w.id === last) ?? p.workspaces?.[0];
-  warmProject(p.id, ws?.id); // its agents start while the board loads
-  navigate(boardPath(p.id, ws?.id));
-}
+// opening asks the hub's ui.openProjectsIn which view (OpenChoice.tsx)
+export { openProject };
 
 function ChangedBadge({ changed }: { changed: number }) {
   return <span className={`badge ${changed ? 'badge-warning' : 'badge-success'}`}>{changed ? `${changed} changed` : 'Clean'}</span>;
@@ -323,7 +320,10 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
           className="card-menu"
           label={`Actions for ${p.name}`}
           items={[
-            { label: 'Open', icon: 'folderOpen', onSelect: () => openProject(p) },
+            // both views, whatever the hub's setting says (DESIGN.md §3.19)
+            { label: 'Open in Code view', icon: 'code', onSelect: () => openCode(p) },
+            { label: 'Open in Board view', icon: 'grid', onSelect: () => openBoard(p) },
+            'sep',
             {
               label: 'Rename',
               icon: 'pencil',

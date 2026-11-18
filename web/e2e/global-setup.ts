@@ -135,6 +135,10 @@ export default async function globalSetup() {
     // planner CLI, and this host may have a real one on PATH
     const off = await ctx.patch('/api/settings', { data: { commands: { planner: 'off' } } });
     if (!off.ok()) throw new Error(`planner off: ${off.status()}`);
+    // opening a project goes to its board, as the tests were written for: a new hub asks Board or
+    // Code (DESIGN.md §3.19). code-view.spec.ts sets it back to asking for its own tests.
+    const board = await ctx.patch('/api/settings', { data: { ui: { openProjectsIn: 'board' } } });
+    if (!board.ok()) throw new Error(`open projects in board: ${board.status()}`);
     const agent = await ctx.post('/api/agents', { data: { id: 'fakecli', name: 'Fake CLI', command: FAKE_AGENT, base: 'codex' } });
     if (!agent.ok()) throw new Error(`agent: ${agent.status()}`);
     const worker = await ctx.post('/api/agents', { data: { id: 'fakeworker', name: 'Fake Worker', command: FAKE_WORKER } });

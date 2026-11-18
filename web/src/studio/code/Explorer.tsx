@@ -41,8 +41,9 @@ export function FileIcon({ name, dir, open }: { name: string; dir?: boolean; ope
 
 interface Props {
   ws: Workspace;
-  onAddFile: (path: string) => void;
-  onAddFolder: (dir: string) => void;
+  /** Absent: no board to add to (the Code view, DESIGN.md §3.19). */
+  onAddFile?: (path: string) => void;
+  onAddFolder?: (dir: string) => void;
   onTerminal: (dir: string) => void;
   onAsk: (path: string) => void;
 }
@@ -280,8 +281,10 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
         { label: 'Copy Path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(splitKey(path).abs).then(() => toast.success('Path copied.')) },
         { label: 'Copy Relative Path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(ws.relLabel(path)).then(() => toast.success('Path copied.')) },
         { label: 'Ask an Agent About This', icon: 'sparkle', onSelect: () => onAsk(path) },
-        e.dir ? { label: 'Add Folder to Board', icon: 'plus', onSelect: () => onAddFolder(path) } : { label: 'Add to Board', icon: 'plus', disabled: e.binary, onSelect: () => onAddFile(path) },
       );
+      if (e.dir ? onAddFolder : onAddFile) {
+        list.push(e.dir ? { label: 'Add Folder to Board', icon: 'plus', onSelect: () => onAddFolder?.(path) } : { label: 'Add to Board', icon: 'plus', disabled: e.binary, onSelect: () => onAddFile?.(path) });
+      }
       if (!e.dir) list.push({ label: 'Duplicate', icon: 'duplicate', disabled: e.binary, onSelect: () => void ws.duplicate(path).catch((err) => toast.error(String(err))) });
       if (!own) {
         list.push(

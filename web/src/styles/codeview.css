@@ -1,0 +1,355 @@
+/*
+ * Code view (DESIGN.md §3.19): opening a project (the "Open <project>" dialog), the page's top bar,
+ * the project switcher of an editor, and the phone layout with its bottom navigation.
+ */
+
+/* ---- "Open <project>": Board view or Code view ---- */
+.oc-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.oc-form > p {
+  margin: 0;
+}
+.oc-views {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+}
+@media (max-width: 559px) {
+  .oc-views {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.oc-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-3);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-lg);
+  background: var(--surface-input);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.oc-view:hover {
+  border-color: var(--glass-border-strong);
+  background: var(--surface-hover);
+}
+.oc-view[aria-checked='true'] {
+  border-color: var(--c-primary);
+  background: var(--selected-bg);
+}
+.oc-view:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.oc-pic {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.oc-pic-bg {
+  fill: var(--surface-solid);
+  stroke: var(--glass-border);
+}
+.oc-pic-card {
+  fill: var(--surface-active);
+  stroke: var(--glass-border-strong);
+}
+.oc-pic-dash {
+  fill: none;
+  stroke: var(--glass-border-strong);
+  stroke-dasharray: 4 3;
+}
+.oc-pic-bar,
+.oc-pic-term {
+  fill: var(--glass-border-strong);
+}
+.oc-pic-side,
+.oc-pic-panel {
+  fill: var(--surface-hover);
+}
+.oc-pic-line {
+  fill: var(--text-3);
+}
+.oc-view-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.oc-view-head > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+.oc-view-check {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-content: center;
+  width: var(--size-check);
+  height: var(--size-check);
+  margin-left: auto;
+  border: var(--hairline) solid var(--glass-border-strong);
+  border-radius: calc(var(--r-sm) / 2);
+}
+.oc-view[aria-checked='true'] .oc-view-check {
+  border-color: var(--c-primary);
+  background: var(--c-primary);
+  color: var(--text-on-primary);
+}
+.oc-view-check svg {
+  width: 12px;
+  height: 12px;
+}
+.oc-view-text {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  line-height: var(--lh-body);
+}
+.oc-remember .check {
+  color: var(--text);
+}
+.oc-remember-hint {
+  margin: 0 0 0 calc(var(--size-check) + var(--s-2));
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+/* a phone: the pictures would push the choice off the sheet */
+:root[data-layout='phone'] .oc-pic {
+  display: none;
+}
+
+/* ---- the project switcher of an editor ---- */
+.editor-switch-meta {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-xs);
+}
+/* in an editor card's title bar: the card's title, with a menu. Compact (the name and a chevron),
+   and not .nodrag, so the title bar still drags the card (a drag does not open the menu) */
+.editor-switch.wb-title-switch {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  max-width: 200px;
+  height: 24px;
+  padding: 0 var(--s-1);
+  border: var(--hairline) solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+.editor-switch.wb-title-switch svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+}
+.editor-switch.wb-title-switch .chev {
+  color: var(--text-3);
+}
+.editor-switch.wb-title-switch:hover,
+.editor-switch.wb-title-switch[aria-expanded='true'] {
+  border-color: var(--glass-border);
+  background: var(--surface-hover);
+}
+.editor-switch.wb-title-switch > svg:first-child {
+  display: none;
+}
+
+/* ---- the page ---- */
+body:has(.page-code)::before {
+  display: none;
+}
+.page.page-code {
+  height: 100%;
+  height: 100dvh;
+  padding-top: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* its bottom navigation is in the page's flow, not fixed over it */
+:root[data-layout='phone'] .page.page-code {
+  padding-bottom: 0;
+}
+.page-code > .wb {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.page-code > .board-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* ---- top bar ---- */
+.cv-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  height: 44px;
+  padding: 0 var(--s-2);
+  background: var(--wb-bar);
+  border-bottom: var(--hairline) solid var(--wb-line);
+}
+.cv-bar .spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.cv-brand {
+  flex: 0 0 auto;
+  display: inline-flex;
+  border-radius: var(--r-md);
+}
+.cv-brand .brand-mark {
+  width: 28px;
+  height: 28px;
+}
+.cv-switch {
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 30px;
+}
+.cv-views {
+  flex: 0 0 auto;
+  padding: 2px;
+}
+.cv-views .segmented-item {
+  min-height: 24px;
+}
+.cv-quick.wb-command-center {
+  flex: 0 1 460px;
+  margin-left: var(--s-2);
+}
+.cv-tools,
+.cv-pills {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+.cv-pills {
+  gap: var(--s-2);
+}
+/* a finger: the bar's controls are 40 high (DESIGN.md §4) */
+:root[data-input='touch'] .cv-bar:not(.is-phone) {
+  height: 52px;
+}
+:root[data-input='touch'] .cv-switch {
+  height: var(--h-control-sm);
+}
+/* a tablet: the bar keeps the switcher, the views, Go to file as an icon and the toggles */
+@media (max-width: 1099px) {
+  .cv-quick.wb-command-center {
+    flex: 0 0 auto;
+    margin-left: 0;
+  }
+  .cv-quick.wb-command-center > :not(svg) {
+    display: none;
+  }
+  .cv-bar .usage-pill {
+    display: none;
+  }
+}
+@media (max-width: 799px) {
+  .cv-views-label {
+    display: none;
+  }
+  .cv-pills .conn {
+    display: none;
+  }
+}
+/* a phone: switcher, Board | Code and ⋯ on one row below the status bar */
+.cv-bar.is-phone {
+  height: calc(48px + var(--safe-t));
+  padding: var(--safe-t) calc(var(--s-2) + var(--safe-r)) 0 calc(var(--s-2) + var(--safe-l));
+}
+.cv-bar.is-phone .cv-views-label {
+  display: inline;
+}
+
+/* ---- activity bar: the tools after Ask ---- */
+.wb-activity-sep {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 1px;
+  margin: var(--s-1) 0;
+  background: var(--wb-line);
+}
+
+/* ---- phone: one view at a time, bottom navigation (CodePhone.tsx) ---- */
+.wb.is-phone .wb-side {
+  position: static;
+  flex: 1 1 auto;
+  width: auto !important;
+  box-shadow: none;
+  border-right: 0;
+}
+.wb.is-phone-files .wb-center {
+  display: none;
+}
+.wb.is-phone:not(.is-phone-files) .wb-activity {
+  display: none;
+}
+.wb.is-phone-terminal .wb-center > :not(.wb-panel-wrap) {
+  display: none;
+}
+.wb.is-phone-terminal .wb-panel-wrap {
+  flex: 1 1 auto;
+  max-height: none;
+  height: auto;
+}
+.wb.is-phone .wb-activity {
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.cv-phone-nav.tab-bar {
+  position: static;
+  flex: 0 0 auto;
+  z-index: auto;
+  background: var(--wb-bar);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-top: var(--hairline) solid var(--wb-line);
+}
+.cv-phone-nav .tab-bar-icon {
+  width: 48px;
+}
+
+/* Lead and Agents as sheets */
+.modal.cv-sheet {
+  height: min(80dvh, 760px);
+}
+.modal.cv-sheet .modal-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.cv-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}

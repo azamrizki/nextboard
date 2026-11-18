@@ -299,6 +299,8 @@ export function RenameChatDialog({ chat, onClose }: { chat: ChatView; onClose: (
   );
 }
 
+const jumpToStarted = (sessionId: string) => void jumpToSession(sessionId);
+
 /**
  * Continue elsewhere: the hub summarises the chat (like a handoff) and starts a fresh console at
  * the place picked, with the summary as its first order. For a chat whose place is gone, and any
@@ -367,8 +369,11 @@ export function ContinueDialog({ chat, project, workspaceId, onClose, onStarted 
   );
 }
 
-/** The Transcript, Rename and Continue elsewhere dialogs, for any list of rows. */
-export function useChatDialogs(project: Project | undefined, workspaceId: string, resume: (c: ChatView) => void, shown?: () => void) {
+/**
+ * The Transcript, Rename and Continue elsewhere dialogs, for any list of rows. started: where the
+ * console a chat continued in shows (the Code view opens it as a tab); by default the jump to it.
+ */
+export function useChatDialogs(project: Project | undefined, workspaceId: string, resume: (c: ChatView) => void, shown?: () => void, started: (sessionId: string) => void = jumpToStarted) {
   const [open, setOpen] = useState<{ kind: 'transcript' | 'rename' | 'continue'; chat: ChatView } | null>(null);
   const handlers: ChatRowHandlers = {
     resume,
@@ -384,7 +389,7 @@ export function useChatDialogs(project: Project | undefined, workspaceId: string
     ) : open?.kind === 'rename' ? (
       <RenameChatDialog chat={open.chat} onClose={close} />
     ) : open?.kind === 'continue' ? (
-      <ContinueDialog chat={open.chat} project={project} workspaceId={workspaceId} onClose={close} onStarted={(sid) => jumpToSession(sid)} />
+      <ContinueDialog chat={open.chat} project={project} workspaceId={workspaceId} onClose={close} onStarted={started} />
     ) : null;
   return { handlers, node };
 }

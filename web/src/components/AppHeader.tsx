@@ -56,7 +56,8 @@ interface AppHeaderProps {
   workspaceId?: string;
 }
 
-function ConnStatus() {
+/** The events connection: "Live", or reconnecting (also the Code view's top bar). */
+export function ConnStatus() {
   const connected = useEventsConnected();
   const ready = useStoreReady();
   const connLabel = connected ? 'Live' : ready ? 'Reconnecting…' : 'Connecting…';

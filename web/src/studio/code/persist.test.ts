@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fileKey, PERSIST_VERSION, type FileKey } from './paths';
-import { listUnder, mergeBookmarks, mergeDebug, mergeLegacy, MAX_MERGED_TABS, MAX_RECENT, readAnyPath, readBookmarks, readDebug, readState, stateUnder, type Persisted } from './persist';
+import { LAYOUT_VERSION, listUnder, MAX_GROUPS, mergeBookmarks, mergeDebug, mergeLegacy, MAX_MERGED_TABS, MAX_RECENT, readAnyPath, readBookmarks, readDebug, readLayout, readState, stateUnder, toolTabId, type Persisted } from './persist';
 
 const SRV = 'srv-a';
 const k = (abs: string, machine = 'local') => fileKey(machine, abs);
@@ -183,5 +183,94 @@ describe('bookmarks and breakpoints', () => {
     expect(m.watches).toEqual(['x', 'y']);
     expect(m.config).toBe('Go');
     expect(m.filters).toEqual(['uncaught']);
+  });
+});
+
+describe('tool tabs (the code view)', () => {
+  it('are kept with their kind and argument; an unknown kind is dropped', () => {
+    const s = readState(
+      {
+        v: PERSIST_VERSION,
+        groups: [
+          {
+            tabs: [
+              { path: '', preview: false, tool: { kind: 'vault' }, pinned: true },
+              { path: '', preview: true, tool: { kind: 'browser', arg: 'http://localhost:5173/cart' } },
+              { path: '', preview: false, tool: { kind: 'teleporter' } } as never,
+              { path: '/srv/shop/a.ts', preview: false },
+            ],
+            active: toolTabId('browser', 'http://localhost:5173/cart'),
+          },
+        ],
+      },
+      'local',
+    );
+    expect(s.groups![0].tabs).toEqual([
+      { path: '', preview: false, tool: { kind: 'vault' }, pinned: true },
+      { path: '', preview: false, tool: { kind: 'browser', arg: 'http://localhost:5173/cart' } },
+      { path: '/srv/shop/a.ts', preview: false },
+    ]);
+    expect(s.groups![0].active).toBe('tool:browser:http://localhost:5173/cart');
+  });
+
+  it('name no file: a state of tools only belongs to no part', () => {
+    const s = readState({ v: PERSIST_VERSION, groups: [{ tabs: [{ path: '', preview: false, tool: { kind: 'chats' } }], active: null }] }, 'local');
+    expect(stateUnder(s, k('/srv/shop'))).toBe(false);
+  });
+
+  it('one tab per tool kind, a browser one per address', () => {
+    expect(toolTabId('memory')).toBe('tool:memory');
+    expect(toolTabId('memory', 'ignored')).toBe('tool:memory');
+    expect(toolTabId('browser')).toBe('tool:browser:');
+  });
+});
+
+describe('readLayout: the groups and where they lie', () => {
+  const g = (name: string) => ({ tabs: [{ path: `/srv/shop/${name}`, preview: false }], active: `/srv/shop/${name}` });
+  const empty = { tabs: [], active: null };
+
+  it('migrates the row of before (no layout): two side by side, a third under the second', () => {
+    expect(MAX_GROUPS).toBe(4);
+    const l = readLayout({ groups: [g('a.ts'), g('b.ts'), g('c.ts')], activeGroup: 2 })!;
+    expect(l.groups.map((x) => x.active)).toEqual(['/srv/shop/a.ts', '/srv/shop/b.ts', '/srv/shop/c.ts']);
+    expect(l.grid).toEqual({ dir: 'row', a: { g: 0 }, b: { dir: 'col', a: { g: 1 }, b: { g: 2 }, at: 0.5 }, at: 0.5 });
+    expect(l.activeGroup).toBe(2);
+  });
+
+  it('reads a saved grid, in its reading order, with its sizes', () => {
+    const grid = { v: LAYOUT_VERSION, root: { dir: 'col', a: { dir: 'row', a: { g: 2 }, b: { g: 0 }, at: 0.7 }, b: { g: 1 }, at: 0.4 } } as Persisted['grid'];
+    const l = readLayout({ groups: [g('a.ts'), g('b.ts'), g('c.ts')], grid, activeGroup: 0 })!;
+    // reading order: c (top left), a (top right), b (bottom)
+    expect(l.groups.map((x) => x.active)).toEqual(['/srv/shop/c.ts', '/srv/shop/a.ts', '/srv/shop/b.ts']);
+    expect(l.grid).toEqual({ dir: 'col', a: { dir: 'row', a: { g: 0 }, b: { g: 1 }, at: 0.7 }, b: { g: 2 }, at: 0.4 });
+    // the active group follows its group, not its index
+    expect(l.activeGroup).toBe(1);
+  });
+
+  it('drops a group with no tab left, and its place goes to its neighbour', () => {
+    const grid = { v: LAYOUT_VERSION, root: { dir: 'row', a: { g: 0 }, b: { dir: 'col', a: { g: 1 }, b: { g: 2 }, at: 0.5 }, at: 0.3 } } as Persisted['grid'];
+    const l = readLayout({ groups: [g('a.ts'), empty, g('c.ts')], grid, activeGroup: 1 })!;
+    expect(l.groups.map((x) => x.active)).toEqual(['/srv/shop/a.ts', '/srv/shop/c.ts']);
+    expect(l.grid).toEqual({ dir: 'row', a: { g: 0 }, b: { g: 1 }, at: 0.3 });
+    expect(l.activeGroup).toBe(0);
+  });
+
+  it('reads a layout that does not match its groups, or of another version, as the row', () => {
+    const bad = { v: LAYOUT_VERSION, root: { dir: 'row', a: { g: 0 }, b: { g: 0 }, at: 0.5 } } as Persisted['grid'];
+    expect(readLayout({ groups: [g('a.ts'), g('b.ts')], grid: bad })!.grid).toEqual({ dir: 'row', a: { g: 0 }, b: { g: 1 }, at: 0.5 });
+    const newer = { v: LAYOUT_VERSION + 1, root: { dir: 'col', a: { g: 0 }, b: { g: 1 }, at: 0.5 } } as Persisted['grid'];
+    expect(readLayout({ groups: [g('a.ts'), g('b.ts')], grid: newer })!.grid).toEqual({ dir: 'row', a: { g: 0 }, b: { g: 1 }, at: 0.5 });
+  });
+
+  it('is nothing without a tab', () => {
+    expect(readLayout({ groups: [empty] })).toBeNull();
+    expect(readLayout({})).toBeNull();
+  });
+
+  it('a merged first Root open drops the layout its groups no longer match', () => {
+    const grid = { v: LAYOUT_VERSION, root: { dir: 'row', a: { g: 0 }, b: { g: 1 }, at: 0.5 } } as Persisted['grid'];
+    const m = mergeLegacy([readState({ v: PERSIST_VERSION, groups: [empty, g('a.ts')], grid } as Partial<Persisted>, 'local')], []);
+    expect(m.grid).toBeUndefined();
+    expect(readLayout(m)!.grid).toEqual({ g: 0 });
   });
 });

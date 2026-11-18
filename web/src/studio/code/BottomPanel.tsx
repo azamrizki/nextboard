@@ -2,6 +2,8 @@
 // board node, kept when the workbench closes), Problems from the language services and
 // Output from commands on save and language servers. A terminal starts in the card's part, on
 // that part's machine; a Root card asks: at the project root (every part) or in one part.
+// A terminal can also live in the editor area, as a tab (docs/API-studio.md §7.15): started
+// there, or moved there and back; its shell keeps running through every move.
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useConsoleThemeAttr } from '../../lib/theme';
@@ -9,7 +11,7 @@ import { api, errorMessage } from '../../api';
 import { useTerminal } from '../../board/useTerminal';
 import { Button } from '../../components/Button';
 import { Icon, type IconName } from '../../components/Icon';
-import { Menu, type MenuEntry } from '../../components/Menu';
+import { ContextMenu, Menu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
 import { isRoot, type Placement } from '../../lib/parts';
 import { lastPlacement, placeValue, rememberPlacement } from '../../lib/placement';
@@ -22,7 +24,7 @@ import { asFileKey, isRootKey, LOCAL_MACHINE, splitKey, type FileKey } from './p
 import { PortsPanel } from './PortsPanel';
 import { TasksPanel } from './TasksPanel';
 import { useWs } from './useWs';
-import { dirOf, nameOf, type PanelView, type Workspace } from './workspace';
+import { dirOf, isTerminalPane, nameOf, type PanelView, type Workspace } from './workspace';
 
 export const TerminalView = memo(function TerminalView({ sessionId }: { sessionId: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -76,24 +78,36 @@ export function placeItems(ws: Workspace, start: (p: Placement) => void): MenuEn
   ];
 }
 
+/** Where a new terminal shows: the panel (as before), or a tab of the editor area. */
+export type TerminalWhere = 'panel' | 'editor';
+
 /**
  * Start a terminal of the card: in a folder (its part, on that part's machine), else at a place
  * chosen in a Root card's picker, else at the card's default (defaultPlaceOf). The project root
- * (ROOT_KEY, or Root chosen) is a root terminal on This PC that reaches every part.
+ * (ROOT_KEY, or Root chosen) is a root terminal on This PC that reaches every part. `where`
+ * "editor" opens it as a tab of the active editor group instead of in the panel.
  */
-export async function newTerminal(ws: Workspace, workspaceId: string, cwd?: string, input?: string, place?: Placement) {
+export async function newTerminal(ws: Workspace, workspaceId: string, cwd?: string, input?: string, place?: Placement, where: TerminalWhere = 'panel') {
   const dir = cwd ? (ws.toKey(cwd) ?? undefined) : undefined;
+  const show = where;
   const at = place ?? (dir ? null : defaultPlaceOf(ws));
-  const where = dir ? ws.placeOf(dir) : ws.placeOf(at ? placeDir(ws.paths, at) : undefined);
+  const at2 = dir ? ws.placeOf(dir) : ws.placeOf(at ? placeDir(ws.paths, at) : undefined);
   const part = at && !isRoot(at) ? mountedPart(ws, at.partId) : null;
   const name = dir ? (isRootKey(dir) ? 'Root' : nameOf(splitKey(dir).abs) || 'Terminal') : ws.paths.multi ? (part?.name ?? 'Root') : 'Terminal';
   try {
-    const s = await api.createSession({ workspaceId, preset: 'shell', panel: true, name, ...where });
-    ws.terminals = [...ws.terminals, s.id];
-    ws.activeTerminal = s.id;
-    ws.panelOpen = true;
-    ws.panelView = 'terminal';
-    ws.changed();
+    const s = await api.createSession({ workspaceId, preset: 'shell', panel: true, name, ...at2 });
+    ws.hadTerminal = true;
+    if (show === 'editor') {
+      // its tab must find it in the store, or the tab takes it for gone
+      store.upsertSession(s);
+      ws.openPane(s.id);
+    } else {
+      ws.terminals = [...ws.terminals, s.id];
+      ws.activeTerminal = s.id;
+      ws.panelOpen = true;
+      ws.panelView = 'terminal';
+      ws.changed();
+    }
     // typed, not run: the user decides whether to press Enter
     if (input) window.setTimeout(() => void api.sendInput(s.id, input).catch(() => undefined), 800);
   } catch (err) {
@@ -118,8 +132,18 @@ function TerminalTab({ ws, id, index }: { ws: Workspace; id: string; index: numb
     void api.deleteSession(id).catch(() => undefined);
   };
   const active = ws.activeTerminal === id;
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const label = s?.name || `Terminal ${index + 1}`;
   return (
-    <div className={`wb-term-tab ${active ? 'is-active' : ''}`}>
+    // a long press is the row's right-click on a touch screen (lib/longpress.ts)
+    <div
+      className={`wb-term-tab ${active ? 'is-active' : ''}`}
+      data-longpress=""
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
+    >
       <button
         type="button"
         className="truncate"
@@ -130,35 +154,80 @@ function TerminalTab({ ws, id, index }: { ws: Workspace; id: string; index: numb
         }}
       >
         <Icon name="terminal" />
-        {s?.name || `Terminal ${index + 1}`}
+        {label}
         {s && s.status !== 'running' && s.status !== 'starting' && ' (ended)'}
+      </button>
+      <button type="button" className="wb-tab-close wb-term-move" aria-label={`Move ${label} to the editor area`} title="Move terminal to editor area" onClick={() => ws.movePanelTerminalToEditor(id)}>
+        <Icon name="external" />
       </button>
       <button type="button" className="wb-tab-close" aria-label="Close terminal" title="Close terminal" onClick={close}>
         <Icon name="close" />
       </button>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label="Terminal actions"
+          items={[
+            { label: 'Move Terminal to Editor Area', icon: 'external', title: 'Its shell keeps running', onSelect: () => ws.movePanelTerminalToEditor(id) },
+            'sep',
+            { label: 'Kill Terminal', icon: 'close', danger: true, onSelect: close },
+          ]}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 }
 
+/**
+ * The panel's + menu: a new terminal in the panel or in the editor area (a Root card: at the root
+ * or in a part, for each), and the active terminal moved to the editor area.
+ */
+export function terminalMenu(ws: Workspace, workspaceId: string, active?: string): MenuEntry[] {
+  const start = (where: TerminalWhere) => (p?: Placement) => void newTerminal(ws, workspaceId, undefined, undefined, p, where);
+  const items: MenuEntry[] = ws.paths.multi
+    ? [
+        // a Root card asks where: the root (every part) or one part
+        ...placeItems(ws, start('panel')).map((x) => (typeof x === 'object' && 'type' in x && x.type === 'heading' ? { ...x, label: 'New terminal in' } : x)),
+        ...placeItems(ws, start('editor')).map((x) => (typeof x === 'object' && 'type' in x && x.type === 'heading' ? { ...x, label: 'New terminal in the editor area, in' } : x)),
+      ]
+    : [
+        { label: 'New Terminal', icon: 'terminal', onSelect: () => start('panel')() },
+        { label: 'New Terminal in Editor Area', icon: 'splitRight', title: 'A terminal as an editor tab', onSelect: () => start('editor')() },
+      ];
+  if (active) items.push('sep', { label: 'Move Terminal to Editor Area', icon: 'external', title: 'The terminal shown here; its shell keeps running', onSelect: () => ws.movePanelTerminalToEditor(active) });
+  return items;
+}
+
 function Terminals({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) {
   const started = useRef(false);
+  // the first time only: a view whose terminals were all moved out, closed or never wanted one
+  // since then gets none by itself each time the panel shows (a phone leaves and comes back often)
   useEffect(() => {
-    if (started.current || ws.terminals.length) return;
+    if (started.current || ws.terminals.length || ws.hadTerminal) return;
+    if (ws.groups.some((g) => g.tabs.some((t) => t.pane && isTerminalPane(t.pane)))) return;
     started.current = true;
     void newTerminal(ws, workspaceId);
   }, [ws, workspaceId]);
   const active = ws.terminals.includes(ws.activeTerminal) ? ws.activeTerminal : ws.terminals[0];
   return (
     <div className="wb-terms">
-      <div className="wb-term-body">{active && <TerminalView key={active} sessionId={active} />}</div>
+      <div className="wb-term-body">
+        {active ? <TerminalView key={active} sessionId={active} /> : <p className="wb-panel-msg">No terminal here: start one with New terminal, or bring one back from the editor area (its tab’s Move to Panel).</p>}
+      </div>
       <div className="wb-term-list">
         {ws.paths.multi ? (
-          // a Root card asks where: the root (every part) or one part
-          <Menu label="New terminal in…" icon="plus" triggerLabel="New terminal" items={() => placeItems(ws, (p) => void newTerminal(ws, workspaceId, undefined, undefined, p))} />
+          // a Root card asks where: the root (every part) or one part, in the panel or the editor area
+          <Menu label="New terminal" icon="plus" triggerLabel="New terminal" items={() => terminalMenu(ws, workspaceId, active)} />
         ) : (
-          <Button size="sm" variant="ghost" icon="plus" onClick={() => void newTerminal(ws, workspaceId)}>
-            New terminal
-          </Button>
+          // one click starts one in the panel, as before; the rest is in the menu beside it
+          <span className="wb-term-new">
+            <Button size="sm" variant="ghost" icon="plus" onClick={() => void newTerminal(ws, workspaceId)}>
+              New terminal
+            </Button>
+            <Menu label="More terminal actions" icon="chevronDown" items={() => terminalMenu(ws, workspaceId, active)} />
+          </span>
         )}
         {ws.terminals.map((id, i) => (
           <TerminalTab key={id} ws={ws} id={id} index={i} />

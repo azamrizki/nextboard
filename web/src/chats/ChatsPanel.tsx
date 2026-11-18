@@ -36,6 +36,8 @@ interface Props {
   onOpenThread: (threadId: string) => void;
   /** A narrow screen: the panel covers the board, so it closes once a console is shown. */
   compact?: boolean;
+  /** Where a chat continued elsewhere shows its new console; absent: the jump to it on its board. */
+  onStarted?: (sessionId: string) => void;
 }
 
 type Tab = 'agents' | 'lead';
@@ -78,7 +80,7 @@ function useLeadThreads(ctl: BoardController, project: Project): { id: string; c
   );
 }
 
-export default function ChatsPanel({ ctl, project, onClose, onResume, onOpenThread, compact }: Props) {
+export default function ChatsPanel({ ctl, project, onClose, onResume, onOpenThread, compact, onStarted }: Props) {
   const [tab, setTab] = useState<Tab>('agents');
   const [q, setQ] = useState('');
   const [agent, setAgent] = useState('');
@@ -90,7 +92,7 @@ export default function ChatsPanel({ ctl, project, onClose, onResume, onOpenThre
   const multi = isMultiPart(project);
   const parts = projectParts(project);
   const threads = useLeadThreads(ctl, project);
-  const dialogs = useChatDialogs(project, ctl.workspaceId, onResume, compact ? onClose : undefined);
+  const dialogs = useChatDialogs(project, ctl.workspaceId, onResume, compact ? onClose : undefined, onStarted);
 
   useEffect(() => {
     chatsStore.install();

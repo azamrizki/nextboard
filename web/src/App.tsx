@@ -2,7 +2,8 @@
 //
 //   GET /api/setup/status → needsSetup → /setup
 //   else GET /api/auth/me  → 401 → /login, otherwise the app:
-//   /  (Home: projects) · /p/:projectId/w/:workspaceId (board) · /machines · /devices
+//   /  (Home: projects) · /p/:projectId/w/:workspaceId (board) · /p/:projectId/code (Code view) ·
+//   /machines · /devices. A link /p/:projectId with no view asks where to go (home/OpenChoice.tsx).
 
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, ApiError, errorMessage, isStatus, setUnauthorizedHandler } from './api';
@@ -14,9 +15,10 @@ import { Icon } from './components/Icon';
 import { Toaster } from './components/Toast';
 import { UpdateReminder } from './components/UpdateReminder';
 import { guardHubStorage, pageTitle, setInstance } from './lib/instance';
-import { navigate, parseRoute, usePath } from './lib/router';
+import { isEntryLink, navigate, parseRoute, useEntryTaken, usePath } from './lib/router';
 import type { Me } from './lib/types';
 import { DevicesPage } from './pages/Devices';
+import { EntryChoice, OpenChoiceHost } from './home/OpenChoice';
 import { HomePage } from './pages/Home';
 import { LoginPage } from './pages/Login';
 import { MachinesPage } from './pages/Machines';
@@ -41,6 +43,8 @@ type Boot =
 
 // The board (React Flow + xterm + tiles) is the heaviest part of the app: load it on demand.
 const BoardPage = lazy(() => import('./pages/Board').then((m) => ({ default: m.BoardPage })));
+// The Code view: the project's editor full screen, on a board's context with no canvas drawn.
+const CodeViewPage = lazy(() => import('./studio/code/CodeViewPage'));
 const MemoryPageLazy = lazy(() => loadMemoryPage().then((m) => ({ default: m.MemoryPage })));
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })));
 const PrintPage = lazy(() => import('./studio/print/PrintPage'));
@@ -67,6 +71,8 @@ function PageLoading() {
 
 export function App() {
   const path = usePath();
+  // a link with no view, once answered, is the board page's (home/OpenChoice.tsx EntryChoice)
+  const entryTaken = useEntryTaken();
   const [boot, setBoot] = useState<Boot>({ kind: 'loading' });
   // Page the user asked for before being sent to /login; restored after login.
   const returnTo = useRef(
@@ -240,11 +246,20 @@ export function App() {
               </Suspense>
             ) : route.page === 'board' ? (
               <Suspense fallback={<PageLoading />}>
-                <BoardPage projectId={route.projectId} workspaceId={route.workspaceId} />
+                {!route.workspaceId && !entryTaken && isEntryLink(route.projectId) ? (
+                  <EntryChoice projectId={route.projectId} />
+                ) : (
+                  <BoardPage projectId={route.projectId} workspaceId={route.workspaceId} />
+                )}
+              </Suspense>
+            ) : route.page === 'code' ? (
+              <Suspense fallback={<PageLoading />}>
+                <CodeViewPage projectId={route.projectId} />
               </Suspense>
             ) : (
               <HomePage />
             )}
+            {route.page !== 'print' && <OpenChoiceHost />}
             {route.page !== 'print' && (
               <Suspense fallback={null}>
                 <CredentialRequests />

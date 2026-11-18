@@ -990,8 +990,13 @@ export interface Settings {
   usage?: { background: boolean; agents?: Record<string, boolean>; chime: { enabled: boolean; play: 'after100' | 'always'; sound: 'bell' | 'chime' | 'pop' | 'soft' } };
   runner?: { defaultAgent: 'claude' | 'codex' | string; /** hidden runs through this API provider; absent = the login */ provider?: string };
   git?: { commitWithRunner: boolean };
+  /** Choices of the web app every browser follows (docs/API-agents.md §11). */
+  ui?: { openProjectsIn: OpenProjectsIn };
   [key: string]: unknown;
 }
+
+/** Where opening a project goes: "" asks each time, else that view. */
+export type OpenProjectsIn = '' | 'board' | 'code';
 
 export type AttentionKind = 'needsYou' | 'finished' | 'error' | string;
 

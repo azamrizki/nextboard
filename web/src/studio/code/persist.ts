@@ -5,12 +5,20 @@
 // From v: 2 every path in it is a FileKey (paths.ts). Without a version the paths are absolute on
 // the machine of the part the state was saved for: on This PC a key is the path itself, so a
 // single-part local project reads today's state as is.
+//
+// The groups' layout (grid.ts) is kept apart from the paths' version: `grid: { v: 2, root }`.
+// A state without it is from the days of one row of at most three groups (layout v1), and is read
+// as that row on the grid (readLayout).
 
+import { fromRow, fromSaved, leaves, prune, readSaved, toSaved, type SavedGrid } from './grid';
 import { asFileKey, cleanAbs, fileKey, keyUnder, PERSIST_VERSION, storedPaths, type FileKey } from './paths';
+import { isToolKind, type ToolKind } from './toolKinds';
 
 export type SideView = 'files' | 'search' | 'scm' | 'review' | 'debug' | 'laravel' | 'extensions' | 'agents' | 'settings';
 export type PanelView = 'terminal' | 'problems' | 'output' | 'debug' | 'tasks' | 'ports';
 export type MdView = 'reader' | 'split' | 'source';
+/** The code view's right side bar: the lead, the Agents list, or a pane put there. */
+export type RightTab = 'lead' | 'agents' | 'pane';
 
 export interface SearchState {
   query: string;
@@ -24,19 +32,31 @@ export interface SearchState {
 
 export const DEFAULT_SEARCH: SearchState = { query: '', replace: '', matchCase: false, wholeWord: false, regex: false, include: '', exclude: '' };
 
-export const MAX_GROUPS = 3;
+/** Editor groups: four at most, two by two (grid.ts). */
+export const MAX_GROUPS = 4;
+/** The version of the saved groups' layout: 2 is the grid; none is the row before it. */
+export const LAYOUT_VERSION = 2;
 export const MAX_RECENT = 50;
 /** The most tabs the first Root open takes over from the part states. */
 export const MAX_MERGED_TABS = 40;
 
 export interface PersistedTab {
-  /** A key ("" for a pane). */
+  /** A key ("" for a pane or a tool). */
   path: string;
   preview: boolean;
   pane?: string;
+  /** A tool of the code view (toolKinds.ts), with its argument (a browser's address). */
+  tool?: { kind: ToolKind; arg?: string };
+  /** Of a pane: a board's console shown in the editor (its close never stops it). */
+  board?: boolean;
   /** Saved only when set: a state from before pins and locks reads as neither. */
   pinned?: boolean;
   locked?: boolean;
+}
+
+export interface PersistedGroup {
+  tabs: PersistedTab[];
+  active: string | null;
 }
 
 /** The pin and the lock of a saved tab, only those that are set. */
@@ -45,8 +65,10 @@ const flagsOf = (t: Partial<PersistedTab>): Pick<PersistedTab, 'pinned' | 'locke
 export interface Persisted {
   /** PERSIST_VERSION: the paths are FileKeys. */
   v?: number;
-  groups: { tabs: PersistedTab[]; active: string | null }[];
+  groups: PersistedGroup[];
   activeGroup: number;
+  /** Where the groups lie (LAYOUT_VERSION): leaves are indices into `groups`. */
+  grid?: { v: number; root: SavedGrid };
   expanded: string[];
   side: SideView;
   sideOpen: boolean;
@@ -65,6 +87,9 @@ export interface Persisted {
   rightW: number;
   rightPanes: string[];
   rightActive: string;
+  rightTab?: RightTab;
+  /** The view has had a terminal: the panel no longer starts one by itself. */
+  hadTerminal?: boolean;
   /** Root card: the part the Debug view runs in (an id). */
   debugPart?: string;
 }
@@ -98,11 +123,15 @@ export interface SavedDebug {
 }
 
 const PANE = 'pane:';
+const TOOL = 'tool:';
 
-/** The key of a saved tab id: panes stay as they are, a diff (never saved) goes. */
+/** The id of a tool's tab: one per kind, a browser one per address (workspace.ts openTool). */
+export const toolTabId = (kind: ToolKind, arg?: string) => (kind === 'browser' ? `${TOOL}${kind}:${arg ?? ''}` : `${TOOL}${kind}`);
+
+/** The key of a saved tab id: panes and tools stay as they are, a diff (never saved) goes. */
 function readTabId(raw: string | null | undefined, read: (raw: string) => FileKey | null): string | null {
   if (!raw) return null;
-  if (raw.startsWith(PANE)) return raw;
+  if (raw.startsWith(PANE) || raw.startsWith(TOOL)) return raw;
   if (raw.startsWith('diff:')) return null;
   return read(raw);
 }
@@ -118,7 +147,8 @@ export function readState(saved: Partial<Persisted> | null | undefined, legacyMa
   const groups = (Array.isArray(s.groups) ? s.groups : []).map((g) => ({
     tabs: (Array.isArray(g?.tabs) ? g.tabs : []).flatMap((t): PersistedTab[] => {
       if (!t || typeof t !== 'object') return [];
-      if (t.pane) return [{ path: '', preview: false, pane: t.pane, ...flagsOf(t) }];
+      if (t.pane) return [{ path: '', preview: false, pane: t.pane, ...(t.board === true ? { board: true } : {}), ...flagsOf(t) }];
+      if (t.tool) return isToolKind(t.tool.kind) ? [{ path: '', preview: false, tool: { kind: t.tool.kind, ...(typeof t.tool.arg === 'string' && t.tool.arg ? { arg: t.tool.arg } : {}) }, ...flagsOf(t) }] : [];
       const k = typeof t.path === 'string' ? read(t.path) : null;
       return k ? [{ path: k, preview: !!t.preview, ...flagsOf(t) }] : [];
     }),
@@ -159,7 +189,27 @@ export function readDebug(saved: Partial<SavedDebug> | null | undefined, machine
 
 /** Every file path a state names (tabs, then expanded folders), as keys. */
 function pathsOf(s: ReadState): FileKey[] {
-  return [...(s.groups ?? []).flatMap((g) => g.tabs.flatMap((t) => (t.pane ? [] : [t.path as FileKey]))), ...((s.expanded ?? []) as FileKey[])];
+  return [...(s.groups ?? []).flatMap((g) => g.tabs.flatMap((t) => (t.pane || t.tool || !t.path ? [] : [t.path as FileKey]))), ...((s.expanded ?? []) as FileKey[])];
+}
+
+/**
+ * The groups a view opens with, and where they lie: the groups with tabs (four at most), in the
+ * layout's reading order, the layout over them, and the index of the active one. A state without
+ * a layout (v1: one row) puts its groups on the grid as fromRow does; a layout that does not
+ * match its groups is read the same way. Null when no group has a tab.
+ */
+export function readLayout(s: Pick<Partial<Persisted>, 'groups' | 'grid' | 'activeGroup'>): { groups: PersistedGroup[]; grid: SavedGrid; activeGroup: number } | null {
+  const all = Array.isArray(s.groups) ? s.groups : [];
+  const ids = all.map((_, i) => String(i));
+  const withTabs = new Set(ids.filter((_, i) => all[i]?.tabs?.length));
+  if (!withTabs.size) return null;
+  const saved = s.grid && s.grid.v === LAYOUT_VERSION ? readSaved(s.grid.root, all.length) : null;
+  const tree = saved ? prune(fromSaved(saved, ids), withTabs) : fromRow([...withTabs].slice(0, MAX_GROUPS));
+  if (!tree) return null;
+  const order = leaves(tree);
+  const groups = order.map((i) => all[Number(i)]);
+  const active = order.indexOf(String(s.activeGroup ?? 0));
+  return { groups, grid: toSaved(tree, order), activeGroup: Math.max(0, active) };
 }
 
 /**
@@ -200,7 +250,7 @@ export function mergeLegacy(states: ReadState[], roots: FileKey[]): ReadState {
   const base: ReadState = { ...(withTabs ?? states[0] ?? {}), v: PERSIST_VERSION };
   const groups = (base.groups ?? []).filter((g) => g.tabs.length).slice(0, MAX_GROUPS).map((g) => ({ tabs: [...g.tabs], active: g.active }));
   if (!groups.length) groups.push({ tabs: [], active: null });
-  const tabId = (t: PersistedTab) => (t.pane ? `${PANE}${t.pane}` : t.path);
+  const tabId = (t: PersistedTab) => (t.pane ? `${PANE}${t.pane}` : t.tool ? toolTabId(t.tool.kind, t.tool.arg) : t.path);
   const taken = new Set(groups.flatMap((g) => g.tabs.map(tabId)));
   let count = taken.size;
   for (const s of states) {
@@ -231,7 +281,8 @@ export function mergeLegacy(states: ReadState[], roots: FileKey[]): ReadState {
     states.flatMap((s) => s.rightPanes ?? []),
     (t) => t,
   );
-  return { ...base, groups, activeGroup: Math.min(base.activeGroup ?? 0, groups.length - 1), expanded, recent, md, terminals, rightPanes };
+  // the groups were filtered and others' tabs joined the first: a saved layout no longer matches them
+  return { ...base, groups, grid: undefined, activeGroup: Math.min(base.activeGroup ?? 0, groups.length - 1), expanded, recent, md, terminals, rightPanes };
 }
 
 /** Bookmarks of several old states as one list (deduplicated). */

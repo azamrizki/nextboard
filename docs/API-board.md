@@ -60,6 +60,8 @@ The old `GET/PUT /api/board` endpoint is **removed** (replaced by a board per wo
 | PATCH | `/api/workspaces/{id}` | `{"name"?, "index"?}` | `Workspace` (`index` = the new tab position) |
 | DELETE | `/api/workspaces/{id}` | — | `{"ok":true}`; the workspace's sessions are stopped & deleted, the board is archived, desktop apps that show only on that board are closed. A project's last workspace cannot be deleted (`409`). |
 
+**Opening a project (web).** `/p/<id>/w/<workspace>` is a board, `/p/<id>/code` the project's Code view (its editor full screen, bound to the board opened last, DESIGN.md §3.19). Where a Home card, the project menu or a link `/p/<id>` with no view goes is the hub setting `ui.openProjectsIn` (API-agents.md §11): `""` asks, `"board"`, `"code"`. Opening either view sends `PATCH /api/projects/{id}` with `opened:true`.
+
 **Project groups and tags.** A group is a tree of names above projects, a tag is a word on a project. Both only arrange the list: a project's id, folder, boards and terminals do not change with them.
 
 ```jsonc

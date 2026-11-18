@@ -54,7 +54,8 @@ function usePartDoc(projectId: string, slug: string | undefined) {
   return { doc: doc && doc.slug === slug ? doc : null, error, reload: () => setNonce((n) => n + 1) };
 }
 
-export default function MemoryPanel({ project, onClose, onAddCard }: { project: Project; onClose: () => void; onAddCard: () => void }) {
+/** `onAddCard`: where a board is drawn, a button adds a memory tile to it. */
+export default function MemoryPanel({ project, onClose, onAddCard }: { project: Project; onClose: () => void; onAddCard?: () => void }) {
   const mem = useMemoryDoc(project.id);
   const [scope, setScope] = useState<Scope>('project');
   const parts = usePartMemories(project.id);
@@ -388,9 +389,11 @@ export default function MemoryPanel({ project, onClose, onAddCard }: { project: 
               <Button size="sm" variant="primary" icon="send" onClick={() => setSending(true)}>
                 Send to agents…
               </Button>
-              <Button size="sm" icon="plus" onClick={onAddCard}>
-                Add memory tile
-              </Button>
+              {onAddCard && (
+                <Button size="sm" icon="plus" onClick={onAddCard}>
+                  Add memory tile
+                </Button>
+              )}
             </div>
           </section>
           {sending && (

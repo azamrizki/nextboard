@@ -174,6 +174,16 @@ type Editor struct {
 	OnSave []OnSaveRule `json:"onSave"`
 }
 
+// UI holds choices of the web app that every browser follows, so they live on the hub.
+type UI struct {
+	// OpenProjectsIn is where opening a project goes (docs/API-agents.md §11): "" asks each time,
+	// "board" opens its board, "code" its Code view.
+	OpenProjectsIn string `json:"openProjectsIn"`
+}
+
+// OpenProjectsIn are the values ui.openProjectsIn may take.
+var OpenProjectsIn = map[string]bool{"": true, "board": true, "code": true}
+
 // Settings is the whole document.
 type Settings struct {
 	SchemaVersion int           `json:"schemaVersion"`
@@ -189,6 +199,7 @@ type Settings struct {
 	Git           Git           `json:"git"`
 	Usage         Usage         `json:"usage"`
 	Editor        Editor        `json:"editor"`
+	UI            UI            `json:"ui"`
 }
 
 // Defaults returns the document with every default.
@@ -319,7 +330,8 @@ func clone(v Settings) Settings {
 const maxOnSaveRules = 50
 
 var topLevel = map[string]bool{"schemaVersion": true, "lead": true, "agents": true, "notifications": true, "shortcuts": true, "runner": true,
-	"delivery": true, "commands": true, "memory": true, "previews": true, "git": true, "usage": true, "editor": true}
+	"delivery": true, "commands": true, "memory": true, "previews": true, "git": true, "usage": true, "editor": true,
+	"ui": true}
 
 // Patch applies a JSON Merge Patch and returns the full new document.
 func (s *Store) Patch(patch []byte) (Settings, error) {
@@ -434,6 +446,9 @@ func validate(s *Settings) error {
 	}
 	if s.SchemaVersion != 1 {
 		return badSetting("schemaVersion must be 1")
+	}
+	if !OpenProjectsIn[s.UI.OpenProjectsIn] {
+		return badSetting(`ui.openProjectsIn must be "", "board" or "code"`)
 	}
 	if s.Editor.OnSave == nil {
 		s.Editor.OnSave = []OnSaveRule{}

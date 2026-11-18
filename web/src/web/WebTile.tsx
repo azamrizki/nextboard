@@ -605,7 +605,7 @@ export const WebTile = memo(WebTileImpl);
  * Empty tile: dial of common dev ports on the project's machine + an address bar. In a project of
  * several parts it asks which part's dev server (its machine is probed).
  */
-function PortDial({
+export function PortDial({
   machineId,
   onPick,
   parts,

@@ -42,11 +42,12 @@ const placeOf = (p: ProjectPart) => `${p.id}\n${p.machineId || 'local'}\n${p.pat
 type View = 'reading' | 'source' | 'graph';
 interface Props {
   project: Project;
-  ctl: BoardController;
+  /** The board a note can go on as a live card; without one (a tool tab of the code view) there is no Add to board. */
+  ctl?: BoardController;
   initialPath?: string;
   /** The part to read first (initialPath's part); absent: the part placed in last, else one on This PC, else the first. */
   partId?: string;
-  viewCenter: () => { x: number; y: number };
+  viewCenter?: () => { x: number; y: number };
   onClose: () => void;
 }
 
@@ -271,6 +272,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, partId, view
   };
 
   const addToBoard = (file: MdFile) => {
+    if (!ctl || !viewCenter) return;
     const s = DEFAULT_SIZE.markdown;
     const rect = placeNear(ctl.nodes.filter((n) => n.kind !== 'ink').map(rectOf), viewCenter(), s.w, s.h);
     ctl.addNodes([ctl.make('file', rect, { machineId: mid, path: file.path, view: 'markdown' })]);
@@ -286,7 +288,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, partId, view
     if (file) {
       items.unshift(
         { label: 'Open', icon: 'eye', onSelect: () => open(file.path) },
-        { label: 'Add to board', icon: 'plus', onSelect: () => addToBoard(file) },
+        ...(ctl ? [{ label: 'Add to board', icon: 'plus' as const, onSelect: () => addToBoard(file) }] : []),
         { label: 'Rename…', icon: 'pencil', onSelect: () => setPrompt({ kind: 'rename', dir: dirOf(file.path), file, value: file.path.split('/').pop() ?? '' }) },
         { label: 'Duplicate…', icon: 'duplicate', onSelect: () => setPrompt({ kind: 'duplicate', dir: dirOf(file.path), file, value: (file.path.split('/').pop() ?? '').replace(/(\.\w+)$/, ' copy$1') }) },
         { label: 'Copy path', icon: 'link', onSelect: () => void navigator.clipboard?.writeText(file.path).then(() => toast.success('Path copied.')) },
@@ -401,7 +403,7 @@ export default function MarkdownStudio({ project, ctl, initialPath, partId, view
             {current && view !== 'graph' && (
               <>
                 <Button size="sm" variant="ghost" iconOnly icon="printer" aria-label="Export PDF" title="Export PDF" onClick={() => window.open(printMarkdownUrl(mid, current.path, 'a4'), '_blank', 'noopener')} />
-                <Button size="sm" variant="ghost" iconOnly icon="plus" aria-label="Add to board" title="Add to board (live card)" onClick={() => addToBoard(current)} />
+                {ctl && <Button size="sm" variant="ghost" iconOnly icon="plus" aria-label="Add to board" title="Add to board (live card)" onClick={() => addToBoard(current)} />}
               </>
             )}
           </div>

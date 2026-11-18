@@ -2,9 +2,14 @@
 // in the right side bar or as an editor tab. A console here is a normal session without a tile
 // on the board, so its status, its needs-you and the link to the editor work as for any other.
 // It starts in the card's part; a Root card asks: at the project root (every part) or in a part.
+//
+// The code view's right side bar (docs/API-studio.md §7.15) has two tabs instead: Lead, the project's main thread
+// with the Quick actions in its composer (LeadPane), and Agents, the project's consoles on every
+// board with "Open as tab" (AgentsList): one console, one more view of it.
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { api, errorMessage } from '../../api';
+import { AgentBadge } from '../../agents/AgentBadge';
 import { useEffectiveSettings } from '../../agents/settings';
 import { restartConsole } from '../../agents/actions';
 import { agentById, byPriority, useMachineAgents } from '../../agents/catalog';
@@ -18,8 +23,10 @@ import { Menu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
 import { prefs } from '../../lib/format';
 import { navigate } from '../../lib/router';
+import { useLayout } from '../../lib/layout';
 import type { Agent, BoardNode, Project, Session } from '../../lib/types';
-import { orchError, sendCommand } from '../../orch/actions';
+import { isAgentSession, killSessions, orchError, pauseAll, resumeAll, sendCommand } from '../../orch/actions';
+import { QuickActions, type QuickAction } from '../../orch/QuickActions';
 import { useStoreSessions } from '../../orch/hooks';
 import { localMentions } from '../../orch/mentions';
 import { AttachChips, useAttachments } from '../../orch/Attachments';
@@ -31,15 +38,18 @@ import { orchStore, useOrch } from '../../orch/store';
 import { ConfirmationCard, ThreadList } from '../../orch/ThreadView';
 import { store, useProject, useSession, useSessions, useStoreReady } from '../../store';
 import { PlacePicker } from '../../board/PlacePicker';
-import { isMultiPart, placeFromValue, placeValue } from '../../lib/placement';
-import { isRoot, type Placement } from '../../lib/parts';
+import { isMultiPart, placeFromValue, placeShort, placeValue } from '../../lib/placement';
+import { isRoot, placementOfSession, type Placement } from '../../lib/parts';
+import { showPane } from './pageSide';
 import { activeKey, defaultPlaceOf, rememberPlace, TerminalView } from './BottomPanel';
 import { fitsCard, offered, placeChoices, placeDir } from './partGroups';
 import { mountedPart } from './partGit';
 import { keyOfUri, LOCAL_MACHINE, type FileKey } from './paths';
 import { orderText, type AgentContext } from './SidePanels';
 import { useWs } from './useWs';
-import { nameOf, ORCHESTRATOR_PANE, type Workspace } from './workspace';
+import { isTerminalPane, nameOf, ORCHESTRATOR_PANE, type Workspace } from './workspace';
+import type { RightTab } from './persist';
+import '../../styles/code-side.css';
 import { Modal } from '../../components/Modal';
 import { LeadChatSwitcher, NewChatButton } from '../../chats/LeadChatSwitcher';
 import { ResumeChatList } from '../../chats/ResumeChatList';
@@ -231,6 +241,16 @@ export function PaneTitle({ ws, id }: { ws: Workspace; id: string }) {
       </>
     );
   }
+  // a terminal moved out of the panel: as the panel names it
+  if (s && s.agentKind !== 'agent') {
+    return (
+      <>
+        <Icon name="terminal" className="wb-icon" />
+        <span className="wb-tab-name truncate">{s.name || 'Terminal'}</span>
+        {s.status !== 'running' && s.status !== 'starting' && <span className="wb-tab-dir truncate">ended</span>}
+      </>
+    );
+  }
   const pill = s && agentPill(s);
   const agentName = s ? (agentById(s.agent || s.preset)?.name ?? s.name) : '';
   return (
@@ -324,7 +344,8 @@ function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
 
   return (
     <div className="wb-pane-console" ref={host}>
-      {s?.agentKind === 'agent' && <PaneLink session={s} />}
+      {/* a board's console takes orders as its tile does: no wire to this editor */}
+      {s?.agentKind === 'agent' && s.panel && <PaneLink session={s} />}
       {s?.status === 'exited' && (
         <div className="wb-pane-ended">
           <span className="truncate">This console has ended.</span>
@@ -365,7 +386,24 @@ function orderIdeas(context: AgentContext | null): string[] {
   return context ? [`Review ${context.label}`, `Write tests for ${context.label}`, `Explain ${context.label}`] : GENERAL_IDEAS;
 }
 
-function OrchestratorPane({ ws }: { ws: Workspace }) {
+/**
+ * The lead's thread and composer. The orchestrator pane picks the thread: the whole project, or
+ * an orchestrator card of the board. `main` is the code view's Lead: always the project's main
+ * thread (the command bar's), with the Quick actions in its composer.
+ */
+const ORCH_THREAD_EVENT = 'nb:orch-thread';
+
+/**
+ * Pick the thread of a board's orchestrator pane from elsewhere (the code view's Chats tab): ""
+ * is the project's, else an orchestrator card's id. Kept as the pane's own choice is, and a pane
+ * that is open already follows it.
+ */
+export function pickOrchestratorThread(workspaceId: string, cardId: string) {
+  prefs.set(`code.orchThread.${workspaceId}`, cardId);
+  window.dispatchEvent(new CustomEvent(ORCH_THREAD_EVENT, { detail: { workspaceId, cardId } }));
+}
+
+function LeadThread({ ws, main = false }: { ws: Workspace; main?: boolean }) {
   useWs(ws);
   useSyncExternalStore(ws.subscribeCursor, ws.getCursorVersion);
   const env = useContext(PaneEnv);
@@ -377,6 +415,16 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
   // the pane closes with the board, and this choice should not
   const threadPref = `code.orchThread.${ctl.workspaceId}`;
   const [cardId, setCardId] = useState(() => prefs.get(threadPref) ?? '');
+  // a thread picked elsewhere (pickOrchestratorThread) reaches this pane when it is open already
+  useEffect(() => {
+    if (main) return;
+    const pick = (e: Event) => {
+      const d = (e as CustomEvent<{ workspaceId: string; cardId: string }>).detail;
+      if (d?.workspaceId === ctl.workspaceId) setCardId(d.cardId);
+    };
+    window.addEventListener(ORCH_THREAD_EVENT, pick);
+    return () => window.removeEventListener(ORCH_THREAD_EVENT, pick);
+  }, [main, ctl.workspaceId]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const att = useAttachments(project.id);
@@ -390,7 +438,7 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
   const [reply, setReply] = useState<ReplyDraft | null>(null);
 
   const cards = doc.nodes.filter((n) => n.kind === 'orchestrator');
-  const card = cards.some((n) => n.id === cardId) ? cardId : '';
+  const card = !main && cards.some((n) => n.id === cardId) ? cardId : '';
   const cardTitle = doc.nodes.find((n) => n.id === card)?.data.title;
   const name = useLeadName(typeof cardTitle === 'string' ? cardTitle : undefined);
   const talkFirst = useTalkFirst();
@@ -422,7 +470,15 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
   }, [sessions, card, project, doc, ctl.workspaceId]);
   const shownTeam = team.filter((s) => s.handle).slice(0, TEAM_CHIPS);
   const consoles = `${team.length} ${team.length === 1 ? 'console' : 'consoles'}`;
-  const summary = !team.length ? (card ? 'No console is wired to this card yet' : 'No agent is running yet') : card ? `Directs ${consoles}` : `${consoles} on the team`;
+  const summary = main
+    ? `Lead · ${project.name}${team.length ? ` · ${team.length} ${team.length === 1 ? 'agent' : 'agents'}` : ''}`
+    : !team.length
+      ? card
+        ? 'No console is wired to this card yet'
+        : 'No agent is running yet'
+      : card
+        ? `Directs ${consoles}`
+        : `${consoles} on the team`;
 
   const fillIn = (t: string) => {
     setText(t);
@@ -454,7 +510,8 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
             {summary}
           </p>
         </div>
-        {cards.length > 0 && (
+        {main && <NewChatButton threadId={threadId} lead={name} />}
+        {!main && cards.length > 0 && (
           <select className="control control-sm wb-orch-thread" aria-label="Thread" value={card} onChange={(e) => { setCardId(e.target.value); prefs.set(threadPref, e.target.value); }}>
             <option value="">Whole project</option>
             {cards.map((n) => (
@@ -468,7 +525,7 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
       <div className="orch-chatbar wb-orch-chats">
         <LeadChatSwitcher threadId={threadId} lead={name} scope={card ? (typeof cardTitle === 'string' && cardTitle ? cardTitle : 'Orchestrator') : project.name} />
         <span className="spacer" />
-        <NewChatButton threadId={threadId} lead={name} />
+        {!main && <NewChatButton threadId={threadId} lead={name} />}
       </div>
       <div className="wb-agents-thread nowheel">
         <ThreadList
@@ -514,8 +571,9 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
             {team.length > TEAM_CHIPS && <span className="wb-orch-more">+{team.length - TEAM_CHIPS}</span>}
           </div>
         )}
-        <div className="orch-box wb-pane-input">
+        <div className={`orch-box wb-pane-input ${main ? 'has-fab' : ''}`}>
           <AttachChips att={att} inputRef={inputRef} />
+          {main && <LeadQuickActions ws={ws} />}
           <MentionInput
             projectId={project.id}
             workspaceId={ctl.workspaceId}
@@ -542,14 +600,292 @@ function OrchestratorPane({ ws }: { ws: Workspace }) {
   );
 }
 
+/**
+ * The Quick actions of the code view's Lead: the command bar's, less what only a drawn board has
+ * (layouts, arrange, groups): a new agent as a tab, the tools as tabs, pause, resume and kill.
+ */
+function LeadQuickActions({ ws }: { ws: Workspace }) {
+  const env = useContext(PaneEnv);
+  const project = env!.project;
+  const workspaceId = env!.ctl.workspaceId;
+  const choices = usePaneChoices(ws, workspaceId);
+  const sessions = useSessions();
+  const [killArm, setKillArm] = useState(false);
+  const [killConfirm, setKillConfirm] = useState(false);
+  const mine = sessions.filter((s) => s.projectId === project.id);
+  const anyPaused = mine.some((s) => isAgentSession(s) && s.status === 'running' && s.paused);
+  const live = mine.filter((s) => s.status !== 'exited');
+  const boardIds = (project.workspaces ?? []).map((w) => w.id);
+  const first = choices.agents[0];
+  const actions: QuickAction[] = [
+    ...(first ? [{ id: 'new', label: 'New agent', title: `Start ${first.name} in a new editor tab`, onClick: () => void startAgentPane(ws, workspaceId, first, 'tab', undefined, choices.card) }] : []),
+    { id: 'chats', label: 'Chats', onClick: () => ws.openTool('chats') },
+    { id: 'memory', label: 'Memory', onClick: () => ws.openTool('memory') },
+    { id: 'loops', label: 'Loops', onClick: () => ws.openTool('loops') },
+    { id: 'mission', label: 'Mission Map', onClick: () => ws.openTool('mission') },
+    { id: 'pause', label: 'Pause all', title: 'Stop every agent on every board until you resume', onClick: () => void pauseAll(boardIds) },
+    { id: 'resume', label: 'Resume all', pressed: anyPaused, title: 'Resume paused agents on every board', onClick: () => void resumeAll(boardIds) },
+    {
+      id: 'kill',
+      label: killArm ? 'Click again to kill all' : 'Kill all',
+      danger: true,
+      armed: killArm,
+      keepOpen: !killArm,
+      title: 'Two clicks, then a confirmation',
+      onClick: () => {
+        if (killArm) {
+          setKillArm(false);
+          setKillConfirm(true);
+        } else {
+          setKillArm(true);
+          window.setTimeout(() => setKillArm(false), 4000);
+        }
+      },
+    },
+  ];
+  return (
+    <>
+      <QuickActions actions={actions} dot={anyPaused} title="Quick actions: a new agent, the tools, pause, resume" className="wb-lead-fab" />
+      {killConfirm && (
+        <ConfirmDialog title="Kill every console in this project?" confirmLabel={`Kill ${live.length === 1 ? '1 console' : `${live.length} consoles`}`} danger onClose={() => setKillConfirm(false)} onConfirm={() => killSessions(mine)}>
+          <p>All running processes on every board of this project stop. The tiles stay, marked DONE; restart them from their menus.</p>
+        </ConfirmDialog>
+      )}
+    </>
+  );
+}
+
+/** The editor's orchestrator pane: the whole project's thread or a card's, picked in its head. */
+function OrchestratorPane({ ws }: { ws: Workspace }) {
+  return <LeadThread ws={ws} />;
+}
+
+/** The code view's Lead (contract: LeadPane): the project's main thread, its chats, and the Quick actions. */
+export function LeadPane({ ws }: { ws: Workspace }) {
+  if (!useContext(PaneEnv)) return null;
+  return (
+    <div className="wb-lead-pane">
+      <LeadThread ws={ws} main />
+    </div>
+  );
+}
+
 /** What a pane shows, in the side bar and in a tab alike. */
 export function PaneBody({ ws, id }: { ws: Workspace; id: string }) {
   return id === ORCHESTRATOR_PANE ? <OrchestratorPane ws={ws} /> : <ConsolePane ws={ws} id={id} />;
 }
 
-/** The right side bar. */
-export function AgentSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) {
+const STATE_TONE: Record<string, string> = { success: 'badge-success', warning: 'badge-warning', danger: 'badge-danger', info: 'badge-info' };
+
+/** Show a console as a tab here; one asleep starts waking at once, before its terminal connects. */
+function openAsTab(ws: Workspace, s: Session) {
+  if (s.status === 'asleep') {
+    void api
+      .wakeSession(s.id)
+      .then((woke) => store.upsertSession(woke))
+      .catch(() => undefined);
+  }
+  ws.openPane(s.id);
+}
+
+/** One console of the Agents list: who, which agent and where, its state, and its tab. */
+function AgentRow({ ws, s, place, onOpen }: { ws: Workspace; s: Session; place: string; onOpen?: (id: string) => void }) {
+  const pill = agentPill(s);
+  const agent = agentById(s.agent || s.preset);
+  const at = ws.paneTabAt(s.id);
+  const showing = !!at && ws.groups[at.gi]?.active === at.tab.id;
+  const name = s.handle ? `@${s.handle}` : s.name;
+  // a phone has no side bar: one put there opens as a tab instead
+  const phone = useLayout().layout === 'phone';
+  const inSide = !at && !phone && ws.rightPanes.includes(s.id);
+  return (
+    <li className={`wb-agent-row ${showing ? 'is-showing' : ''}`}>
+      <AgentBadge agent={agent} />
+      <span className="wb-agent-who">
+        <span className="wb-agent-name truncate">{name}</span>
+        <span className="wb-agent-sub truncate">{[agent?.name ?? s.name, place].filter(Boolean).join(' · ')}</span>
+      </span>
+      <span className={`badge ${STATE_TONE[pill.tone] ?? ''} wb-agent-state`} title={pill.detail}>
+        {pill.label}
+      </span>
+      <Button
+        size="sm"
+        variant={showing ? 'secondary' : 'ghost'}
+        aria-label={showing ? `${name} is showing` : at || inSide ? `Show ${name}` : `Open ${name} as a tab`}
+        onClick={() => {
+          if (inSide) showPane(ws, s.id);
+          else openAsTab(ws, s);
+          onOpen?.(s.id);
+        }}
+      >
+        {showing ? 'Showing' : at || inSide ? 'Show' : 'Open as tab'}
+      </Button>
+    </li>
+  );
+}
+
+/**
+ * The code view's Agents (contract: AgentsList): the project's agents on every board, by board,
+ * with their part (or Root) and state, each with "Open as tab": the same console, one more view
+ * of it, woken when it sleeps; closing the tab leaves it running. Then the agents opened in this
+ * editor, and a new one. `onOpen` follows a row's button (a phone's sheet closes).
+ */
+export function AgentsList({ ws, onOpen }: { ws: Workspace; onOpen?: (id: string) => void }) {
   useWs(ws);
+  const env = useContext(PaneEnv);
+  const workspaceId = env?.ctl.workspaceId ?? '';
+  const project = useProject(ws.projectId);
+  const sessions = useSessions();
+  const choices = usePaneChoices(ws, workspaceId);
+  if (!project) return null;
+  const multi = isMultiPart(project);
+  const placeOf = (s: Session) => {
+    if (!multi) return '';
+    const p = placementOfSession(s, project);
+    return p ? placeShort(project, p) : '';
+  };
+  const onBoards = sessions.filter((s) => s.projectId === project.id && !s.panel && s.agentKind === 'agent');
+  const boards = project.workspaces ?? [];
+  const sections = [
+    ...boards.map((b) => ({ id: b.id, title: boards.length > 1 || b.name ? `On the board · ${b.name}` : 'On the board', items: onBoards.filter((s) => s.workspaceId === b.id) })),
+    { id: '', title: 'On other boards', items: onBoards.filter((s) => !boards.some((b) => b.id === s.workspaceId)) },
+  ].filter((x) => x.items.length);
+  // this editor's own agents: with a pane here, or started here and not shown (another browser)
+  const ownIds = [...new Set([...ws.paneConsoles, ...choices.unplaced.map((s) => s.id)])];
+  const own = ownIds.flatMap((id) => {
+    const s = sessions.find((x) => x.id === id);
+    return s && s.panel && s.agentKind === 'agent' ? [s] : [];
+  });
+  return (
+    <div className="wb-agents-list nowheel" aria-label="Agents">
+      {sections.map((sec) => (
+        <section key={sec.id || '@other'} className="wb-agents-section">
+          <h3 className="wb-section-title">{sec.title}</h3>
+          <ul>
+            {sec.items.map((s) => (
+              <AgentRow key={s.id} ws={ws} s={s} place={placeOf(s)} onOpen={onOpen} />
+            ))}
+          </ul>
+        </section>
+      ))}
+      {!sections.length && <p className="wb-agents-empty text-3">No agent runs on this project’s boards yet.</p>}
+      {own.length > 0 && (
+        <section className="wb-agents-section">
+          <h3 className="wb-section-title">Opened in this editor</h3>
+          <ul>
+            {own.map((s) => (
+              <AgentRow key={s.id} ws={ws} s={s} place={placeOf(s)} onOpen={onOpen} />
+            ))}
+          </ul>
+        </section>
+      )}
+      <div className="wb-agents-new">
+        <Menu label="Start an agent in a new tab" icon="plus" triggerLabel="New agent" triggerClassName="btn btn-secondary btn-sm wb-agents-new-btn" items={agentMenu(ws, workspaceId, choices, 'tab')} />
+      </div>
+    </div>
+  );
+}
+
+/** The code view's right side bar: Lead | Agents, then a pane put there (an agent's menu "in the side bar"). */
+function PageSideBar({ ws }: { ws: Workspace }) {
+  const sessions = useSessions();
+  const uid = useId();
+  const tabId = (t: string) => `${uid}-tab-${t}`;
+  const panelId = `${uid}-panel`;
+  const agents = sessions.filter((s) => s.projectId === ws.projectId && s.agentKind === 'agent' && s.status !== 'exited' && (!s.panel || ws.paneConsoles.includes(s.id))).length;
+  const pane = ws.rightPanes.includes(ws.rightActive) ? ws.rightActive : ws.rightPanes[0];
+  const tab: RightTab = ws.rightTab === 'pane' && !pane ? 'lead' : ws.rightTab;
+  const show = (t: RightTab, id?: string) => {
+    ws.rightTab = t;
+    if (id) ws.rightActive = id;
+    ws.changed();
+  };
+  const tabButton = (t: RightTab, label: string, count?: number) => (
+    <button type="button" role="tab" id={tabId(t)} aria-selected={tab === t} aria-controls={panelId} tabIndex={tab === t ? 0 : -1} className="segmented-item wb-side-tab" onClick={() => show(t)}>
+      {label}
+      {count ? <span className="tabular">{` · ${count}`}</span> : null}
+    </button>
+  );
+  return (
+    <aside className="wb-right is-page" style={{ width: ws.rightW }} aria-label="Lead and agents">
+      <div
+        className="wb-tabs wb-right-tabs"
+        role="tablist"
+        aria-label="Side bar"
+        onKeyDown={(e) => {
+          // the arrows move along the tabs, and the one reached shows
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+          const tabs = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')];
+          const i = tabs.indexOf(document.activeElement as HTMLElement);
+          if (i < 0) return;
+          e.preventDefault();
+          const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+          next.focus();
+          next.click();
+        }}
+      >
+        <div className="segmented sm wb-side-tabs">
+          {tabButton('lead', 'Lead')}
+          {tabButton('agents', 'Agents', agents)}
+        </div>
+        {ws.rightPanes.map((id) => (
+          <div
+            key={id}
+            role="tab"
+            id={tabId(`pane-${id}`)}
+            tabIndex={tab === 'pane' && id === pane ? 0 : -1}
+            aria-selected={tab === 'pane' && id === pane}
+            aria-controls={panelId}
+            className={`wb-tab ${tab === 'pane' && id === pane ? 'is-active' : ''}`}
+            onClick={() => show('pane', id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                show('pane', id);
+              }
+            }}
+          >
+            <PaneTitle ws={ws} id={id} />
+            <button
+              type="button"
+              className="wb-tab-close"
+              aria-label={id === ORCHESTRATOR_PANE ? 'Close the orchestrator' : 'Close this console'}
+              title="Close"
+              onClick={(e) => {
+                e.stopPropagation();
+                ws.askClosePane(id);
+              }}
+            >
+              <Icon name="close" />
+            </button>
+          </div>
+        ))}
+        <span className="spacer" />
+        <div className="wb-tabs-tools">
+          {tab === 'pane' && pane && <Button size="sm" variant="ghost" iconOnly icon="external" aria-label="Move to an editor tab" title="Move to an editor tab" onClick={() => ws.placePane(pane, 'tab')} />}
+          <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Hide the side bar" title="Hide · Ctrl+Alt+B (agents keep running)" onClick={() => ((ws.rightOpen = false), ws.changed())} />
+        </div>
+      </div>
+      <div className="wb-right-body" role="tabpanel" id={panelId} aria-labelledby={tabId(tab === 'pane' ? `pane-${pane}` : tab)}>
+        {tab === 'lead' ? <LeadPane ws={ws} /> : tab === 'agents' ? <AgentsList ws={ws} /> : pane ? <PaneBody key={pane} ws={ws} id={pane} /> : null}
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * The right side bar. In an editor card: the agents and the orchestrator put there, as tabs. In
+ * the code view (`page`; without it, a context with no card node is the code view): Lead | Agents.
+ */
+export function AgentSideBar({ ws, workspaceId, page }: { ws: Workspace; workspaceId: string; page?: boolean }) {
+  useWs(ws);
+  const env = useContext(PaneEnv);
+  if (page ?? env?.nodeId === '') return <PageSideBar ws={ws} />;
+  return <CardSideBar ws={ws} workspaceId={workspaceId} />;
+}
+
+/** An editor card's right side bar (as before the code view). */
+function CardSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) {
   const choices = usePaneChoices(ws, workspaceId);
   const project = useProject(ws.projectId);
   const active = ws.rightPanes.includes(ws.rightActive) ? ws.rightActive : ws.rightPanes[0];
@@ -626,7 +962,7 @@ export function AgentSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: 
   );
 }
 
-/** "Stop this agent?" for a console's pane. */
+/** "Stop this agent?" for a console's pane; "Kill this terminal?" for a terminal's tab. */
 export function ClosePaneDialog({ ws }: { ws: Workspace }) {
   useWs(ws);
   const id = ws.closingPane;
@@ -637,6 +973,22 @@ export function ClosePaneDialog({ ws }: { ws: Workspace }) {
     ws.changed();
   };
   const name = paneLabel(id, s);
+  if (isTerminalPane(id)) {
+    return (
+      <ConfirmDialog
+        title={`Kill ${s?.name || 'this terminal'}?`}
+        confirmLabel="Kill terminal"
+        danger
+        onClose={close}
+        onConfirm={() => {
+          ws.forgetPane(id);
+          void api.deleteSession(id).catch((err) => toast.error(`Could not kill the terminal: ${errorMessage(err)}`));
+        }}
+      >
+        <p>The shell and whatever runs in it stop. Move it to the panel instead to keep it.</p>
+      </ConfirmDialog>
+    );
+  }
   return (
     <ConfirmDialog
       title={`Stop ${name}?`}

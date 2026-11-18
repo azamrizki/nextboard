@@ -1,0 +1,120 @@
+/* The Code editor's split grid (EditorArea.tsx, grid.ts, docs/API-studio.md §7.15): up to four
+   groups placed by their share of the area, 1 px sashes between them, and the drop zones a
+   dragged tab shows. Groups keep their place in the page while they move on screen, so what
+   they show (an editor, a console, a page) is never made again by a split. */
+
+.wb-editors.wb-grid {
+  position: relative;
+  display: block;
+}
+.wb-grid > .wb-group-slot {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.wb-grid > .wb-grid-sash {
+  position: absolute;
+}
+.wb-grid > .wb-grid-sash.wb-sash-v {
+  width: 1px;
+}
+.wb-grid > .wb-grid-sash.wb-sash-h {
+  height: 1px;
+}
+/* a narrow card, or a phone in any orientation (is-one-group, CodeStudio.tsx): the active group
+   alone, on the whole area */
+.wb:is(.is-narrow, .is-one-group) .wb-grid > .wb-group-slot.is-current {
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+}
+.wb:is(.is-narrow, .is-one-group) .wb-grid > .wb-group-slot:not(.is-current),
+.wb:is(.is-narrow, .is-one-group) .wb-grid > .wb-grid-sash {
+  display: none;
+}
+/* a sash being dragged: a page in a tab must not take the pointer on its way */
+.wb-sash-dragging iframe {
+  pointer-events: none;
+}
+.wb-sash-dragging {
+  user-select: none;
+}
+
+/* ---- drop zones: the half a split takes, or the whole group a tab joins ---- */
+/* (this file loads before workbench.css: its rules here are one class stronger) */
+.wb-grid .wb-group {
+  position: relative;
+}
+.wb-grid .wb-group.is-drop {
+  box-shadow: none;
+}
+.wb-drop-area {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+.wb-drop-zone {
+  position: absolute;
+  inset: var(--s-1);
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--text-2);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  transition: inset var(--t-fast) var(--ease);
+}
+.wb-drop-zone.is-left {
+  right: 50%;
+}
+.wb-drop-zone.is-right {
+  left: 50%;
+}
+.wb-drop-zone.is-top {
+  bottom: 50%;
+}
+.wb-drop-zone.is-bottom {
+  top: 50%;
+}
+.wb-drop-zone > span {
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--surface-solid);
+  box-shadow: var(--e-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-drop-zone {
+    transition: none;
+  }
+}
+
+/* the panel's terminal rows: move to the editor area, beside close */
+.wb-term-tab:hover .wb-term-move svg,
+.wb-term-tab.is-active .wb-term-move svg {
+  opacity: 1;
+}
+:root[data-input='touch'] .wb-term-move svg {
+  opacity: 1;
+}
+
+/* a tool tab kept mounted while another tab of its group shows */
+.wb-pane-tab[hidden] {
+  display: none !important;
+}
+
+/* New terminal, and the menu of the rest beside it */
+.wb-term-new {
+  display: flex;
+  align-items: center;
+}
+.wb-term-new > .btn {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+}

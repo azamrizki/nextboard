@@ -1,0 +1,236 @@
+/* =========================================================================
+   Tool tabs of the code view (studio/code/ToolTab.tsx, docs/API-studio.md §7): a board panel,
+   a studio, the vault or the browser filling an editor tab. The tab's width decides the
+   layout (a container), not the screen's: a tab in a split group on a desktop is narrow too.
+   ========================================================================= */
+
+.tool-tab {
+  --w-tool-col: 920px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  container: tooltab / inline-size;
+  background: var(--surface-solid);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+/* loading, a message, a tool that stopped */
+.tool-tab-msg {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  padding: var(--s-6);
+  text-align: center;
+  color: var(--text-2);
+}
+.tool-tab-msg > svg {
+  width: var(--size-icon-xl);
+  height: var(--size-icon-xl);
+  color: var(--text-3);
+}
+.tool-tab-msg p {
+  max-width: calc(var(--w-modal-sm) - var(--s-12));
+}
+
+/* a head of its own (the vault), like a panel's */
+.tool-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-5);
+  border-bottom: var(--hairline) solid var(--glass-border);
+}
+.tool-head > svg {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+  color: var(--text-2);
+}
+.tool-head h2 {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+}
+.tool-head-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* a note above a tool: where its results go */
+.tool-note {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin: 0;
+  padding: var(--s-2) var(--s-5);
+  border-bottom: var(--hairline) solid var(--glass-border);
+  background: var(--surface-input);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.tool-note > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  margin-top: 1px;
+  color: var(--text-3);
+}
+
+/* ---- a board panel in place: no glass, no fixed spot, the tab's height ---- */
+.tool-tab aside.side-panel {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  flex: 1 1 auto;
+  width: auto;
+  max-width: none;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  /* a readable column in a wide tab, the scroll bar at the tab's edge */
+  padding: var(--s-4) max(var(--s-5), calc((100% - var(--w-tool-col)) / 2)) var(--s-6);
+  overflow-y: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  animation: none;
+}
+/* the tab has its own close; Escape belongs to the editor */
+.tool-tab .side-panel-head > .btn[aria-label^='Close'] {
+  display: none;
+}
+
+/* ---- a dialog-shaped tool in place (Modal's ModalInline): Mission Map, the studios ---- */
+.tool-tab .modal-inline {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tool-tab .modal-inline > .modal-head {
+  padding: var(--s-3) var(--s-5);
+  touch-action: auto;
+}
+.tool-tab .modal-inline > .modal-head::before {
+  content: none;
+}
+.tool-tab .modal-inline > .modal-body {
+  padding: var(--s-4) var(--s-5);
+}
+.tool-tab .mission-modal > .modal-body {
+  overflow-y: auto;
+}
+.tool-tab .mm-body {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: calc(var(--s-12) * 6);
+}
+
+/* ---- the vault ---- */
+.tool-vault {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- the browser ---- */
+.tool-browser {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tool-browser .web-body {
+  flex: 1 1 auto;
+}
+/* the tab's address bar is on top: the dial's own address form would be a second one */
+.tool-browser .web-dial-form {
+  display: none;
+}
+.tool-browser .tool-browser-frame {
+  width: 100%;
+  height: 100%;
+}
+.tool-browser-bar .web-state {
+  flex: 0 0 auto;
+}
+.tool-browser-part {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 10rem;
+  height: var(--h-icon-btn-sm);
+  font-size: var(--fs-xs);
+}
+.tool-browser .app-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* ---- narrow tabs: a phone, a tablet held upright, a split group ---- */
+@container tooltab (max-width: 760px) {
+  .tool-tab .studio-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 32%) minmax(0, 1fr);
+  }
+  /* stacked, the rows keep to the top: stretched, they would move when the inspector grows */
+  .tool-tab .mm-body {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+  }
+  .tool-tab .mm-cols {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: var(--s-4);
+    overflow: visible;
+  }
+  /* the lines join columns side by side; stacked they would cross the boxes */
+  .tool-tab .mm-lines {
+    display: none;
+  }
+  .tool-tab .mm-filter {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+}
+@container tooltab (max-width: 520px) {
+  .tool-tab aside.side-panel,
+  .tool-tab .modal-inline > .modal-body {
+    padding-left: var(--s-3);
+    padding-right: var(--s-3);
+  }
+  .tool-head,
+  .tool-note,
+  .tool-tab .modal-inline > .modal-head {
+    padding-left: var(--s-3);
+    padding-right: var(--s-3);
+  }
+  .tool-browser-state,
+  .tool-head-meta {
+    display: none;
+  }
+  .tool-browser-bar .btn[aria-label='Forward'] {
+    display: none;
+  }
+}
+
+/* the code view's Drawing cards (tools/DiagramLander.tsx): under its top bar, not an app header */
+.page-code .drawing-cards {
+  top: calc(var(--safe-t) + 44px + var(--s-2));
+}

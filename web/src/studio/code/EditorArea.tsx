@@ -3,8 +3,14 @@
 // HEAD or the disk, Markdown as Reader/Split/Source, image and media preview, and the bars that
 // ask what to do when a file changed on disk. Inline AI edits (Ctrl+I) end in a diff to accept
 // or reject.
+//
+// The groups lie on a grid of up to four, two by two (grid.ts, docs/API-studio.md §7.15): a tab
+// dragged to a group's edge splits it there, Split Right / Split Down (Ctrl+\, Ctrl+K Ctrl+\)
+// do it from the tab, and the sashes between them are dragged. Under 640 px only the active
+// group shows. A tab can also be a console (an agent, a terminal, a board's agent) or a tool.
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
+import '../../styles/editor-grid.css';
 import { errorMessage } from '../../api';
 import { clipboardFiles } from '../../board/files';
 import { watchFileDrop } from '../../lib/fileDrop';
@@ -41,7 +47,10 @@ import type { PartSpecialView } from './contracts';
 import { mountedPart } from './partGit';
 import type { PartService } from './partsvc';
 import { asFileKey, cleanAbs, fileKey, splitKey, type FileKey } from './paths';
-import { dirOf, extOf, MARKDOWN_EXT, nameOf, type Doc, type Group, type MdView, type Tab, type Workspace } from './workspace';
+import { plan, type Edge, type GridBox, type GridPlan } from './grid';
+import ToolTab from './ToolTab';
+import { toolMeta } from './toolsList';
+import { dirOf, extOf, isTerminalPane, MARKDOWN_EXT, nameOf, type Doc, type Group, type MdView, type Tab, type Workspace } from './workspace';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
@@ -316,7 +325,8 @@ function MonacoView({ ws, group, gi, doc, tab }: { ws: Workspace; group: Group; 
     { label: 'Paste', shortcut: 'Ctrl+V', disabled: readOnly, onSelect: run('editor.action.clipboardPasteAction') },
     'sep',
     { label: 'Toggle Breakpoint', icon: 'bug', shortcut: 'F9', onSelect: () => { const l = edRef.current?.getPosition()?.lineNumber; if (l) ws.debug.toggleBreakpoint(doc.path, l); } },
-    { label: 'Add to Board', icon: 'plus', onSelect: () => ws.actions.addToBoard?.(doc.path) },
+    // not in the Code view, which has no board (DESIGN.md §3.19)
+    ...(ws.actions.addToBoard ? ([{ label: 'Add to Board', icon: 'plus', onSelect: () => ws.actions.addToBoard?.(doc.path) }] as MenuEntry[]) : []),
     { label: 'Local History', icon: 'history', onSelect: () => ws.openView({ kind: 'history', path: doc.path }) },
     { label: 'Toggle Bookmark', icon: 'bookmark', shortcut: 'Ctrl+Alt+K', onSelect: () => toggleBookmark(ws, doc.path, edRef.current?.getPosition()?.lineNumber ?? 1) },
     ...(hasNative('gitlens')
@@ -859,6 +869,7 @@ function PaneBody({ ws, group, gi, tab, doc }: { ws: Workspace; group: Group; gi
 }
 
 function tabLabel(ws: Workspace, tab: Tab, group: Group) {
+  if (tab.tool) return { name: toolMeta(tab.tool.kind, tab.tool.arg).title, dir: '' };
   // a Root card says which part a commit, a review, a history or a graph is of
   const part = ws.paths.multi ? (mountedPart(ws, tab.commit?.part ?? tab.view?.part)?.name ?? '') : '';
   if (tab.commit) return { name: tab.commit.label, dir: part };
@@ -897,16 +908,40 @@ function PartTab({ ws, partId, children }: { ws: Workspace; partId: string; chil
 
 const LOCKED_TIP = 'Locked: unlock it to close';
 
+/** A console tab's close button: an agent of this editor stops, a terminal is killed, a board's agent only leaves the editor. */
+const paneCloseLabel = (ws: Workspace, id: string) => (ws.isBoardPane(id) ? 'Close this tab' : isTerminalPane(id) ? 'Kill this terminal' : 'Close this agent');
+
+/** The tab being dragged now: a target cannot read the drag's data before the drop. */
+let dragging: { ws: Workspace; group: Group; id: string } | null = null;
+
 function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Group; gi: number; onAddFile: (p: string) => void; onAi: () => void }) {
   const [menu, setMenu] = useState<{ x: number; y: number; tab: Tab } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    ref.current?.querySelector('.wb-tab.is-active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [group.active]);
+  // the active tab in view: scrolled within the strip only (scrollIntoView would move the page on
+  // a phone), and again when a strip that was hidden shows (a phone's Editor after Files)
+  useLayoutEffect(() => {
+    const strip = ref.current;
+    if (!strip) return;
+    const reveal = () => {
+      const t = strip.querySelector<HTMLElement>('.wb-tab.is-active');
+      if (!t || !strip.clientWidth) return;
+      const s = strip.getBoundingClientRect();
+      const r = t.getBoundingClientRect();
+      // the tools at the strip's end cover its last part
+      const tools = strip.querySelector<HTMLElement>('.wb-tabs-tools')?.getBoundingClientRect().width ?? 0;
+      if (r.left < s.left) strip.scrollLeft -= s.left - r.left;
+      else if (r.right > s.right - tools) strip.scrollLeft += Math.min(r.right - (s.right - tools), r.left - s.left);
+    };
+    reveal();
+    const ro = new ResizeObserver(reveal);
+    ro.observe(strip);
+    return () => ro.disconnect();
+  }, [group.active, group.tabs.length]);
 
   const workspaceId = useContext(PaneEnv)?.ctl.workspaceId ?? '';
   const choices = usePaneChoices(ws, workspaceId);
+  const tab = group.tabs.find((t) => t.id === group.active) ?? null;
 
   // every kind of tab: VS Code's pin, and a lock that nothing closes
   const flagItems = (t: Tab): MenuEntry[] => [
@@ -921,21 +956,34 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
     { label: 'Close All', title: 'Pinned and locked tabs stay', onSelect: () => ws.closeAll(gi) },
   ];
 
-  const paneItems = (t: Tab): MenuEntry[] => [
-    { label: 'Move to Side Bar', icon: 'external', disabled: !!t.locked, title: t.locked ? 'Locked: unlock it to move it' : undefined, onSelect: () => ws.placePane(t.pane!, 'side') },
-    { label: 'Split Right', icon: 'layout', disabled: ws.groups.length >= 3 && gi === ws.groups.length - 1, onSelect: () => (ws.activate(gi, t.id), ws.splitRight()) },
-    'sep',
-    ...flagItems(t),
-    'sep',
-    { label: 'Close', icon: 'close', title: t.locked ? LOCKED_TIP : undefined, onSelect: () => ws.closeTab(gi, t.id) },
+  // a console, a tool, a commit or a view has one place: alone in its group, it has nowhere to split off from
+  const alone = (t: Tab) => !t.path && group.tabs.length === 1;
+  const splitItems = (t: Tab): MenuEntry[] => [
+    { label: 'Split Right', icon: 'splitRight', shortcut: 'Ctrl+\\', disabled: alone(t), title: alone(t) ? 'The only tab of its group' : undefined, onSelect: () => ws.splitTab(gi, t.id, 'right') },
+    { label: 'Split Down', icon: 'splitDown', shortcut: 'Ctrl+K Ctrl+\\', disabled: alone(t), title: alone(t) ? 'The only tab of its group' : undefined, onSelect: () => ws.splitTab(gi, t.id, 'bottom') },
   ];
+
+  const paneItems = (t: Tab): MenuEntry[] => {
+    const id = t.pane!;
+    const locked = t.locked ? 'Locked: unlock it to move it' : undefined;
+    // a terminal goes back to the panel; a board's console is only shown here; the editor's own agents have the side bar
+    const move: MenuEntry = isTerminalPane(id)
+      ? { label: 'Move to Panel', icon: 'terminal', disabled: !!t.locked, title: locked ?? 'Its shell keeps running', onSelect: () => ws.movePaneToPanel(id) }
+      : ws.isBoardPane(id)
+        ? { label: 'Close Tab', icon: 'close', disabled: !!t.locked, title: t.locked ? LOCKED_TIP : 'The agent keeps running on its board', onSelect: () => ws.closeTab(gi, t.id) }
+        : { label: 'Move to Side Bar', icon: 'external', disabled: !!t.locked, title: locked, onSelect: () => ws.placePane(id, 'side') };
+    const close: MenuEntry[] = ws.isBoardPane(id)
+      ? []
+      : [{ label: isTerminalPane(id) ? 'Kill Terminal' : 'Close', icon: 'close', title: t.locked ? LOCKED_TIP : undefined, onSelect: () => ws.closeTab(gi, t.id) }];
+    return [move, ...splitItems(t), 'sep', ...flagItems(t), ...(close.length ? (['sep', ...close] as MenuEntry[]) : [])];
+  };
 
   const specialItems = (t: Tab): MenuEntry[] => [
     ...closeItems(t),
     'sep',
     ...flagItems(t),
     'sep',
-    { label: 'Split Right', icon: 'layout', disabled: ws.groups.length >= 3 && gi === ws.groups.length - 1, onSelect: () => (ws.activate(gi, t.id), ws.splitRight()) },
+    ...splitItems(t),
     ...(t.commit ? ([{ label: 'Copy Commit Hash', icon: 'copy', onSelect: () => void navigator.clipboard?.writeText(t.commit!.hash).then(() => toast.success('Hash copied.')) }] as MenuEntry[]) : []),
   ];
 
@@ -944,13 +992,13 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
     'sep',
     ...flagItems(t),
     'sep',
-    { label: 'Split Right', icon: 'layout', onSelect: () => ws.open(t.path, { pin: true, side: true }) },
+    ...splitItems(t),
     { label: 'Compare with HEAD', icon: 'branch', disabled: !(t.path && ws.partOf(t.path)?.gitMark(t.path)), onSelect: () => t.path && ws.openDiff(t.path, 'head', gi) },
     { label: 'Local History', icon: 'history', onSelect: () => ws.openView({ kind: 'history', path: t.path }) },
     { label: 'Reveal in Explorer', icon: 'folderOpen', onSelect: () => t.path && ws.revealInTree(t.path) },
     { label: 'Copy Path', icon: 'link', onSelect: () => t.path && void navigator.clipboard?.writeText(splitKey(t.path).abs).then(() => toast.success('Path copied.')) },
     { label: 'Copy Relative Path', icon: 'link', onSelect: () => t.path && void navigator.clipboard?.writeText(ws.relLabel(t.path)).then(() => toast.success('Path copied.')) },
-    { label: 'Add to Board', icon: 'plus', onSelect: () => onAddFile(t.path) },
+    ...(ws.actions.addToBoard ? ([{ label: 'Add to Board', icon: 'plus', onSelect: () => onAddFile(t.path) }] as MenuEntry[]) : []),
   ];
 
   return (
@@ -968,11 +1016,15 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
             tabIndex={active ? 0 : -1}
             aria-selected={active}
             className={`wb-tab ${active ? 'is-active' : ''} ${t.preview ? 'is-preview' : ''} ${t.pinned ? 'is-pinned' : ''} ${t.locked ? 'is-locked' : ''} ${mark ? `git-${mark.tone}` : ''} ${d?.dirty && !t.diff ? 'is-dirty' : ''}`}
-            title={t.pane ? undefined : t.commit ? t.commit.label : t.view?.kind === 'graph' ? 'Commit graph' : t.view?.kind === 'pr' ? t.view.title : t.view ? viewTitle(ws, t.view) : t.path ? ws.label(t.path) : ''}
+            title={t.pane ? undefined : t.tool ? toolMeta(t.tool.kind, t.tool.arg).tip : t.commit ? t.commit.label : t.view?.kind === 'graph' ? 'Commit graph' : t.view?.kind === 'pr' ? t.view.title : t.view ? viewTitle(ws, t.view) : t.path ? ws.label(t.path) : ''}
             draggable
             onDragStart={(e) => {
               e.dataTransfer.setData('application/x-nextboard-tab', JSON.stringify({ gi, id: t.id }));
               e.dataTransfer.effectAllowed = 'move';
+              dragging = { ws, group, id: t.id };
+            }}
+            onDragEnd={() => {
+              dragging = null;
             }}
             onClick={() => ws.activate(gi, t.id)}
             onDoubleClick={() => ws.pin(gi, t.id)}
@@ -997,7 +1049,7 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
               <PaneTitle ws={ws} id={t.pane} />
             ) : (
               <>
-                {t.commit || t.view?.kind === 'history' ? <Icon name="history" className="wb-icon" /> : t.view?.kind === 'graph' || t.view?.kind === 'pr' ? <Icon name="branch" className="wb-icon" /> : t.view ? <Icon name="checklist" className="wb-icon" /> : t.diff ? <Icon name="branch" className="wb-icon" /> : <FileIcon name={nameOf(t.path)} />}
+                {t.tool ? <Icon name={toolMeta(t.tool.kind, t.tool.arg).icon} className="wb-icon" /> : t.commit || t.view?.kind === 'history' ? <Icon name="history" className="wb-icon" /> : t.view?.kind === 'graph' || t.view?.kind === 'pr' ? <Icon name="branch" className="wb-icon" /> : t.view ? <Icon name="checklist" className="wb-icon" /> : t.diff ? <Icon name="branch" className="wb-icon" /> : <FileIcon name={nameOf(t.path)} />}
                 <span className="wb-tab-name truncate">{name}</span>
                 {dir && <span className="wb-tab-dir truncate">{dir}</span>}
               </>
@@ -1027,7 +1079,7 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
               <button
                 type="button"
                 className="wb-tab-close"
-                aria-label={t.pane ? 'Close this agent' : `Close ${name}${d?.dirty ? ' (unsaved)' : ''}`}
+                aria-label={t.pane ? paneCloseLabel(ws, t.pane) : `Close ${name}${d?.dirty ? ' (unsaved)' : ''}`}
                 title={d?.dirty ? 'Unsaved changes' : 'Close'}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1045,7 +1097,14 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
       <div className="wb-tabs-tools">
         <Menu label="Open an agent in a new tab" icon="bot" items={agentMenu(ws, workspaceId, choices, 'tab')} />
         <Button size="sm" variant="ghost" iconOnly icon="sparkle" aria-label="Edit with AI (Ctrl+I)" title="Edit with AI · Ctrl+I" disabled={!group.active} onClick={onAi} />
-        <Button size="sm" variant="ghost" iconOnly icon="layout" aria-label="Split editor (Ctrl+\)" title="Split editor · Ctrl+\" disabled={!group.active || ws.groups.length >= 3} onClick={() => ws.splitRight()} />
+        <Menu
+          label="Split editor"
+          icon="splitRight"
+          items={[
+            { label: 'Split Right', icon: 'splitRight', shortcut: 'Ctrl+\\', disabled: !tab || alone(tab), onSelect: () => tab && ws.splitTab(gi, tab.id, 'right') },
+            { label: 'Split Down', icon: 'splitDown', shortcut: 'Ctrl+K Ctrl+\\', disabled: !tab || alone(tab), onSelect: () => tab && ws.splitTab(gi, tab.id, 'bottom') },
+          ]}
+        />
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} label="Tab actions" items={items(menu.tab)} onClose={() => setMenu(null)} />}
     </div>
@@ -1219,40 +1278,120 @@ function AiEditBar({ ws, editor, doc, onClose }: { ws: Workspace; editor: Editor
 
 // ---- groups --------------------------------------------------------------------------
 
+/**
+ * Tool tabs a group keeps mounted while another tab shows, for what they hold that is theirs (a
+ * draft, filters, a page). Live views (Mission Map polls the hub, Loops) and the vault (its state
+ * is the store's) are made again instead when they show.
+ */
+const KEEP_TOOLS = 3;
+const KEPT_KINDS = new Set(['chats', 'memory', 'documents', 'diagrams', 'markdown', 'skills', 'browser']);
+
+/** Where a drop lands in a group: near an edge it splits there, else it joins the group. */
+type DropZone = Edge | 'center';
+
+const EDGE_SHARE = 0.25;
+const ZONE_LABEL: Record<DropZone, string> = { left: 'Drop to split left', right: 'Drop to split right', top: 'Drop to split up', bottom: 'Drop to split down', center: 'Drop to move here' };
+
+/** The zone under the pointer, in the group's body (under its tab strip): the nearest edge within a quarter of it. */
+function zoneAt(box: { left: number; top: number; width: number; height: number }, x: number, y: number): DropZone {
+  const fx = (x - box.left) / Math.max(box.width, 1);
+  const fy = (y - box.top) / Math.max(box.height, 1);
+  const near: [Edge, number][] = [
+    ['left', fx],
+    ['right', 1 - fx],
+    ['top', fy],
+    ['bottom', 1 - fy],
+  ];
+  near.sort((a, b) => a[1] - b[1]);
+  return near[0][1] < EDGE_SHARE ? near[0][0] : 'center';
+}
+
 function GroupView({ ws, group, gi, onAddFile, aiOpen, setAiOpen }: { ws: Workspace; group: Group; gi: number; onAddFile: (p: string) => void; aiOpen: boolean; setAiOpen: (open: boolean) => void }) {
   const tab = group.tabs.find((t) => t.id === group.active) ?? null;
   const doc = tab?.path ? ws.docs.at(tab.path) : undefined;
   const editor = ws.editors.get(group.id);
-  const [over, setOver] = useState(false);
+  const [drop, setDrop] = useState<{ zone: DropZone; top: number; file: boolean } | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  // tool tabs shown lately stay mounted, hidden, so that switching tabs keeps what they hold (a
+  // draft, filters, a browser's page): the active one and the last few, most recent first
+  const keptTools = useRef<string[]>([]);
+  if (tab?.tool) keptTools.current = [tab.id, ...keptTools.current.filter((id) => id !== tab.id)];
+  keptTools.current = keptTools.current.filter((id) => group.tabs.some((t) => t.id === id && t.tool && (t === tab || KEPT_KINDS.has(t.tool.kind)))).slice(0, KEEP_TOOLS);
+  const tools = keptTools.current.map((id) => group.tabs.find((t) => t.id === id)!);
+  // a drag given up (Esc) or dropped elsewhere leaves no zone behind
+  useEffect(() => {
+    if (!drop) return;
+    const clear = () => setDrop(null);
+    window.addEventListener('dragend', clear, true);
+    window.addEventListener('drop', clear, true);
+    return () => {
+      window.removeEventListener('dragend', clear, true);
+      window.removeEventListener('drop', clear, true);
+    };
+  }, [drop]);
+
+  /** What a drag over this group would do here, or null for nothing (a tab alone in this group, a tab of another card). */
+  const zoneOf = (e: DragEvent): { zone: DropZone; top: number; file: boolean } | null => {
+    const types = [...e.dataTransfer.types];
+    const isTab = types.includes('application/x-nextboard-tab');
+    const file = !isTab && types.includes('application/x-nextboard-path');
+    if (!isTab && !file) return null;
+    if (isTab && dragging?.ws !== ws) return null;
+    const own = isTab && dragging?.group === group;
+    if (own && group.tabs.length === 1) return null;
+    const el = sectionRef.current;
+    if (!el) return null;
+    const box = el.getBoundingClientRect();
+    const strip = el.querySelector('.wb-tabs')?.getBoundingClientRect();
+    const top = strip ? strip.bottom - box.top : 0;
+    const body = { left: box.left, top: box.top + top, width: box.width, height: box.height - top };
+    // only the active group shows on a phone or a narrow card: no edges to split at; over the strip it joins the strip
+    const narrow = !!el.closest('.wb.is-narrow, .wb.is-one-group');
+    let zone: DropZone = narrow || e.clientY < body.top ? 'center' : zoneAt(body, e.clientX, e.clientY);
+    if (zone !== 'center' && !ws.canSplit(gi, zone)) zone = 'center';
+    if (zone === 'center' && own) return null;
+    return { zone, top, file };
+  };
 
   const onDrop = (e: DragEvent) => {
-    setOver(false);
+    const at = zoneOf(e);
+    setDrop(null);
     const moved = e.dataTransfer.getData('application/x-nextboard-tab');
     // a tree row's key (Explorer.tsx); a folder has items, a file not
     const path = asFileKey(e.dataTransfer.getData('application/x-nextboard-path'));
     if (moved) {
       e.preventDefault();
-      const { gi: from, id } = JSON.parse(moved) as { gi: number; id: string };
-      ws.moveTabToGroup(from, id, gi);
+      const from = dragging;
+      dragging = null;
+      if (!at || !from || from.ws !== ws) return;
+      const fromGi = ws.groups.indexOf(from.group);
+      if (at.zone === 'center') ws.moveTabToGroup(fromGi, from.id, gi);
+      else ws.moveTabToEdge(fromGi, from.id, gi, at.zone);
     } else if (path && ws.items.get(path) === undefined) {
       e.preventDefault();
-      ws.open(path, { pin: true, group: gi });
+      if (at && at.zone !== 'center') ws.openAtEdge(path, gi, at.zone);
+      else ws.open(path, { pin: true, group: gi });
     }
   };
 
   return (
     <section
-      className={`wb-group ${ws.activeGroup === gi && ws.groups.length > 1 ? 'is-active' : ''} ${over ? 'is-drop' : ''}`}
+      ref={sectionRef}
+      className={`wb-group ${ws.activeGroup === gi && ws.groups.length > 1 ? 'is-active' : ''} ${drop ? 'is-drop' : ''}`}
       aria-label={`Editor group ${gi + 1}`}
       onMouseDownCapture={() => ws.focusGroup(gi)}
       onDragOver={(e) => {
-        if ([...e.dataTransfer.types].some((t) => t.startsWith('application/x-nextboard'))) {
-          e.preventDefault();
-          setOver(true);
+        const at = zoneOf(e);
+        if (!at) {
+          if (drop) setDrop(null);
+          return;
         }
+        e.preventDefault();
+        e.dataTransfer.dropEffect = at.file ? 'copy' : 'move';
+        if (drop?.zone !== at.zone || drop.top !== at.top) setDrop(at);
       }}
       onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
       }}
       onDrop={onDrop}
     >
@@ -1261,7 +1400,7 @@ function GroupView({ ws, group, gi, onAddFile, aiOpen, setAiOpen }: { ws: Worksp
         <div className="wb-pane-tab">
           <AgentPane key={tab.pane} ws={ws} id={tab.pane} />
         </div>
-      ) : tab?.commit ? (
+      ) : tab?.tool ? null : tab?.commit ? (
         <div className="wb-pane-tab">
           <PartTab ws={ws} partId={tab.commit.part}>{(part) => <CommitView key={tab.id} ws={ws} part={part} commit={tab.commit!} />}</PartTab>
         </div>
@@ -1316,34 +1455,108 @@ function GroupView({ ws, group, gi, onAddFile, aiOpen, setAiOpen }: { ws: Worksp
           </dl>
         </div>
       )}
+      {tools.map((t) => (
+        <div key={t.id} className="wb-pane-tab wb-tool-tab" hidden={t !== tab}>
+          <ToolTab ws={ws} tab={t} />
+        </div>
+      ))}
+      {drop && (
+        // the half a split takes, or the whole group the tab joins
+        <div className="wb-drop-area" style={{ top: drop.top }} aria-hidden="true">
+          <div className={`wb-drop-zone is-${drop.zone}`}>
+            <span>{drop.zone === 'center' && drop.file ? 'Drop to open here' : ZONE_LABEL[drop.zone]}</span>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
+const pct = (v: number) => `${+(v * 100).toFixed(4)}%`;
+
+/** A group's place: the share it has, less the 1 px of the sash on its left or top. */
+function cellStyle(c: GridBox): CSSProperties {
+  const left = c.x > 1e-6;
+  const top = c.y > 1e-6;
+  return {
+    left: left ? `calc(${pct(c.x)} + 1px)` : 0,
+    top: top ? `calc(${pct(c.y)} + 1px)` : 0,
+    width: left ? `calc(${pct(c.w)} - 1px)` : pct(c.w),
+    height: top ? `calc(${pct(c.h)} - 1px)` : pct(c.h),
+  };
+}
+
+/** A split's sash: 1 px between its two sides, across the split's whole box. */
+function sashStyle(s: GridPlan['sashes'][number]): CSSProperties {
+  return s.dir === 'row' ? { left: pct(s.x + s.w * s.at), top: pct(s.y), height: pct(s.h) } : { top: pct(s.y + s.h * s.at), left: pct(s.x), width: pct(s.w) };
+}
+
+/**
+ * Ctrl+K Ctrl+\ splits down, as in VS Code. The card's Ctrl+\ (split right) must not take its
+ * second key; in the editor, Monaco must still see it, to end the chord Ctrl+K began there.
+ */
+function useSplitDownChord(ws: Workspace, area: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    let armed = 0;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta') return;
+      const t = e.target as HTMLElement | null;
+      const root = area.current?.closest('.wb');
+      // a terminal's keys are its program's (Ctrl+K kills a line in a shell)
+      if (!t || !root?.contains(t) || t.closest('.xterm')) {
+        armed = 0;
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        armed = Date.now();
+        return;
+      }
+      const was = armed;
+      armed = 0;
+      if (!was || Date.now() - was > 5000 || !mod || e.shiftKey || e.altKey || e.key !== '\\') return;
+      e.preventDefault();
+      ws.splitDown();
+      if (t.closest('.monaco-editor')) {
+        Object.defineProperty(e, 'key', { value: 'Unidentified' });
+        // ending the chord, Monaco gives the keyboard back to the editor it began in (which makes its
+        // group the active one again): the new group takes both back once the key is done
+        const g = ws.group;
+        window.setTimeout(() => {
+          const gi = ws.groups.indexOf(g);
+          if (gi < 0) return;
+          ws.focusGroup(gi);
+          ws.editors.get(g.id)?.focus();
+        }, 0);
+      } else {
+        e.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [ws, area]);
+}
+
 export function EditorArea({ ws, onAddFile, aiOpen, setAiOpen }: { ws: Workspace; onAddFile: (p: string) => void; aiOpen: boolean; setAiOpen: (open: boolean) => void }) {
   useWs(ws);
-  const n = ws.groups.length;
-  const [sizes, setSizes] = useState<number[]>([]);
   const area = useRef<HTMLDivElement>(null);
-  const weights = sizes.length === n ? sizes : Array.from({ length: n }, () => 1);
+  useSplitDownChord(ws, area);
+  const layout = plan(ws.grid);
+  // in the order they were made, wherever they lie: moving a group in the page would reload what it shows (a browser tab)
+  const slots = [...ws.groups].sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
 
-  const startSash = (i: number, e: ReactPointerEvent<HTMLDivElement>) => {
+  const startSash = (s: GridPlan['sashes'][number], e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const box = area.current?.getBoundingClientRect();
     if (!box) return;
-    const total = weights.reduce((a, b) => a + b, 0);
-    const pair = weights[i] + weights[i + 1];
-    const startX = e.clientX;
-    const startA = weights[i];
+    // a page in a tab would take the pointer while it passes over it
+    document.body.classList.add('wb-sash-dragging');
     const move = (ev: PointerEvent) => {
-      const delta = ((ev.clientX - startX) / box.width) * total;
-      const a = Math.min(pair * 0.9, Math.max(pair * 0.1, startA + delta));
-      const next = [...weights];
-      next[i] = a;
-      next[i + 1] = pair - a;
-      setSizes(next);
+      const at = s.dir === 'row' ? ((ev.clientX - box.left) / box.width - s.x) / s.w : ((ev.clientY - box.top) / box.height - s.y) / s.h;
+      ws.resizeSplit(s.path, at);
     };
     const up = () => {
+      document.body.classList.remove('wb-sash-dragging');
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
     };
@@ -1352,12 +1565,31 @@ export function EditorArea({ ws, onAddFile, aiOpen, setAiOpen }: { ws: Workspace
   };
 
   return (
-    <div className="wb-editors" ref={area}>
-      {ws.groups.map((g, i) => (
-        <div key={g.id} className={`wb-group-slot ${ws.activeGroup === i ? 'is-current' : ''}`} style={{ flexGrow: weights[i] } as CSSProperties}>
-          {i > 0 && <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" onPointerDown={(e) => startSash(i - 1, e)} />}
-          <GroupView ws={ws} group={g} gi={i} onAddFile={onAddFile} aiOpen={aiOpen} setAiOpen={setAiOpen} />
-        </div>
+    <div className="wb-editors wb-grid" ref={area}>
+      {slots.map((g) => {
+        const gi = ws.groups.indexOf(g);
+        const cell = layout.cells.find((c) => c.id === g.id) ?? { x: 0, y: 0, w: 1, h: 1 };
+        return (
+          <div key={g.id} className={`wb-group-slot ${ws.activeGroup === gi ? 'is-current' : ''}`} style={cellStyle(cell)}>
+            <GroupView ws={ws} group={g} gi={gi} onAddFile={onAddFile} aiOpen={aiOpen} setAiOpen={setAiOpen} />
+          </div>
+        );
+      })}
+      {layout.sashes.map((s) => (
+        <div
+          key={s.path || 'root'}
+          className={`wb-sash wb-grid-sash ${s.dir === 'row' ? 'wb-sash-v' : 'wb-sash-h'}`}
+          style={sashStyle(s)}
+          role="separator"
+          aria-orientation={s.dir === 'row' ? 'vertical' : 'horizontal'}
+          aria-label={s.dir === 'row' ? 'Resize the groups side by side' : 'Resize the groups above and below'}
+          aria-valuenow={Math.round(s.at * 100)}
+          aria-valuemin={10}
+          aria-valuemax={90}
+          title="Drag to resize · double-click to even out"
+          onPointerDown={(e) => startSash(s, e)}
+          onDoubleClick={() => ws.resizeSplit(s.path, 0.5)}
+        />
       ))}
     </div>
   );

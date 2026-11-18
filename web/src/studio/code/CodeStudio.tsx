@@ -10,9 +10,17 @@
 // Its width decides its layout (DESIGN.md §3.5): under 1000 px the agents side bar lies over the
 // editor, under 640 px (a phone) the side bar does too and closes when it opens a file, and only
 // the current editor group shows. On a touch screen a key bar comes with the keyboard.
+//
+// mode "page" is the Code view (/p/<id>/code, DESIGN.md §3.19): the same workbench full screen,
+// on the binding of a board that is not drawn (CodeViewPage.tsx). No card chrome: the page's top
+// bar (project switcher, Board | Code, quick open, pills, ⋯) instead of the title bar; the tools
+// (Chats, Memory, Studios, Vault, Browser, Loops, Mission Map) in the activity bar after Ask, as
+// editor tabs; nothing that adds cards to a board (a web page opens as a Browser tab instead). Its
+// nodeId is "": no card, so the Root placement, the editor state the project's Root cards show
+// too. On a phone, bottom navigation Files · Editor · Terminal · Lead · Agents (CodePhone.tsx).
 
 import { useReactFlow } from '@xyflow/react';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { errorMessage } from '../../api';
 import type { BoardController } from '../../board/controller';
@@ -23,11 +31,14 @@ import { placeNear } from '../../board/layout';
 import { pushAside, type Moved } from '../../board/pushAside';
 import { TileHead, useSize } from '../../board/tiles/common';
 import { KeyBar } from '../../board/KeyBar';
+import { prefs } from '../../lib/format';
 import { useLayout } from '../../lib/layout';
 import { EditorKeyBar } from './EditorKeyBar';
 import { Button } from '../../components/Button';
 import { Icon, type IconName } from '../../components/Icon';
+import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
+import { EditorProjectSwitch, SwitchProjectMenu } from '../../components/ProjectBar';
 import { useUi, type OpenFileRequest, type UiStore } from '../../board/ui';
 import { toast } from '../../components/Toast';
 import { isRoot, placementOf, projectParts, type Placement } from '../../lib/parts';
@@ -64,24 +75,57 @@ import { SearchPanel } from './SearchPanel';
 import { AgentsPanel, SettingsPanel, type AgentContext, type AgentRequest } from './SidePanels';
 import { useWs } from './useWs';
 import { nameOf, ORCHESTRATOR_PANE, Workspace, type SideView } from './workspace';
+import { browserArg, CODE_VIEW_TOOLS, TOOL_ITEMS, type CodeViewTool } from './toolsList';
+import type { ToolKind } from './toolKinds';
+import { PhoneNav, PhoneSheetView, type PhoneSheet, type PhoneTab } from './CodePhone';
+import { noSideBar, placePaneSide, registerPhoneSheets, showPane } from './pageSide';
+import { orchStore } from '../../orch/store';
+import type { UiAction } from '../../orch/types';
+import { boardPath, navigate } from '../../lib/router';
+import { runPageUiAction } from './pageActions';
 import '../../styles/studio.css';
 import '../../styles/workbench.css';
+
+/** What the Code view's top bar (CodeViewPage.tsx) gets from the workbench under it. */
+export interface PageBar {
+  ws: Workspace;
+  /** Go to file, or with ">" the command palette. */
+  quickOpen: (initial?: string) => void;
+  /** The phone layout: the bottom navigation does what the bar's toggles do elsewhere. */
+  phone: boolean;
+}
 
 interface Props {
   project: Project;
   ctl: BoardController;
   ui: UiStore;
-  /** The board node this workbench is the content of. */
+  /** The board node this workbench is the content of; "" in the Code view: no card, the Root placement. */
   nodeId: string;
   viewCenter: () => { x: number; y: number };
   /** The card fills the board view: node data "fill" keeps the rect to go back to. */
   filled: boolean;
+  /** "card" on a board (the default), "page" the Code view, full screen with no card chrome. */
+  mode?: 'card' | 'page';
+  /** Page mode: the bar above the workbench. */
+  topBar?: (bar: PageBar) => ReactNode;
 }
+
+/** Opens a tool as an editor tab, or focuses the one open (the Code view's activity bar). */
+const openTool = (ws: Workspace, kind: ToolKind, arg?: string) => ws.openTool(kind, arg);
 
 /** How much a board's zoom scales this element: pointer distances come in screen pixels. */
 const scaleOf = (el: Element | null) => {
   const w = (el as HTMLElement | null)?.offsetWidth;
   return el && w ? el.getBoundingClientRect().width / w : 1;
+};
+
+/** An editor card's title: the project, and with several parts the placement it shows. */
+const cardTitle = (project: Project, ws: Workspace) => (projectParts(project).length > 1 ? `${project.name} · ${isRoot(ws.placement) ? 'All parts' : placeLabel(project, ws.placement)}` : project.name);
+
+/** Where the switch menu of a narrow card opens: under its title bar. */
+const switchSpot = (root: HTMLElement | null) => {
+  const r = root?.getBoundingClientRect();
+  return { x: (r?.left ?? 0) + 8, y: (r?.top ?? 0) + 40 };
 };
 
 const ACTIVITY: { view: SideView; icon: IconName; label: string; keys?: string }[] = [
@@ -238,6 +282,8 @@ function Workbench({
   nodeId,
   viewCenter,
   filled,
+  page,
+  topBar,
 }: {
   ws: Workspace;
   project: Project;
@@ -245,6 +291,9 @@ function Workbench({
   nodeId: string;
   viewCenter: () => { x: number; y: number };
   filled: boolean;
+  /** The Code view: full screen, no card (CodeViewPage.tsx). */
+  page: boolean;
+  topBar?: (bar: PageBar) => ReactNode;
 }) {
   useWs(ws);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -268,20 +317,54 @@ function Workbench({
   const mode = !bodyW || bodyW >= 1000 ? 'wide' : bodyW < 640 ? 'narrow' : 'medium';
   const sideOver = mode === 'narrow';
   const rightOver = mode !== 'wide';
+  const shown = useLayout();
+  // the Code view on a phone: one view at a time, picked along the bottom (CodePhone.tsx); the
+  // view and the sheet are this screen's, not the editor state shared with the project's cards
+  const phone = page && (shown.layout === 'phone' || mode === 'narrow');
+  const [phoneTab, setPhoneTab] = useState<PhoneTab>('editor');
+  const [sheet, setSheet] = useState<PhoneSheet | null>(null);
+  const phoneRef = useRef(phone);
+  phoneRef.current = phone;
   // a file opened from a side bar that lies over the editor closes it: the file is what was wanted
   const activeTab = ws.activeTab?.id ?? null;
   const lastTab = useRef(activeTab);
   useEffect(() => {
     if (activeTab === lastTab.current) return;
     lastTab.current = activeTab;
+    // a phone shows what was opened: a file from Files, a tool, a problem's line
+    if (phone) {
+      if (activeTab) setPhoneTab('editor');
+      return;
+    }
     if (sideOver && ws.sideOpen && activeTab) {
       ws.sideOpen = false;
       ws.changed();
     }
-  }, [activeTab, sideOver, ws]);
+  }, [activeTab, sideOver, phone, ws]);
+  // a terminal started (Explorer's Open in Terminal, a task) shows the Terminal view; the panel
+  // closed from its own bar goes back to the editor
+  const panelWasOpen = useRef(ws.panelOpen);
+  useEffect(() => {
+    if (ws.panelOpen === panelWasOpen.current) return;
+    panelWasOpen.current = ws.panelOpen;
+    if (!phone) return;
+    if (ws.panelOpen) setPhoneTab('terminal');
+    else setPhoneTab((t) => (t === 'terminal' ? 'editor' : t));
+  });
+  const pickPhoneTab = useCallback(
+    (t: PhoneTab) => {
+      setSheet(null);
+      setPhoneTab(t);
+      if (t === 'terminal' && !ws.panelOpen) {
+        ws.panelOpen = true;
+        ws.changed();
+      }
+    },
+    [ws],
+  );
 
   // a touch screen: the keys its keyboard lacks, for the editor or a terminal that has the keyboard
-  const coarse = useLayout().input === 'touch';
+  const coarse = shown.input === 'touch';
   const [typing, setTyping] = useState<string | null>(null);
   useEffect(() => {
     const root = rootRef.current;
@@ -317,7 +400,13 @@ function Workbench({
 
   const showView = useCallback(
     (v: SideView) => {
-      if (ws.side === v && ws.sideOpen && v !== 'search' && v !== 'agents') {
+      // a phone's Files view is the side view: picking one shows it, never hides it
+      if (phoneRef.current) {
+        ws.side = v;
+        ws.sideOpen = true;
+        setPhoneTab('files');
+        setSheet(null);
+      } else if (ws.side === v && ws.sideOpen && v !== 'search' && v !== 'agents') {
         ws.sideOpen = false;
       } else {
         ws.side = v;
@@ -331,6 +420,15 @@ function Workbench({
   );
 
   const togglePanel = useCallback(() => {
+    if (phoneRef.current) {
+      // the Terminal view and back
+      setPhoneTab((t) => (t === 'terminal' ? 'editor' : 'terminal'));
+      if (!ws.panelOpen) {
+        ws.panelOpen = true;
+        ws.changed();
+      }
+      return;
+    }
     ws.panelOpen = !ws.panelOpen;
     ws.changed();
     if (!ws.panelOpen) ws.focusTick++;
@@ -387,6 +485,7 @@ function Workbench({
       }
       ws.side = 'agents';
       ws.sideOpen = true;
+      if (phoneRef.current) setPhoneTab('files');
       setAgentsTick((n) => n + 1);
       if (prompt) setAgentRequest({ prompt, tick: Date.now() });
       ws.changed();
@@ -519,10 +618,17 @@ function Workbench({
       }
     },
     pick: (placeholder, items) => setPalette({ initial: '', pick: { placeholder, items } }),
-    addToBoard: (path) => addFile(path),
+    // the Code view has no board to add a card to
+    addToBoard: page ? undefined : (path) => addFile(path),
     // the Ports panel: the page from the machine its ports were listed on (that section's, else the
-    // active part's), not the project's first part's (audit #31)
+    // active part's), not the project's first part's (audit #31). The Code view opens it as a
+    // Browser tab, the same preview a board's Browser card shows.
     openWeb: (url: string, machineId?: string) => {
+      if (page) {
+        // the machine goes with the address: a server part's port is that server's localhost
+        openTool(ws, 'browser', browserArg(url, machineId));
+        return;
+      }
       const rect = placeNear(ctl.nodes.filter((n) => n.kind !== 'ink').map(rectOf), viewCenter(), DEFAULT_WEB_SIZE.w, DEFAULT_WEB_SIZE.h);
       const part = machineId ? (ws.parts.find((pt) => pt.machineId === machineId) ?? null) : ws.activePart;
       ctl.addNodes([webNode(ctl, rect, url, { machineId: machineId ?? part?.machineId, partId: ws.paths.multi || projectParts(project).length > 1 ? part?.partId : undefined })]);
@@ -535,7 +641,8 @@ function Workbench({
 
   // a console's needs-you, the live chip and N all come here for an agent inside the editor
   useEffect(() => {
-    const show = (id: string) => ws.revealPane(id) || (ws.placePane(id, 'side'), true);
+    // a phone's Code view has no side bar: there the pane opens as a tab (pageSide.ts)
+    const show = (id: string) => showPane(ws, id) || (placePaneSide(ws, id), true);
     // only a pane of this card's placement (a Root card takes any)
     const pending = takePendingPane(ws.placement);
     if (pending) show(pending);
@@ -564,7 +671,7 @@ function Workbench({
       { id: 'file.reveal', label: 'File: Reveal Active File in Explorer', icon: 'folderOpen', run: () => doc && ws.revealInTree(doc.path) },
       { id: 'file.copyPath', label: 'File: Copy Path of Active File', icon: 'link', run: () => doc && void navigator.clipboard?.writeText(splitKey(doc.path).abs) },
       { id: 'file.copyRel', label: 'File: Copy Relative Path of Active File', icon: 'link', run: () => doc && void navigator.clipboard?.writeText(ws.relLabel(doc.path)) },
-      { id: 'file.board', label: 'File: Add Active File to Board', icon: 'plus', run: () => doc && addFile(doc.path) },
+      ...(page ? [] : [{ id: 'file.board', label: 'File: Add Active File to Board', icon: 'plus', run: () => doc && addFile(doc.path) } as Command]),
       { id: 'file.revert', label: 'File: Revert File', icon: 'undo', run: () => doc && void ws.reload(doc.path) },
       { id: 'git.compare', label: 'Git: Compare Active File with HEAD', icon: 'branch', run: () => doc && ws.openDiff(doc.path, 'head') },
       {
@@ -615,6 +722,7 @@ function Workbench({
           ] as Command[])
         : []),
       { id: 'view.split', label: 'View: Split Editor', keys: 'Ctrl+\\', icon: 'layout', run: () => ws.splitRight() },
+      { id: 'view.splitDown', label: 'View: Split Editor Down', keys: 'Ctrl+K Ctrl+\\', icon: 'splitDown', run: () => ws.splitDown() },
       { id: 'view.sidebar', label: 'View: Toggle Side Bar', keys: 'Ctrl+B', run: () => ((ws.sideOpen = !ws.sideOpen), ws.changed()) },
       { id: 'view.panel', label: 'View: Toggle Panel', keys: 'Ctrl+J', run: togglePanel },
       { id: 'view.explorer', label: 'View: Show Explorer', keys: 'Ctrl+Shift+E', icon: 'file', run: () => showView('files') },
@@ -624,10 +732,11 @@ function Workbench({
       { id: 'claude.mention', label: 'Agents: Send Selection to Console', keys: 'Alt+K', icon: 'message', run: () => ws.actions.mention?.() },
       { id: 'agents.toggle', label: 'View: Toggle Agents Side Bar', keys: 'Ctrl+Alt+B', icon: 'bot', run: () => ((ws.rightOpen = !ws.rightOpen), ws.changed()) },
       ...choices.agents.flatMap<Command>((a) => [
-        { id: `agents.side.${a.id}`, label: `Agents: Open ${a.name} in the Side Bar`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, 'side', undefined, nodeId) },
+        // a phone's Code view has no side bar: a tab there (pageSide.ts)
+        { id: `agents.side.${a.id}`, label: `Agents: Open ${a.name} in the Side Bar`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, noSideBar(ws) ? 'tab' : 'side', undefined, nodeId) },
         { id: `agents.tab.${a.id}`, label: `Agents: Open ${a.name} in a New Tab`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, 'tab', undefined, nodeId) },
       ]),
-      { id: 'agents.orch.side', label: 'Agents: Open Orchestrator in the Side Bar', icon: 'orchestrator', run: () => ws.placePane(ORCHESTRATOR_PANE, 'side') },
+      { id: 'agents.orch.side', label: 'Agents: Open Orchestrator in the Side Bar', icon: 'orchestrator', run: () => placePaneSide(ws, ORCHESTRATOR_PANE) },
       { id: 'agents.orch.tab', label: 'Agents: Open Orchestrator in a New Tab', icon: 'orchestrator', run: () => ws.placePane(ORCHESTRATOR_PANE, 'tab') },
       { id: 'ai.explain', label: 'AI: Explain This', icon: 'sparkle', run: () => askAgent(undefined, 'Explain this code.') },
       { id: 'ai.bugs', label: 'AI: Find Bugs Here', icon: 'sparkle', run: () => askAgent(undefined, 'Look for bugs in this code. Say what is wrong and why, most serious first.') },
@@ -657,6 +766,8 @@ function Workbench({
       prefToggle('View: Toggle Sticky Scroll', 'stickyScroll'),
       prefToggle('View: Toggle Render Whitespace', 'renderWhitespace'),
       prefToggle('Preferences: Toggle Format on Save', 'formatOnSave'),
+      // the Code view's tools, each an editor tab
+      ...(page ? TOOL_ITEMS.map<Command>((t) => ({ id: `tool.${t.kind}`, label: `View: Open ${t.label}`, icon: t.icon, run: () => openTool(ws, t.kind) })) : []),
     ];
     if (fullscreen.supported) list.push({ id: 'view.fullscreen', label: fullscreen.active ? 'View: Exit Full Screen' : 'View: Enter Full Screen', icon: fullscreen.active ? 'fullscreenExit' : 'fullscreen', run: fullscreen.toggle });
     const seen = new Set(list.map((c) => c.label));
@@ -667,9 +778,11 @@ function Workbench({
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws, ctl.workspaceId, togglePanel, showView, askAgent, pick, fullscreen.active, fullscreen.supported, choices, nodeId]);
+  }, [ws, ctl.workspaceId, togglePanel, showView, askAgent, pick, fullscreen.active, fullscreen.supported, choices, nodeId, page]);
 
   // ---- global shortcuts ----
+  const pageRef = useRef(page);
+  pageRef.current = page;
   const latest = useRef({ showView, togglePanel, askAgent, palette, commands, startDebug, toggleBreakpointHere });
   latest.current = { showView, togglePanel, askAgent, palette, commands, startDebug, toggleBreakpointHere };
   useEffect(() => {
@@ -679,7 +792,8 @@ function Workbench({
       // a card among others: its shortcuts count only while the user works inside it.
       // A clicked button may be gone by now, which leaves the focus on the page itself.
       const root = rootRef.current;
-      const onPage = document.activeElement === document.body && clickedInside.current;
+      // the Code view is the whole page: a key with nothing focused is its own
+      const onPage = document.activeElement === document.body && (clickedInside.current || pageRef.current);
       if (!root?.contains(document.activeElement) && !onPage) return;
       if (onPage) {
         // and the board must not read these keys as its tools
@@ -808,6 +922,47 @@ function Workbench({
     };
   }, [ws]);
 
+  // The Code view's right side bar is open or not on its own, apart from the project's Root cards
+  // (which share the rest of this editor state): while the page shows, ws.rightOpen is the page's,
+  // and the cards' value comes back when it goes. The first time a browser opens it on a screen
+  // wide enough to have it beside the editor, it shows.
+  useLayoutEffect(() => {
+    if (!page) return;
+    const key = `codeview.right.${project.id}`;
+    const cards = ws.rightOpen;
+    const saved = prefs.get(key);
+    ws.rightOpen = saved ? saved === '1' : window.innerWidth >= 1000;
+    ws.changed();
+    let gone = false;
+    const restore = () => {
+      if (gone) return;
+      gone = true;
+      prefs.set(key, ws.rightOpen ? '1' : '0');
+      ws.rightOpen = cards;
+      ws.changed();
+      ws.flushSave();
+    };
+    window.addEventListener('pagehide', restore);
+    return () => {
+      window.removeEventListener('pagehide', restore);
+      restore();
+    };
+  }, [page, project.id, ws]);
+
+  // the phone's sheets, for what would show in the side bar it does not draw (pageSide.ts)
+  useEffect(() => (phone ? registerPhoneSheets(ws, { lead: () => setSheet('lead'), agents: () => setSheet('agents') }) : undefined), [phone, ws]);
+
+  // The lead's UI actions for this client (orch/store.ts): a board runs them (BoardView.tsx); the
+  // Code view runs what an editor can, and for what only a board shows offers to open the board.
+  useEffect(() => {
+    if (!page) return;
+    const onBoard = (what: string) =>
+      toast.notify('info', `${what} is on the board`, 'The Code view has no board to show it on.', { label: 'Open the board', onClick: () => navigate(boardPath(project.id, ctl.workspaceId)) });
+    return orchStore.onUiActions((acts: UiAction[]) => {
+      for (const a of acts) runPageUiAction(a, { ws, project, ctl, onBoard, showView });
+    });
+  }, [page, ws, project, ctl, showView]);
+
   // A closed tab must not lose edits to a slow draft timer.
   useEffect(() => {
     const flush = () => ws.flushDrafts();
@@ -917,6 +1072,20 @@ function Workbench({
     ctl.deleteNodes([nodeId]);
   };
 
+  // the Code view's tools in the activity bar; Studios (and a phone's ⋯ Tools) open a menu beside it
+  const [toolMenu, setToolMenu] = useState<{ x: number; y: number; label: string; items: MenuEntry[] } | null>(null);
+  const toolMenuAt = (e: { currentTarget: HTMLElement }, label: string, items: CodeViewTool['menu']) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setToolMenu({ x: r.right + 4, y: r.top, label, items: (items ?? []).map((t) => ({ label: t.label, icon: t.icon, onSelect: () => openTool(ws, t.kind) })) });
+  };
+  // an editor card's project switcher: in its title bar, or in its ⋯ menu when the card is narrow
+  const [switchAt, setSwitchAt] = useState<{ x: number; y: number } | null>(null);
+
+  // a phone shows the side view as its Files view, whatever the editor state says
+  const sideShown = phone ? phoneTab === 'files' : ws.sideOpen;
+  // a tool's button is lit while the active tab is that tool (Studios: one of its studios)
+  const activeTool = ws.activeTab?.tool?.kind;
+  const toolShown = (t: CodeViewTool) => !!activeTool && (t.menu ? t.menu.some((m) => m.kind === activeTool) : t.kind === activeTool);
   const closing = ws.closing;
   const dirtyCount = [...ws.docs.values()].filter((d) => d.dirty).length;
   // the activity badges add up the parts the card shows
@@ -926,7 +1095,7 @@ function Workbench({
   return (
     <PaneEnv.Provider value={paneEnv}>
     <div
-      className={`wb nokey ${mode === 'wide' ? '' : `is-${mode}`}`}
+      className={`wb nokey ${mode === 'wide' ? '' : `is-${mode}`} ${page ? 'is-page' : ''} ${phone ? `is-phone is-phone-${phoneTab}` : ''} ${shown.layout === 'phone' || mode === 'narrow' ? 'is-one-group' : ''}`}
       ref={rootRef}
       tabIndex={-1}
       role="application"
@@ -942,12 +1111,17 @@ function Workbench({
         if (!(e.target as HTMLElement).closest('.wb-title')) e.stopPropagation();
       }}
     >
+      {page ? (
+        topBar?.({ ws, quickOpen: (initial = '') => setPalette({ initial }), phone })
+      ) : (
       <TileHead
         id={nodeId}
         className="wb-title"
         icon="code"
-        // several parts: what the card shows ("acme-shop · admin", "acme-shop · All parts")
-        title={projectParts(project).length > 1 ? `${project.name} · ${isRoot(ws.placement) ? 'All parts' : placeLabel(project, ws.placement)}` : project.name}
+        // several parts: what the card shows ("acme-shop · admin", "acme-shop · All parts"), as the
+        // project switcher (its menu opens the picked project's board) when the card has room
+        title={mode === 'narrow' ? cardTitle(project, ws) : <EditorProjectSwitch project={project} target="board" label={cardTitle(project, ws)} className="wb-title-switch" />}
+        menu={mode === 'narrow' ? [{ label: 'Switch project…', icon: 'folder', onSelect: () => setSwitchAt(switchSpot(rootRef.current)) }] : undefined}
         meta={
           <button type="button" className="wb-command-center nodrag" onClick={() => setPalette({ initial: '' })} title="Go to file · Ctrl+P">
             <Icon name="search" />
@@ -971,15 +1145,16 @@ function Workbench({
         menuLabel="Editor card actions"
         deleteItem={{ label: 'Close the card', icon: 'close', title: 'Tabs and unsaved edits are kept', onSelect: closeCard }}
       />
+      )}
       <div className="wb-body nodrag nowheel nopan" ref={bodyRef}>
         <nav className="wb-activity" aria-label="Views">
           {ACTIVITY.filter((a) => a.view !== 'laravel' || ws.parts.some((pt) => pt.laravel?.detected)).map((a) => (
             <button
               key={a.view}
               type="button"
-              className={`wb-activity-btn ${ws.sideOpen && ws.side === a.view ? 'is-active' : ''}`}
+              className={`wb-activity-btn ${sideShown && ws.side === a.view ? 'is-active' : ''}`}
               aria-label={a.label}
-              aria-pressed={ws.sideOpen && ws.side === a.view}
+              aria-pressed={sideShown && ws.side === a.view}
               title={a.keys ? `${a.label} · ${a.keys}` : a.label}
               onClick={() => showView(a.view)}
             >
@@ -988,16 +1163,39 @@ function Workbench({
               {a.view === 'review' && reviewCount > 0 && <span className="wb-activity-badge tabular">{reviewCount}</span>}
             </button>
           ))}
+          {page && <span className="wb-activity-sep" role="separator" />}
+          {page &&
+            !phone &&
+            CODE_VIEW_TOOLS.map((t) => (
+              <button
+                key={t.label}
+                type="button"
+                className={`wb-activity-btn ${toolShown(t) ? 'is-active' : ''}`}
+                aria-label={t.label}
+                aria-pressed={toolShown(t)}
+                aria-haspopup={t.menu ? 'menu' : undefined}
+                title={t.keys ? `${t.label} · ${t.keys}` : t.label}
+                data-tool={t.kind}
+                onClick={(e) => (t.menu ? toolMenuAt(e, t.label, t.menu) : openTool(ws, t.kind))}
+              >
+                <Icon name={t.icon} />
+              </button>
+            ))}
+          {page && phone && (
+            <button type="button" className="wb-activity-btn" aria-label="Tools" aria-haspopup="menu" title="Tools" onClick={(e) => toolMenuAt(e, 'Tools', TOOL_ITEMS)}>
+              <Icon name="more" />
+            </button>
+          )}
           <span className="spacer" />
-          <button type="button" className={`wb-activity-btn ${ws.sideOpen && ws.side === 'settings' ? 'is-active' : ''}`} aria-label="Settings" aria-pressed={ws.sideOpen && ws.side === 'settings'} title="Settings" onClick={() => showView('settings')}>
+          <button type="button" className={`wb-activity-btn ${sideShown && ws.side === 'settings' ? 'is-active' : ''}`} aria-label="Settings" aria-pressed={sideShown && ws.side === 'settings'} title="Settings" onClick={() => showView('settings')}>
             <Icon name="sliders" />
           </button>
         </nav>
-        {ws.sideOpen && (
+        {sideShown && (
           <>
-            {sideOver && <button type="button" className="wb-scrim wb-scrim-side" aria-label="Close the side bar" onClick={() => ((ws.sideOpen = false), ws.changed())} />}
-            <aside className="wb-side" style={{ width: ws.sideW }}>
-              {ws.side === 'files' && <Explorer ws={ws} onAddFile={addFile} onAddFolder={addFolder} onTerminal={(dir) => void newTerminal(ws, ctl.workspaceId, dir)} onAsk={askAgent} />}
+            {sideOver && !phone && <button type="button" className="wb-scrim wb-scrim-side" aria-label="Close the side bar" onClick={() => ((ws.sideOpen = false), ws.changed())} />}
+            <aside className="wb-side" style={phone ? undefined : { width: ws.sideW }}>
+              {ws.side === 'files' && <Explorer ws={ws} onAddFile={page ? undefined : addFile} onAddFolder={page ? undefined : addFolder} onTerminal={(dir) => void newTerminal(ws, ctl.workspaceId, dir)} onAsk={askAgent} />}
               {ws.side === 'search' && <SearchPanel ws={ws} focusTick={searchTick} />}
               {ws.side === 'scm' && <ScmPanel ws={ws} />}
               {ws.side === 'review' && <ReviewPanel ws={ws} />}
@@ -1007,35 +1205,41 @@ function Workbench({
               {ws.side === 'agents' && <AgentsPanel ws={ws} ctl={ctl} nodeId={nodeId} context={context} setContext={setContext} request={agentRequest} focusTick={agentsTick} />}
               {ws.side === 'settings' && <SettingsPanel ws={ws} onInstall={installInTerminal} />}
             </aside>
-            {!sideOver && <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" aria-label="Resize side bar" onPointerDown={startSide} />}
+            {!sideOver && !phone && <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" aria-label="Resize side bar" onPointerDown={startSide} />}
           </>
         )}
         <main className="wb-center">
           <DebugToolbar ws={ws} />
           <EditorArea ws={ws} onAddFile={addFile} aiOpen={aiOpen} setAiOpen={setAiOpen} />
-          {ws.panelOpen && (
+          {(phone ? phoneTab === 'terminal' : ws.panelOpen) && (
             <>
-              <div className="wb-sash wb-sash-h" role="separator" aria-orientation="horizontal" aria-label="Resize panel" onPointerDown={startPanel} />
-              <div className="wb-panel-wrap" style={{ height: ws.panelH, flex: '0 0 auto' }}>
+              {!phone && <div className="wb-sash wb-sash-h" role="separator" aria-orientation="horizontal" aria-label="Resize panel" onPointerDown={startPanel} />}
+              <div className="wb-panel-wrap" style={phone ? undefined : { height: ws.panelH, flex: '0 0 auto' }}>
                 <BottomPanel ws={ws} workspaceId={ctl.workspaceId} />
               </div>
             </>
           )}
         </main>
-        {ws.rightOpen && (
+        {ws.rightOpen && !phone && (
           <>
             {rightOver ? (
               <button type="button" className="wb-scrim" aria-label="Close the agents side bar" onClick={() => ((ws.rightOpen = false), ws.changed())} />
             ) : (
               <div className="wb-sash wb-sash-v" role="separator" aria-orientation="vertical" aria-label="Resize agents side bar" onPointerDown={startRight} />
             )}
-            <AgentSideBar ws={ws} workspaceId={ctl.workspaceId} />
+            <AgentSideBar ws={ws} workspaceId={ctl.workspaceId} page={page} />
           </>
         )}
       </div>
-      <div className="nodrag">
-        <StatusBar ws={ws} onPick={pick} onView={showView} onPanel={togglePanel} />
-      </div>
+      {!phone && (
+        <div className="nodrag">
+          <StatusBar ws={ws} onPick={pick} onView={showView} onPanel={togglePanel} />
+        </div>
+      )}
+      {phone && <PhoneNav tab={phoneTab} sheet={sheet} onTab={pickPhoneTab} onSheet={setSheet} />}
+      {phone && sheet && <PhoneSheetView kind={sheet} ws={ws} onClose={() => setSheet(null)} />}
+      {toolMenu && <ContextMenu x={toolMenu.x} y={toolMenu.y} label={toolMenu.label} items={toolMenu.items} onClose={() => setToolMenu(null)} />}
+      {switchAt && <SwitchProjectMenu project={project} target="board" x={switchAt.x} y={switchAt.y} onClose={() => setSwitchAt(null)} />}
 
       {palette && <QuickOpen key={palette.initial + (palette.pick?.placeholder ?? '')} ws={ws} initial={palette.initial} pick={palette.pick} commands={commands} onClose={() => setPalette(null)} />}
       {closing && (
@@ -1102,7 +1306,7 @@ function dropPref(key: string) {
   }
 }
 
-function CodeStudioView({ project, ctl, ui, nodeId, viewCenter, filled, placement }: Props & { placement: Placement }) {
+function CodeStudioView({ project, ctl, ui, nodeId, viewCenter, filled, placement, mode = 'card', topBar }: Props & { placement: Placement }) {
   setupMonaco();
   // Blade and the Laravel helpers (the editor opener itself is nativeExt's)
   registerLaravel();
@@ -1143,7 +1347,7 @@ function CodeStudioView({ project, ctl, ui, nodeId, viewCenter, filled, placemen
     ui.set({ openFile: null });
   }, [ws, ui, openFile, mine]);
 
-  return <Workbench ws={ws} project={project} ctl={ctl} nodeId={nodeId} viewCenter={viewCenter} filled={filled} />;
+  return <Workbench ws={ws} project={project} ctl={ctl} nodeId={nodeId} viewCenter={viewCenter} filled={filled} page={mode === 'page'} topBar={topBar} />;
 }
 
 /** Every part's tasks of the card, with their part (the palette's Tasks: Run Task…). */

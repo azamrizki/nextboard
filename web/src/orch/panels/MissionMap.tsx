@@ -53,7 +53,11 @@ function bucket(s: Session): Filter {
   return 'idle';
 }
 
-export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onClose: () => void }) {
+/**
+ * `show`: what a console's main action does instead of Show on board, where no board is drawn (a
+ * tool tab of the code view opens it as a tab).
+ */
+export default function MissionMap({ ctl, onClose, show }: { ctl: BoardController; onClose: () => void; show?: { label: string; run: (sessionId: string) => void } }) {
   const doc = useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
   const sessions = useStoreSessions();
   const orders = useOrch((s) => s.orders);
@@ -201,6 +205,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
   }, [narrow, model, filter, q]);
 
   const focusNode = (sid: string) => {
+    if (show) return show.run(sid);
     onClose();
     window.setTimeout(() => jumpToSession(sid), 60);
   };
@@ -300,7 +305,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
                   data-mm={`c:${c.nodeId}`}
                   onClick={() => setSel({ kind: 'console', id: c.nodeId })}
                   onDoubleClick={() => focusNode(s.id)}
-                  title={touch ? undefined : 'Double-click to show it on the board'}
+                  title={touch ? undefined : show ? `Double-click: ${show.label}` : 'Double-click to show it on the board'}
                 >
                   <span className={`dot dot-${pill.dot}`} aria-hidden="true" />
                   <span className="mm-name">@{s.handle ?? s.name}</span>
@@ -325,9 +330,9 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
           </section>
         </div>
         <aside className="mm-inspector" aria-label="Details">
-          {!sel && <p className="mm-empty">{touch ? 'Tap a console, group or director to see what it is doing, and Show it on the board from there.' : 'Select a console, group or director to see what it is doing. Double-click a console to jump to it.'}</p>}
+          {!sel && <p className="mm-empty">{touch ? `Tap a console, group or director to see what it is doing, and ${show ? show.label : 'Show it on the board'} from there.` : 'Select a console, group or director to see what it is doing. Double-click a console to jump to it.'}</p>}
           {selConsole && (
-            <ConsoleInspector c={selConsole} now={now} onFocus={() => focusNode(selConsole.session.id)} onKill={() => setKill(selConsole.session)} />
+            <ConsoleInspector c={selConsole} now={now} focusLabel={show?.label} onFocus={() => focusNode(selConsole.session.id)} onKill={() => setKill(selConsole.session)} />
           )}
           {selGroup && (
             <div className="mm-insp">
@@ -367,7 +372,7 @@ export default function MissionMap({ ctl, onClose }: { ctl: BoardController; onC
   );
 }
 
-function ConsoleInspector({ c, now, onFocus, onKill }: { c: MConsole; now: number; onFocus: () => void; onKill: () => void }) {
+function ConsoleInspector({ c, now, focusLabel = 'Show on board', onFocus, onKill }: { c: MConsole; now: number; focusLabel?: string; onFocus: () => void; onKill: () => void }) {
   const s = c.session;
   const pill = agentPill(s);
   const machineName = useMachineName(s);
@@ -405,7 +410,7 @@ function ConsoleInspector({ c, now, onFocus, onKill }: { c: MConsole; now: numbe
       </dl>
       <div className="row-gap wrap">
         <Button size="sm" icon="target" onClick={onFocus}>
-          Show on board
+          {focusLabel}
         </Button>
         {!exited &&
           (s.paused ? (
