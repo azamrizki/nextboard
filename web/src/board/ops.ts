@@ -24,14 +24,26 @@ export function patchNode(n: BoardNode, set: NodePatch): BoardNode {
   return next;
 }
 
-/** Apply ops in order (last-writer-wins per node, like the hub). */
-export function applyOps(state: DocState, ops: Op[]): DocState {
+/** id → position in `nodes`; patches keep it valid, put / del / z do not. */
+export function indexNodes(nodes: readonly BoardNode[]): Map<string, number> {
+  const m = new Map<string, number>();
+  nodes.forEach((n, i) => m.set(n.id, i));
+  return m;
+}
+
+/**
+ * Apply ops in order (last-writer-wins per node, like the hub). `known` is an index of
+ * state.nodes (indexNodes): a drag frame then costs O(ops), not O(nodes). It is only read.
+ */
+export function applyOps(state: DocState, ops: Op[], known?: ReadonlyMap<string, number>): DocState {
   if (ops.length === 0) return state;
   let nodes = state.nodes;
   let edges = state.edges;
   let nodesCopied = false;
   let edgesCopied = false;
   let index: Map<string, number> | null = null;
+  // the caller's index, until a put needs to add to it
+  let shared: ReadonlyMap<string, number> | null = known ?? null;
 
   const ensureNodes = () => {
     if (!nodesCopied) {
@@ -45,11 +57,17 @@ export function applyOps(state: DocState, ops: Op[]): DocState {
       edgesCopied = true;
     }
   };
-  const idx = (): Map<string, number> => {
-    if (!index) {
-      index = new Map();
-      nodes.forEach((n, i) => index!.set(n.id, i));
+  const idx = (): ReadonlyMap<string, number> => {
+    if (shared) return shared;
+    index ??= indexNodes(nodes);
+    return index;
+  };
+  const ownIdx = (): Map<string, number> => {
+    if (shared) {
+      index = new Map(shared);
+      shared = null;
     }
+    index ??= indexNodes(nodes);
     return index;
   };
 
@@ -60,7 +78,7 @@ export function applyOps(state: DocState, ops: Op[]): DocState {
         ensureNodes();
         const i = idx().get(op.node.id);
         if (i === undefined) {
-          idx().set(op.node.id, nodes.length);
+          ownIdx().set(op.node.id, nodes.length);
           nodes.push(op.node);
         } else {
           nodes[i] = op.node;
@@ -80,6 +98,7 @@ export function applyOps(state: DocState, ops: Op[]): DocState {
         ensureNodes();
         nodes.splice(i, 1);
         index = null;
+        shared = null;
         if (edges.some((e) => e.source === op.id || e.target === op.id)) {
           edges = edges.filter((e) => e.source !== op.id && e.target !== op.id);
           edgesCopied = true;
@@ -96,6 +115,7 @@ export function applyOps(state: DocState, ops: Op[]): DocState {
         if (op.to === 'front') nodes.push(n);
         else nodes.unshift(n);
         index = null;
+        shared = null;
         break;
       }
       case 'putEdge': {

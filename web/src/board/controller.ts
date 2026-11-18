@@ -152,7 +152,7 @@ export class BoardController {
     return this.sync.state.nodes;
   }
   node(id: string): BoardNode | undefined {
-    return this.sync.state.nodes.find((n) => n.id === id);
+    return this.sync.node(id);
   }
 
   private onState() {
@@ -171,8 +171,8 @@ export class BoardController {
       this.flushRestores();
     }
     if (this.selection.size) {
-      const ids = new Set(this.nodes.map((n) => n.id));
-      const kept = [...this.selection].filter((id) => ids.has(id));
+      // per selected id, not per node: this runs on every drag frame
+      const kept = [...this.selection].filter((id) => this.sync.node(id));
       if (kept.length !== this.selection.size) this.select(kept);
     }
   }

@@ -6,7 +6,7 @@
 // Routed by wireRoute: from the border of one tile to the other, around whatever is in
 // the way, so they follow tiles of any size without fixed handle positions.
 
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useRef } from 'react';
 import { BaseEdge, EdgeLabelRenderer, useStore, type ConnectionLineComponentProps, type Edge, type EdgeProps, type ReactFlowState } from '@xyflow/react';
 import type { BoardEdge } from '../lib/types';
 import { useContext } from 'react';
@@ -14,7 +14,8 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { useSessionsValue } from '../orch/hooks';
 import { editorAgents, groupSessions, noAgentReason } from './groups';
 import { BoardEnvContext } from './ui';
-import { draftRoute, routeWire, type Box, type Route, type Side } from './wireRoute';
+import { routeIn, sameBoxes, snapshotOf, type BoxSnapshot, type CachedRoute, type TileBox } from './routeCache';
+import { draftRoute, type Route, type Side } from './wireRoute';
 
 export interface EdgeData extends Record<string, unknown> {
   edge: BoardEdge;
@@ -24,41 +25,37 @@ export type FlowEdge = Edge<EdgeData>;
 /** Marks on the canvas: a wire may cross them, it only must not vanish under a tile. */
 const DRAWINGS = new Set(['shape', 'line', 'ink', 'text']);
 
-interface TileBox extends Box {
-  id: string;
-  solid: boolean;
-}
-
-// One list for all edges, rebuilt once per change of the nodes.
+// One snapshot for all edges, rebuilt once per change of the nodes.
 let boxesOf: unknown = null;
-let boxes: TileBox[] = [];
+let snap: BoxSnapshot = snapshotOf([], false);
 
-function selectBoxes(s: ReactFlowState): TileBox[] {
-  if (s.nodes === boxesOf) return boxes;
+function selectBoxes(s: ReactFlowState): BoxSnapshot {
+  if (s.nodes === boxesOf) return snap;
   boxesOf = s.nodes;
   const next: TileBox[] = [];
+  let moving = false;
   for (const n of s.nodes) {
+    if (n.dragging) moving = true;
     const i = s.nodeLookup.get(n.id);
     if (!i || n.hidden) continue;
     const p = i.internals.positionAbsolute;
     next.push({ id: n.id, x: p.x, y: p.y, w: i.measured?.width ?? i.width ?? 0, h: i.measured?.height ?? i.height ?? 0, solid: !DRAWINGS.has(n.type ?? '') });
   }
-  const same = next.length === boxes.length && next.every((b, k) => {
-    const o = boxes[k];
-    return o.id === b.id && o.x === b.x && o.y === b.y && o.w === b.w && o.h === b.h;
-  });
-  if (!same) boxes = next;
-  return boxes;
+  if (moving !== snap.moving || !sameBoxes(next, snap.boxes)) snap = snapshotOf(next, moving);
+  return snap;
 }
 
+/** Selects the route itself, so a wire whose route was kept (routeCache) skips its render. */
 function useRoute(source: string, target: string): Route | null {
-  const all = useStore(selectBoxes);
-  return useMemo(() => {
-    const s = all.find((b) => b.id === source);
-    const t = all.find((b) => b.id === target);
-    if (!s || !t) return null;
-    return routeWire(s, t, all.filter((b) => b.solid && b.id !== source && b.id !== target));
-  }, [all, source, target]);
+  const last = useRef<CachedRoute | undefined>(undefined);
+  const select = useCallback(
+    (s: ReactFlowState) => {
+      last.current = routeIn(last.current, selectBoxes(s), source, target);
+      return last.current.route;
+    },
+    [source, target],
+  );
+  return useStore(select);
 }
 
 const ARROW_D = 'M0 0L-10 -5L-10 5Z';

@@ -77,7 +77,7 @@ import { CommandBar } from '../orch/CommandBar';
 import { orchStore, useOrch } from '../orch/store';
 import { boardPath, navigate } from '../lib/router';
 import type { UiAction } from '../orch/types';
-import { alignmentGuides, boundsOf, type Guide } from './geometry';
+import { alignmentGuides, boundsOf, sameGuides, type Guide } from './geometry';
 import { Inspector } from './Inspector';
 import { baseName, DEFAULT_SIZE, dirName, nodeLabel, readGroup, readNote } from './kinds';
 import { DEFAULT_H, DEFAULT_W, MINIMAP_H, MINIMAP_W, placeNear } from './layout';
@@ -1091,7 +1091,9 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
       const box = boundsOf(dragged.map((d) => ({ x: d.position.x, y: d.position.y, w: d.width ?? 0, h: d.height ?? 0 })));
       if (!box) return;
       const others = ctl.nodes.filter((n) => !ids.has(n.id) && n.kind !== 'ink').slice(-400).map(rectOf);
-      setGuides(alignmentGuides(box, others, 6 / rf.getZoom()));
+      const next = alignmentGuides(box, others, 6 / rf.getZoom());
+      // a fresh [] each frame would re-render the whole canvas even with no guide shown
+      setGuides((g) => (sameGuides(g, next) ? g : next));
     },
     [ctl, rf],
   );
@@ -1101,7 +1103,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     dragStart.current = null;
     dragFlow.current = new Set();
     setDragging(EMPTY);
-    setGuides([]);
+    setGuides((g) => (g.length ? [] : g));
     if (!start) return;
     const undo: Op[] = [];
     const redo: Op[] = [];

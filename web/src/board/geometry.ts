@@ -161,6 +161,11 @@ export interface Guide {
   to: number;
 }
 
+/** Same lines: a drag frame that finds the same guides need not render them again. */
+export function sameGuides(a: readonly Guide[], b: readonly Guide[]): boolean {
+  return a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
+}
+
 /**
  * Alignment guides for a moving box against the other nodes (edges and centres within
  * `threshold` board px). Guides only — nothing snaps.

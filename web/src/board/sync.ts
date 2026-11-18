@@ -9,8 +9,8 @@
 
 import { api, ApiError, errorMessage } from '../api';
 import { CLIENT_ID } from '../lib/ids';
-import type { Board, HubEvent, Op } from '../lib/types';
-import { applyOps, EMPTY_STATE, queueOp, type DocState } from './ops';
+import type { Board, BoardNode, HubEvent, Op } from '../lib/types';
+import { applyOps, EMPTY_STATE, indexNodes, queueOp, type DocState } from './ops';
 
 const FLUSH_MS = 150;
 const MAX_OPS = 400; // hub limit 500 per request
@@ -49,6 +49,9 @@ export class BoardSync {
   private loadSeq = 0;
   /** boardOps that arrived while a load was in progress. */
   private buffered: BoardOpsEvent[] = [];
+  /** id → position in `indexed` (= state.nodes when fresh): node() and drag frames skip a scan. */
+  private index = new Map<string, number>();
+  private indexed: BoardNode[] | null = null;
 
   constructor(workspaceId: string) {
     this.workspaceId = workspaceId;
@@ -63,6 +66,20 @@ export class BoardSync {
   getState = (): DocState => this.state;
   private emit() {
     this.listeners.forEach((l) => l());
+  }
+
+  private nodeIndex(): Map<string, number> {
+    if (this.indexed !== this.state.nodes) {
+      this.index = indexNodes(this.state.nodes);
+      this.indexed = this.state.nodes;
+    }
+    return this.index;
+  }
+
+  /** The node with this id in the local state (O(1)). */
+  node(id: string): BoardNode | undefined {
+    const i = this.nodeIndex().get(id);
+    return i === undefined ? undefined : this.state.nodes[i];
   }
 
   /** True while local edits have not been confirmed by the hub. */
@@ -122,7 +139,10 @@ export class BoardSync {
   /** Apply ops locally right away and queue them for the hub. */
   change(ops: Op[]) {
     if (ops.length === 0 || this.disposed) return;
-    this.state = applyOps(this.state, ops);
+    const index = this.nodeIndex();
+    this.state = applyOps(this.state, ops, index);
+    // patches (every drag / resize frame) keep the order, so the index stays valid
+    if (ops.every((op) => op.op === 'patch')) this.indexed = this.state.nodes;
     for (const op of ops) queueOp(this.pending, op);
     this.schedule();
     this.emit();
