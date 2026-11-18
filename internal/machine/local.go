@@ -81,21 +81,53 @@ func LoginShell() string {
 	return "/bin/sh"
 }
 
-// readLoginPath asks a login shell for its PATH so that CLIs installed in
-// ~/.local/bin etc. resolve even under a minimal service environment.
+// readLoginPath asks the user's shell for its PATH so that CLIs installed in
+// ~/.local/bin etc. resolve even under a minimal service environment. An
+// interactive login shell first: zsh and bash read ~/.zshrc / ~/.bashrc only
+// when interactive, and that is where nvm, asdf and the like put node, python,
+// … on PATH. Without them a CLI's own hooks fail: a Claude Code plugin hook
+// running `node` ended with exit 127 ("UserPromptSubmit hook failed") in every
+// console of the hub. Then a plain login shell, then the hub's own PATH.
 func readLoginPath(shell string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, shell, "-lc", `printf '__NB_PATH__%s' "$PATH"`).Output()
-	if err == nil {
-		s := string(out)
-		if i := strings.LastIndex(s, "__NB_PATH__"); i >= 0 {
-			if p := strings.TrimSpace(s[i+len("__NB_PATH__"):]); p != "" {
-				return p
-			}
+	if interactivePath(shell) {
+		if p := pathFromShell(shell, "-ilc"); p != "" {
+			return p
 		}
 	}
+	if p := pathFromShell(shell, "-lc"); p != "" {
+		return p
+	}
 	return os.Getenv("PATH")
+}
+
+// interactivePath reports whether shell takes -i with -lc and reads its rc file then.
+func interactivePath(shell string) bool {
+	switch filepath.Base(shell) {
+	case "zsh", "bash", "fish", "ksh", "mksh":
+		return true
+	}
+	return false
+}
+
+// pathFromShell runs shell with flags and returns the PATH it prints, "" when it
+// fails. Its own session, no terminal and stdin closed: an interactive shell
+// then reads its rc files without waiting on or taking over a terminal, and
+// whatever the rc files print comes before the marker.
+func pathFromShell(shell, flags string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, shell, flags, `printf '__NB_PATH__%s' "$PATH"`)
+	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	s := string(out)
+	if i := strings.LastIndex(s, "__NB_PATH__"); i >= 0 {
+		return strings.TrimSpace(s[i+len("__NB_PATH__"):])
+	}
+	return ""
 }
 
 func (l *Local) ID() string      { return LocalID }
