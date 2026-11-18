@@ -111,7 +111,8 @@ test('screenshots', async ({ page, request, browser }) => {
   await p.keyboard.press('Escape');
 
   // ---- where new consoles work: at the root, which reaches every part, or in one part
-  await p.getByRole('toolbar', { name: 'Quick actions' }).getByRole('button', { name: /^Spawn \d/ }).click();
+  await p.getByRole('button', { name: 'Quick actions' }).click();
+  await p.getByRole('menu', { name: 'Quick actions' }).getByRole('menuitem', { name: /^Spawn \d/ }).click();
   const spawn = p.getByRole('dialog', { name: 'Spawn consoles' });
   await spawn.getByRole('radiogroup', { name: 'Place in' }).getByRole('radio', { name: 'Root' }).click();
   await spawn.getByRole('button', { name: 'Every slot runs Builder' }).click();
@@ -123,7 +124,8 @@ test('screenshots', async ({ page, request, browser }) => {
   await expect(spawn).toBeHidden();
 
   // ---- the layout library: each group in a part of its own
-  await p.getByRole('button', { name: 'Layouts' }).first().click();
+  await p.getByRole('button', { name: 'Quick actions' }).click();
+  await p.getByRole('menu', { name: 'Quick actions' }).getByRole('menuitem', { name: 'Layouts' }).click();
   const layouts = p.getByRole('dialog', { name: 'Layouts' });
   await layouts.getByRole('option', { name: /Front & back/ }).click();
   const placeFront = layouts.getByLabel('Place Frontend in');

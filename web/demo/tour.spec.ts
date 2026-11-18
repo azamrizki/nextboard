@@ -139,7 +139,8 @@ test('product tour', async ({ page, request }) => {
 
   // 9. a team from a template
   await caption(page, 'Start a whole team from a template', 'Each group in a part of its own, and as many agents as it needs');
-  await click(page, page.getByRole('button', { name: 'Layouts' }).first());
+  await click(page, page.getByRole('button', { name: 'Quick actions' }));
+  await click(page, page.getByRole('menu', { name: 'Quick actions' }).getByRole('menuitem', { name: 'Layouts' }));
   const layouts = page.getByRole('dialog', { name: 'Layouts' });
   await expect(layouts).toBeVisible();
   // behind the dialog meanwhile: the code card goes, so the board fits as it was

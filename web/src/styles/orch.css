@@ -53,32 +53,115 @@
   border-color: var(--c-primary);
   box-shadow: var(--e-3), var(--glass-highlight), var(--ring-input);
 }
-.cmd-chips {
+/* Quick actions (DESIGN.md §3.12): one round button left of the input panel; its actions open
+   upward from it as pills, the first right above the button, like a phone's speed dial. */
+.cmd-dock {
+  --h-cmd-fab: 44px;
+  position: relative; /* the list opens above the whole dock, never under the input panel */
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  align-items: flex-end;
   gap: var(--s-2);
-  pointer-events: none; /* the gaps belong to the board */
 }
-/* the chips may be wider than the bar below them, as long as the rails leave room */
-@media (min-width: 900px) {
-  .cmd-chips {
-    align-self: center;
-    width: max-content;
-    max-width: calc(100vw - 2 * (var(--w-rail) + var(--s-8)));
-  }
+.cmd-dock > .cmd-panel {
+  flex: 1 1 auto;
+  min-width: 0;
 }
-@media (max-width: 899px) {
-  .cmd-chips {
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    overflow-x: auto;
-    scrollbar-width: none;
-    pointer-events: auto;
-  }
+.cmd-fab-wrap {
+  flex: none;
 }
-.cmd-chips::-webkit-scrollbar {
+:root[data-input='touch'] .cmd-dock {
+  --h-cmd-fab: 48px;
+}
+.cmd-fab {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--h-cmd-fab);
+  height: var(--h-cmd-fab);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--c-primary);
+  color: var(--text-on-primary);
+  box-shadow: var(--primary-highlight), var(--e-2);
+  cursor: pointer;
+  transition:
+    transform var(--t-base) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.cmd-fab:hover {
+  background: var(--c-primary-600);
+}
+.cmd-fab:active {
+  transform: scale(0.96);
+}
+.cmd-fab:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 3px;
+}
+.cmd-fab svg {
+  width: 20px;
+  height: 20px;
+  transition: transform var(--t-base) var(--ease);
+}
+.cmd-fab-wrap.is-open .cmd-fab svg {
+  transform: rotate(90deg);
+}
+/* agents are paused somewhere: the closed button says so, as Resume all does when open */
+.cmd-fab-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c-warning);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.cmd-dial {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: calc(100% + var(--s-3));
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: var(--s-2);
+  max-height: calc(100dvh - var(--h-cmdbar) - var(--s-4) - var(--s-3) - 88px); /* below the header */
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: var(--s-1);
+  margin: calc(-1 * var(--s-1));
+}
+.cmd-dial::-webkit-scrollbar {
   display: none;
+}
+.cmd-dial .cmd-chip {
+  animation: cmd-dial-in var(--t-base) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
+.cmd-dial .cmd-chip:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+@keyframes cmd-dial-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmd-dial .cmd-chip {
+    animation: none;
+  }
+  .cmd-fab,
+  .cmd-fab svg {
+    transition: none;
+  }
 }
 /* no blur per chip: they sit over a moving board, and the fill is nearly solid anyway */
 .cmd-chip {
@@ -130,7 +213,7 @@
 .cmd-chip:active {
   filter: none;
 }
-.cmd-chip[aria-pressed='true'] {
+.cmd-chip.is-pressed {
   color: var(--tint-warning-text);
 }
 .cmd-chip.is-danger {

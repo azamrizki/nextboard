@@ -1,10 +1,11 @@
 // Command bar (docs/API-orchestration.md §3, §18, D1–D3): the bottom of every board.
-// Chips for quick actions, the agent chip (the old "New terminal" dock), an order input
+// A floating Quick actions button left of the bar whose actions open upward (DESIGN.md §3.12),
+// the agent chip (the old "New terminal" dock), an order input
 // with @mentions and target chips, and the project thread in a drawer above it.
 // Ctrl/⌘K focuses the input, Esc gives the keyboard back to the board.
 // Space-hold is reserved for push-to-talk (Phase 7) and deliberately not bound here.
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { agentById } from '../agents/catalog';
 import { patchSettings, useShortcuts } from '../agents/settings';
 import { AgentChip, type NT } from '../board/NewTerminal';
@@ -57,6 +58,8 @@ interface Chip {
   danger?: boolean;
   pressed?: boolean;
   badge?: number;
+  /** The quick actions stay open after it (the kill switch's first, arming click). */
+  keepOpen?: boolean;
 }
 
 export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead = false }: CommandBarProps) {
@@ -84,6 +87,30 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
     });
   const [seen, setSeen] = useState<Seen | null>(null);
   const [killArm, setKillArm] = useState(false);
+  // the Quick actions button and the actions it opens upward
+  const [dial, setDial] = useState(false);
+  const fabRef = useRef<HTMLButtonElement>(null);
+  const dialRef = useRef<HTMLDivElement>(null);
+  /** focus: back to the button (Esc, the button itself), not after an action that opens something. */
+  const closeDial = (focus: boolean) => {
+    setDial(false);
+    if (focus) fabRef.current?.focus();
+  };
+  // open: the first action takes the keyboard; a press anywhere else, or the focus leaving, closes
+  useEffect(() => {
+    if (!dial) return;
+    dialRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    const outside = (e: Event) => {
+      const t = e.target as Node | null;
+      if (t && !dialRef.current?.contains(t) && !fabRef.current?.contains(t)) setDial(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('focusin', outside, true);
+    return () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('focusin', outside, true);
+    };
+  }, [dial]);
   const [killConfirm, setKillConfirm] = useState(false);
   const [reply, setReply] = useState<ReplyDraft | null>(null);
   const leadName = useLeadName();
@@ -256,6 +283,7 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
         id: 'kill',
         label: killArm ? 'Click again to kill all' : 'Kill all',
         danger: true,
+        keepOpen: !killArm,
         title: 'Two clicks, then a confirmation',
         onClick: () => {
           if (killArm) {
@@ -370,143 +398,174 @@ export function CommandBar({ ctl, ui, project, nt, loopsRunning, onArrange, lead
         </div>
       )}
       <div className={`cmdbar ${live ? 'is-live' : ''}`} role="region" aria-label="Command bar" ref={barRef}>
-        <div
-          className="cmd-chips"
-          role="toolbar"
-          aria-label="Quick actions"
-          onKeyDown={(e) => {
-            if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return;
-            const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('.cmd-chip'));
-            const i = items.indexOf(document.activeElement as HTMLButtonElement);
-            if (i < 0) return;
-            e.preventDefault();
-            const n = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : items.length - 1)) % items.length;
-            items[n]?.focus();
-          }}
-        >
-          {chips.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className={`cmd-chip ${c.danger ? 'is-danger' : ''} ${c.id === 'kill' && killArm ? 'is-armed' : ''}`}
-              title={c.title ?? c.label}
-              aria-pressed={c.pressed}
-              onClick={c.onClick}
-            >
-              <span>{c.label}</span>
-              {!!c.badge && <span className="chip-count tabular">{c.badge}</span>}
-            </button>
-          ))}
-        </div>
-        <div className="cmd-panel">
-          <div className={`cmd-row ${live ? 'is-voice' : ''}`}>
-            {live && <VoiceStatus label={voice.mode === 'talk' ? 'listening' : 'dictating'} text={voice.text} />}
-            <div className="cmd-input">
-              {(targets.length > 0 || reply || att.items.length > 0) && (
-                <div className="cmd-top">
-                  {targets.length > 0 && (
-                    <div className="target-chips" aria-label="Targets">
-                      {targets.map((t) => (
-                        <span key={t.token} className={`tchip ${t.mention ? `kind-${t.mention.kind}` : 'is-unknown'}`} title={t.mention ? `${t.mention.kind}: ${t.mention.label}` : 'Unknown name: the hub will ask what you meant'}>
-                          <Icon name={!t.mention ? 'alertCircle' : t.mention.kind === 'group' ? 'group' : t.mention.kind === 'everyone' ? 'users' : t.mention.kind === 'agent' ? 'bot' : t.mention.kind === 'role' ? 'flag' : 'at'} />
-                          {t.mention?.kind === 'console' ? `@${t.mention.handle ?? t.mention.label}` : t.mention ? t.mention.label : `@${t.token}?`}
-                          <button type="button" className="tchip-x" aria-label={`Remove @${t.token}`} onClick={() => setText((v) => removeMention(v, t.token))}>
-                            <Icon name="close" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {reply && <ReplyChip reply={reply} onClear={() => setReply(null)} />}
-                  <AttachChips att={att} inputRef={inputRef} />
-                </div>
-              )}
-              <MentionInput
-                projectId={project.id}
-                workspaceId={ctl.workspaceId}
-                value={text}
-                onChange={setText}
-                onSubmit={(t) => void send(t)}
-                local={local}
-                placeholder={placeholder}
-                label="Order for your agents"
-                historyKey={historyKey}
-                disabled={sending}
-                inputRef={inputRef}
-                onEscape={() => (reply ? setReply(null) : toBoard())}
-                attachments={att}
-              />
-            </div>
-            <button
-              type="button"
-              className={`thread-toggle ${open ? 'is-open' : ''}`}
-              aria-expanded={open}
-              aria-label={open ? 'Close the thread' : `Open the thread${unread ? ` (${unread} new)` : ''}`}
-              title={open ? 'Close the thread' : 'Open the thread'}
-              onClick={() => setOpen((o) => !o)}
-            >
-              <Icon name={open ? 'chevronDown' : 'chevronUp'} />
-              {unread > 0 && <span className="toggle-dot tabular">{unread > 9 ? '9+' : unread}</span>}
-            </button>
-            <AgentChip nt={nt} anchor={barRef} resume={{ workspaceId: ctl.workspaceId, onResume: (chat) => ui.set({ resumeChat: { chat } }) }} />
-            {live && <Button size="sm" variant="ghost" iconOnly icon="close" className="voice-cancel" aria-label="Cancel" title="Cancel (Esc)" onClick={voice.cancel} />}
-            {voice.active && (
-              <button
-                type="button"
-                // the same button stays through the switch: a held press must still see its release
-                className={`btn btn-ghost btn-sm btn-icon cmd-mic ${live ? 'is-live' : ''}`}
-                aria-label={live ? 'Stop and send' : 'Talk: hold, or tap to start and tap again to send'}
-                aria-pressed={live}
-                title={live ? 'Stop and send' : voice.holdSpace ? 'Talk (hold Space on the board)' : 'Talk'}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  if (voice.mode === 'talk') return;
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  micDown.current = Date.now();
-                  voice.startTalk();
-                }}
-                onPointerUp={() => {
-                  if (!live) return;
-                  // held: release sends; a quick tap keeps listening until the next tap
-                  if (micDown.current && Date.now() - micDown.current > 350) voice.stop();
-                  else if (!micDown.current) voice.stop();
-                  micDown.current = 0;
-                }}
+        <div className="cmd-dock">
+          <div className={`cmd-fab-wrap ${dial ? 'is-open' : ''}`}>
+            {dial && (
+              <div
+                className="cmd-dial"
+                role="menu"
+                aria-label="Quick actions"
+                ref={dialRef}
                 onKeyDown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  if (live) voice.stop();
-                  else {
-                    micDown.current = 0;
-                    voice.startTalk();
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeDial(true);
+                    return;
                   }
+                  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Home' && e.key !== 'End') return;
+                  // the first action sits next to the button, the list grows upward
+                  const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+                  const i = items.indexOf(document.activeElement as HTMLButtonElement);
+                  e.preventDefault();
+                  const n = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (Math.max(i, 0) + (e.key === 'ArrowUp' ? 1 : items.length - 1)) % items.length;
+                  items[n]?.focus();
                 }}
               >
-                <Icon name={live ? 'stop' : 'mic'} />
-              </button>
+                {chips.map((c, i) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    role="menuitem"
+                    className={`cmd-chip ${c.danger ? 'is-danger' : ''} ${c.id === 'kill' && killArm ? 'is-armed' : ''} ${c.pressed ? 'is-pressed' : ''}`}
+                    style={{ '--i': i } as CSSProperties}
+                    title={c.title ?? c.label}
+                    aria-description={c.pressed ? 'Some agents are paused' : undefined}
+                    onClick={() => {
+                      if (!c.keepOpen) closeDial(false);
+                      c.onClick();
+                    }}
+                  >
+                    <span>{c.label}</span>
+                    {!!c.badge && <span className="chip-count tabular">{c.badge}</span>}
+                  </button>
+                ))}
+              </div>
             )}
-            {voice.supported && !voice.active && <Button size="sm" variant="ghost" iconOnly icon="mic" className="cmd-mic is-off" aria-label="Turn on voice in Settings" title="Voice is off. Turn it on in Settings" onClick={() => navigate('/settings/voice')} />}
-            {/* paste works too; a phone has nothing to paste a photo from */}
-            <Button size="sm" variant="ghost" iconOnly icon="upload" className="cmd-attach" aria-label="Attach a file or photo" title="Attach a file or photo (or paste one)" onClick={() => fileRef.current?.click()} />
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                e.target.value = '';
-                if (files.length) att.add(files);
-              }}
-            />
-            <Button variant="primary" size="sm" iconOnly icon="send" aria-label="Send order" className="cmd-send" loading={sending} disabled={!att.canSend(text) || sending} onClick={() => void send(text.trim())} />
+            <button
+              type="button"
+              ref={fabRef}
+              className="cmd-fab"
+              aria-label="Quick actions"
+              aria-haspopup="menu"
+              aria-expanded={dial}
+              title={dial ? 'Close quick actions' : 'Quick actions: new consoles, groups, layouts, arrange, pause, memory'}
+              onClick={() => (dial ? closeDial(false) : setDial(true))}
+            >
+              <Icon name={dial ? 'close' : 'plus'} />
+              {!dial && anyPaused && <span className="cmd-fab-dot" aria-hidden="true" />}
+            </button>
           </div>
-          {live && (
-            <VoiceCaption
-              text={voice.text}
-              hint={voice.mode === 'talk' ? 'Speak your order…' : `Speak… typing into ${voice.target || 'the command bar'}`}
-            />
-          )}
+          <div className="cmd-panel">
+            <div className={`cmd-row ${live ? 'is-voice' : ''}`}>
+              {live && <VoiceStatus label={voice.mode === 'talk' ? 'listening' : 'dictating'} text={voice.text} />}
+              <div className="cmd-input">
+                {(targets.length > 0 || reply || att.items.length > 0) && (
+                  <div className="cmd-top">
+                    {targets.length > 0 && (
+                      <div className="target-chips" aria-label="Targets">
+                        {targets.map((t) => (
+                          <span key={t.token} className={`tchip ${t.mention ? `kind-${t.mention.kind}` : 'is-unknown'}`} title={t.mention ? `${t.mention.kind}: ${t.mention.label}` : 'Unknown name: the hub will ask what you meant'}>
+                            <Icon name={!t.mention ? 'alertCircle' : t.mention.kind === 'group' ? 'group' : t.mention.kind === 'everyone' ? 'users' : t.mention.kind === 'agent' ? 'bot' : t.mention.kind === 'role' ? 'flag' : 'at'} />
+                            {t.mention?.kind === 'console' ? `@${t.mention.handle ?? t.mention.label}` : t.mention ? t.mention.label : `@${t.token}?`}
+                            <button type="button" className="tchip-x" aria-label={`Remove @${t.token}`} onClick={() => setText((v) => removeMention(v, t.token))}>
+                              <Icon name="close" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {reply && <ReplyChip reply={reply} onClear={() => setReply(null)} />}
+                    <AttachChips att={att} inputRef={inputRef} />
+                  </div>
+                )}
+                <MentionInput
+                  projectId={project.id}
+                  workspaceId={ctl.workspaceId}
+                  value={text}
+                  onChange={setText}
+                  onSubmit={(t) => void send(t)}
+                  local={local}
+                  placeholder={placeholder}
+                  label="Order for your agents"
+                  historyKey={historyKey}
+                  disabled={sending}
+                  inputRef={inputRef}
+                  onEscape={() => (reply ? setReply(null) : toBoard())}
+                  attachments={att}
+                />
+              </div>
+              <button
+                type="button"
+                className={`thread-toggle ${open ? 'is-open' : ''}`}
+                aria-expanded={open}
+                aria-label={open ? 'Close the thread' : `Open the thread${unread ? ` (${unread} new)` : ''}`}
+                title={open ? 'Close the thread' : 'Open the thread'}
+                onClick={() => setOpen((o) => !o)}
+              >
+                <Icon name={open ? 'chevronDown' : 'chevronUp'} />
+                {unread > 0 && <span className="toggle-dot tabular">{unread > 9 ? '9+' : unread}</span>}
+              </button>
+              <AgentChip nt={nt} anchor={barRef} resume={{ workspaceId: ctl.workspaceId, onResume: (chat) => ui.set({ resumeChat: { chat } }) }} />
+              {live && <Button size="sm" variant="ghost" iconOnly icon="close" className="voice-cancel" aria-label="Cancel" title="Cancel (Esc)" onClick={voice.cancel} />}
+              {voice.active && (
+                <button
+                  type="button"
+                  // the same button stays through the switch: a held press must still see its release
+                  className={`btn btn-ghost btn-sm btn-icon cmd-mic ${live ? 'is-live' : ''}`}
+                  aria-label={live ? 'Stop and send' : 'Talk: hold, or tap to start and tap again to send'}
+                  aria-pressed={live}
+                  title={live ? 'Stop and send' : voice.holdSpace ? 'Talk (hold Space on the board)' : 'Talk'}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    if (voice.mode === 'talk') return;
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    micDown.current = Date.now();
+                    voice.startTalk();
+                  }}
+                  onPointerUp={() => {
+                    if (!live) return;
+                    // held: release sends; a quick tap keeps listening until the next tap
+                    if (micDown.current && Date.now() - micDown.current > 350) voice.stop();
+                    else if (!micDown.current) voice.stop();
+                    micDown.current = 0;
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    if (live) voice.stop();
+                    else {
+                      micDown.current = 0;
+                      voice.startTalk();
+                    }
+                  }}
+                >
+                  <Icon name={live ? 'stop' : 'mic'} />
+                </button>
+              )}
+              {voice.supported && !voice.active && <Button size="sm" variant="ghost" iconOnly icon="mic" className="cmd-mic is-off" aria-label="Turn on voice in Settings" title="Voice is off. Turn it on in Settings" onClick={() => navigate('/settings/voice')} />}
+              {/* paste works too; a phone has nothing to paste a photo from */}
+              <Button size="sm" variant="ghost" iconOnly icon="upload" className="cmd-attach" aria-label="Attach a file or photo" title="Attach a file or photo (or paste one)" onClick={() => fileRef.current?.click()} />
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  if (files.length) att.add(files);
+                }}
+              />
+              <Button variant="primary" size="sm" iconOnly icon="send" aria-label="Send order" className="cmd-send" loading={sending} disabled={!att.canSend(text) || sending} onClick={() => void send(text.trim())} />
+            </div>
+            {live && (
+              <VoiceCaption
+                text={voice.text}
+                hint={voice.mode === 'talk' ? 'Speak your order…' : `Speak… typing into ${voice.target || 'the command bar'}`}
+              />
+            )}
+          </div>
         </div>
       </div>
       {killConfirm && (

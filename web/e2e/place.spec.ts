@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './hub';
+import { quickAction } from './quick';
 import { consolesOf, endConsoles, twoParts } from './two-parts';
 
 // "Place in: Root (all parts) / <part>…" (v0.9.0-beta.2, docs/API-board.md §1): every place that
@@ -116,8 +117,7 @@ test('the team composer places every console it starts', async ({ page, hub }) =
   try {
     await page.goto(`/p/${p.id}/w/${p.wid}`);
     await toBar(page);
-    const quick = page.getByRole('toolbar', { name: 'Quick actions' });
-    await quick.getByRole('button', { name: 'Spawn 4' }).click();
+    await quickAction(page, 'Spawn 4');
     let dialog = page.getByRole('dialog', { name: 'Spawn consoles' });
     let place = dialog.getByRole('radiogroup', { name: 'Place in' });
     await expect(place.getByRole('radio')).toHaveText(['Root', 'admin', 'web']);
@@ -132,7 +132,7 @@ test('the team composer places every console it starts', async ({ page, hub }) =
     await backToBar(page, `/p/${p.id}/w/${p.wid}`);
 
     // a group at the root: every one of its consoles there
-    await quick.getByRole('button', { name: 'Group', exact: true }).click();
+    await quickAction(page, 'Group');
     dialog = page.getByRole('dialog', { name: 'Compose group' });
     place = dialog.getByRole('radiogroup', { name: 'Place in' });
     await expect(place.getByRole('radio', { name: 'web' })).toHaveAttribute('aria-checked', 'true');
@@ -180,7 +180,7 @@ test('a project in one folder never asks where', async ({ page, hub }, info) => 
     await backToBar(page, `/p/${p.id}/w/${p.wid}`);
 
     // the composer asks nothing either
-    await page.getByRole('toolbar', { name: 'Quick actions' }).getByRole('button', { name: 'Spawn 4' }).click();
+    await quickAction(page, 'Spawn 4');
     const dialog = page.getByRole('dialog', { name: 'Spawn consoles' });
     await expect(dialog.getByRole('button', { name: /^Spawn \d/ })).toBeVisible();
     await expect(dialog.getByRole('radiogroup', { name: 'Place in' })).toHaveCount(0);

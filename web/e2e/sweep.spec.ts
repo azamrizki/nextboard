@@ -3,6 +3,7 @@ import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeFileS
 import { dirname, join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test, type Hub } from './hub';
+import { quickAction } from './quick';
 import { openVault } from './vault';
 
 // The whole web on every screen (DESIGN.md §3.0): every page, every settings pane, the dialogs
@@ -345,12 +346,12 @@ test('the workbench views, tile controls and passkey dialogs fit the screen', as
 
   // the layout library with its group sizes, on a template with many groups
   await page.goto(`/p/${p.id}/w/${p.wid}`);
-  // a phone has no toolbar for it: it is in what the board's own Insert offers
-  const toolbar = page.getByRole('button', { name: 'Layouts' }).first();
+  // a phone has no command bar for it: it is in what the board's own Insert offers
+  const quick = page.getByRole('button', { name: 'Quick actions' });
   const boardTab = page.getByRole('button', { name: 'Board', exact: true });
   // whichever this screen has, once the board is drawn
-  await expect.poll(async () => (await toolbar.isVisible()) || (await boardTab.isVisible()), { timeout: 15_000 }).toBe(true);
-  if (await toolbar.isVisible()) await toolbar.click();
+  await expect.poll(async () => (await quick.isVisible()) || (await boardTab.isVisible()), { timeout: 15_000 }).toBe(true);
+  if (await quick.isVisible()) await quickAction(page, 'Layouts');
   else {
     await boardTab.click();
     await page.locator('.rail-left').getByRole('button', { name: 'Insert' }).click();

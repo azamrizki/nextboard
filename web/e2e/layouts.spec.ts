@@ -1,4 +1,5 @@
 import { expect, test } from './hub';
+import { quickAction } from './quick';
 
 const consoles = async (hub: any, wid: string) => {
   const board = await hub.call('GET', `/api/workspaces/${wid}/board`);
@@ -10,7 +11,7 @@ const consoles = async (hub: any, wid: string) => {
 test('a layout deploys with the group sizes chosen for it', async ({ page, hub }, info) => {
   const p = await hub.project(`Sizes ${info.project.name}`);
   await page.goto(`/p/${p.id}/w/${p.wid}`);
-  await page.getByRole('button', { name: 'Layouts' }).first().click();
+  await quickAction(page, 'Layouts');
   const panel = page.getByRole('dialog', { name: 'Layouts' });
   await panel.getByRole('textbox', { name: 'Search layouts' }).fill('Build & review');
   await panel.getByRole('option', { name: /Build & review/ }).click();
@@ -58,7 +59,7 @@ test('a layout deploys with the group sizes chosen for it', async ({ page, hub }
 test('the limits show before the hub has to refuse', async ({ page, hub }, info) => {
   const p = await hub.project(`Limits ${info.project.name}`);
   await page.goto(`/p/${p.id}/w/${p.wid}`);
-  await page.getByRole('button', { name: 'Layouts' }).first().click();
+  await quickAction(page, 'Layouts');
   const panel = page.getByRole('dialog', { name: 'Layouts' });
   await panel.getByRole('textbox', { name: 'Search layouts' }).fill('Duo');
   await panel.getByRole('option', { name: /^Duo/ }).click();
@@ -78,7 +79,7 @@ test('the limits show before the hub has to refuse', async ({ page, hub }, info)
 test('the layout library finds templates by what they are for', async ({ page, hub }, info) => {
   const p = await hub.project(`Library ${info.project.name}`);
   await page.goto(`/p/${p.id}/w/${p.wid}`);
-  await page.getByRole('button', { name: 'Layouts' }).first().click();
+  await quickAction(page, 'Layouts');
   const panel = page.getByRole('dialog', { name: 'Layouts' });
   const library = panel.getByRole('listbox', { name: 'Layouts' });
   await expect(library.getByRole('option')).toHaveCount(44, { timeout: 10_000 });
@@ -101,7 +102,7 @@ test('a layout with the Code card moves the one the board has into place', async
     ops: [{ op: 'put', node: { id: 'n_editore2e01', kind: 'editor', x: 0, y: 0, w: 640, h: 400, data: {} } }],
   });
   await page.goto(`/p/${p.id}/w/${p.wid}`);
-  await page.getByRole('button', { name: 'Layouts' }).first().click();
+  await quickAction(page, 'Layouts');
   const panel = page.getByRole('dialog', { name: 'Layouts' });
   await panel.getByRole('textbox', { name: 'Search layouts' }).fill('Code & pair');
   const option = panel.getByRole('option', { name: /Code & pair/ });

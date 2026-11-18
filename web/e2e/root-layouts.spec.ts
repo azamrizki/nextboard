@@ -1,4 +1,5 @@
 import { expect, test } from './hub';
+import { quickAction } from './quick';
 import { SSHD } from './sshd';
 import { consolesOf, endConsoles, twoParts } from './two-parts';
 
@@ -31,7 +32,7 @@ test('a layout deploys its groups in different parts, and a saved one asks for a
   try {
     // Builders in admin, Review on the server's frontend
     await page.goto(`/p/${a.id}/w/${a.wid}`);
-    await page.getByRole('button', { name: 'Layouts' }).first().click();
+    await quickAction(page, 'Layouts');
     let panel = page.getByRole('dialog', { name: 'Layouts' });
     await panel.getByRole('textbox', { name: 'Search layouts' }).fill('Build & review');
     await panel.getByRole('option', { name: /Build & review/ }).click();
@@ -67,7 +68,7 @@ test('a layout deploys its groups in different parts, and a saved one asks for a
 
     // the panel asks first: admin matches by name, frontend is to be picked
     await page.goto(`/p/${b.id}/w/${b.wid}`);
-    await page.getByRole('button', { name: 'Layouts' }).first().click();
+    await quickAction(page, 'Layouts');
     panel = page.getByRole('dialog', { name: 'Layouts' });
     await panel.getByRole('textbox', { name: 'Search layouts' }).fill(`Split crew ${info.project.name}`);
     await panel.getByRole('option', { name: new RegExp(`Split crew ${info.project.name}`) }).click();
@@ -99,7 +100,7 @@ test('a layout deployed at the root puts its consoles there', async ({ page, hub
   const p = await twoParts(hub, 'Shop', { front: 'web' });
   try {
     await page.goto(`/p/${p.id}/w/${p.wid}`);
-    await page.getByRole('button', { name: 'Layouts' }).first().click();
+    await quickAction(page, 'Layouts');
     const panel = page.getByRole('dialog', { name: 'Layouts' });
     await panel.getByRole('textbox', { name: 'Search layouts' }).fill('Duo');
     await panel.getByRole('option', { name: /^Duo/ }).click();
