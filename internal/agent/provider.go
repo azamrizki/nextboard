@@ -70,7 +70,8 @@ func ClaudeEditRules(workDir string, addDirs []string) []string {
 	return out
 }
 
-// claudeAddDirs are the folders planContext gives Claude Code with --add-dir.
+// claudeAddDirs are the folders outside its working folder Claude Code works in
+// (permissions.additionalDirectories in its --settings).
 func claudeAddDirs(c *LaunchContext, takesContext bool) []string {
 	var dirs []string
 	if c != nil && takesContext {

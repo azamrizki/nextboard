@@ -2,12 +2,13 @@ package agent
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
 
 // At a project root (docs/API-agents.md §21.2) the real folders behind the root's links are the
-// CLI's own: Claude Code and Codex get --add-dir for each, OpenCode an external_directory allow,
+// CLI's own: Claude Code gets each in permissions.additionalDirectories, Codex --add-dir, OpenCode an external_directory allow,
 // and Codex trusts the hub-made root. On a server none of it applies.
 func TestRootLaunchDirs(t *testing.T) {
 	ctx := func(remote bool) *LaunchContext {
@@ -19,16 +20,18 @@ func TestRootLaunchDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrap := envMap(p.Env)["NB_WRAP"]
-	for _, want := range []string{"--add-dir /home/me/shop-web", "--add-dir /home/me/shop-api"} {
-		if !strings.Contains(wrap, want) {
-			t.Fatalf("claude: no %s in %s", want, wrap)
-		}
+	// Claude Code: in its settings, not --add-dir, which asks again in every new session
+	if dirs := claudeSettingsDirs(t, p); !slices.Equal(dirs, []string{"/home/me/shop-web", "/home/me/shop-api"}) {
+		t.Fatalf("claude: additionalDirectories %v", dirs)
+	}
+	if wrap := envMap(p.Env)["NB_WRAP"]; strings.Contains(wrap, "--add-dir") {
+		t.Fatalf("claude: --add-dir in %s", wrap)
 	}
 	p, _ = Build(claude, Options{Mode: ModeFresh, Context: ctx(true)})
-	if strings.Contains(envMap(p.Env)["NB_WRAP"], "shop-web") {
+	if strings.Contains(envMap(p.Env)["NB_WRAP"], "shop-web") || strings.Contains(envMap(p.Env)["NB_HOOKS"], "shop-web") {
 		t.Fatal("claude on a server gets the local folders")
 	}
+	wrap := ""
 
 	codex, _ := builtinByID("codex")
 	p, _ = Build(codex, Options{Mode: ModeResume, AgentSessionID: "0199a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5b", Context: ctx(false)})
@@ -62,4 +65,18 @@ func TestRootLaunchDirs(t *testing.T) {
 	if cfg.Permission["external_directory"] != "deny" {
 		t.Fatalf("opencode on a server: %v", cfg.Permission["external_directory"])
 	}
+}
+
+// claudeSettingsDirs are the permissions.additionalDirectories of a Claude launch's NB_HOOKS.
+func claudeSettingsDirs(t *testing.T, p Plan) []string {
+	t.Helper()
+	var v struct {
+		Permissions struct {
+			AdditionalDirectories []string `json:"additionalDirectories"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal([]byte(envMap(p.Env)["NB_HOOKS"]), &v); err != nil {
+		t.Fatalf("NB_HOOKS: %v", err)
+	}
+	return v.Permissions.AdditionalDirectories
 }

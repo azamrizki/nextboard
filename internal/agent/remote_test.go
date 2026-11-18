@@ -202,12 +202,21 @@ func TestMCPServersPerCLI(t *testing.T) {
 
 // A pasted file waits outside the project: Claude Code may read it without asking.
 func TestAttachDirLaunch(t *testing.T) {
+	// In its settings, not with --add-dir: Claude Code asks "Adding a new directory" for each
+	// --add-dir in every new session, a second dialog after the folder trust one.
 	a := catalogAgent(t, "claude")
-	plan := planContext(a, &LaunchContext{AttachDir: "/data/attachments"})
-	if !strings.Contains(strings.Join(plan.args, " "), "--add-dir /data/attachments") {
-		t.Fatalf("args: %v", plan.args)
+	p, err := Build(a, Options{Mode: ModeFresh, Context: &LaunchContext{AttachDir: "/data/attachments"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if plan = planContext(a, &LaunchContext{}); strings.Contains(strings.Join(plan.args, " "), "--add-dir") {
-		t.Fatalf("tanpa folder, tanpa flag: %v", plan.args)
+	if dirs := claudeSettingsDirs(t, p); len(dirs) != 1 || dirs[0] != "/data/attachments" {
+		t.Fatalf("additionalDirectories: %v", dirs)
+	}
+	if wrap := envMap(p.Env)["NB_WRAP"]; strings.Contains(wrap, "--add-dir") || !strings.Contains(wrap, `--settings "$NB_HOOKS"`) {
+		t.Fatalf("wrapper: %s", wrap)
+	}
+	p, _ = Build(a, Options{Mode: ModeFresh, Context: &LaunchContext{}})
+	if dirs := claudeSettingsDirs(t, p); len(dirs) != 0 {
+		t.Fatalf("no folder, no directories: %v", dirs)
 	}
 }

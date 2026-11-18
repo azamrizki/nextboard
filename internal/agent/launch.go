@@ -164,14 +164,11 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		if c.Prompt != "" {
 			p.args = append(p.args, "--append-system-prompt-file", c.PromptFile)
 		}
-		if c.AttachDir != "" {
-			p.args = append(p.args, "--add-dir", c.AttachDir)
-		}
-		if !c.Remote {
-			for _, d := range c.AddDirs {
-				p.args = append(p.args, "--add-dir", d)
-			}
-		}
+		// The attachments folder and a root's part folders (claudeAddDirs) go in through
+		// --settings as permissions.additionalDirectories, not --add-dir: since 2.1.32x Claude
+		// Code asks "Adding a new directory … Yes, add it" for every --add-dir in every new
+		// session, a second dialog after the folder trust one; a folder from settings joins the
+		// workspace the same way without it (measured with 2.1.327).
 		mcpTool := func(names []string) string {
 			out := make([]string, len(names))
 			for i, n := range names {
@@ -286,9 +283,9 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 }
 
 // claudeSettings is the inline value of --settings: hooks, where this launch keeps
-// its auto memory, whether it signs commits, the commands that ask and the tools allowed
-// by rule. Nothing is written to any settings file.
-func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked, allow []string, sandbox *Sandbox) string {
+// its auto memory, whether it signs commits, the folders it works in besides its own, the
+// commands that ask and the tools allowed by rule. Nothing is written to any settings file.
+func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked, allow, dirs []string, sandbox *Sandbox) string {
 	v := map[string]any{}
 	if sb := sandbox; sb != nil {
 		s := map[string]any{"enabled": true,
@@ -300,8 +297,11 @@ func claudeSettings(hooks bool, memoryDir string, noCoAuthor bool, blocked, allo
 		}
 		v["sandbox"] = s
 	}
-	if len(blocked) > 0 || len(allow) > 0 {
+	if len(blocked) > 0 || len(allow) > 0 || len(dirs) > 0 {
 		perm := map[string]any{}
+		if len(dirs) > 0 {
+			perm["additionalDirectories"] = dirs
+		}
 		if len(blocked) > 0 {
 			perm["ask"] = ClaudeAskRules(blocked) // ask wins over allow
 		}
@@ -673,7 +673,11 @@ func Build(a Agent, o Options) (Plan, error) {
 			permissionMode = "acceptEdits"
 		}
 	}
-	if (memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil || len(allow) > 0) && !claudeHooks {
+	var dirs []string
+	if a.CapBase() == "claude" {
+		dirs = claudeAddDirs(o.Context, a.TakesContext())
+	}
+	if (memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil || len(allow) > 0 || len(dirs) > 0) && !claudeHooks {
 		wrapperArgs = append(wrapperArgs, "--settings", "$NB_HOOKS")
 	}
 	model, effort := o.Model, o.Effort
@@ -707,8 +711,8 @@ func Build(a Agent, o Options) (Plan, error) {
 		"NB_HOOK_SH=" + HookScript,
 		"TERM_PROGRAM=nextboard",
 	}
-	if claudeHooks || memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil || len(allow) > 0 {
-		p.Env = append(p.Env, "NB_HOOKS="+claudeSettings(claudeHooks, memoryDir, noCoAuthor, blocked, allow, sandbox))
+	if claudeHooks || memoryDir != "" || noCoAuthor || len(blocked) > 0 || sandbox != nil || len(allow) > 0 || len(dirs) > 0 {
+		p.Env = append(p.Env, "NB_HOOKS="+claudeSettings(claudeHooks, memoryDir, noCoAuthor, blocked, allow, dirs, sandbox))
 	}
 	if o.HookURL != "" {
 		p.Env = append(p.Env, "NB_HOOK_URL="+o.HookURL)
