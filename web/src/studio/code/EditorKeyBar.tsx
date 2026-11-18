@@ -45,10 +45,36 @@ const focusedEditor = () => monaco.editor.getEditors().find((e) => e.hasTextFocu
 export function EditorKeyBar({ ws, onGoToFile }: { ws: Workspace; onGoToFile: () => void }) {
   const [select, setSelect] = useState(false);
 
-  // the focused card's area leaves room for this
+  // the focused card's area and the code view leave room for this
   useEffect(() => {
     document.documentElement.setAttribute('data-keybar', '');
     return () => document.documentElement.removeAttribute('data-keybar');
+  }, []);
+
+  // The editor gets shorter as the keyboard and this bar come up: the line being typed is kept in
+  // sight, not left under them.
+  useEffect(() => {
+    let frame = 0;
+    const reveal = () => {
+      cancelAnimationFrame(frame);
+      // after the layout that follows the resize
+      frame = requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const ed = focusedEditor();
+          const pos = ed?.getPosition();
+          if (ed && pos) ed.revealPosition(pos);
+        }),
+      );
+    };
+    reveal();
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', reveal);
+    window.addEventListener('resize', reveal);
+    return () => {
+      cancelAnimationFrame(frame);
+      vv?.removeEventListener('resize', reveal);
+      window.removeEventListener('resize', reveal);
+    };
   }, []);
 
   const run = (id: string) => {

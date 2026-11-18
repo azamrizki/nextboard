@@ -93,15 +93,35 @@ function apply(next: LayoutState) {
   listeners.forEach((fn) => fn());
 }
 
+/**
+ * --kb-offset: how much of the layout viewport's bottom the on-screen keyboard covers. Chrome on
+ * Android shrinks the page with the keyboard (interactive-widget=resizes-content), so it is 0
+ * there; Safari on iPhone and iPad ignores that and lays the keyboard over the page, so what is
+ * fixed to the bottom (the key bar) and what fills the screen (the code view) would sit under it.
+ */
+let kbOffset = -1;
+function keyboardOffset() {
+  const vv = window.visualViewport;
+  const off = vv && state.keyboard ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+  if (off === kbOffset) return;
+  kbOffset = off;
+  document.documentElement.style.setProperty('--kb-offset', `${off}px`);
+}
+
 let installed = false;
 function install() {
   if (installed || typeof window === 'undefined') return;
   installed = true;
   state = { ...state, pref: readPref() };
-  const update = () => apply(compute());
+  const update = () => {
+    apply(compute());
+    keyboardOffset();
+  };
   window.addEventListener('resize', update);
   window.addEventListener('orientationchange', update);
   window.visualViewport?.addEventListener('resize', update);
+  // iOS moves the visual viewport over the page (scroll) as well as shrinking it
+  window.visualViewport?.addEventListener('scroll', keyboardOffset);
   // focus moves before the keyboard opens or closes; the resize that follows does the rest
   document.addEventListener('focusin', update);
   document.addEventListener('focusout', () => window.setTimeout(update, 0));

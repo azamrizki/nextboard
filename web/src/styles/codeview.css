@@ -189,6 +189,12 @@ body:has(.page-code)::before {
 :root[data-layout='phone'] .page.page-code {
   padding-bottom: 0;
 }
+/* the key bar over the keyboard takes the bottom: the editor and terminals end above it, so the
+   line being typed stays in sight (and above the keyboard where it lies over the page) */
+:root[data-keybar] .page.page-code,
+:root[data-layout='phone'][data-keybar] .page.page-code {
+  padding-bottom: calc(var(--kb-offset, 0px) + var(--keybar-h) + var(--s-1));
+}
 .page-code > .wb {
   flex: 1 1 auto;
   min-height: 0;

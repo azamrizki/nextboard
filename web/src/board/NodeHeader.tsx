@@ -30,6 +30,8 @@ import { ProviderBadge } from '../providers/ProviderBadge';
 import { placeOfSession, rectOf } from './controller';
 import { DisplayButton } from './DisplayButton';
 import { FocusButton } from './FocusButton';
+import { CopyText } from './KeyBar';
+import { liveConsole } from './consoleKeys';
 import { placeNear } from './layout';
 import { machineStatus } from './sessionStatus';
 import { useBoardEnv } from './ui';
@@ -60,7 +62,8 @@ type Dialog =
   | { t: 'yoloOff' }
   | { t: 'switch'; agent?: string }
   | { t: 'picker' }
-  | { t: 'output' };
+  | { t: 'output' }
+  | { t: 'copy' };
 
 const who = (s: Session) => (s.handle ? `@${s.handle}` : `“${s.name}”`);
 
@@ -252,6 +255,8 @@ export function useConsoleActions(nodeId: string, session: Session, machine: Mac
         return <ResumePicker session={session} agent={agent} onClose={close} onResumeHere={resumeHere} onResumeNew={resumeNew} />;
       case 'output':
         return <OutputViewer sessionId={session.id} onClose={close} />;
+      case 'copy':
+        return <CopyText sessionId={session.id} name={handleOf(session)} onClose={close} />;
     }
   })();
 
@@ -410,6 +415,8 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
   ];
   if (session.handle) items.push({ label: 'Rename title', icon: 'type', onSelect: () => startRename('name') });
   if (hasOutput(session) || session.reply) items.push({ label: 'See output', icon: 'fileText', onSelect: () => setDialog({ t: 'output' }) });
+  // a finger cannot select in the terminal itself (tablets, phones): its text in a sheet instead
+  if (liveConsole(session.id)) items.push({ label: 'Copy text…', icon: 'copy', onSelect: () => setDialog({ t: 'copy' }) });
   if (agentConsole) {
     items.push('sep', { type: 'heading', label: agent?.name ?? 'Agent' });
     items.push({ label: atShell ? 'Start agent' : 'Restart agent', icon: 'restart', disabled: exited, onSelect: actions.restartAgent });

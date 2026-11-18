@@ -24,7 +24,8 @@ export function Key({ label, icon, name, pressed, onPress }: { label?: ReactNode
 
 const MAX_LINES = 2000;
 
-function CopyText({ sessionId, name, onClose }: { sessionId: string; name: string; onClose: () => void }) {
+/** The console's text to select with a finger or copy whole: touch screens cannot select in xterm. */
+export function CopyText({ sessionId, name, onClose }: { sessionId: string; name: string; onClose: () => void }) {
   const [text] = useState(() => liveConsole(sessionId)?.text(MAX_LINES) ?? '');
   const pre = useRef<HTMLPreElement>(null);
   // the end is what was just said
