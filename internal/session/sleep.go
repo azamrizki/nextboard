@@ -26,7 +26,7 @@ const (
 	sleepCheckEvery = 30 * time.Second
 	// wakeReadyWait is how long a woken agent may take to reach its prompt before what was
 	// typed is given up on (it stays available as an unsent draft).
-	wakeReadyWait = 90 * time.Second
+	wakeReadyWait = 45 * time.Second
 	// wakeSettle lets the prompt take keys after it first shows.
 	wakeSettle    = 300 * time.Millisecond
 	draftShowWait = 3 * time.Second
@@ -454,6 +454,11 @@ func (s *Session) waitReady(limit time.Duration) bool {
 		case st == agentstate.Ready && cur != nil:
 			time.Sleep(wakeSettle)
 			return true
+		case st == agentstate.NeedsYou && cur != nil:
+			// a question before its prompt (folder trust, an update offer, a login): the owner
+			// answers it, so the keys go through from now on. Holding them until a prompt that
+			// cannot come left the console deaf to the very answer it waits for.
+			return false
 		case status == StatusExited || status == StatusError || st == agentstate.Exited || st == agentstate.Error || st == agentstate.Shell:
 			return false
 		}

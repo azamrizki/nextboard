@@ -22,6 +22,8 @@ import (
 // logs every line it receives. FAKE_ECHO=1 keeps the terminal's echo, so what is
 // typed shows at its prompt. FAKE_MODE=update shows a Codex-like update
 // dialog instead and touches UPDATED if anything is ever typed into it.
+// FAKE_MODE=trust first asks Claude's folder trust question, logs the answer in
+// trust.log, then goes on as usual.
 const fakeOrchAgent = `#!/bin/sh
 sid=""
 while [ $# -gt 0 ]; do case "$1" in --session-id|--resume) sid="$2"; shift;; esac; shift; done
@@ -30,6 +32,12 @@ esc=$(printf '\033')
 hook() { printf '%s' "$2" | sh -c "set -- hook $1; eval \"\$NB_HOOK_SH\""; }
 [ -n "$FAKE_ECHO" ] || stty -echo 2>/dev/null
 box() { printf '\r\n──────────────────────\r\n❯ \r\n──────────────────────\r\n  ⏸ manual mode on\033[2A\033[3G'; }
+if [ "$FAKE_MODE" = trust ]; then
+  printf '\033[2J\033[H  Quick safety check: Is this a project you created or one you trust?\r\n\r\n ❯ 1. Yes, I trust this folder\r\n   2. No, exit\r\n\r\n Enter to confirm · Esc to cancel'
+  read -r ans
+  printf '%s\n' "$ans" >> "$FAKE_DIR/trust.log"
+  printf '\033[2J\033[H'
+fi
 if [ "$FAKE_MODE" = update ]; then
   hook SessionStart "{\"session_id\":\"$sid\",\"transcript_path\":\"$tp\",\"hook_event_name\":\"SessionStart\"}"
   printf '\033[2J\033[H  Update available · 2.1.312 → 2.2.0\r\n\r\n› 1. Update now\r\n  2. Skip\r\n\r\n  enter continue · esc skip\033[3;1H'

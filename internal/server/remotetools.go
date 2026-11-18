@@ -88,19 +88,37 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 	}
 	var prompt strings.Builder
 	pf, hasProfile := s.profiles.Get(sp.ProfileID)
+	// hubConfig is the Claude config folder of this console when the hub made it (a profile it
+	// made, an API provider's): only there does the hub record folder trust, never in the
+	// user's own. trust records the hub's folder and, explicitly, the one the CLI runs in, so no
+	// trust dialog shows whatever a CLI version does with a folder below a trusted one.
+	hubConfig := ""
+	if claude {
+		switch {
+		case sp.ProviderID != "":
+			hubConfig = providerHub{s}.ConfigDir(sp.ProviderID, a)
+		case hasProfile && pf.CreatedByHub:
+			hubConfig = pf.Dir
+		}
+	}
+	trust := func(what string, folders ...string) {
+		if hubConfig == "" {
+			return
+		}
+		for _, f := range folders {
+			if err := profiles.TrustFolder(hubConfig, f); err != nil {
+				log.Printf("trust %s folder: %v", what, err)
+			}
+		}
+	}
 	if sp.RemoteMachineID != "" {
 		host, ok := s.machines.Host(sp.RemoteMachineID)
 		if !ok {
 			return nil, machine.ErrNotFound
 		}
 		c.Remote, c.WorkDir = true, sp.Cwd
-		// The folder the CLI runs in is empty and the hub's: no trust dialog for
-		// it. Only in config folders the hub made, never in the user's own.
-		if hasProfile && pf.CreatedByHub && claude {
-			if err := profiles.TrustFolder(pf.Dir, s.st.Path("agents", "remote")); err != nil {
-				log.Printf("trust agent folder: %v", err)
-			}
-		}
+		// The folder the CLI runs in is empty and the hub's: no trust dialog for it.
+		trust("agent", s.st.Path("agents", "remote"), sp.Cwd)
 		docs := []string{"AGENTS.md", "CLAUDE.md"}
 		if claude {
 			docs = []string{"CLAUDE.md", "AGENTS.md"}
@@ -121,22 +139,8 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 			return nil, project.ErrNotFound
 		}
 		c.WorkDir, c.TrustDir, c.AddDirs = sp.Cwd, sp.Cwd, rootAddDirs(pr)
-		if claude {
-			// the root folders are the hub's: no trust dialog for them, only in config folders the
-			// hub made (a profile it made, an API provider's), never in the user's own
-			dir := ""
-			switch {
-			case sp.ProviderID != "":
-				dir = providerHub{s}.ConfigDir(sp.ProviderID, a)
-			case hasProfile && pf.CreatedByHub:
-				dir = pf.Dir
-			}
-			if dir != "" {
-				if err := profiles.TrustFolder(dir, s.st.Path("roots")); err != nil {
-					log.Printf("trust root folder: %v", err)
-				}
-			}
-		}
+		// the root folders are the hub's: no trust dialog for them
+		trust("root", s.st.Path("roots"), sp.Cwd)
 	}
 	if parts := s.partsPrompt(sp); parts != "" {
 		if prompt.Len() > 0 {

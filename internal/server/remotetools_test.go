@@ -199,6 +199,20 @@ func TestAgentWorksOnServer(t *testing.T) {
 			return err == nil && strings.Contains(string(conf), h.srv.st.Path("agents", "remote"))
 		})
 	}
+	// and, explicitly, the very folder this console's CLI runs in: a CLI version that reads a
+	// folder's own entry does not ask either
+	trusted := func(folder string) bool {
+		b, err := os.ReadFile(h.srv.st.Path("agents", "claude", ".claude.json"))
+		var doc struct {
+			Projects map[string]struct {
+				Trusted bool `json:"hasTrustDialogAccepted"`
+			} `json:"projects"`
+		}
+		return err == nil && json.Unmarshal(b, &doc) == nil && doc.Projects[folder].Trusted
+	}
+	waitTrue(t, "the console's own folder trusted", 10*time.Second, func() bool {
+		return trusted(in["cwd"].(string)) && trusted(h.srv.st.Path("agents", "remote"))
+	})
 	var argv, env string
 	waitTrue(t, "the CLI started", 20*time.Second, func() bool {
 		a, _ := os.ReadFile(filepath.Join(dir, "argv"))

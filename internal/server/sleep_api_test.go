@@ -276,6 +276,46 @@ func TestWakeIntoDialog(t *testing.T) {
 	}
 }
 
+// TestWakeIntoTrustQuestion: an agent that wakes into its CLI's folder trust question takes the
+// owner's answer at once. Before, the hub held every key for a prompt that the question kept
+// from coming, so the console stayed deaf to the very answer it waited for. What was typed while
+// it woke is never typed into the question: it stays to copy.
+func TestWakeIntoTrustQuestion(t *testing.T) {
+	if _, err := os.Stat("/proc/self/stat"); err != nil {
+		t.Skip("needs /proc")
+	}
+	h := newTestHub(t)
+	_, wid, dir := orchSetup(t, h)
+	t.Setenv("FAKE_ECHO", "1")
+	id := h.spawnAgent(wid)["id"].(string)
+	h.waitInfo(id, "ready", state("ready"))
+	h.do("POST", "/api/sessions/"+id+"/deliveries", map[string]any{"text": "hi"}, nil)
+	waitTrue(t, "sent", 10*time.Second, func() bool { return strings.Contains(received(dir), "hi\n") })
+	h.waitInfo(id, "quiet", quiet)
+	if st, b := h.do("POST", "/api/sessions/"+id+"/sleep", nil, nil); st != 200 {
+		t.Fatalf("sleep %d %v", st, b)
+	}
+	h.waitInfo(id, "asleep", asleep)
+	t.Setenv("FAKE_MODE", "trust") // what the woken CLI asks first
+	h.do("POST", "/api/sessions/"+id+"/input", map[string]any{"data": "early"}, nil)
+	// the hub lets go of the keys as soon as the question shows (not after the old 90 s): what
+	// was typed while it woke is kept to copy, never typed into the question
+	start := time.Now()
+	in := h.waitInfo(id, "the question, and the keys let go", func(in map[string]any) bool {
+		return in["agentState"] == "needsYou" && in["unsentDraft"] == "early"
+	})
+	if took := time.Since(start); took > 20*time.Second {
+		t.Fatalf("held the keys for %s (%v)", took, in)
+	}
+	// the owner's answer goes straight to the CLI
+	h.do("POST", "/api/sessions/"+id+"/input", map[string]any{"data": "1\r"}, nil)
+	waitTrue(t, "the answer reaches the CLI", 5*time.Second, func() bool {
+		b, _ := os.ReadFile(filepath.Join(dir, "trust.log"))
+		return strings.TrimSpace(string(b)) == "1"
+	})
+	h.waitInfo(id, "ready after the answer", state("ready"))
+}
+
 // TestProjectWake: opening a project starts its asleep agents before the board is on screen,
 // and after a restart the last opened project's agents start by themselves (ROADMAP #50).
 func TestProjectWake(t *testing.T) {
