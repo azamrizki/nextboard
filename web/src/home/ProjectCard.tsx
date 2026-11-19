@@ -17,14 +17,15 @@ import { projectParts } from '../lib/parts';
 import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import type { GitInfo, Project } from '../lib/types';
 import { isActive } from '../agents/state';
-import { store, useMachines, useRunningCount } from '../store';
+import { store, useBadgeOf, useMachines, useRunningCount } from '../store';
 import { gitApi } from '../studio/api';
 import { ArtDialog } from './ArtDialog';
+import { BadgeDialog, BadgeMark } from './badges';
 import { FolderPath } from './FolderPath';
 import { openBoard, openCode, openProject } from './OpenChoice';
 import { OrganizeDialog } from './GroupDialogs';
 import { PartsDialog } from './PartsDialog';
-import { PartsGitLine, PartsLine, usePartsGit } from './PartsLine';
+import { PartsGitLine, PartsLine, partsGitState, usePartsGit } from './PartsLine';
 import { ProjectCover, ProjectIcon } from './ProjectArt';
 import { RemoveDialog } from './RemoveDialog';
 
@@ -85,11 +86,29 @@ function useGit(id: string, offline: boolean, skip = false) {
 // opening asks the hub's ui.openProjectsIn which view (OpenChoice.tsx)
 export { openProject };
 
-function ChangedBadge({ changed }: { changed: number }) {
-  return <span className={`badge ${changed ? 'badge-warning' : 'badge-success'}`}>{changed ? `${changed} changed` : 'Clean'}</span>;
+/** Clean or how many files changed, as a dot and a word: on a card in its foot, in a row in the Git column. */
+export function GitStateMark({ text, dirty }: { text: string; dirty: boolean }) {
+  return (
+    <span className={`project-state ${dirty ? 'is-dirty' : 'is-clean'}`}>
+      <span className={`dot ${dirty ? 'dot-warning' : 'dot-success'}`} aria-hidden="true" />
+      {text}
+    </span>
+  );
 }
 
-function GitLine({ git, offline }: { git: GitState | null; offline: boolean }) {
+function gitStateOf(git: GitState | null, offline: boolean): { text: string; dirty: boolean } | null {
+  if (offline || !git || git.error || git.info?.error) return null;
+  const changed = git.nested ? git.nested.changed : git.info?.isRepo ? git.info.changed : null;
+  if (changed == null) return null;
+  return { text: changed ? `${changed} changed` : 'Clean', dirty: changed > 0 };
+}
+
+function ChangedBadge({ changed }: { changed: number }) {
+  return <GitStateMark text={changed ? `${changed} changed` : 'Clean'} dirty={changed > 0} />;
+}
+
+/** Where the git stands. A card shows Clean or changed in its foot instead (`noState`). */
+function GitLine({ git, offline, noState }: { git: GitState | null; offline: boolean; noState?: boolean }) {
   const info = git?.info;
   let body;
   if (offline) body = <span className="project-note">Machine offline</span>;
@@ -102,7 +121,7 @@ function GitLine({ git, offline }: { git: GitState | null; offline: boolean }) {
           <Icon name="branch" />
           <span className="project-branch-name">{git.nested.count === 1 ? '1 repository' : `${git.nested.count} repositories`}</span>
         </span>
-        <ChangedBadge changed={git.nested.changed} />
+        {!noState && <ChangedBadge changed={git.nested.changed} />}
       </>
     );
   } else if (!info?.isRepo) body = <span className="project-note">No git repository</span>;
@@ -127,7 +146,7 @@ function GitLine({ git, offline }: { git: GitState | null; offline: boolean }) {
             <span className="sr-only"> behind</span>
           </span>
         )}
-        <ChangedBadge changed={info.changed} />
+        {!noState && <ChangedBadge changed={info.changed} />}
       </>
     );
   }
@@ -218,6 +237,8 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
   const [organizing, setOrganizing] = useState(false);
   const [partsOpen, setPartsOpen] = useState(false);
   const [artOpen, setArtOpen] = useState(false);
+  const [badgeOpen, setBadgeOpen] = useState(false);
+  const badge = useBadgeOf(p);
   const live = useRef(false);
   const selecting = !!select?.on;
   const selected = !!select?.has(p.id);
@@ -245,6 +266,8 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
   };
 
   const wsCount = p.workspaces?.length ?? 0;
+  // a card says Clean or changed in its foot; a row says it in its Git column
+  const footState = row ? null : multi ? partsGitState(partsGit) : gitStateOf(git, offline);
   const branch = multi ? '' : git?.info?.isRepo ? git.info.branch : '';
   // a hand on its card: its asleep agents start before the click lands (ROADMAP #50)
   const warmIntent = useWarmIntent(p.id, p.workspaces?.find((w) => w.id === lastWorkspace(p.id))?.id ?? p.workspaces?.[0]?.id);
@@ -272,6 +295,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
         <div className="project-id">
           <ProjectIcon project={p} />
           <div className="project-title">
+            <div className="project-name-line">
             {renaming ? (
               <input
                 className="control control-sm"
@@ -310,9 +334,13 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
                   title={selecting ? `${selected ? 'Clear' : 'Select'} ${p.name}` : `Open ${p.name}\n${multi ? projectParts(p).map((pt) => `${pt.name}: ${pt.path}`).join('\n') : p.path}${branch ? `\nBranch ${branch}` : ''}`}
                 >
                   {p.name}
+                  {/* a card shows its badge on the cover, which a screen reader skips */}
+                  {badge && !row && <span className="sr-only">, {badge.name}</span>}
                 </button>
               </h3>
             )}
+            {badge && row && !renaming && <BadgeMark badge={badge} className="row-badge" />}
+            </div>
             {multi ? <PartsLine project={p} git={partsGit} onEdit={() => setPartsOpen(true)} machinesShown={!!machinesPlace} /> : <FolderPath path={p.path} />}
             <ProjectMarks p={p} place={machinesPlace ?? place} activeTag={activeTag} onTag={onTag} />
           </div>
@@ -335,6 +363,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
               },
             },
             { label: 'Group and tags…', icon: 'tag', onSelect: () => setOrganizing(true) },
+            { label: 'Badge…', icon: 'bookmark', onSelect: () => setBadgeOpen(true) },
             { label: 'Parts…', icon: 'layers', onSelect: () => setPartsOpen(true) },
             { label: 'Cover & icon…', icon: 'image', onSelect: () => setArtOpen(true) },
             ...(select ? [{ label: 'Select', icon: 'selectAll' as const, onSelect: () => select.start(p.id) }] : []),
@@ -344,7 +373,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
         />
       </header>
 
-      {multi ? <PartsGitLine git={partsGit} /> : <GitLine git={git} offline={offline} />}
+      {multi ? <PartsGitLine git={partsGit} noState={!row} /> : <GitLine git={git} offline={offline} noState={!row} />}
 
       <footer className="project-foot">
         <span className="project-activity">
@@ -354,10 +383,14 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
               {terminalsText(p, activeCount, idleCount)}
             </span>
           ) : (
-            <span>{terminalsText(p, 0, idleCount)}</span>
+            <span className="status">
+              <span className="dot dot-grey" aria-hidden="true" />
+              {terminalsText(p, 0, idleCount)}
+            </span>
           )}
           {wsCount > 1 && <span className="project-boards">{wsCount} boards</span>}
         </span>
+        {!row && footState && <GitStateMark {...footState} />}
         <span className="project-time tabular" title={`Opened ${formatDateTime(p.lastOpenedAt)}`}>
           {active && <span className="project-last">Last opened · </span>}
           {timeAgoShort(p.lastOpenedAt)}
@@ -367,6 +400,7 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
       {organizing && <OrganizeDialog project={p} onClose={() => setOrganizing(false)} />}
       {partsOpen && <PartsDialog project={p} onClose={() => setPartsOpen(false)} />}
       {artOpen && <ArtDialog project={p} onClose={() => setArtOpen(false)} />}
+      {badgeOpen && <BadgeDialog project={p} onClose={() => setBadgeOpen(false)} />}
       {confirm && <RemoveDialog projects={[p]} onClose={() => setConfirm(false)} />}
     </article>
   );

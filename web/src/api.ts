@@ -57,6 +57,7 @@ import type {
   MergePreview,
   ModelList,
   Project,
+  ProjectBadge,
   ProjectGroup,
   SandboxStatus,
   Session,
@@ -364,7 +365,7 @@ export const api = {
   archivedProjects: () => get<Project[] | null>('/api/projects?archived=1').then((p) => p ?? []),
   updateProject: (
     id: string,
-    body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; sandbox?: string; partAccess?: string; cover?: { assetId: string } | null; icon?: { assetId: string } | null },
+    body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; badgeId?: string; sandbox?: string; partAccess?: string; cover?: { assetId: string } | null; icon?: { assetId: string } | null },
   ) => patch<Project>(`/api/projects/${enc(id)}`, body),
   archiveProject: (id: string) => post<Project>(`/api/projects/${enc(id)}/archive`),
   /** 409 not_archived when it was not. */
@@ -385,6 +386,10 @@ export const api = {
   createProjectGroup: (body: { name: string; parentId?: string }) => post<ProjectGroup>('/api/project-groups', body),
   updateProjectGroup: (id: string, body: { name?: string; parentId?: string }) => patch<ProjectGroup>(`/api/project-groups/${enc(id)}`, body),
   deleteProjectGroup: (id: string) => del<{ ok: boolean }>(`/api/project-groups/${enc(id)}`),
+  createProjectBadge: (body: { name: string; color: string; icon?: string }) => post<ProjectBadge>('/api/project-badges', body),
+  updateProjectBadge: (id: string, body: { name?: string; color?: string; icon?: string }) => patch<ProjectBadge>(`/api/project-badges/${enc(id)}`, body),
+  /** The projects that carried it carry none. */
+  deleteProjectBadge: (id: string) => del<{ ok: boolean }>(`/api/project-badges/${enc(id)}`),
   /** What is inside each group moves up a level. */
   bulkProjectGroups: (ids: string[]) => post<BulkResponse>('/api/project-groups/bulk', { ids, action: 'delete' }).then(bulkResults),
   /** Without `permanent` the hub archives it (the safe default); folders on disk are never touched. */

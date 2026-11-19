@@ -555,6 +555,8 @@ export interface Project {
   /** Absent: under All projects. */
   groupId?: string;
   tags?: string[];
+  /** The one badge it carries (ProjectBadge.id); absent when none. */
+  badgeId?: string;
   /** What its agents' commands may do (docs/API-agents.md §27); absent = what each CLI does. */
   sandbox?: 'workspace' | 'offline';
   /** Set while archived (RFC 3339): its consoles are stopped, everything else is kept (API-board §1). */
@@ -574,7 +576,7 @@ export interface ProjectImage {
   title?: boolean;
   /** The short line under the name. */
   tagline?: string;
-  /** The colour the name is set in, #RRGGBB; white when absent. */
+  /** A colour Create with AI picked, #RRGGBB. Kept, but no longer shown: every cover title is white. */
   accent?: string;
 }
 
@@ -621,6 +623,20 @@ export interface ProjectGroup {
   id: string;
   name: string;
   parentId?: string;
+  createdAt: string;
+}
+
+/** The colours a badge can have (API-board, project badges). */
+export type BadgeColor = 'red' | 'orange' | 'amber' | 'green' | 'teal' | 'blue' | 'violet' | 'pink' | 'gray';
+
+/** A short coloured label with an icon, shared by the projects that carry it: one per project. */
+export interface ProjectBadge {
+  id: string;
+  /** At most 12 characters; shown in capitals. */
+  name: string;
+  color: BadgeColor;
+  /** A name of the web's icon set; absent for none. */
+  icon?: string;
   createdAt: string;
 }
 
@@ -1033,6 +1049,7 @@ export type HubEvent =
       devices: Device[] | null;
       projects?: Project[] | null;
       projectGroups?: ProjectGroup[] | null;
+      projectBadges?: ProjectBadge[] | null;
     }
   | { type: 'session'; session: Session }
   | { type: 'removed'; id: string }
@@ -1043,6 +1060,7 @@ export type HubEvent =
   | { type: 'project'; project: Project }
   | { type: 'projectRemoved'; id: string }
   | { type: 'projectGroups'; groups: ProjectGroup[] | null }
+  | { type: 'projectBadges'; badges: ProjectBadge[] | null }
   /** After a bulk request: fetch the lists again. */
   | { type: 'projects' }
   | { type: 'machines' }

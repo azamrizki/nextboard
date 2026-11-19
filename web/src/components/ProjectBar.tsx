@@ -5,14 +5,15 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, errorMessage } from '../api';
-import { groupChain, groupTree, useCollapsedGroups, useMenuSort, type GroupNode } from '../home/groups';
+import { BadgeMark, badgeSections } from '../home/badges';
+import { groupChain, groupTree, sortProjects, useCollapsedGroups, useMenuBy, useMenuSort, type GroupNode } from '../home/groups';
 import { projectParts } from '../lib/parts';
 import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import { boardPath, navigate } from '../lib/router';
 import { openBoard, openCode, openProject } from '../home/OpenChoice';
 import type { CloseAllPreview, Project, Workspace } from '../lib/types';
 import { isActive } from '../agents/state';
-import { store, useMachines, useProjectGroups, useProjects } from '../store';
+import { store, useMachines, useProjectBadges, useProjectGroups, useProjects } from '../store';
 import { useSessionsValue } from '../orch/hooks';
 import { Button } from './Button';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -136,7 +137,16 @@ function SwitchMenu({
   // the current project is always in sight when the menu opens
   const [collapsed, toggle] = useCollapsedGroups(groupChain(groups, project.groupId).map((g) => g.id));
   const [sort, chooseSort] = useMenuSort();
-  const { roots, loose } = useMemo(() => groupTree(groups, projects, sort), [groups, projects, sort]);
+  const [chosenBy, chooseBy] = useMenuBy();
+  const badges = useProjectBadges();
+  const badgeById = useMemo(() => new Map(badges.map((b) => [b.id, b])), [badges]);
+  // with no badge left, sorting or arranging by badge falls back to what it would be without
+  const by = badges.length ? chosenBy : 'group';
+  const projectSort = sort.projects === 'badge' && (!badges.length || by === 'badge') ? 'name' : sort.projects;
+  const { roots, loose } = useMemo(
+    () => groupTree(groups, projects, { ...sort, projects: projectSort, badgeName: (p) => (p.badgeId ? badgeById.get(p.badgeId)?.name : undefined) }),
+    [groups, projects, sort, projectSort, badgeById],
+  );
   const machineName = (id: string) => machines.find((m) => m.id === id)?.name ?? id;
 
   const projectRow = (p: Project, indent: number): MenuEntry => {
@@ -144,6 +154,7 @@ function SwitchMenu({
     return {
       label: p.name,
       icon: 'folder',
+      after: p.badgeId && badgeById.get(p.badgeId) ? <BadgeMark badge={badgeById.get(p.badgeId)!} /> : undefined,
       // a project on several machines: its first, and how many more
       meta: machineName(p.machineId) + (parts.length > 1 ? ` +${parts.length - 1}` : ''),
       indent,
@@ -172,20 +183,38 @@ function SwitchMenu({
   const sortRow = (k: 'groups' | 'projects', label: string, recent: string): MenuEntry => ({
     type: 'choice',
     label,
-    value: sort[k],
+    value: k === 'projects' ? projectSort : sort[k],
     options: [
       { value: 'name', label: 'Name', title: 'A to Z' },
       { value: 'recent', label: 'Recent', title: recent },
+      ...(k === 'projects' && badges.length && by === 'group' ? [{ value: 'badge', label: 'Badge', title: 'By badge, A to Z; those without one last' }] : []),
     ],
-    onSelect: (v) => chooseSort(k, v === 'recent' ? 'recent' : 'name'),
+    onSelect: (v) => chooseSort(k, v === 'recent' || v === 'badge' ? v : 'name'),
   });
 
-  const tree: MenuEntry[] = [
-    ...roots.flatMap(groupRows),
-    ...(loose.length ? [{ type: 'heading', label: 'All projects' } as const, ...loose.map((p) => projectRow(p, 0))] : []),
-  ];
+  // by badge: a section per badge, A to Z, then the projects without one
+  const badgeTree = (): MenuEntry[] =>
+    badgeSections(sortProjects(projects, projectSort), badges).flatMap((sec) => [
+      sec.badge ? ({ type: 'heading', label: `${sec.badge.name} · ${sec.projects.length}`, node: <BadgeMark badge={sec.badge} /> } as const) : ({ type: 'heading', label: 'No badge' } as const),
+      ...sec.projects.map((p) => projectRow(p, 0)),
+    ]);
+  const tree: MenuEntry[] =
+    by === 'badge'
+      ? badgeTree()
+      : [...roots.flatMap(groupRows), ...(loose.length ? [{ type: 'heading', label: 'All projects' } as const, ...loose.map((p) => projectRow(p, 0))] : [])];
+  const byRow: MenuEntry = {
+    type: 'choice',
+    label: 'Group by',
+    value: by,
+    options: [
+      { value: 'group', label: 'Group', title: 'By your groups' },
+      { value: 'badge', label: 'Badge', title: 'By badge; those without one last' },
+    ],
+    onSelect: (v) => chooseBy(v === 'badge' ? 'badge' : 'group'),
+  };
   const sorts: MenuEntry[] = [
-    ...(roots.length ? [sortRow('groups', 'Sort groups', 'The group with the project opened last first')] : []),
+    ...(badges.length ? [byRow] : []),
+    ...(roots.length && by === 'group' ? [sortRow('groups', 'Sort groups', 'The group with the project opened last first')] : []),
     ...(projects.length > 1 ? [sortRow('projects', 'Sort projects', 'The project opened last first')] : []),
   ];
 

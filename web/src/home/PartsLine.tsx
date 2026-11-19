@@ -198,7 +198,14 @@ function PartsList({ project: p, git }: { project: Project; git: (PartGit | unde
 }
 
 /** The git row of a multi-part card: the shared branch if there is one, the repos, and their state. */
-export function PartsGitLine({ git }: { git: (PartGit | undefined)[] }) {
+/** Clean or changed for the parts together, or nothing when there is no repository to say it of. */
+export function partsGitState(git: (PartGit | undefined)[]): { text: string; dirty: boolean } | null {
+  const t = partsGitText(partsGit(git));
+  return t.badge ? { text: t.badge, dirty: !!t.dirty } : null;
+}
+
+/** The parts' git together. A card shows Clean or changed in its foot instead (`noState`). */
+export function PartsGitLine({ git, noState }: { git: (PartGit | undefined)[]; noState?: boolean }) {
   const s = partsGit(git);
   const t = partsGitText(s);
   return (
@@ -225,7 +232,12 @@ export function PartsGitLine({ git }: { git: (PartGit | undefined)[] }) {
           <span className="sr-only"> behind</span>
         </span>
       )}
-      {t.badge && <span className={`badge ${t.dirty ? 'badge-warning' : 'badge-success'}`}>{t.badge}</span>}
+      {!noState && t.badge && (
+        <span className={`project-state ${t.dirty ? 'is-dirty' : 'is-clean'}`}>
+          <span className={`dot ${t.dirty ? 'dot-warning' : 'dot-success'}`} aria-hidden="true" />
+          {t.badge}
+        </span>
+      )}
     </div>
   );
 }

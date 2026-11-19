@@ -55,6 +55,8 @@ type Project struct {
 	Workspaces   []Workspace `json:"workspaces"` // tab order
 	GroupID      string      `json:"groupId,omitempty"`
 	Tags         []string    `json:"tags,omitempty"`
+	// BadgeID is the one badge of the shared list it shows (badges.go), "" for none.
+	BadgeID string `json:"badgeId,omitempty"`
 	// Sandbox limits what the commands of its agents may do (docs/API-agents.md §27):
 	// "" = what each CLI does by itself, SandboxWorkspace = write only in the project
 	// folder (and temp and package caches), SandboxOffline = that and no network.
@@ -138,6 +140,7 @@ type Store struct {
 	mu     sync.Mutex
 	list   []*Project
 	groups []*Group
+	badges []*Badge
 	// renamed are the parts Open renamed (TakePartRenames).
 	renamed []PartRename
 }
@@ -184,6 +187,9 @@ func Open(st *store.Store) (*Store, error) {
 		}
 	}
 	if err := s.openGroups(); err != nil {
+		return nil, err
+	}
+	if err := s.openBadges(); err != nil {
 		return nil, err
 	}
 	return s, nil

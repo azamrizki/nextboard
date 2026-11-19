@@ -565,6 +565,18 @@
 .project-switch-menu {
   width: min(var(--w-project-menu), calc(100vw - 2 * var(--s-2)));
 }
+.menu-item.has-after .menu-label {
+  flex: 0 1 auto;
+}
+.menu-after {
+  flex: none;
+  display: inline-flex;
+  margin-left: var(--s-2);
+  margin-right: auto;
+}
+.menu-heading .project-badge {
+  vertical-align: middle;
+}
 .project-switch-menu .menu-item {
   padding-left: calc(var(--s-3) + var(--menu-indent, 0) * var(--s-4));
 }
@@ -647,6 +659,14 @@
 .project-id {
   flex: 1 1 auto;
 }
+/* on a card the icon and the menu line up with the name, not with the middle of the block */
+.project-card.card .project-head,
+.project-card.card .project-id {
+  align-items: flex-start;
+}
+.project-card.card .project-head .card-menu {
+  margin-top: calc(-1 * var(--nudge));
+}
 .project-mono {
   flex: 0 0 auto;
   display: inline-grid;
@@ -694,6 +714,164 @@
 .project-title h3 {
   font-size: var(--fs-lg);
   font-weight: var(--fw-semibold);
+}
+/* the name, and in a list row the badge after it */
+.project-name-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.project-name-line > h3,
+.project-name-line > input {
+  min-width: 0;
+}
+.project-name-line .row-badge {
+  flex: none;
+}
+
+/* A badge (home/badges.tsx): tinted glass in the badge's colour, the same on every theme, since it
+   sits over a cover as often as on the page. */
+.project-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  height: 18px;
+  padding: 0 7px 0 6px;
+  border-radius: var(--r-pill);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 9.5px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--badge) 62%, rgba(12, 12, 14, 0.3));
+  border: var(--hairline) solid color-mix(in srgb, var(--badge) 45%, rgba(255, 255, 255, 0.28));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.project-badge svg {
+  flex: none;
+  width: 10.5px;
+  height: 10.5px;
+}
+.project-badge-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-badge.is-cover {
+  height: 24px;
+  padding: 0 10px 0 9px;
+  font-size: 10.5px;
+  background: color-mix(in srgb, var(--badge) 52%, rgba(12, 12, 14, 0.35));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 4px 14px rgba(0, 0, 0, 0.28);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+}
+.project-badge.is-cover svg {
+  width: 12px;
+  height: 12px;
+}
+/* in the cover's top right corner, as far from the edges as the name's glass plate */
+.cover-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  max-width: calc(100% - 32px);
+}
+.project-cover.has-title .cover-badge {
+  top: var(--cover-m);
+  right: var(--cover-m);
+}
+
+/* the badge dialog */
+.badge-picks,
+.badge-swatches,
+.badge-icons,
+.badge-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+.badge-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: 28px;
+  padding: var(--s-1);
+  border: var(--hairline) solid transparent;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.badge-pick.is-none,
+.badge-pick.is-new {
+  padding-inline: var(--s-3);
+  border-color: var(--glass-border);
+}
+.badge-pick.is-new svg {
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+}
+.badge-pick[aria-checked='true'] {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 1px var(--c-primary);
+  color: var(--text);
+}
+.badge-swatch {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--badge);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+}
+.badge-swatch[aria-checked='true'] {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.badge-icons {
+  gap: var(--s-1);
+}
+.badge-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-md);
+  background: var(--surface-input);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.badge-icon svg {
+  width: 15px;
+  height: 15px;
+}
+.badge-icon[aria-checked='true'] {
+  border-color: var(--c-primary);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--c-primary);
+}
+.badge-preview {
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border-radius: var(--r-md);
+  /* dark like a cover, so the glass badge shows as it will */
+  background: linear-gradient(135deg, #2a2f3a, #14161b);
+}
+.badge-delete {
+  margin-right: auto;
 }
 .project-marks {
   display: flex;
@@ -1112,12 +1290,34 @@
 .project-foot {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
+  gap: var(--s-4);
   margin-top: auto;
   padding-top: var(--s-3);
   border-top: var(--hairline) solid var(--glass-border);
   font-size: var(--fs-xs);
   color: var(--text-3);
+}
+/* on a card the foot is a band across its bottom edge: terminals, git state, last opened */
+.project-card.card .project-foot {
+  margin: auto calc(-1 * var(--s-5)) calc(-1 * var(--s-5));
+  padding: var(--s-3) var(--s-5);
+  border-radius: 0 0 calc(var(--r-xl) - var(--hairline)) calc(var(--r-xl) - var(--hairline));
+  background: var(--card-foot-bg);
+}
+/* Clean or changed: a dot and a word, quieter than a pill on every card */
+.project-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.project-state.is-dirty {
+  color: var(--tint-warning-text);
+}
+.project-git .project-state {
+  margin-left: auto;
 }
 .project-activity {
   display: flex;
@@ -1265,7 +1465,7 @@
   position: relative;
   flex: none;
   margin: calc(-1 * var(--s-5)) calc(-1 * var(--s-5)) 0;
-  aspect-ratio: 3 / 1;
+  aspect-ratio: 12 / 5;
   overflow: hidden;
   border-radius: calc(var(--r-xl) - var(--hairline)) calc(var(--r-xl) - var(--hairline)) 0 0;
   border-bottom: var(--hairline) solid var(--glass-border);
@@ -2013,47 +2213,51 @@ textarea.control.prose {
   font-size: var(--fs-md);
 }
 
-/* A cover made as a background (DESIGN.md §3.11 Cover): the name is set over it here, in the
-   same type and place on every card, on a dark gradient that fades to transparent toward the
-   right. Sizes follow the cover's own height, so a wide card and the dialog's preview match. */
+/* A cover made as a background (DESIGN.md §3.11 Cover): the name and tagline sit on a glass plate
+   across the bottom of the cover, the same margin on the left, right and bottom, in the same type
+   and colours on every project. Sizes follow the cover's own height, so a wide card and the
+   dialog's preview match. */
 .project-cover.has-title {
   container-type: size;
+  --cover-m: 6.4cqh;
 }
 .cover-frame {
   position: absolute;
-  inset: 0;
+  left: var(--cover-m);
+  right: var(--cover-m);
+  bottom: var(--cover-m);
   z-index: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 3cqh;
-  padding: 0 7cqw;
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.62) 30%, rgba(0, 0, 0, 0.18) 58%, transparent 74%);
+  gap: 1.2cqh;
+  padding: 4.4cqh 4.8cqh 4.8cqh;
+  border-radius: var(--r-md);
+  background: rgba(12, 12, 14, 0.5);
+  border: var(--hairline) solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
   pointer-events: none;
 }
-.cover-title {
-  max-width: 62%;
+.cover-title,
+.cover-tagline {
   overflow: hidden;
-  font-family: var(--font-ui);
-  font-size: 30cqh;
-  font-weight: var(--fw-heavy);
-  line-height: 0.95;
-  letter-spacing: -0.01em;
-  text-transform: uppercase;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--cover-accent, #fff);
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.45);
+}
+.cover-title {
+  font-family: 'Outfit Variable', var(--font-ui);
+  font-size: 13.2cqh;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: #fff;
 }
 .cover-tagline {
-  max-width: 62%;
-  overflow: hidden;
   font-family: var(--font-ui);
-  font-size: 10.5cqh;
+  font-size: 7cqh;
   font-weight: var(--fw-medium);
-  line-height: 1.2;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+  line-height: 1.25;
+  letter-spacing: 0.005em;
+  color: rgba(255, 255, 255, 0.74);
 }

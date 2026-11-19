@@ -4,7 +4,7 @@
 
 import { useMemo, useSyncExternalStore } from 'react';
 import { api, openEventsSocket, type ReconnectingSocket } from './api';
-import type { Device, HubEvent, Machine, Profile, Project, ProjectGroup, Session, SessionStatusFrame, Settings } from './lib/types';
+import type { Device, HubEvent, Machine, Profile, Project, ProjectBadge, ProjectGroup, Session, SessionStatusFrame, Settings } from './lib/types';
 
 export interface LiveState {
   sessions: Record<string, Session>;
@@ -12,6 +12,7 @@ export interface LiveState {
   devices: Record<string, Device>;
   projects: Record<string, Project>;
   projectGroups: Record<string, ProjectGroup>;
+  projectBadges: Record<string, ProjectBadge>;
   /** Projects have been received at least once (snapshot or REST). */
   projectsReady: boolean;
   /** Archived projects (API-board §1): kept apart, so that no list or picker of the active ones shows them. */
@@ -37,6 +38,7 @@ const EMPTY: LiveState = {
   devices: {},
   projects: {},
   projectGroups: {},
+  projectBadges: {},
   projectsReady: false,
   archivedProjects: {},
   archivedProjectsReady: false,
@@ -147,6 +149,7 @@ class LiveStore {
           devices: byId(ev.devices),
           ...(ev.projects !== undefined ? { projects: activeById(ev.projects), projectsReady: true } : {}),
           ...(ev.projectGroups !== undefined ? { projectGroups: byId(ev.projectGroups) } : {}),
+          ...(ev.projectBadges !== undefined ? { projectBadges: byId(ev.projectBadges) } : {}),
           ready: true,
         });
         break;
@@ -158,6 +161,9 @@ class LiveStore {
         break;
       case 'projectGroups':
         this.set({ projectGroups: byId(ev.groups) });
+        break;
+      case 'projectBadges':
+        this.set({ projectBadges: byId(ev.badges) });
         break;
       case 'projects':
         void this.refreshProjects();
@@ -351,6 +357,13 @@ class LiveStore {
   upsertProjectGroup(g: ProjectGroup) {
     this.set({ projectGroups: { ...this.state.projectGroups, [g.id]: g } });
   }
+  upsertProjectBadge(b: ProjectBadge) {
+    this.set({ projectBadges: { ...this.state.projectBadges, [b.id]: b } });
+  }
+  removeProjectBadge(id: string) {
+    const next = without(this.state.projectBadges, id);
+    if (next !== this.state.projectBadges) this.set({ projectBadges: next });
+  }
   removeProjectGroup(id: string) {
     const next = without(this.state.projectGroups, id);
     if (next !== this.state.projectGroups) this.set({ projectGroups: next });
@@ -486,6 +499,19 @@ export function useArchivedProjectsReady(): boolean {
 export function useArchivedMachines(): Machine[] {
   const rec = useSlice((s) => s.archivedMachines);
   return useMemo(() => Object.values(rec).sort((a, b) => a.name.localeCompare(b.name)), [rec]);
+}
+
+/** The badges, A to Z. */
+export function useProjectBadges(): ProjectBadge[] {
+  const rec = useSlice((s) => s.projectBadges);
+  return useMemo(() => Object.values(rec).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), [rec]);
+}
+
+/** The badge a project carries, or undefined. */
+export function useBadgeOf(p: { badgeId?: string }): ProjectBadge | undefined {
+  // the cover also renders to static markup (its tests), which needs a server snapshot
+  const get = () => (p.badgeId ? store.getState().projectBadges[p.badgeId] : undefined);
+  return useSyncExternalStore(store.subscribe, get, get);
 }
 
 export function useProjectGroups(): ProjectGroup[] {

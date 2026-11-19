@@ -132,6 +132,18 @@ func projectErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusBadRequest, "group_too_deep", err.Error())
 	case errors.Is(err, project.ErrGroupCycle):
 		writeErrCode(w, http.StatusBadRequest, "group_cycle", err.Error())
+	case errors.Is(err, project.ErrBadgeNotFound):
+		writeErrCode(w, http.StatusNotFound, "badge_not_found", err.Error())
+	case errors.Is(err, project.ErrBadgeNameTaken):
+		writeErrCode(w, http.StatusConflict, "name_conflict", err.Error())
+	case errors.Is(err, project.ErrBadBadgeName):
+		writeErrCode(w, http.StatusBadRequest, "bad_badge_name", err.Error())
+	case errors.Is(err, project.ErrBadBadgeColor):
+		writeErrCode(w, http.StatusBadRequest, "bad_badge_color", err.Error())
+	case errors.Is(err, project.ErrBadBadgeIcon):
+		writeErrCode(w, http.StatusBadRequest, "bad_badge_icon", err.Error())
+	case errors.Is(err, project.ErrTooManyBadges):
+		writeErrCode(w, http.StatusBadRequest, "too_many_badges", err.Error())
 	case errors.Is(err, project.ErrBadTag):
 		writeErrCode(w, http.StatusBadRequest, "bad_tag", err.Error())
 	case errors.Is(err, project.ErrNotArchived):
@@ -234,6 +246,7 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, p *
 		Name    *string   `json:"name"`
 		Opened  bool      `json:"opened"`
 		GroupID *string   `json:"groupId"`
+		BadgeID *string   `json:"badgeId"`
 		Tags    *[]string `json:"tags"`
 		Sandbox *string   `json:"sandbox"`
 		// PartAccess: what agents may do in the parts on other machines than their own (ROADMAP #49)
@@ -255,7 +268,7 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, p *
 		writeErrCode(w, http.StatusBadRequest, "bad_asset", err.Error())
 		return
 	}
-	pr, err := s.projects.Patch(r.PathValue("id"), project.Patch{Name: req.Name, Opened: req.Opened, GroupID: req.GroupID, Tags: req.Tags,
+	pr, err := s.projects.Patch(r.PathValue("id"), project.Patch{Name: req.Name, Opened: req.Opened, GroupID: req.GroupID, BadgeID: req.BadgeID, Tags: req.Tags,
 		Sandbox: req.Sandbox, PartAccess: req.PartAccess, Cover: cover, Icon: icon})
 	if err != nil {
 		projectErr(w, err)

@@ -19,14 +19,29 @@ export interface GroupNode {
 
 /** "name": A to Z. "recent": the one opened last first; a group by the project in it opened last. */
 export type TreeSort = 'name' | 'recent';
+/** How projects can go: as a group can, or by their badge's name (those without one last). */
+export type ProjectSort = TreeSort | 'badge';
+/** The name of a project's badge, for sorting by it. */
+export type BadgeName = (p: Project) => string | undefined;
 
 const nameOrder = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 const byName = (a: ProjectGroup, b: ProjectGroup) => nameOrder(a.name, b.name);
 const openedAt = (p: Project) => Date.parse(p.lastOpenedAt) || 0;
 
-/** Projects in the given order: A to Z, or the one opened last first (A to Z on a tie). */
-export function sortProjects(list: Project[], sort: TreeSort): Project[] {
-  return [...list].sort((a, b) => (sort === 'recent' ? openedAt(b) - openedAt(a) : 0) || nameOrder(a.name, b.name));
+/**
+ * Projects in the given order: A to Z, the one opened last first, or by badge (badged ones A to Z
+ * by the badge, then those without); A to Z on a tie.
+ */
+export function sortProjects(list: Project[], sort: ProjectSort, badgeName?: BadgeName): Project[] {
+  const byBadge = (a: Project, b: Project) => {
+    const x = badgeName?.(a);
+    const y = badgeName?.(b);
+    if (x === y) return 0;
+    if (x === undefined) return 1;
+    if (y === undefined) return -1;
+    return nameOrder(x, y);
+  };
+  return [...list].sort((a, b) => (sort === 'recent' ? openedAt(b) - openedAt(a) : sort === 'badge' ? byBadge(a, b) : 0) || nameOrder(a.name, b.name));
 }
 
 /**
@@ -36,7 +51,7 @@ export function sortProjects(list: Project[], sort: TreeSort): Project[] {
 export function groupTree(
   groups: ProjectGroup[],
   projects: Project[],
-  sort: { groups?: TreeSort; projects?: TreeSort } = {},
+  sort: { groups?: TreeSort; projects?: ProjectSort; badgeName?: BadgeName } = {},
 ): { roots: GroupNode[]; loose: Project[] } {
   const nodes = new Map<string, GroupNode>(groups.map((group) => [group.id, { group, depth: 0, children: [], projects: [], total: 0, lastOpened: 0 }]));
   const roots: GroupNode[] = [];
@@ -63,11 +78,11 @@ export function groupTree(
       n.lastOpened = Math.max(n.lastOpened, c.lastOpened);
     }
     if (sort.groups === 'recent') n.children.sort(byRecent);
-    if (sort.projects) n.projects = sortProjects(n.projects, sort.projects);
+    if (sort.projects) n.projects = sortProjects(n.projects, sort.projects, sort.badgeName);
   };
   roots.forEach((n) => finish(n, 0));
   if (sort.groups === 'recent') roots.sort(byRecent);
-  return { roots, loose: sort.projects ? sortProjects(loose, sort.projects) : loose };
+  return { roots, loose: sort.projects ? sortProjects(loose, sort.projects, sort.badgeName) : loose };
 }
 
 /** The tree from top to bottom, a group before what is inside it. */
@@ -102,20 +117,37 @@ export function groupPath(groups: ProjectGroup[], id: string | undefined): strin
 
 const COLLAPSED = 'projects.collapsed';
 const MENU_SORT = { groups: 'projects.menu.groups', projects: 'projects.menu.projects' } as const;
+const MENU_BY = 'projects.menu.by';
+
+/** What the project menu puts its projects under: their groups, or their badges. */
+export type MenuBy = 'group' | 'badge';
 
 /** How the project menu orders its groups and its projects, per browser: groups A to Z and
  * projects opened last first until chosen. */
 export function useMenuSort() {
-  const saved = (k: keyof typeof MENU_SORT, fallback: TreeSort): TreeSort => {
-    const v = prefs.get(MENU_SORT[k]);
-    return v === 'name' || v === 'recent' ? v : fallback;
-  };
-  const [sort, setSort] = useState(() => ({ groups: saved('groups', 'name'), projects: saved('projects', 'recent') }));
-  const choose = (k: keyof typeof MENU_SORT, v: TreeSort) => {
+  const [sort, setSort] = useState(() => {
+    const g = prefs.get(MENU_SORT.groups);
+    const p = prefs.get(MENU_SORT.projects);
+    return {
+      groups: (g === 'name' || g === 'recent' ? g : 'name') as TreeSort,
+      projects: (p === 'name' || p === 'recent' || p === 'badge' ? p : 'recent') as ProjectSort,
+    };
+  });
+  const choose = (k: keyof typeof MENU_SORT, v: ProjectSort) => {
     prefs.set(MENU_SORT[k], v);
     setSort((s) => ({ ...s, [k]: v }));
   };
   return [sort, choose] as const;
+}
+
+/** Groups or badges in the project menu, per browser; groups until chosen. */
+export function useMenuBy() {
+  const [by, setBy] = useState<MenuBy>(() => (prefs.get(MENU_BY) === 'badge' ? 'badge' : 'group'));
+  const choose = (v: MenuBy) => {
+    prefs.set(MENU_BY, v);
+    setBy(v);
+  };
+  return [by, choose] as const;
 }
 
 function savedCollapsed(): Set<string> {

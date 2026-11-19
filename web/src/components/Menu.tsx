@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
   type SyntheticEvent,
 } from 'react';
@@ -29,6 +30,8 @@ export interface MenuItem {
   checked?: boolean;
   /** A value on the right of the row ("1920 × 1080"). */
   meta?: string;
+  /** Something small right after the label (a project's badge). */
+  after?: ReactNode;
   /** Selecting it leaves the menu open: the menu's owner decides what comes next. */
   keepOpen?: boolean;
   /** Levels in from the left, for a tree. Needs a list class that sets the padding. */
@@ -60,6 +63,8 @@ export interface MenuChoice {
 export interface MenuHeading {
   type: 'heading';
   label: string;
+  /** Shown instead of the label (which stays its accessible name). */
+  node?: ReactNode;
 }
 
 /** − value + row that stays open while stepping (e.g. text size). */
@@ -172,8 +177,8 @@ function MenuList({ label, items, style, listRef, onClose, className }: MenuList
         if (!isEntryItem(it)) {
           if (it.type === 'heading')
             return (
-              <div key={`h-${i}`} className="menu-heading" role="presentation">
-                {it.label}
+              <div key={`h-${i}`} className="menu-heading" role="presentation" aria-label={it.node ? it.label : undefined}>
+                {it.node ?? it.label}
               </div>
             );
           if (it.type === 'choice')
@@ -256,7 +261,7 @@ function MenuList({ label, items, style, listRef, onClose, className }: MenuList
             aria-checked={it.checked}
             aria-expanded={it.expanded}
             tabIndex={-1}
-            className={`menu-item ${it.danger ? 'danger' : ''}`}
+            className={`menu-item ${it.danger ? 'danger' : ''} ${it.after ? 'has-after' : ''}`}
             style={it.indent ? ({ '--menu-indent': it.indent } as CSSProperties) : undefined}
             disabled={it.disabled}
             title={it.title}
@@ -267,6 +272,7 @@ function MenuList({ label, items, style, listRef, onClose, className }: MenuList
           >
             {it.icon ? <Icon name={it.icon} /> : it.checked !== undefined ? <span className="menu-icon-gap" /> : null}
             <span className="menu-label">{it.label}</span>
+            {it.after && <span className="menu-after">{it.after}</span>}
             {it.meta && <span className="menu-meta tabular">{it.meta}</span>}
             {it.checked && <Icon name="check" className="menu-check" />}
             {it.shortcut && <kbd className="menu-kbd">{it.shortcut}</kbd>}

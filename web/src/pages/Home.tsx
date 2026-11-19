@@ -21,17 +21,18 @@ import { ArchivedList } from '../home/ArchivedList';
 import { AddProjectDialog } from '../home/AddProjectDialog';
 import { DeleteGroupDialog, DeleteGroupsDialog, GroupDialog } from '../home/GroupDialogs';
 import { GroupList } from '../home/GroupList';
+import { badgeSections, BadgeMark, sortByBadge } from '../home/badges';
 import { allTags, flatGroups, groupPath, groupTree, hasTag, useCollapsedGroups, withProjects, type GroupNode } from '../home/groups';
 import { openProject, ProjectCard } from '../home/ProjectCard';
 import { RemoveDialog, restoreProjects } from '../home/RemoveDialog';
 import type { RemoveChoice } from '../home/remove';
 import type { Project, ProjectGroup } from '../lib/types';
 import { isActive } from '../agents/state';
-import { store, useArchivedProjects, useMachines, useProjectGroups, useProjects, useProjectsReady, useRunningCount } from '../store';
+import { store, useArchivedProjects, useMachines, useProjectBadges, useProjectGroups, useProjects, useProjectsReady, useRunningCount } from '../store';
 
 type HomeView = 'grid' | 'list';
-type HomeSort = 'recent' | 'name';
-type HomeBy = 'host' | 'group';
+type HomeSort = 'recent' | 'name' | 'badge';
+type HomeBy = 'host' | 'group' | 'badge';
 /** Which list the page shows: the active projects, the archived ones, or the groups. */
 type HomeTab = 'active' | 'archived' | 'groups';
 
@@ -42,7 +43,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 function savedBy(): HomeBy | null {
   const v = prefs.get('home.by');
-  return v === 'host' || v === 'group' ? v : null;
+  return v === 'host' || v === 'group' || v === 'badge' ? v : null;
 }
 
 interface GroupSectionProps {
@@ -110,7 +111,10 @@ export function HomePage() {
   const [query, setQuery] = useState('');
   const [tag, setTag] = useState('');
   const [view, setView] = useState<HomeView>(() => (prefs.get('home.view') === 'list' ? 'list' : 'grid'));
-  const [sort, setSort] = useState<HomeSort>(() => (prefs.get('home.sort') === 'name' ? 'name' : 'recent'));
+  const [chosenSort, setSort] = useState<HomeSort>(() => {
+    const v = prefs.get('home.sort');
+    return v === 'name' || v === 'badge' ? v : 'recent';
+  });
   const [chosenBy, setChosenBy] = useState<HomeBy | null>(savedBy);
   const [collapsed, toggleGroup] = useCollapsedGroups();
   const [newGroup, setNewGroup] = useState<{ parentId?: string } | null>(null);
@@ -150,7 +154,11 @@ export function HomePage() {
   }, []);
 
   // until a choice is made, groups are the view as soon as there are any
-  const by: HomeBy = chosenBy ?? (groupList.length ? 'group' : 'host');
+  const badgeList = useProjectBadges();
+  const badgeById = useMemo(() => Object.fromEntries(badgeList.map((b) => [b.id, b])), [badgeList]);
+  // by badge needs a badge: with none left, the view is what it would be without
+  const by: HomeBy = (chosenBy === 'badge' && !badgeList.length ? null : chosenBy) ?? (groupList.length ? 'group' : 'host');
+  const sort: HomeSort = chosenSort === 'badge' && (!badgeList.length || by === 'badge') ? 'name' : chosenSort;
   const tags = useMemo(() => allTags(projects), [projects]);
   // a tag that is no longer on any project filters nothing
   const activeTag = tags.some((t) => t.tag.toLowerCase() === tag.toLowerCase()) ? tag : '';
@@ -159,10 +167,12 @@ export function HomePage() {
 
   const shown = useMemo(() => {
     // useProjects already gives the most recently opened first
-    const list = projects.filter((p) => (!activeTag || hasTag(p, activeTag)) && (!needle || [p.name, ...partWords(p), groupPath(groupList, p.groupId), ...(p.tags ?? [])].some((s) => s.toLowerCase().includes(needle))));
-    if (sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name));
-    return list;
-  }, [projects, groupList, needle, activeTag, sort]);
+    const list = projects.filter((p) => (!activeTag || hasTag(p, activeTag)) && (!needle || [p.name, ...partWords(p), groupPath(groupList, p.groupId), (p.badgeId && badgeById[p.badgeId]?.name) || '', ...(p.tags ?? [])].some((s) => s.toLowerCase().includes(needle))));
+    if (sort === 'name' || sort === 'badge') list.sort((a, b) => a.name.localeCompare(b.name));
+    return sort === 'badge' ? sortByBadge(list, badgeById) : list;
+  }, [projects, groupList, needle, activeTag, sort, badgeById]);
+
+  const badgeGroups = useMemo(() => badgeSections(shown, badgeList), [shown, badgeList]);
 
   const hosts = useMemo(() => {
     const order = new Map(machines.map((m, i) => [m.id, i]));
@@ -206,9 +216,10 @@ export function HomePage() {
     }
     const all = shown.map((p) => p.id);
     if (by === 'host') return { order: [...new Set(hosts.flatMap(([, list]) => list.map((p) => p.id)))], present: all };
+    if (by === 'badge') return { order: badgeGroups.flatMap((g) => g.projects.map((p) => p.id)), present: all };
     const walk = (n: GroupNode): string[] => (filtering || !collapsed.has(n.group.id) ? [...n.projects.map((p) => p.id), ...n.children.flatMap(walk)] : []);
     return { order: [...tree.roots.flatMap(walk), ...tree.loose.map((p) => p.id)], present: all };
-  }, [tab, archivedShown, groupRows, shown, by, hosts, tree, filtering, collapsed]);
+  }, [tab, archivedShown, groupRows, shown, by, hosts, badgeGroups, tree, filtering, collapsed]);
   const select = useSelectMode(order, present);
 
   const changeTab = (t: HomeTab) => {
@@ -347,7 +358,7 @@ export function HomePage() {
           active={p.id === mostRecent}
           // only a machine known to be away: the list can load before the machines do
           offline={!!st && st.color !== 'success'}
-          place={by === 'group' ? { icon: machineIcon(p.machineId), label: m?.name ?? p.machineId, title: `On ${m?.name ?? p.machineId}` } : path ? { icon: 'layers', label: path.split(' / ').pop() ?? path, title: `In ${path}` } : undefined}
+          place={by !== 'host' ? { icon: machineIcon(p.machineId), label: m?.name ?? p.machineId, title: `On ${m?.name ?? p.machineId}` } : path ? { icon: 'layers', label: path.split(' / ').pop() ?? path, title: `In ${path}` } : undefined}
           activeTag={activeTag}
           onTag={(t) => setTag(t.toLowerCase() === activeTag.toLowerCase() ? '' : t)}
           removeRequested={removeId === p.id && (!machineId || machinesOf(p)[0] === machineId)}
@@ -505,6 +516,7 @@ export function HomePage() {
               options={[
                 { value: 'host', label: 'Host', icon: 'server', title: 'By the machine each project is on' },
                 { value: 'group', label: 'Group', icon: 'layers', title: 'By your groups' },
+                ...(badgeList.length ? [{ value: 'badge' as const, label: 'Badge', icon: 'bookmark' as const, title: 'By badge; those without one last' }] : []),
               ]}
             />
             <SegmentedControl<HomeSort>
@@ -515,6 +527,7 @@ export function HomePage() {
               options={[
                 { value: 'recent', label: 'Recent', title: 'Most recently opened first' },
                 { value: 'name', label: 'Name', title: 'A to Z' },
+                ...(badgeList.length && by !== 'badge' ? [{ value: 'badge' as const, label: 'Badge', title: 'By badge, A to Z; those without one last' }] : []),
               ]}
             />
             <SegmentedControl<HomeView>
@@ -575,6 +588,27 @@ export function HomePage() {
                 </section>
               );
             })}
+
+          {by === 'badge' &&
+            badgeGroups.map((g) => (
+              <section key={g.badge?.id ?? 'none'} className="home-group" aria-labelledby={`badge-${g.badge?.id ?? 'none'}`}>
+                <h2 className="home-group-title" id={`badge-${g.badge?.id ?? 'none'}`}>
+                  {g.badge ? (
+                    <>
+                      <BadgeMark badge={g.badge} />
+                      <span className="sr-only">{g.badge.name}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="bookmark" />
+                      No badge
+                    </>
+                  )}
+                  <span className="home-group-count">{plural(g.projects.length, 'project')}</span>
+                </h2>
+                {renderProjects(g.projects)}
+              </section>
+            ))}
 
           {by === 'group' && (
             <>

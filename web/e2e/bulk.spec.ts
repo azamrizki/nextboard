@@ -366,7 +366,8 @@ test.describe('on servers over SSH', () => {
     // no one folder stands for the project, and the git row adds the parts up
     await expect(c.locator('.project-path')).toHaveCount(0);
     await expect(c.locator('.project-git')).toContainText('3 repos', { timeout: 20_000 });
-    await expect(c.locator('.project-git')).toContainText('1 with changes');
+    // a card says Clean or changed in its foot
+    await expect(c.locator('.project-foot .project-state')).toHaveText('1 with changes');
     await expect(c.locator('.project-git .project-branch-name')).toHaveText('main');
     // one row: the chips that fit and +N, never a second line
     const line = c.locator('.project-partsline');

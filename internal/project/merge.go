@@ -120,7 +120,7 @@ func (s *Store) PlanMerge(into, from string) (MergePlan, error) {
 }
 
 // Merge makes the project from a part of into: its folders become parts, its boards workspaces, its
-// tags into's too, and from is gone from the list. Its id stays known as an alias of into.
+// tags into's too (and its badge when into has none), and from is gone from the list. Its id stays known as an alias of into.
 func (s *Store) Merge(into, from string) (Project, Project, MergePlan, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -142,6 +142,10 @@ func (s *Store) Merge(into, from string) (Project, Project, MergePlan, error) {
 			a.Tags = append(a.Tags, t)
 		}
 	}
+	// one badge only: this project's own wins, a project without one takes from's
+	if a.BadgeID == "" {
+		a.BadgeID = b.BadgeID
+	}
 	a.Aliases = append(a.Aliases, b.ID)
 	a.Aliases = append(a.Aliases, b.Aliases...)
 	if b.LastOpenedAt.After(a.LastOpenedAt) {
@@ -157,7 +161,7 @@ func (s *Store) Merge(into, from string) (Project, Project, MergePlan, error) {
 }
 
 // Split makes a part a project of its own, with one empty board, in the same group and with the
-// same tags. Any part may go while another is left (else ErrLastPart). The new project keeps the
+// same tags and badge. Any part may go while another is left (else ErrLastPart). The new project keeps the
 // part as it was, its id and name too, so its review key is <new project>~<part id>.
 func (s *Store) Split(projectID, partID string) (Project, Project, error) {
 	s.mu.Lock()
@@ -177,7 +181,7 @@ func (s *Store) Split(projectID, partID string) (Project, Project, error) {
 	pt.Blocked = slices.Clone(pt.Blocked)
 	now := time.Now().UTC()
 	np := &Project{ID: randomID("p_"), Name: pt.Name, CreatedAt: now, LastOpenedAt: now, GroupID: p.GroupID, Tags: slices.Clone(p.Tags),
-		Parts: []Part{pt}}
+		BadgeID: p.BadgeID, Parts: []Part{pt}}
 	np.normParts()
 	np.Workspaces = []Workspace{{ID: randomID("w_"), ProjectID: np.ID, Name: "Main", CreatedAt: now}}
 	old := *p

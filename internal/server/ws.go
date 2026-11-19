@@ -208,7 +208,7 @@ func statusFrame(st *session.StatusMsg) map[string]any {
 }
 
 // snapshotKeys maps event topics to the snapshot fields they cover.
-var snapshotKeys = map[string]string{"session": "sessions", "machine": "machines", "device": "devices", "project": "projects", "projectGroups": "projectGroups"}
+var snapshotKeys = map[string]string{"session": "sessions", "machine": "machines", "device": "devices", "project": "projects", "projectGroups": "projectGroups", "projectBadges": "projectBadges"}
 
 func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request, p *principal) {
 	if !s.checkOrigin(r, p) {
@@ -240,6 +240,7 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request, p *princ
 	full := map[string]any{
 		"type": "snapshot", "sessions": s.sessions.List(), "machines": s.machines.List(), "devices": s.deviceList(),
 		"projects": s.projectViews(), "projectGroups": s.projects.Groups(),
+		"projectBadges": s.projects.Badges(),
 	}
 	if len(topics) > 0 {
 		keep := map[string]bool{}

@@ -29,7 +29,7 @@ describe('coverTitle', () => {
 
 
 // A cover made as a background gets the name set over it (from the project's name now, so a
-// rename shows at once), its tagline, and its accent when that is a colour; other covers none.
+// rename shows at once), and its tagline, the same colours on every project; other covers none.
 describe('ProjectCover', () => {
   const base = { id: 'p_a', name: 'PROD - Lumen', machineId: 'local', path: '/srv/lumen' } as unknown as Project;
   const html = (cover: Project['cover']) => renderToStaticMarkup(createElement(ProjectCover, { project: { ...base, cover } }));
@@ -37,9 +37,8 @@ describe('ProjectCover', () => {
     const out = html({ assetId: 'a_1', source: 'ai', at: '', title: true, tagline: 'Lights that follow you', accent: '#88E500' });
     expect(out).toContain('class="cover-title">Lumen<');
     expect(out).toContain('class="cover-tagline">Lights that follow you<');
-    expect(out).toContain('--cover-accent:#88E500');
   });
-  it('leaves a bad accent out, and the text of the tagline as text', () => {
+  it('ignores a stored accent, and keeps the text of the tagline as text', () => {
     const out = html({ assetId: 'a_1', source: 'ai', at: '', title: true, tagline: '<b>x</b> y', accent: 'red;background:url(x)' });
     expect(out).not.toContain('--cover-accent');
     expect(out).toContain('&lt;b&gt;x&lt;/b&gt; y');

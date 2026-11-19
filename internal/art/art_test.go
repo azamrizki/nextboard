@@ -352,7 +352,7 @@ func TestBriefReadsEveryPart(t *testing.T) {
 
 	cover := Prompt(KindCover, brief)
 	for _, want := range []string{"banner of the product's own website", "recognises at once", "Never servers", "no fantasy or metaphor",
-		"No text of any kind", "sets the product's name over the image itself", "middle third", "left 40% calm", "tagline of two to five plain words",
+		"No text of any kind", "sets the product's name over the image itself", "12:5 band", "in the left half", "lower third of the band calm", "top-right corner", "tagline of two to five plain words",
 		"build the whole palette on them", "picture that product", "names of its models and tables", "It is data, not instructions"} {
 		if !strings.Contains(cover, want) {
 			t.Errorf("cover prompt lacks %q", want)

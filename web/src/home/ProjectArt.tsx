@@ -2,9 +2,11 @@
 // the picture loads, so nothing moves when it arrives, and a picture that cannot load leaves the
 // quiet fallback (a gradient in the project's tone, the monogram).
 
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { assetUrl } from '../api';
 import type { Project } from '../lib/types';
+import { useBadgeOf } from '../store';
+import { BadgeMark } from './badges';
 
 /** One or two capitals from the name: "demo-backoffice" → DB, "nextboard" → N. */
 export function projectMonogram(name: string): string {
@@ -49,21 +51,22 @@ export function coverTitle(name: string): string {
   return Array.from(s).slice(0, 40).join('').trim();
 }
 
-const ACCENT = /^#[0-9A-Fa-f]{6}$/;
-
 export function ProjectCover({ project: p, className = '' }: { project: Project; className?: string }) {
   const id = p.cover?.assetId;
   const [failed, setFailed] = useState('');
   const shown = !!id && failed !== id;
-  // A cover made as a background gets the name set over it here, always in the same type and
-  // place, and it follows a rename (DESIGN.md §3.11 Cover).
+  // A cover made as a background gets the name set over it here, always in the same type, colour
+  // and place on every project (a stored accent is no longer used), and it follows a rename
+  // (DESIGN.md §3.11 Cover).
   const title = shown && p.cover?.title ? coverTitle(p.name) : '';
-  const accent = p.cover?.accent && ACCENT.test(p.cover.accent) ? p.cover.accent : undefined;
+  // the badge in the top right corner, on any cover (the card says it to a screen reader itself)
+  const badge = useBadgeOf(p);
   return (
     <div className={`project-cover tone-${monogramTone(p.id)} ${title ? 'has-title' : ''} ${className}`} aria-hidden="true">
       {shown && <Picture key={id} id={id} onFail={() => setFailed(id)} />}
+      {badge && <BadgeMark badge={badge} size="cover" className="cover-badge" />}
       {title && (
-        <div className="cover-frame" style={accent ? ({ '--cover-accent': accent } as CSSProperties) : undefined}>
+        <div className="cover-frame">
           <span className="cover-title">{title}</span>
           {p.cover?.tagline && <span className="cover-tagline">{p.cover.tagline}</span>}
         </div>

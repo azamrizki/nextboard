@@ -47,6 +47,8 @@ type Patch struct {
 	Opened bool
 	// GroupID "" takes the project out of its group.
 	GroupID *string
+	// BadgeID "" takes the badge off.
+	BadgeID *string
 	Tags    *[]string
 	Sandbox *string
 	// PartAccess is what agents may do in the parts on other machines: "" read, "full" all.
@@ -192,6 +194,9 @@ func (s *Store) Patch(id string, in Patch) (Project, error) {
 	if in.GroupID != nil && *in.GroupID != "" && s.groupLocked(*in.GroupID) == nil {
 		return Project{}, ErrGroupNotFound
 	}
+	if in.BadgeID != nil && *in.BadgeID != "" && s.badgeLocked(*in.BadgeID) == nil {
+		return Project{}, ErrBadgeNotFound
+	}
 	if in.Name != nil {
 		p.Name = name
 	}
@@ -200,6 +205,9 @@ func (s *Store) Patch(id string, in Patch) (Project, error) {
 	}
 	if in.GroupID != nil {
 		p.GroupID = *in.GroupID
+	}
+	if in.BadgeID != nil {
+		p.BadgeID = *in.BadgeID
 	}
 	if in.Tags != nil {
 		p.Tags = tags

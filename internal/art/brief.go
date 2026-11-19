@@ -947,9 +947,10 @@ func Prompt(kind, brief string) string {
 			"itself is about that. People, if any, are adults, fully clothed and tastefully shown. " +
 			"No text of any kind: no letters, words, numbers, titles, captions, signs or watermarks; NextBoard sets the " +
 			"product's name over the image itself. The composition, always the same, made for that: the image is shown as " +
-			"a strip of its middle third (a 3:1 band across its centre), so keep the subject inside that band; put the " +
-			"subject in the right half; keep the left 40% calm and darker (shadow, night sky, an out-of-focus part of the " +
-			"scene) with nothing important in it, for the name. No logos, brand marks or trademarks of other companies " +
+			"a 12:5 band across its centre (about its middle 60%), so keep the subject inside that band; put the subject " +
+			"in the left half, in the upper two thirds of the band; keep the lower third of the band calm and darker " +
+			"(shadow, ground, an out-of-focus part of the scene) for a strip that carries the name, and the top-right corner " +
+			"calm too, for a small label, with nothing important in either. No logos, brand marks or trademarks of other companies " +
 			"anywhere, not on clothing, equipment, vehicles or signs either; no screenshots of a user interface."
 		reply = "When the image exists, reply with exactly two lines and nothing else: the path of the image file, then a " +
 			"tagline of two to five plain words that says what the product is for its users, without the product's name " +
