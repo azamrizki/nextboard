@@ -28,8 +28,8 @@ describe('coverTitle', () => {
 });
 
 
-// A cover made as a background gets the name set over it (from the project's name now, so a
-// rename shows at once), and its tagline, the same colours on every project; other covers none.
+// Every cover gets the name set over it (from the project's name now, so a rename shows at once),
+// an AI cover also its tagline, the same colours on every project; no cover, nothing.
 describe('ProjectCover', () => {
   const base = { id: 'p_a', name: 'PROD - Lumen', machineId: 'local', path: '/srv/lumen' } as unknown as Project;
   const html = (cover: Project['cover']) => renderToStaticMarkup(createElement(ProjectCover, { project: { ...base, cover } }));
@@ -43,9 +43,14 @@ describe('ProjectCover', () => {
     expect(out).not.toContain('--cover-accent');
     expect(out).toContain('&lt;b&gt;x&lt;/b&gt; y');
   });
-  it('sets nothing over an upload or an older cover', () => {
-    expect(html({ assetId: 'a_1', source: 'upload', at: '' })).not.toContain('cover-frame');
-    expect(html({ assetId: 'a_1', source: 'ai', at: '' })).not.toContain('cover-frame');
+  it('sets the name over an uploaded or older cover too, without a tagline', () => {
+    for (const cover of [{ assetId: 'a_1', source: 'upload', at: '' }, { assetId: 'a_1', source: 'ai', at: '' }] as const) {
+      const out = html(cover);
+      expect(out).toContain('class="cover-title">Lumen<');
+      expect(out).not.toContain('cover-tagline');
+    }
+  });
+  it('sets nothing without a cover', () => {
     expect(html(undefined)).not.toContain('cover-frame');
   });
 });

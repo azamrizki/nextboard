@@ -55,10 +55,10 @@ export function ProjectCover({ project: p, className = '' }: { project: Project;
   const id = p.cover?.assetId;
   const [failed, setFailed] = useState('');
   const shown = !!id && failed !== id;
-  // A cover made as a background gets the name set over it here, always in the same type, colour
-  // and place on every project (a stored accent is no longer used), and it follows a rename
-  // (DESIGN.md §3.11 Cover).
-  const title = shown && p.cover?.title ? coverTitle(p.name) : '';
+  // Every cover gets the name set over it here, an uploaded one as much as one made with AI, always
+  // in the same type, colour and place on every project (a stored accent is no longer used), and it
+  // follows a rename (DESIGN.md §3.11 Cover). Only an AI cover has a tagline.
+  const title = shown ? coverTitle(p.name) : '';
   // the badge in the top right corner, on any cover (the card says it to a screen reader itself)
   const badge = useBadgeOf(p);
   return (

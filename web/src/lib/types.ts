@@ -572,7 +572,7 @@ export interface ProjectImage {
   assetId: string;
   source: 'upload' | 'ai';
   at: string;
-  /** A cover made as a background: the card sets the project's name over it (coverTitle). */
+  /** A cover made with AI as a background. The card now sets the project's name over every cover (coverTitle). */
   title?: boolean;
   /** The short line under the name. */
   tagline?: string;
