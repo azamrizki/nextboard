@@ -364,7 +364,7 @@ func TestBriefReadsEveryPart(t *testing.T) {
 		}
 	}
 	icon := Prompt(KindIcon, brief)
-	for _, want := range []string{"square app icon", "not for how it is built", "Seen straight from the front, with no tilt", "clearly a 3D model", "high relief", "evenly spaced", "layered materials", "always the same", "brand colours", "No text"} {
+	for _, want := range []string{"square app icon", "not for how it is built", "only from what the brief names", "never a generic object it does not offer", "make sense at", "fantasy finish", "Seen straight from the front, with no tilt", "clearly a 3D model", "high relief", "evenly spaced", "layered materials", "always the same", "brand colours", "No text"} {
 		if !strings.Contains(icon, want) {
 			t.Errorf("icon prompt lacks %q", want)
 		}

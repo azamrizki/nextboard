@@ -917,6 +917,13 @@ func Prompt(kind, brief string) string {
 			"The symbol: one object that stands for what the product offers its users, joined with what sets this product " +
 			"apart when the brief or its name makes that clear (its standing, its audience, its theme), not for how it is " +
 			"built: no servers, gears, code brackets, network nodes, clouds or databases unless that is what the product sells. " +
+			"The object comes only from what the brief names (its models, tables, routes, pages and descriptions): the thing " +
+			"its users come for, as they know it (a game's own piece or emblem, a sport's ball; for an online shop, a " +
+			"shopping cart, the mark of buying online, carrying or marked with what it really sells, such as a game currency " +
+			"gem or a voucher for a top-up store), never a generic object it does not offer (groceries or other goods it does " +
+			"not sell, a shop front or a building for an online shop). It must make sense at " +
+			"a glance: one real object, whole, in its true shape and used as it really is, with nothing from another activity " +
+			"joined to it; a heightened, epic or fantasy finish is welcome when it suits the product's theme. " +
 			"Its colours: the brand colours, and a dark tone taken from the dark colours the brief lists (else a deep colour " +
 			"that suits the brand). " +
 			"The look: a luxurious, richly detailed 3D icon like those of premium mobile games: layered materials, a deep " +
