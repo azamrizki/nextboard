@@ -50,6 +50,15 @@ describe('ProjectCover', () => {
       expect(out).not.toContain('cover-tagline');
     }
   });
+  it('shows a tagline set by hand, over the one Create with AI gave', () => {
+    const out = renderToStaticMarkup(
+      createElement(ProjectCover, { project: { ...base, tagline: 'Game top-ups', cover: { assetId: 'a_1', source: 'ai', at: '', title: true, tagline: 'From AI' } } }),
+    );
+    expect(out).toContain('class="cover-tagline">Game top-ups<');
+    expect(out).not.toContain('From AI');
+    const upload = renderToStaticMarkup(createElement(ProjectCover, { project: { ...base, tagline: 'Mine', cover: { assetId: 'a_1', source: 'upload', at: '' } } }));
+    expect(upload).toContain('class="cover-tagline">Mine<');
+  });
   it('sets nothing without a cover', () => {
     expect(html(undefined)).not.toContain('cover-frame');
   });

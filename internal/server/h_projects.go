@@ -122,6 +122,8 @@ func projectErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, project.ErrBadSandbox):
 		writeErrCode(w, http.StatusBadRequest, "bad_sandbox", err.Error())
+	case errors.Is(err, project.ErrBadTagline):
+		writeErrCode(w, http.StatusBadRequest, "bad_tagline", err.Error())
 	case errors.Is(err, project.ErrBadPartAccess):
 		writeErrCode(w, http.StatusBadRequest, "bad_part_access", err.Error())
 	case errors.Is(err, project.ErrGroupNotFound):
@@ -247,6 +249,7 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, p *
 		Opened  bool      `json:"opened"`
 		GroupID *string   `json:"groupId"`
 		BadgeID *string   `json:"badgeId"`
+		Tagline *string   `json:"tagline"`
 		Tags    *[]string `json:"tags"`
 		Sandbox *string   `json:"sandbox"`
 		// PartAccess: what agents may do in the parts on other machines than their own (ROADMAP #49)
@@ -268,7 +271,7 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, p *
 		writeErrCode(w, http.StatusBadRequest, "bad_asset", err.Error())
 		return
 	}
-	pr, err := s.projects.Patch(r.PathValue("id"), project.Patch{Name: req.Name, Opened: req.Opened, GroupID: req.GroupID, BadgeID: req.BadgeID, Tags: req.Tags,
+	pr, err := s.projects.Patch(r.PathValue("id"), project.Patch{Name: req.Name, Opened: req.Opened, GroupID: req.GroupID, BadgeID: req.BadgeID, Tagline: req.Tagline, Tags: req.Tags,
 		Sandbox: req.Sandbox, PartAccess: req.PartAccess, Cover: cover, Icon: icon})
 	if err != nil {
 		projectErr(w, err)

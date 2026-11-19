@@ -49,6 +49,8 @@ type Patch struct {
 	GroupID *string
 	// BadgeID "" takes the badge off.
 	BadgeID *string
+	// Tagline "" goes back to the cover's own.
+	Tagline *string
 	Tags    *[]string
 	Sandbox *string
 	// PartAccess is what agents may do in the parts on other machines: "" read, "full" all.
@@ -166,11 +168,16 @@ func CleanTags(in []string) ([]string, error) {
 
 // Patch changes a project in one save, and nothing when any part is refused.
 func (s *Store) Patch(id string, in Patch) (Project, error) {
-	var name string
+	var name, tagline string
 	var tags []string
 	var err error
 	if in.Name != nil {
 		if name, err = CleanName(*in.Name); err != nil {
+			return Project{}, err
+		}
+	}
+	if in.Tagline != nil {
+		if tagline, err = CleanTagline(*in.Tagline); err != nil {
 			return Project{}, err
 		}
 	}
@@ -199,6 +206,9 @@ func (s *Store) Patch(id string, in Patch) (Project, error) {
 	}
 	if in.Name != nil {
 		p.Name = name
+	}
+	if in.Tagline != nil {
+		p.Tagline = tagline
 	}
 	if in.Opened {
 		p.LastOpenedAt = time.Now().UTC()

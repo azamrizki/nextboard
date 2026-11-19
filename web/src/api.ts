@@ -365,7 +365,7 @@ export const api = {
   archivedProjects: () => get<Project[] | null>('/api/projects?archived=1').then((p) => p ?? []),
   updateProject: (
     id: string,
-    body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; badgeId?: string; sandbox?: string; partAccess?: string; cover?: { assetId: string } | null; icon?: { assetId: string } | null },
+    body: { name?: string; opened?: boolean; groupId?: string; tags?: string[]; badgeId?: string; tagline?: string; sandbox?: string; partAccess?: string; cover?: { assetId: string } | null; icon?: { assetId: string } | null },
   ) => patch<Project>(`/api/projects/${enc(id)}`, body),
   archiveProject: (id: string) => post<Project>(`/api/projects/${enc(id)}/archive`),
   /** 409 not_archived when it was not. */

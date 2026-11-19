@@ -729,6 +729,11 @@
 .project-name-line .row-badge {
   flex: none;
 }
+/* Rename: the tagline under the name field, the line set under the name on the cover */
+.project-tagline-input {
+  margin-top: var(--s-1);
+  font-size: var(--fs-xs);
+}
 
 /* A badge (home/badges.tsx): tinted glass in the badge's colour, the same on every theme, since it
    sits over a cover as often as on the page. */

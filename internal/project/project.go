@@ -30,7 +30,11 @@ var (
 	ErrLastWorkspace     = errors.New("the last workspace of a project cannot be deleted")
 	ErrBadName           = fmt.Errorf("a name is required, at most %d characters", MaxName)
 	ErrBadSandbox        = errors.New(`sandbox must be "", "workspace" or "offline"`)
+	ErrBadTagline        = fmt.Errorf("a tagline is one line of at most %d characters", MaxTagline)
 )
+
+// MaxTagline is the longest tagline, in characters: one line on a cover.
+const MaxTagline = 60
 
 // Workspace is one board tab inside a project.
 type Workspace struct {
@@ -57,6 +61,9 @@ type Project struct {
 	Tags         []string    `json:"tags,omitempty"`
 	// BadgeID is the one badge of the shared list it shows (badges.go), "" for none.
 	BadgeID string `json:"badgeId,omitempty"`
+	// Tagline is the line under its name on the cover, set by hand; it wins over the one Create
+	// with AI gave the cover (Image.Tagline) and stays when the cover changes. "" = the cover's own.
+	Tagline string `json:"tagline,omitempty"`
 	// Sandbox limits what the commands of its agents may do (docs/API-agents.md §27):
 	// "" = what each CLI does by itself, SandboxWorkspace = write only in the project
 	// folder (and temp and package caches), SandboxOffline = that and no network.
@@ -220,6 +227,15 @@ func CleanName(name string) (string, error) {
 		return "", ErrBadName
 	}
 	return name, nil
+}
+
+// CleanTagline trims a tagline; "" is allowed (the cover's own shows again).
+func CleanTagline(s string) (string, error) {
+	s = strings.Join(strings.Fields(s), " ")
+	if utf8.RuneCountInString(s) > MaxTagline || strings.IndexFunc(s, unicode.IsControl) >= 0 {
+		return "", ErrBadTagline
+	}
+	return s, nil
 }
 
 // truncName shortens a default name to MaxName runes.

@@ -3,7 +3,7 @@
 // line; terminals, boards and last opened at the foot. The whole card opens the project, or in
 // select mode picks it (§3.18).
 
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { useWarmIntent } from '../agents/warm';
 import { api, errorMessage } from '../api';
 import { Icon, type IconName } from '../components/Icon';
@@ -161,6 +161,9 @@ function terminalsText(p: Project, active: number, idle: number): string {
   return 'No terminals';
 }
 
+/** The longest tagline, as the hub takes it (project.MaxTagline). */
+const TAGLINE_MAX = 60;
+
 /** A card shows this many tags, and says how many more there are. */
 const TAGS_SHOWN = 3;
 
@@ -233,6 +236,9 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
   const idleCount = consoleCount - activeCount;
   const [renaming, setRenaming] = useState(false);
   const draft = useRenameDraft(p.name);
+  // the line under the name on the cover: one set by hand, else the one Create with AI gave it
+  const liveTagline = p.tagline || p.cover?.tagline || '';
+  const tagDraft = useRenameDraft(liveTagline);
   const [confirm, setConfirm] = useState(false);
   const [organizing, setOrganizing] = useState(false);
   const [partsOpen, setPartsOpen] = useState(false);
@@ -256,12 +262,34 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
     setRenaming(false);
     // renamed elsewhere while the field was open and not typed in: nothing to save
     const v = renameTo(draft.typed(), p.name, NAME_MAX);
+    // a tagline may be emptied: the cover's own shows again
+    const typedTag = tagDraft.typed();
+    const t = typedTag === null ? null : typedTag.replace(/\s+/g, ' ').trim().slice(0, TAGLINE_MAX);
     draft.reset();
-    if (!v) return;
+    tagDraft.reset();
+    const body: { name?: string; tagline?: string } = {};
+    if (v) body.name = v;
+    if (t !== null && t !== liveTagline) body.tagline = t;
+    if (!body.name && body.tagline === undefined) return;
     try {
-      store.upsertProject(await api.updateProject(p.id, { name: v }));
+      store.upsertProject(await api.updateProject(p.id, body));
     } catch (err) {
       toast.error(`Could not rename ${p.name}: ${errorMessage(err)}`);
+    }
+  };
+  // leaving one field for the other is not leaving the rename
+  const renameBlur = (e: FocusEvent<HTMLInputElement>) => {
+    if ((e.relatedTarget as HTMLElement | null)?.dataset?.rename === p.id) return;
+    void rename();
+  };
+  const renameKeys = (e: KeyboardEvent<HTMLInputElement>) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') void rename();
+    if (e.key === 'Escape') {
+      live.current = false;
+      draft.reset();
+      tagDraft.reset();
+      setRenaming(false);
     }
   };
 
@@ -305,18 +333,11 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
                 autoFocus
                 maxLength={NAME_MAX}
                 aria-label="Project name"
+                data-rename={p.id}
                 onFocus={(e) => e.currentTarget.select()}
                 onChange={(e) => draft.set(e.target.value)}
-                onBlur={() => void rename()}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === 'Enter') e.currentTarget.blur();
-                  if (e.key === 'Escape') {
-                    live.current = false;
-                    draft.reset();
-                    setRenaming(false);
-                  }
-                }}
+                onBlur={renameBlur}
+                onKeyDown={renameKeys}
               />
             ) : (
               <h3 className="truncate">
@@ -343,6 +364,19 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
             )}
             {badge && row && !renaming && <BadgeMark badge={badge} className="row-badge" />}
             </div>
+            {renaming && (
+              <input
+                className="control control-sm project-tagline-input"
+                value={tagDraft.value}
+                maxLength={TAGLINE_MAX}
+                placeholder="Tagline on the cover (optional)"
+                aria-label="Tagline"
+                data-rename={p.id}
+                onChange={(e) => tagDraft.set(e.target.value)}
+                onBlur={renameBlur}
+                onKeyDown={renameKeys}
+              />
+            )}
             {multi ? (
               <PartsLine project={p} git={partsGit} onEdit={() => setPartsOpen(true)} machinesShown={!!machinesPlace} />
             ) : row ? (

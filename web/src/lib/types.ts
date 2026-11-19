@@ -557,6 +557,8 @@ export interface Project {
   tags?: string[];
   /** The one badge it carries (ProjectBadge.id); absent when none. */
   badgeId?: string;
+  /** The line under its name on the cover, set by hand; wins over the cover's own (cover.tagline). */
+  tagline?: string;
   /** What its agents' commands may do (docs/API-agents.md §27); absent = what each CLI does. */
   sandbox?: 'workspace' | 'offline';
   /** Set while archived (RFC 3339): its consoles are stopped, everything else is kept (API-board §1). */

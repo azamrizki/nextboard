@@ -57,8 +57,10 @@ export function ProjectCover({ project: p, className = '' }: { project: Project;
   const shown = !!id && failed !== id;
   // Every cover gets the name set over it here, an uploaded one as much as one made with AI, always
   // in the same type, colour and place on every project (a stored accent is no longer used), and it
-  // follows a rename (DESIGN.md §3.11 Cover). Only an AI cover has a tagline.
+  // follows a rename (DESIGN.md §3.11 Cover). The tagline under it: one set by hand (Rename), else
+  // the one Create with AI gave the cover.
   const title = shown ? coverTitle(p.name) : '';
+  const tagline = p.tagline || p.cover?.tagline || '';
   // the badge in the top right corner, on any cover (the card says it to a screen reader itself)
   const badge = useBadgeOf(p);
   return (
@@ -68,7 +70,7 @@ export function ProjectCover({ project: p, className = '' }: { project: Project;
       {title && (
         <div className="cover-frame">
           <span className="cover-title">{title}</span>
-          {p.cover?.tagline && <span className="cover-tagline">{p.cover.tagline}</span>}
+          {tagline && <span className="cover-tagline">{tagline}</span>}
         </div>
       )}
     </div>
