@@ -939,23 +939,33 @@ func Prompt(kind, brief string) string {
 		// A cover is only the background: NextBoard sets the project's name over it itself, in its own
 		// font and place, so that every cover reads the same. A model's lettering changed from one
 		// image to the next.
-		want = "A wide background in 3:2, 1536×1024, for the banner of the product's own website or app: a scene that " +
-			"anyone who uses this kind of product recognises at once as being about it, showing what it offers and who it " +
-			"is for, in the setting where it is used. Polished commercial photography or a high-end 3D render with cinematic " +
-			"lighting. Never servers, data centres, cables, code, dashboards, network diagrams or glowing lines, and no " +
-			"fantasy or metaphor (floating islands, castles, domes, portals, planets, abstract cities) unless the product " +
-			"itself is about that. People, if any, are adults, fully clothed and tastefully shown. " +
+		// Art-directed like a premium brand's website hero: a stock-photo scene (a shop, a smiling
+		// customer) looked cheap, and rules on where everything goes left a tiny figure in an empty frame.
+		want = "A wide key visual in 3:2, 1536×1024: the hero image at the top of the product's own website, art-directed " +
+			"by a top design studio for a premium brand. " +
+			"What it shows: the product's world distilled into one clear idea that anyone who uses this kind of product " +
+			"recognises at once: one hero subject, an object or a small, deliberate arrangement of objects that stand for " +
+			"what the product offers, set in a refined space that suits it. Prefer an art-directed still life or an " +
+			"architectural interior to people; if people appear at all, one or two adults, natural and elegant, fully " +
+			"clothed, never posing for the camera. " +
+			"The look: modern, elegant, minimal and expensive. A restrained palette, one dominant tone and one accent; soft " +
+			"cinematic light with gentle gradients and deep, clean shadows; physically based materials (glass, brushed " +
+			"metal, ceramic, stone, matte paper, fabric, wood) rendered like a high-end 3D product render or editorial " +
+			"photography, with a shallow depth of field; calm space around one clear focal point. Never cluttered, busy, " +
+			"cartoonish, clip-art, neon, oversaturated or cheap; never a stock photo, shop shelves full of goods, crowds, a " +
+			"collage or several scenes in one; never servers, data centres, cables, code, dashboards, network diagrams or " +
+			"glowing lines; no fantasy or metaphor (floating islands, castles, domes, portals, planets) unless the product " +
+			"itself is about that. " +
 			"No text of any kind: no letters, words, numbers, titles, captions, signs or watermarks; NextBoard sets the " +
-			"product's name over the image itself. The composition, always the same, made for that: a card shows only a " +
-			"12:5 band across the middle of the image, from about a fifth to four fifths of its height; the top and bottom " +
-			"fifths are cut off. Frame it as a wide shot, never a close-up: the main subject whole and fairly small, in the " +
-			"left half of the image, its highest point (heads, tops) no higher than a quarter of the image's height and its " +
-			"lowest no lower than three fifths, so that nothing of it is cut; leave the top fifth plain (sky, ceiling, wall, " +
-			"soft distance). Below three fifths of the height keep the image calm and darker (shadow, floor, a table top, an " +
-			"out-of-focus foreground): a strip with the name covers it. Keep the right half open: a soft, out-of-focus " +
-			"background with no people, faces or detailed objects, and its top-right corner plain, where a small label " +
-			"sits. No logos, brand marks or trademarks of other companies " +
-			"anywhere, not on clothing, equipment, vehicles or signs either; no screenshots of a user interface."
+			"product's name over the image itself. The composition, always the same, made for that: a card shows the 12:5 " +
+			"band across the middle of the image (the top and bottom fifths are cut off), with the name on a glass strip " +
+			"along the band's bottom and a small label in its top-right corner. Put the hero subject a little left of " +
+			"centre, whole inside that band and the clear focus of it, about half the image's height tall, with breathing " +
+			"room above it: its top no higher than about a quarter of the way down, so that nothing of it is cut; let the scene fill the whole frame to every edge as one finished " +
+			"image (no empty black areas, borders or vignette into black), its right side the same setting, softer and out " +
+			"of focus, and the lower part of the band a calm surface or soft shadow that white text on glass reads over. " +
+			"No logos, brand marks or trademarks of other companies anywhere, not on objects, clothing or signs either; no " +
+			"screenshots of a user interface."
 		reply = "When the image exists, reply with exactly two lines and nothing else: the path of the image file, then a " +
 			"tagline of two to five plain words that says what the product is for its users, without the product's name " +
 			"and without quotes."
