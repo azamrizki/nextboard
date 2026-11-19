@@ -946,11 +946,15 @@ func Prompt(kind, brief string) string {
 			"fantasy or metaphor (floating islands, castles, domes, portals, planets, abstract cities) unless the product " +
 			"itself is about that. People, if any, are adults, fully clothed and tastefully shown. " +
 			"No text of any kind: no letters, words, numbers, titles, captions, signs or watermarks; NextBoard sets the " +
-			"product's name over the image itself. The composition, always the same, made for that: the image is shown as " +
-			"a 12:5 band across its centre (about its middle 60%), so keep the subject inside that band; put the subject " +
-			"in the left half, in the upper two thirds of the band; keep the lower third of the band calm and darker " +
-			"(shadow, ground, an out-of-focus part of the scene) for a strip that carries the name, and the top-right corner " +
-			"calm too, for a small label, with nothing important in either. No logos, brand marks or trademarks of other companies " +
+			"product's name over the image itself. The composition, always the same, made for that: a card shows only a " +
+			"12:5 band across the middle of the image, from about a fifth to four fifths of its height; the top and bottom " +
+			"fifths are cut off. Frame it as a wide shot, never a close-up: the main subject whole and fairly small, in the " +
+			"left half of the image, its highest point (heads, tops) no higher than a quarter of the image's height and its " +
+			"lowest no lower than three fifths, so that nothing of it is cut; leave the top fifth plain (sky, ceiling, wall, " +
+			"soft distance). Below three fifths of the height keep the image calm and darker (shadow, floor, a table top, an " +
+			"out-of-focus foreground): a strip with the name covers it. Keep the right half open: a soft, out-of-focus " +
+			"background with no people, faces or detailed objects, and its top-right corner plain, where a small label " +
+			"sits. No logos, brand marks or trademarks of other companies " +
 			"anywhere, not on clothing, equipment, vehicles or signs either; no screenshots of a user interface."
 		reply = "When the image exists, reply with exactly two lines and nothing else: the path of the image file, then a " +
 			"tagline of two to five plain words that says what the product is for its users, without the product's name " +

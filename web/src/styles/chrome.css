@@ -1286,6 +1286,48 @@
 .project-note {
   color: var(--text-3);
 }
+/* a card's folder, after a folder icon */
+.project-pathline {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  color: var(--text-3);
+}
+.project-pathline > svg {
+  flex: none;
+  width: var(--fs-xs);
+  height: var(--fs-xs);
+}
+/* a card's one line under its name: where it is, its tags, its repositories or branch */
+.project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-4);
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+.project-meta .project-marks {
+  margin-top: 0;
+  flex: 0 1 auto;
+}
+.project-meta .project-place {
+  color: var(--text-2);
+}
+.project-meta .project-place svg {
+  color: var(--text-3);
+}
+.project-meta .project-git {
+  flex: 0 1 auto;
+  min-height: 0;
+  font-size: var(--fs-xs);
+}
+.project-meta .project-branch svg,
+.project-meta .project-sync svg {
+  width: var(--fs-xs);
+  height: var(--fs-xs);
+}
 
 .project-foot {
   display: flex;
@@ -1486,6 +1528,8 @@
 .project-cover img {
   position: absolute;
   inset: 0;
+  /* a little above the middle: a head near the top is kept, the ground under the name's strip goes */
+  object-position: 50% 40%;
 }
 .project-cover img.is-loaded,
 .project-icon img.is-loaded {

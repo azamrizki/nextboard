@@ -269,6 +269,8 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
   // a card says Clean or changed in its foot; a row says it in its Git column
   const footState = row ? null : multi ? partsGitState(partsGit) : gitStateOf(git, offline);
   const branch = multi ? '' : git?.info?.isRepo ? git.info.branch : '';
+  const marks = <ProjectMarks p={p} place={machinesPlace ?? place} activeTag={activeTag} onTag={onTag} />;
+  const gitLine = multi ? <PartsGitLine git={partsGit} noState={!row} /> : <GitLine git={git} offline={offline} noState={!row} />;
   // a hand on its card: its asleep agents start before the click lands (ROADMAP #50)
   const warmIntent = useWarmIntent(p.id, p.workspaces?.find((w) => w.id === lastWorkspace(p.id))?.id ?? p.workspaces?.[0]?.id);
 
@@ -341,8 +343,17 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
             )}
             {badge && row && !renaming && <BadgeMark badge={badge} className="row-badge" />}
             </div>
-            {multi ? <PartsLine project={p} git={partsGit} onEdit={() => setPartsOpen(true)} machinesShown={!!machinesPlace} /> : <FolderPath path={p.path} />}
-            <ProjectMarks p={p} place={machinesPlace ?? place} activeTag={activeTag} onTag={onTag} />
+            {multi ? (
+              <PartsLine project={p} git={partsGit} onEdit={() => setPartsOpen(true)} machinesShown={!!machinesPlace} />
+            ) : row ? (
+              <FolderPath path={p.path} />
+            ) : (
+              <span className="project-pathline">
+                <Icon name="folder" />
+                <FolderPath path={p.path} />
+              </span>
+            )}
+            {row && marks}
           </div>
         </div>
         <Menu
@@ -373,7 +384,15 @@ export function ProjectCard({ project: p, row, active, offline = false, place, a
         />
       </header>
 
-      {multi ? <PartsGitLine git={partsGit} noState={!row} /> : <GitLine git={git} offline={offline} noState={!row} />}
+      {/* a card puts where it is and its git on one line under the name, as a row's columns do */}
+      {row ? (
+        gitLine
+      ) : (
+        <div className="project-meta">
+          {marks}
+          {gitLine}
+        </div>
+      )}
 
       <footer className="project-foot">
         <span className="project-activity">
