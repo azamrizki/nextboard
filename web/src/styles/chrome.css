@@ -1528,8 +1528,8 @@
 .project-cover img {
   position: absolute;
   inset: 0;
-  /* a little above the middle: a head near the top is kept, the ground under the name's strip goes */
-  object-position: 50% 40%;
+  /* above the middle: heads near the top are kept, the ground under the name's strip goes */
+  object-position: 50% 30%;
 }
 .project-cover img.is-loaded,
 .project-icon img.is-loaded {

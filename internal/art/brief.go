@@ -939,33 +939,47 @@ func Prompt(kind, brief string) string {
 		// A cover is only the background: NextBoard sets the project's name over it itself, in its own
 		// font and place, so that every cover reads the same. A model's lettering changed from one
 		// image to the next.
-		// Art-directed like a premium brand's website hero: a stock-photo scene (a shop, a smiling
-		// customer) looked cheap, and rules on where everything goes left a tiny figure in an empty frame.
-		want = "A wide key visual in 3:2, 1536×1024: the hero image at the top of the product's own website, art-directed " +
-			"by a top design studio for a premium brand. " +
-			"What it shows: the product's world distilled into one clear idea that anyone who uses this kind of product " +
-			"recognises at once: one hero subject, an object or a small, deliberate arrangement of objects that stand for " +
-			"what the product offers, set in a refined space that suits it. Prefer an art-directed still life or an " +
-			"architectural interior to people; if people appear at all, one or two adults, natural and elegant, fully " +
-			"clothed, never posing for the camera. " +
-			"The look: modern, elegant, minimal and expensive. A restrained palette, one dominant tone and one accent; soft " +
-			"cinematic light with gentle gradients and deep, clean shadows; physically based materials (glass, brushed " +
-			"metal, ceramic, stone, matte paper, fabric, wood) rendered like a high-end 3D product render or editorial " +
-			"photography, with a shallow depth of field; calm space around one clear focal point. Never cluttered, busy, " +
-			"cartoonish, clip-art, neon, oversaturated or cheap; never a stock photo, shop shelves full of goods, crowds, a " +
-			"collage or several scenes in one; never servers, data centres, cables, code, dashboards, network diagrams or " +
-			"glowing lines; no fantasy or metaphor (floating islands, castles, domes, portals, planets) unless the product " +
-			"itself is about that. " +
+		// The product's own world at its key moment, cinematic and logical: a match under floodlights, two
+		// players over a board. A bright stock-photo shop looked cheap, a still life of objects looked
+		// empty, and a board-game player staring at a laptop made no sense, so the scene must hold together.
+		want = "A wide cover image in 3:2, 1536×1024, for the banner of the product's own website or app: one cinematic " +
+			"scene of the product's own world that anyone who uses this kind of product recognises at once: the thing it is " +
+			"about, happening at its most compelling moment (for a game, the game being played; for a sport, the match; for " +
+			"a shop, the goods and the moment they are bought). " +
+			"Show it the way its users really meet it. A product whose users meet it as a website or app they browse and " +
+			"buy in (an online shop, a marketplace, top-ups and vouchers, booking or ordering) is shown as that site itself: " +
+			"a premium product shot of a device mockup, a laptop and a phone at a slight angle on a refined surface in " +
+			"dramatic studio light, their screens showing the product's own storefront built from the brief: its brand " +
+			"colours and the dark colours its pages use, the character of its fonts, and what its pages and models say it " +
+			"sells (cards with photos of its goods, vouchers or game top-ups, banners, a cart). Its contents come only " +
+			"from what the brief names (its models, tables, routes, pages and descriptions): show the kinds of goods it " +
+			"really sells and nothing it does not name; never fill it with groceries, fashion or other generic goods it " +
+			"does not sell, and when the brief names little, show fewer items rather than invent any. On those screens every " +
+			"word is a soft placeholder bar, never a readable letter, and there is no logo. Never draw an online product " +
+			"as its offline counterpart (a shop counter, a market stall). A game or a sport is shown as the game or the " +
+			"match itself, not as someone watching a screen. " +
+			"It must make sense at a glance, like a still from a well-made film: one clear action; people look at what they " +
+			"are doing (a board-game player at the board, a footballer at the ball, a buyer at what they buy); every object is " +
+			"used the way it really is and belongs where it is, with nothing out of place (no laptop or phone beside a board " +
+			"game, no tools of another activity); correct anatomy, hands and counts of things; a real game position, a real " +
+			"pitch. " +
+			"The style: high-end and professional, either photorealistic cinematography or a heightened, epic treatment " +
+			"(a dramatic arena, a grand stylised world, a touch of fantasy) when that suits the product's theme, always " +
+			"about the product's own world, never a metaphor for how it is built. Dramatic cinematic lighting (strong key " +
+			"and rim light, deep shadows, practical lights), rich contrast, a premium colour grade, a shallow depth of " +
+			"field. Never a bright, flat stock photo, people posing or smiling for the camera, clutter, a cartoon or " +
+			"clip-art look, neon or oversaturated colour, a collage or several scenes in one; never servers, data centres, " +
+			"cables, code, dashboards, network diagrams or glowing lines. People, if any, are adults, fully clothed and " +
+			"tastefully shown. " +
 			"No text of any kind: no letters, words, numbers, titles, captions, signs or watermarks; NextBoard sets the " +
 			"product's name over the image itself. The composition, always the same, made for that: a card shows the 12:5 " +
 			"band across the middle of the image (the top and bottom fifths are cut off), with the name on a glass strip " +
-			"along the band's bottom and a small label in its top-right corner. Put the hero subject a little left of " +
-			"centre, whole inside that band and the clear focus of it, about half the image's height tall, with breathing " +
-			"room above it: its top no higher than about a quarter of the way down, so that nothing of it is cut; let the scene fill the whole frame to every edge as one finished " +
-			"image (no empty black areas, borders or vignette into black), its right side the same setting, softer and out " +
-			"of focus, and the lower part of the band a calm surface or soft shadow that white text on glass reads over. " +
-			"No logos, brand marks or trademarks of other companies anywhere, not on objects, clothing or signs either; no " +
-			"screenshots of a user interface."
+			"along the band's bottom and a small label in its top-right corner. Keep the main subject and its action inside " +
+			"that band and whole, filling a good part of it, not small in an empty frame: a medium-wide shot with generous " +
+			"headroom, the top of every head at least a quarter of the image's height below its top edge, the space above " +
+			"the softly blurred setting; the lower part of the band darker and calmer (ground, a table, shadow) so white " +
+			"text reads over it; the scene fills the whole frame to every edge. No logos, brand marks or trademarks of other " +
+			"companies anywhere, not on clothing, equipment, vehicles or signs either; no other user interface than a storefront mockup as above."
 		reply = "When the image exists, reply with exactly two lines and nothing else: the path of the image file, then a " +
 			"tagline of two to five plain words that says what the product is for its users, without the product's name " +
 			"and without quotes."
