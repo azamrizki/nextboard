@@ -578,7 +578,9 @@ function DevServerTile({ id, data, selected }: NodeProps<FlowNode>) {
             )}
             {blankHint && !ready && !waiting && pv?.state === 'live' && (
               <div className="web-hint" role="note">
-                <span>Blank page? Port {pv.listenPort} may be blocked, or your reverse proxy may not forward it yet.</span>
+                <span>
+                  Blank page? This browser may not reach port {pv.listenPort} of {window.location.hostname}, where NextBoard shows the page. A proxy or tunnel in front of NextBoard that forwards only its own port blocks it.
+                </span>
                 <button type="button" className="link-btn" onClick={() => void openNewTab()}>
                   Open it in a new tab once
                 </button>

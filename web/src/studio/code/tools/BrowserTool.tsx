@@ -273,6 +273,9 @@ function PreviewPage({
   const [failed, setFailed] = useState('');
   const [ready, setReady] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // no word from the page's bridge a while after it was launched: this browser may not reach the
+  // preview's own port (a proxy or tunnel in front of NextBoard that forwards only its port)
+  const [blankHint, setBlankHint] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const first = useRef(url);
   const latest = useRef({ url, onGo });
@@ -361,6 +364,15 @@ function PreviewPage({
     wasWaiting.current = pv?.state === 'waiting';
   }, [pv?.state, relaunch]);
 
+  // the hint: a frame of a live preview, on screen, that its page never answered from
+  const live = pv?.state === 'live';
+  useEffect(() => {
+    setBlankHint(false);
+    if (!launch || !live || !shown || ready) return;
+    const t = window.setTimeout(() => setBlankHint(true), 6000);
+    return () => window.clearTimeout(t);
+  }, [launch, live, shown, ready]);
+
   // ---- bridge ----
   const origin = pv ? previewOrigin(pv.listenPort) : '';
   const post = useCallback(
@@ -380,6 +392,7 @@ function PreviewPage({
       if (!m || m.nb !== 'bridge') return;
       if (m.type === 'ready' || m.type === 'nav') {
         setReady(true);
+        setBlankHint(false);
         if (m.title !== undefined) setTitle(m.title);
         // a site only gets to report addresses on its own preview origin
         if (m.url && (!target.host || onOrigin(m.url, origin))) {
@@ -517,6 +530,24 @@ function PreviewPage({
               <div className="web-msg" role="status">
                 <span className="spinner" aria-hidden="true" />
                 <p>Opening {targetLabel(target)}…</p>
+              </div>
+            )}
+            {blankHint && !ready && live && pv && (
+              <div className="web-hint" role="note">
+                <span>
+                  Blank page? This browser may not reach port {pv.listenPort} of {window.location.hostname}, where NextBoard shows the page. A proxy or tunnel in front of NextBoard that forwards only its own port blocks it.
+                </span>
+                {site && (
+                  <button type="button" className="link-btn" onClick={() => onBrowser('browser')}>
+                    Open in the real browser
+                  </button>
+                )}
+                <button type="button" className="link-btn" onClick={() => (site ? window.open(url, '_blank', 'noopener,noreferrer') : void openNewTab())}>
+                  {site ? 'Open the site in a browser tab' : 'Open it in a new tab once'}
+                </button>
+                <button type="button" className="web-hint-x" aria-label="Dismiss" onClick={() => setBlankHint(false)}>
+                  <Icon name="close" />
+                </button>
               </div>
             )}
             {waiting && (
