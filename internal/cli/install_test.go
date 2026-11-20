@@ -481,11 +481,17 @@ func (c *client) snapshot(id string) (string, *websocket.Conn) {
 	if err != nil {
 		c.t.Fatal(err)
 	}
-	_, first, err := ws.ReadMessage()
-	if err != nil {
-		c.t.Fatal(err)
+	// the snapshot is the first binary frame; text frames (the terminal's size, its status) may
+	// come before it
+	for {
+		typ, first, err := ws.ReadMessage()
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		if typ == websocket.BinaryMessage {
+			return string(first), ws
+		}
 	}
-	return string(first), ws
 }
 
 func termNode(t *testing.T, c *client, wid, sid string) map[string]any {
