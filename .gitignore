@@ -13,3 +13,6 @@
 .claude/
 # Internal notes on another product's docs; not part of the public repo.
 /docs/research/
+
+# a fake agent of the browser tests leaves its hook token in its folder (web/e2e/fake-agent.sh)
+.nb-e2e-console
