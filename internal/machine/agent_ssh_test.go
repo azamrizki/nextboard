@@ -99,6 +99,10 @@ func TestSSHWrapperMarkersForwardAndForeground(t *testing.T) {
 	if !strings.HasPrefix(url, "http://127.0.0.1:") || m.Info().HookForward == nil || m.Info().HookForward.Port == 0 {
 		t.Fatalf("forward %q %+v", url, m.Info().HookForward)
 	}
+	// a hub's port on the server is told at a glance: 9990–9999
+	if p := m.Info().HookForward.Port; p < 9990 || p > 9999 {
+		t.Errorf("forward on port %d, not in 9990–9999", p)
+	}
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "fakeagent")
 	os.WriteFile(fake, []byte(`#!/bin/sh

@@ -592,10 +592,13 @@ func (m *SSH) openForward(c *ssh.Client, gen int) {
 	m.mu.Unlock()
 	var ln net.Listener
 	var err error
-	if last > 0 {
-		ln, err = c.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(last)))
+	for _, p := range forwardPorts(last) {
+		if ln, err = c.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(p))); err == nil {
+			break
+		}
 	}
 	if ln == nil {
+		// every port of the range is taken on that server: any free one, so agents still report
 		ln, err = c.Listen("tcp", "127.0.0.1:0")
 	}
 	m.mu.Lock()
@@ -618,8 +621,69 @@ func (m *SSH) openForward(c *ssh.Client, gen int) {
 	}
 	m.fwd.ln, m.fwd.gen, m.fwd.port, m.fwd.lastPort, m.fwd.err = ln, gen, port, port, ""
 	m.mu.Unlock()
-	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
-	go func() { _ = srv.Serve(ln) }()
+	// Anyone on that server can reach its loopback: a marker without the console's token is
+	// dropped (HookHandler), and here a flood costs little: a few connections at a time, small
+	// headers, short timeouts, none kept open idle.
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second,
+		IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
+	go func() { _ = srv.Serve(limitListener(ln, forwardConns)) }()
+}
+
+// The hook forward listens on the server's loopback in this range, so `ss -ltnp` or `lsof` there
+// tells a hub's port at a glance (9990–9999): below the usual ephemeral ports (32768+), one port
+// per hub connection to that server. The last port comes first, so tmux sessions started before
+// a reconnect keep a working NB_HOOK_URL; a port already taken is skipped.
+const (
+	forwardPortFirst = 9990
+	forwardPortLast  = 9999
+	// forwardConns bounds the hook connections served at once on one forward.
+	forwardConns = 8
+)
+
+// forwardPorts is the order the forward tries ports in: the last one, then the range.
+func forwardPorts(last int) []int {
+	out := make([]int, 0, forwardPortLast-forwardPortFirst+2)
+	if last > 0 {
+		out = append(out, last)
+	}
+	for p := forwardPortFirst; p <= forwardPortLast; p++ {
+		if p != last {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// limitListener accepts at most n connections at a time; the rest wait in Accept.
+func limitListener(ln net.Listener, n int) net.Listener {
+	return &limitedListener{Listener: ln, sem: make(chan struct{}, n)}
+}
+
+type limitedListener struct {
+	net.Listener
+	sem chan struct{}
+}
+
+func (l *limitedListener) Accept() (net.Conn, error) {
+	l.sem <- struct{}{}
+	c, err := l.Listener.Accept()
+	if err != nil {
+		<-l.sem
+		return nil, err
+	}
+	return &limitedConn{Conn: c, release: func() { <-l.sem }}, nil
+}
+
+type limitedConn struct {
+	net.Conn
+	once    sync.Once
+	release func()
+}
+
+func (c *limitedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(c.release)
+	return err
 }
 
 // dropForwardLocked closes the forward listener (connection gone).
