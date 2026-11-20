@@ -136,43 +136,6 @@
   font-weight: var(--fw-regular);
   font-size: var(--fs-xs);
 }
-/* in an editor card's title bar: the card's title, with a menu. Compact (the name and a chevron),
-   and not .nodrag, so the title bar still drags the card (a drag does not open the menu) */
-.editor-switch.wb-title-switch {
-  flex: 0 1 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-  min-width: 0;
-  max-width: 200px;
-  height: 24px;
-  padding: 0 var(--s-1);
-  border: var(--hairline) solid transparent;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-  cursor: pointer;
-}
-.editor-switch.wb-title-switch svg {
-  flex: 0 0 auto;
-  width: var(--size-icon);
-  height: var(--size-icon);
-}
-.editor-switch.wb-title-switch .chev {
-  color: var(--text-3);
-}
-.editor-switch.wb-title-switch:hover,
-.editor-switch.wb-title-switch[aria-expanded='true'] {
-  border-color: var(--glass-border);
-  background: var(--surface-hover);
-}
-.editor-switch.wb-title-switch > svg:first-child {
-  display: none;
-}
-
 /* ---- the page ---- */
 body:has(.page-code)::before {
   display: none;
@@ -431,8 +394,7 @@ body:has(.page-code)::before {
 .cv-run .cv-play {
   color: var(--tint-success-text);
 }
-.cv-switch .editor-switch-icon,
-.wb-title-switch .editor-switch-icon {
+.cv-switch .editor-switch-icon {
   width: 20px;
   height: 20px;
   border-radius: 6px;

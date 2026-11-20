@@ -249,9 +249,9 @@ function SwitchMenu({
 }
 
 /**
- * The project switcher of an editor (DESIGN.md §3.19): the Code view's top bar (target "code") and
- * an editor card's title bar (target "board"). The same menu as the board header's, without the
- * board's own rows. label: what the button shows, the project's name by default.
+ * The project switcher of the Code view's top bar (DESIGN.md §3.19; target "code"). The same menu
+ * as the board header's, without the board's own rows. label: what the button shows, the
+ * project's name by default. An editor card on a board has none: its title only says the project.
  */
 export function EditorProjectSwitch({ project, target, label, className }: { project: Project; target: 'board' | 'code'; label?: ReactNode; className?: string }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -281,11 +281,6 @@ export function EditorProjectSwitch({ project, target, label, className }: { pro
       {menu && <SwitchMenu x={menu.x} y={menu.y} project={project} target={target} onClose={() => setMenu(null)} />}
     </>
   );
-}
-
-/** The editor card's ⋯ menu, when its title bar has no room for the switcher: the same menu at that spot. */
-export function SwitchProjectMenu({ project, target, x, y, onClose }: { project: Project; target: 'board' | 'code'; x: number; y: number; onClose: () => void }) {
-  return <SwitchMenu x={x} y={y} project={project} target={target} onClose={onClose} />;
 }
 
 export function ProjectSwitcher({ project }: { project: Project }) {

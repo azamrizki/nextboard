@@ -222,20 +222,15 @@ test('the Code view: its top bar, the tools, Board | Code, and switchers that ke
   await expect(edCard.locator('.wb-tab', { hasText: 'app.ts' })).toBeVisible({ timeout: 20_000 });
   // the Code view's side bar was open; the card's stays as it was (closed)
   await expect(edCard.locator('.wb-right')).toHaveCount(0);
-  // the card's switcher is its title, compact: the rest of the title bar still drags the card
-  const cardSwitch = edCard.getByRole('button', { name: `Project ${p.name}. Switch project` });
-  expect((await cardSwitch.boundingBox())!.width).toBeLessThanOrEqual(201);
-  // the card's switcher goes to boards, and offers this project's Code view
-  await edCard.getByRole('button', { name: `Project ${p.name}. Switch project` }).click();
-  const cardMenu = page.getByRole('menu', { name: 'Switch project' });
-  await expect(cardMenu.getByText('Switch project · opens its board')).toBeVisible();
-  await cardMenu.getByRole('menuitem', { name: `Open ${p.name} in Code view` }).click();
+  // the card belongs to its board's project: its title says which, with no project switcher
+  await expect(edCard.locator('.wb-title .tile-title')).toHaveText(p.name);
+  await expect(edCard.getByRole('button', { name: /Switch project$/ })).toHaveCount(0);
+  // the Code view still switches: the header's Board | Code goes back to it
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Code', exact: true }).click();
   await expect(page).toHaveURL(codeUrl(p.id));
-  await expect(page.locator('.wb-tab', { hasText: 'app.ts' })).toBeVisible({ timeout: 20_000 });
-  await page.goto(`/p/${p.id}/w/${p.wid}`);
-  await edCard.getByRole('button', { name: `Project ${p.name}. Switch project` }).click({ timeout: 20_000 });
-  await page.getByRole('menu', { name: 'Switch project' }).getByRole('menuitem', { name: new RegExp(`^${q.name}`) }).first().click();
-  await expect(page).toHaveURL(boardUrl(q.id, q.wid));
+  await page.locator('.cv-bar').getByRole('button', { name: `Project ${p.name}. Switch project` }).click();
+  await page.getByRole('menu', { name: 'Switch project' }).getByRole('menuitem', { name: `Open ${p.name} in Board view` }).click();
+  await expect(page).toHaveURL(boardUrl(p.id, p.wid));
 });
 
 test('the Code view keeps the board it bound while another is opened; it moves only when that board goes', async ({ page, hub }) => {

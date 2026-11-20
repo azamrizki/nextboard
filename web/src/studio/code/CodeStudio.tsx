@@ -38,7 +38,6 @@ import { Button } from '../../components/Button';
 import { Icon, type IconName } from '../../components/Icon';
 import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
-import { EditorProjectSwitch, SwitchProjectMenu } from '../../components/ProjectBar';
 import { useUi, type OpenFileRequest, type UiStore } from '../../board/ui';
 import { toast } from '../../components/Toast';
 import { isRoot, placementOf, projectParts, type Placement } from '../../lib/parts';
@@ -126,12 +125,6 @@ const scaleOf = (el: Element | null) => {
 
 /** An editor card's title: the project, and with several parts the placement it shows. */
 const cardTitle = (project: Project, ws: Workspace) => (projectParts(project).length > 1 ? `${project.name} · ${isRoot(ws.placement) ? 'All parts' : placeLabel(project, ws.placement)}` : project.name);
-
-/** Where the switch menu of a narrow card opens: under its title bar. */
-const switchSpot = (root: HTMLElement | null) => {
-  const r = root?.getBoundingClientRect();
-  return { x: (r?.left ?? 0) + 8, y: (r?.top ?? 0) + 40 };
-};
 
 const ACTIVITY: { view: SideView; icon: IconName; label: string; keys?: string }[] = [
   { view: 'files', icon: 'file', label: 'Explorer', keys: 'Ctrl+Shift+E' },
@@ -1113,7 +1106,6 @@ function Workbench({
     setToolMenu({ x: r.right + 4, y: r.top, label, items: (items ?? []).map((t) => ({ label: t.label, icon: t.icon, onSelect: () => openTool(ws, t.kind) })) });
   };
   // an editor card's project switcher: in its title bar, or in its ⋯ menu when the card is narrow
-  const [switchAt, setSwitchAt] = useState<{ x: number; y: number } | null>(null);
 
   // a phone shows the side view as its Files view, whatever the editor state says
   const sideShown = phone ? phoneTab === 'files' : ws.sideOpen;
@@ -1162,8 +1154,9 @@ function Workbench({
         icon="code"
         // several parts: what the card shows ("acme-shop · admin", "acme-shop · All parts"), as the
         // project switcher (its menu opens the picked project's board) when the card has room
-        title={mode === 'narrow' ? cardTitle(project, ws) : <EditorProjectSwitch project={project} target="board" label={cardTitle(project, ws)} className="wb-title-switch" />}
-        menu={mode === 'narrow' ? [{ label: 'Switch project…', icon: 'folder', onSelect: () => setSwitchAt(switchSpot(rootRef.current)) }] : undefined}
+        // a card on a board belongs to its project: its title says which (and which part), with no
+        // project switcher (the Code view and the board header have one)
+        title={cardTitle(project, ws)}
         meta={
           <button type="button" className="wb-command-center nodrag" onClick={() => setPalette({ initial: '' })} title="Go to file · Ctrl+P">
             <Icon name="search" />
@@ -1334,7 +1327,6 @@ function Workbench({
       {phone && <PhoneNav tab={phoneTab} sheet={sheet} onTab={pickPhoneTab} onSheet={setSheet} />}
       {phone && sheet && <PhoneSheetView kind={sheet} ws={ws} onClose={() => setSheet(null)} />}
       {toolMenu && <ContextMenu x={toolMenu.x} y={toolMenu.y} label={toolMenu.label} items={toolMenu.items} onClose={() => setToolMenu(null)} />}
-      {switchAt && <SwitchProjectMenu project={project} target="board" x={switchAt.x} y={switchAt.y} onClose={() => setSwitchAt(null)} />}
 
       {palette && <QuickOpen key={palette.initial + (palette.pick?.placeholder ?? '')} ws={ws} initial={palette.initial} pick={palette.pick} commands={commands} onClose={() => setPalette(null)} />}
       {closing && (
