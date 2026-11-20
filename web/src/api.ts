@@ -374,7 +374,7 @@ export const api = {
   /** Whether "Create with AI" can make an image (Codex on This PC with image generation on). */
   artCapability: () => get<ArtCapability>('/api/art/capability'),
   /** 202 with the job; 409 while one runs for that project and kind, 412 no_image_tool. */
-  createArt: (id: string, kind: ArtKind) => post<Job>(`/api/projects/${enc(id)}/art`, { kind }),
+  createArt: (id: string, kind: ArtKind, context?: string) => post<Job>(`/api/projects/${enc(id)}/art`, context ? { kind, context } : { kind }),
   job: (id: string) => get<Job>(`/api/jobs/${enc(id)}`),
   cancelJob: (id: string) => post<Job>(`/api/jobs/${enc(id)}/cancel`),
   createPart: (id: string, body: { name: string; machineId: string; path: string }) => post<Project>(`/api/projects/${enc(id)}/parts`, body),

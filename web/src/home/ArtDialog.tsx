@@ -2,12 +2,12 @@
 // Remove, and Create with AI when the hub has an image tool (Codex with image generation). A job
 // keeps going when the dialog closes, and shows again when it opens.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { api, ApiError, errorMessage, isStatus } from '../api';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
-import { formatDateTime, timeAgo } from '../lib/format';
+import { formatDateTime, prefs, timeAgo } from '../lib/format';
 import { packUpload } from '../lib/pack';
 import type { ArtCapability, ArtKind, Project } from '../lib/types';
 import type { Job } from '../orch/types';
@@ -15,10 +15,87 @@ import { store, useProject } from '../store';
 import { artJobs, fitImage, jobOver, jobText } from './art';
 import { ProjectCover, ProjectIcon } from './ProjectArt';
 
-const NAMES: Record<ArtKind, { title: string; a: string; hint: string }> = {
-  cover: { title: 'Cover', a: 'a cover', hint: 'Across the top of its card. Wide pictures work best (3:2 or wider).' },
-  icon: { title: 'Icon', a: 'an icon', hint: 'Next to its name. A square picture with one bold shape reads best when small.' },
+const NAMES: Record<ArtKind, { title: string; a: string; hint: string; example: string }> = {
+  cover: {
+    title: 'Cover',
+    a: 'a cover',
+    hint: 'Across the top of its card. Wide pictures work best (3:2 or wider).',
+    example: 'e.g. An online store for game top-ups and vouchers. Show its storefront on a laptop and a phone, dark navy with gold.',
+  },
+  icon: {
+    title: 'Icon',
+    a: 'an icon',
+    hint: 'Next to its name. A square picture with one bold shape reads best when small.',
+    example: 'e.g. A shopping cart carrying a glowing game gem, deep purple with gold.',
+  },
 };
+
+/** The hub's limit (art.MaxContext). */
+export const ART_CONTEXT_MAX = 1000;
+const contextKey = (pid: string, kind: ArtKind) => `art.context.${pid}.${kind}`;
+
+/**
+ * Before Create with AI: optional words of the owner's for this image, added to what the hub
+ * reads from the project's files. The last ones are kept per project and kind for next time.
+ */
+function ArtContextDialog({ project: p, kind, again, onCreate, onClose }: { project: Project; kind: ArtKind; again: boolean; onCreate: (context: string) => void; onClose: () => void }) {
+  const names = NAMES[kind];
+  const [text, setText] = useState(() => prefs.get(contextKey(p.id, kind)) ?? '');
+  const create = () => {
+    const t = text.trim();
+    prefs.set(contextKey(p.id, kind), t);
+    onCreate(t);
+    onClose();
+  };
+  const keys = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      create();
+    }
+  };
+  return (
+    <Modal
+      title={`${again ? 'Create again' : 'Create'}: ${names.title.toLowerCase()} of ${p.name}`}
+      icon="sparkle"
+      size="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" icon="sparkle" onClick={create}>
+            {text.trim() ? 'Create with this context' : 'Create'}
+          </Button>
+        </>
+      }
+    >
+      <div className="art-context">
+        <label className="field">
+          <span className="field-label">
+            Context<span className="optional"> (optional)</span>
+          </span>
+          <textarea
+            className="control art-context-text"
+            rows={5}
+            maxLength={ART_CONTEXT_MAX}
+            value={text}
+            placeholder={names.example}
+            autoFocus
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={keys}
+          />
+          <span className="field-hint art-context-hint">
+            <span>What the project is, what it offers, what the {kind} should show, its colours or mood. Empty: it goes by the project’s files alone.</span>
+            <span className="tabular">
+              {text.length}/{ART_CONTEXT_MAX}
+            </span>
+          </span>
+        </label>
+      </div>
+    </Modal>
+  );
+}
 
 const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp';
 
@@ -40,6 +117,7 @@ function ArtSlot({ project: p, kind, ai }: { project: Project; kind: ArtKind; ai
   const [busy, setBusy] = useState<'' | 'upload' | 'remove' | 'ai' | 'cancel'>('');
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
+  const [asking, setAsking] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const names = NAMES[kind];
   const running = !!job && !jobOver(job);
@@ -109,12 +187,12 @@ function ArtSlot({ project: p, kind, ai }: { project: Project; kind: ArtKind; ai
     }
   };
 
-  const create = async () => {
+  const create = async (context: string) => {
     setBusy('ai');
     setError('');
     setNote('');
     try {
-      settle(await api.createArt(p.id, kind));
+      settle(await api.createArt(p.id, kind, context || undefined));
     } catch (err) {
       const other = err instanceof ApiError && typeof err.body.jobId === 'string' ? err.body.jobId : '';
       // one is being made already (another tab, or before a reload): follow that one
@@ -190,7 +268,7 @@ function ArtSlot({ project: p, kind, ai }: { project: Project; kind: ArtKind; ai
           </Button>
         )}
         {ai && !running && (
-          <Button size="sm" icon={madeBefore ? 'refresh' : 'sparkle'} loading={busy === 'ai'} disabled={!!busy} onClick={() => void create()}>
+          <Button size="sm" icon={madeBefore ? 'refresh' : 'sparkle'} loading={busy === 'ai'} disabled={!!busy} onClick={() => setAsking(true)}>
             {madeBefore ? 'Create again' : 'Create with AI'}
           </Button>
         )}
@@ -200,6 +278,7 @@ function ArtSlot({ project: p, kind, ai }: { project: Project; kind: ArtKind; ai
           </Button>
         )}
       </div>
+      {asking && <ArtContextDialog project={p} kind={kind} again={madeBefore} onCreate={(c) => void create(c)} onClose={() => setAsking(false)} />}
       {note && <p className="art-hint">{note}</p>}
       {error && (
         <div className="alert" role="alert">
@@ -229,7 +308,7 @@ export function ArtDialog({ project, onClose }: { project: Project; onClose: () 
       icon="image"
       size="md"
       onClose={onClose}
-      help={ai ? `Create with AI sends the project’s name, README excerpt, descriptions and memory summary to ${cap?.tool === 'codex' || !cap?.tool ? 'Codex' : cap.tool}, with your account.` : 'PNG, JPEG, GIF or WebP. Big pictures are made smaller first.'}
+      help={ai ? `Create with AI sends the project’s name, README excerpt, descriptions, memory summary and the context you write to ${cap?.tool === 'codex' || !cap?.tool ? 'Codex' : cap.tool}, with your account.` : 'PNG, JPEG, GIF or WebP. Big pictures are made smaller first.'}
       footer={
         <Button variant="secondary" onClick={onClose}>
           Done

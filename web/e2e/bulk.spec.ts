@@ -208,7 +208,13 @@ test('Create with AI makes a cover with the hub’s Codex, shows the job, and ca
   const dialog = page.getByRole('dialog', { name: `Cover & icon of ${p.name}` });
   await expect(dialog).toContainText('sends the project’s name, README excerpt');
   const coverSlot = dialog.getByRole('region', { name: 'Cover' });
+  // first the optional context, kept for next time
   await coverSlot.getByRole('button', { name: 'Create with AI' }).click();
+  const ask = page.getByRole('dialog', { name: `Create: cover of ${p.name}` });
+  await ask.getByLabel(/^Context/).fill('Kites over a windy beach at sunset.');
+  await expect(ask).toContainText('35/1000');
+  await ask.getByRole('button', { name: 'Create with this context' }).click();
+  await expect(ask).toHaveCount(0);
   await expect(coverSlot.getByRole('status')).toBeVisible();
   await expect(coverSlot.getByRole('button', { name: 'Cancel' })).toBeVisible();
   await expect(coverSlot.getByRole('button', { name: 'Create again' })).toBeVisible({ timeout: 30_000 });
@@ -216,10 +222,16 @@ test('Create with AI makes a cover with the hub’s Codex, shows the job, and ca
   const saved = ((await hub.call('GET', '/api/projects')) as { id: string; cover?: { source: string } }[]).find((x) => x.id === p.id)!;
   expect(saved.cover?.source).toBe('ai');
   await expect(coverSlot).toContainText('Made with AI');
+  await coverSlot.getByRole('button', { name: 'Create again' }).click();
+  const again = page.getByRole('dialog', { name: `Create again: cover of ${p.name}` });
+  await expect(again.getByLabel(/^Context/)).toHaveValue('Kites over a windy beach at sunset.');
+  await again.getByRole('button', { name: 'Cancel' }).click();
+  await expect(again).toHaveCount(0);
 
   // the icon's job, cancelled while it runs: nothing changes
   const iconSlot = dialog.getByRole('region', { name: 'Icon' });
   await iconSlot.getByRole('button', { name: 'Create with AI' }).click();
+  await page.getByRole('dialog', { name: `Create: icon of ${p.name}` }).getByRole('button', { name: 'Create', exact: true }).click();
   await iconSlot.getByRole('button', { name: 'Cancel' }).click();
   await expect(iconSlot).toContainText('Cancelled', { timeout: 15_000 });
   const after = ((await hub.call('GET', '/api/projects')) as { id: string; icon?: unknown }[]).find((x) => x.id === p.id)!;

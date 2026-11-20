@@ -2310,3 +2310,23 @@ textarea.control.prose {
   letter-spacing: 0.005em;
   color: rgba(255, 255, 255, 0.74);
 }
+/* Create with AI: the owner's optional context for the image */
+.art-context .field {
+  margin: 0;
+}
+.art-context-text.control {
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+.art-context-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+}
+.art-context-hint > span:first-child {
+  flex: 1 1 auto;
+}
+.art-context-hint > span:last-child {
+  flex: 0 0 auto;
+  color: var(--text-3);
+}

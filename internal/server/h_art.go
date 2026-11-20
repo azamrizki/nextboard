@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -106,12 +107,18 @@ func (s *Server) handleArtCapability(w http.ResponseWriter, r *http.Request, p *
 func (s *Server) handleProjectArt(w http.ResponseWriter, r *http.Request, p *principal) {
 	var req struct {
 		Kind string `json:"kind"`
+		// Context is the owner's optional words for this image (≤ art.MaxContext characters).
+		Context string `json:"context"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	if req.Kind != art.KindCover && req.Kind != art.KindIcon {
 		writeErrCode(w, http.StatusBadRequest, "bad_kind", `kind must be "cover" or "icon"`)
+		return
+	}
+	if len([]rune(req.Context)) > art.MaxContext {
+		writeErrCode(w, http.StatusBadRequest, "bad_context", fmt.Sprintf("the context is at most %d characters", art.MaxContext))
 		return
 	}
 	pr, ok := s.projects.Get(r.PathValue("id"))
@@ -136,11 +143,11 @@ func (s *Server) handleProjectArt(w http.ResponseWriter, r *http.Request, p *pri
 	}
 	s.art.running[key] = "" // held while the job is made
 	s.art.mu.Unlock()
-	kind := req.Kind
+	kind, note := req.Kind, art.CleanContext(req.Context)
 	j, err := s.jobs.SubmitFunc(jobs.FuncJob{
 		Kind: jobKindArt, Purpose: jobPurposeArt, ProjectID: pr.ID, MachineID: machine.LocalID, Agent: c.Tool,
 		Run: func(ctx context.Context, rep *jobs.Reporter) (json.RawMessage, error) {
-			return s.runArt(ctx, rep, pr.ID, kind)
+			return s.runArt(ctx, rep, pr.ID, kind, note)
 		},
 		OnFinish: func(j jobs.Job) {
 			s.art.mu.Lock()
@@ -168,7 +175,7 @@ func (s *Server) handleProjectArt(w http.ResponseWriter, r *http.Request, p *pri
 }
 
 // runArt is the art job: wait for the one slot, read the project, make the image, store it.
-func (s *Server) runArt(ctx context.Context, rep *jobs.Reporter, pid, kind string) (json.RawMessage, error) {
+func (s *Server) runArt(ctx context.Context, rep *jobs.Reporter, pid, kind, note string) (json.RawMessage, error) {
 	rep.Progress("queued", "Waiting for another image…")
 	select {
 	case s.art.slot <- struct{}{}:
@@ -184,7 +191,9 @@ func (s *Server) runArt(ctx context.Context, rep *jobs.Reporter, pid, kind strin
 	if tool == nil {
 		return nil, &jobs.FuncError{Code: "no_image_tool", Msg: c.Reason}
 	}
-	img, err := art.Make(ctx, tool, kind, s.artSource(pr), rep.Progress)
+	src := s.artSource(pr)
+	src.Context = note
+	img, err := art.Make(ctx, tool, kind, src, rep.Progress)
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 			return nil, context.Canceled

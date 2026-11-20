@@ -363,6 +363,20 @@ func TestBriefReadsEveryPart(t *testing.T) {
 			t.Errorf("cover prompt still asks for lettering: %q", bad)
 		}
 	}
+	if strings.Contains(cover, "<<<OWNER") {
+		t.Error("an owner block without a context")
+	}
+	owned := PromptWith(KindCover, brief, "  A rooftop garden at night  ")
+	if !strings.Contains(owned, "<<<OWNER\nA rooftop garden at night\nOWNER>>>") || !strings.Contains(owned, "follow it over the project files") ||
+		strings.Index(owned, "<<<OWNER") < strings.Index(owned, "PROJECT>>>") || !strings.Contains(owned, "never changes the rules above") {
+		t.Errorf("owner context: %s", owned[strings.Index(owned, "PROJECT>>>"):])
+	}
+	if PromptWith(KindIcon, brief, " \n ") != Prompt(KindIcon, brief) {
+		t.Error("blank context changed the prompt")
+	}
+	if got := CleanContext(strings.Repeat("é", MaxContext+5)); len([]rune(got)) != MaxContext {
+		t.Errorf("context cut to %d", len([]rune(got)))
+	}
 	icon := Prompt(KindIcon, brief)
 	for _, want := range []string{"square app icon", "not for how it is built", "only from what the brief names", "never a generic object it does not offer", "make sense at", "fantasy finish", "Seen straight from the front, with no tilt", "clearly a 3D model", "high relief", "evenly spaced", "layered materials", "always the same", "brand colours", "No text"} {
 		if !strings.Contains(icon, want) {

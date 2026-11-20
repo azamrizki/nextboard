@@ -548,7 +548,10 @@ func TestProjectArt(t *testing.T) {
 	if st, _ := h.do("POST", "/api/projects/p_missing000/art", map[string]any{"kind": "cover"}, nil); st != 404 {
 		t.Fatalf("missing project %d", st)
 	}
-	st, j := h.do("POST", "/api/projects/"+pid+"/art", map[string]any{"kind": "cover"}, nil)
+	if st, b := h.do("POST", "/api/projects/"+pid+"/art", map[string]any{"kind": "cover", "context": strings.Repeat("x", 1001)}, nil); st != 400 || b["code"] != "bad_context" {
+		t.Fatalf("long context %d %v", st, b)
+	}
+	st, j := h.do("POST", "/api/projects/"+pid+"/art", map[string]any{"kind": "cover", "context": "  A greenhouse at dawn,\x07 misted leaves.  "}, nil)
 	if st != 202 || j["purpose"] != "projectArt" || j["projectId"] != pid {
 		t.Fatalf("art %d %v", st, j)
 	}
@@ -568,6 +571,10 @@ func TestProjectArt(t *testing.T) {
 	prompt, _ := os.ReadFile(filepath.Join(logDir, "prompt"))
 	if !strings.Contains(string(prompt), "Waters balcony plants") || strings.Contains(string(prompt), "hidden-value") {
 		t.Fatalf("prompt %s", prompt)
+	}
+	// the owner's context, cleaned, as the owner's word after the brief
+	if !strings.Contains(string(prompt), "<<<OWNER\nA greenhouse at dawn, misted leaves.\nOWNER>>>") {
+		t.Fatalf("prompt without the context: %s", prompt)
 	}
 	argv, _ := os.ReadFile(filepath.Join(logDir, "argv"))
 	if !strings.Contains(string(argv), "--sandbox\nread-only\n") {
