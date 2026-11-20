@@ -382,17 +382,58 @@ body:has(.page-code)::before {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  border-radius: var(--r-md);
+  height: 28px;
+  padding: 0 2px 0 3px;
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-pill);
   background: var(--surface-hover);
 }
+/* Run task, Run and Debug as one pill: the status pills' height, edge and type */
 .cv-run .cv-chip {
-  height: 28px;
-  font-weight: var(--fw-regular);
+  height: 22px;
+  padding: 0 var(--s-2) 0 6px;
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+}
+.cv-run .cv-chip:hover {
+  background: var(--surface-active);
+  color: var(--text);
+}
+.cv-run .cv-chip > svg {
+  width: 13px;
+  height: 13px;
+}
+.cv-run-sep {
+  flex: 0 0 auto;
+  width: var(--hairline);
+  height: 14px;
+  background: var(--tile-border);
+}
+.cv-run .btn.cv-play,
+.cv-run .btn.cv-debug {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: var(--r-pill);
+}
+.cv-run .btn.cv-play svg,
+.cv-run .btn.cv-debug svg {
+  width: 13px;
+  height: 13px;
+}
+.cv-run .btn.cv-play {
+  color: var(--tint-success-text);
+}
+.cv-run .btn.cv-debug {
   color: var(--text-2);
 }
-.cv-run .cv-play {
-  color: var(--tint-success-text);
+.cv-run .btn.cv-play:hover,
+.cv-run .btn.cv-debug:hover {
+  background: var(--surface-active);
 }
 .cv-switch .editor-switch-icon {
   width: 20px;
@@ -402,6 +443,7 @@ body:has(.page-code)::before {
 }
 @media (max-width: 1099px) {
   .cv-run .cv-chip,
+  .cv-run-sep,
   .cv-branch {
     display: none;
   }

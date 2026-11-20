@@ -218,8 +218,9 @@ function RunControls({ bar }: { bar: PageBar }) {
         <span className="truncate">{last || 'Run task'}</span>
         <Icon name="chevronDown" className="chev" />
       </button>
+      <span className="cv-run-sep" aria-hidden="true" />
       <Button size="sm" variant="ghost" iconOnly icon="play" className="cv-play" aria-label="Run without debugging (Ctrl+F5)" title="Run without debugging · Ctrl+F5" onClick={() => run('debug.run')} />
-      <Button size="sm" variant="ghost" iconOnly icon="bug" aria-label="Start debugging (F5)" title="Start debugging · F5" onClick={() => run('debug.start')} />
+      <Button size="sm" variant="ghost" iconOnly icon="bug" className="cv-debug" aria-label="Start debugging (F5)" title="Start debugging · F5" onClick={() => run('debug.start')} />
     </span>
   );
 }
