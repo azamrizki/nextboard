@@ -7,7 +7,7 @@ import { DEFAULT_SIZE, defaultKanban, defaultShape, lineStyleDefaults, monthOf, 
 import { INK_COLORS, NOTE_COLORS } from './palette';
 import type { UiStore } from './ui';
 
-export type InsertKind = 'note' | 'text' | 'checklist' | 'kanban' | 'calendar' | 'uptime' | 'credentials' | ShapeName | 'line' | 'arrow' | 'orchestrator' | 'memory';
+export type InsertKind = 'note' | 'text' | 'checklist' | 'kanban' | 'calendar' | 'uptime' | 'credentials' | ShapeName | 'line' | 'arrow' | 'orchestrator' | 'mission' | 'memory';
 
 type At = { x: number; y: number };
 
@@ -66,6 +66,16 @@ export function createTile(ctl: BoardController, ui: UiStore, kind: InsertKind, 
       let title = 'Orchestrator';
       for (let i = 2; used.has(title) && i < 100; i++) title = `Orchestrator ${i}`;
       node = ctl.make('orchestrator', rect ?? centred(at, s.w, s.h), { title });
+      break;
+    }
+    case 'mission': {
+      // an orchestrator card to the hub (its wired consoles are the team, its thread the
+      // lead's), shown as its missions
+      const s = DEFAULT_SIZE.mission;
+      const used = new Set(ctl.nodes.filter((n) => n.kind === 'orchestrator').map((n) => String(n.data.title ?? '')));
+      let title = 'Mission';
+      for (let i = 2; used.has(title) && i < 100; i++) title = `Mission ${i}`;
+      node = ctl.make('orchestrator', rect ?? centred(at, s.w, s.h), { title, view: 'mission' });
       break;
     }
     case 'memory': {

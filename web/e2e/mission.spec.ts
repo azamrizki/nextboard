@@ -169,3 +169,59 @@ test('the lead’s language is chosen in Settings and kept', async ({ page, hub 
     await hub.call('PATCH', '/api/settings', { lead: { language: null, missionRounds: null } });
   }
 });
+
+test('a mission tile: the owner writes a mission, it starts as written, and is found in the history to run again', async ({ page, hub }) => {
+  test.setTimeout(120_000);
+  const p = await hub.project('Mission tile');
+  const TILE = 'n_misstile01';
+  await hub.ops(p.wid, [{ op: 'put', node: { id: TILE, kind: 'orchestrator', x: 0, y: 0, w: 460, h: 760, data: { title: 'Mission', view: 'mission' } } }]);
+  const api = { ...(await hub.console(p.wid)), handle: '' };
+  const web = { ...(await hub.console(p.wid)), handle: '' };
+  api.handle = await handleOf(hub, api.id);
+  web.handle = await handleOf(hub, web.id);
+  await hub.ops(p.wid, [api, web].map((c, i) => ({ op: 'putEdge', edge: { id: `e_tilewire0${i}`, kind: 'wire', source: TILE, target: c.node, data: {} } })));
+  try {
+    await page.goto(`/p/${p.id}/w/${p.wid}`);
+    const tile = page.locator(`.react-flow__node[data-id="${TILE}"]`);
+    await expect(tile.locator('.mission-empty')).toContainText('No mission running', { timeout: 15_000 });
+    await expect(tile.locator('.mission-tile-foot')).toContainText('Team: 2 consoles wired');
+
+    // the form: goal, a task per console, the second after the first
+    await tile.getByRole('button', { name: 'New mission' }).click();
+    await tile.getByRole('button', { name: 'Start mission' }).click();
+    await expect(tile.getByRole('alert')).toHaveText('Write the goal.');
+    await tile.getByLabel('Goal').fill('Build the sign-up form and its endpoint');
+    await tile.getByLabel('Console for t1').selectOption(api.handle);
+    await tile.getByLabel('What t1 should do').fill('Write POST /signup with a test.');
+    await tile.getByRole('button', { name: 'Add task' }).click();
+    await tile.getByLabel('Console for t2').selectOption(web.handle);
+    await tile.getByLabel('What t2 should do').fill('Build the form that posts to /signup.');
+    await tile.getByRole('group', { name: 't2 starts after' }).getByRole('button', { name: 't1' }).click();
+    await tile.getByRole('button', { name: 'Start mission' }).click();
+
+    // started as written: no approval left, the first task went out, the second waits for it
+    const card = tile.locator('.mission-card.is-pinned');
+    await expect(card.locator('.mission-state')).toHaveText('Running', { timeout: 15_000 });
+    await expect(tile.locator('.mission-chip')).toContainText('Running · 0/2');
+    await expect.poll(async () => (await ordersTo(hub, api.id)).some((t) => t.includes('Write POST /signup')), { timeout: 30_000 }).toBe(true);
+    const runs = (await hub.call('GET', `/api/projects/${p.id}/missions?active=1`)).items;
+    expect(runs[0]).toMatchObject({ threadId: TILE, cardId: TILE, state: 'running' });
+    expect(runs[0].tasks[1]).toMatchObject({ id: 't2', title: 'Build the form that posts to /signup.', dependsOn: ['t1'], state: 'waiting' });
+    await expect(card.getByRole('list', { name: 'Tasks per agent' })).toContainText(`@${web.handle}`);
+
+    // stopped, it is in the history, and Run again fills the form with it
+    await card.getByRole('button', { name: 'Stop mission' }).click();
+    await page.getByRole('dialog', { name: 'Stop the mission?' }).getByRole('button', { name: 'Stop mission' }).click();
+    await expect(tile.locator('.mission-empty')).toContainText('No mission running', { timeout: 15_000 });
+    await tile.getByRole('radio', { name: /^History/ }).click();
+    const row = tile.locator('.mission-history-row').first();
+    await expect(row).toContainText('Build the sign-up form and its endpoint');
+    await expect(row.locator('.mission-state')).toHaveText('Stopped');
+    await row.locator('.mission-history-head').click();
+    await row.getByRole('button', { name: 'Run again' }).click();
+    await expect(tile.getByLabel('Goal')).toHaveValue('Build the sign-up form and its endpoint');
+    await expect(tile.getByLabel('What t2 should do')).toHaveValue('Build the form that posts to /signup.');
+  } finally {
+    for (const c of [api, web]) await hub.call('DELETE', `/api/sessions/${c.id}`);
+  }
+});

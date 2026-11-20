@@ -40,6 +40,7 @@ import { directedTerminals, editorAgents, TASK_BOARDS } from '../groups';
 import { readChecklist, readGroup, readKanban, readOrchestrator } from '../kinds';
 import { useBoardEnv, useUi } from '../ui';
 import { InlineTitle, TileFrame, TileHead } from './common';
+import { MissionTile } from './MissionTile';
 
 /** The states worth counting in the header, the ones that want attention first. */
 const STATE_ORDER = ['needsYou', 'error', 'working', 'paused', 'starting', 'ready'];
@@ -54,7 +55,12 @@ function pauseControl(list: Session[]) {
   return { running, resume: running.length > 0 && running.every((s) => s.paused) };
 }
 
-function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
+/** An orchestrator card, or the same card shown as a mission tile (data.view "mission"). */
+function OrchestratorTileImpl(props: NodeProps<FlowNode>) {
+  return props.data.node.data.view === 'mission' ? <MissionTile {...props} /> : <LeadCard {...props} />;
+}
+
+function LeadCard({ id, data, selected }: NodeProps<FlowNode>) {
   const { ctl, ui, project } = useBoardEnv();
   const d = readOrchestrator(data.node);
   const doc = useSyncExternalStore(ctl.sync.subscribe, ctl.sync.getState);
@@ -193,6 +199,7 @@ function OrchestratorTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
     { label: 'New task board', icon: 'kanban', onSelect: () => addTaskBoard() },
     { label: 'Spawn agents for this card…', icon: 'plus', onSelect: () => ui.set({ composer: { slots: 2, group: false, orchestratorId: id } }) },
     { label: 'Lead profile…', icon: 'user', onSelect: () => setProfile(true) },
+    { label: 'Show as mission tile', icon: 'flag', title: 'Write, follow and run again this card’s missions', onSelect: () => void ctl.updateData(id, { view: 'mission' }) },
     {
       label: 'Copy thread',
       icon: 'copy',

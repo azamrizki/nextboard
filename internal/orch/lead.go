@@ -23,8 +23,9 @@ const (
 )
 
 var (
-	// A card keeps the lead's name until it is given one of its own.
-	defaultCardTitle = regexp.MustCompile(`^Orchestrator( \d+)?$`)
+	// A card keeps the lead's name until it is given one of its own; a mission card
+	// ("Mission", "Mission 2") is led by the hub's lead too.
+	defaultCardTitle = regexp.MustCompile(`^(?:Orchestrator|Mission)( \d+)?$`)
 	// Answers to a proposal, in the languages the owner writes.
 	agreeWords   = regexp.MustCompile(`(?i)^(?:(?:ya|iya|yes|yep|yup|ok|oke|okay|okey|sip|siap|gas|lanjut|lanjutkan|setuju|jalankan|kerjakan|boleh|go|mantap|aja|saja|deh|dong|please)[ ,.!]*)+$`)
 	declineWords = regexp.MustCompile(`(?i)^(?:(?:tidak|nggak|ngga|gak|enggak|batal|batalkan|jangan|stop|nanti|nope|no|cancel|dulu|aja|saja|deh)[ ,.!]*)+$`)

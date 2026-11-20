@@ -305,7 +305,7 @@ function MissionControls({ mission, conf, compact }: { mission: MissionRun; conf
  * One mission: goal, state, progress, rounds and time left; the tasks per agent, the brief, the
  * team conversation and the result a click away. Pinned: at the top of its thread, with controls.
  */
-export function MissionCard({ mission, lead, pinned, compact }: { mission: MissionRun; lead: string; pinned?: boolean; compact?: boolean }) {
+export function MissionCard({ mission, lead, pinned, compact, defaultOpen }: { mission: MissionRun; lead: string; pinned?: boolean; compact?: boolean; defaultOpen?: boolean }) {
   const thread = useThread(mission.threadId);
   const conf = useMissionConfirmation(mission);
   const active = isMissionActive(mission);
@@ -313,7 +313,7 @@ export function MissionCard({ mission, lead, pinned, compact }: { mission: Missi
   // the time left comes from the deadline at each render (a mission event renders too); the tick
   // only keeps it moving while the card is on screen
   useVisibleTick(ref, active && mission.state !== 'awaiting_approval');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!defaultOpen);
   const p = missionProgress(mission);
   const left = timeLeftLabel(mission, Date.now());
   const questions = active ? openQuestions(thread.messages, mission.id) : 0;

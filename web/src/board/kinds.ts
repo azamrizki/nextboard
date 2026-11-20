@@ -434,6 +434,7 @@ export const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   file: { w: 320, h: 132 },
   folder: { w: 320, h: 420 },
   orchestrator: { w: 380, h: 460 },
+  mission: { w: 440, h: 600 },
   memory: { w: 320, h: 300 },
   web: { w: 960, h: 640 },
   weblog: { w: 460, h: 380 },
@@ -556,7 +557,7 @@ export function readGroup(n: BoardNode): GroupData {
 }
 
 export function readOrchestrator(n: BoardNode): OrchestratorData {
-  return { title: str(n.data.title, 'Orchestrator'), personality: str(n.data.personality) };
+  return { title: str(n.data.title, 'Orchestrator'), personality: str(n.data.personality), ...(n.data.view === 'mission' ? { view: 'mission' as const } : {}) };
 }
 
 export function readMemoryNode(n: BoardNode): MemoryNodeData {

@@ -45,6 +45,8 @@ export interface OrchestratorData {
   title: string;
   /** How this card's lead talks and leads; empty = the hub's. */
   personality?: string;
+  /** "mission": the card shows its missions (run, write, history) instead of its thread. */
+  view?: 'mission';
 }
 
 /** A memory added to a tile or picked for a send. No projectId: the memory of all projects. */

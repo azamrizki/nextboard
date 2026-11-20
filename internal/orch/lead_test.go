@@ -447,6 +447,18 @@ func TestACardIsItsOwnPerson(t *testing.T) {
 	if !strings.Contains(prompt, "You are Aruna,") || !strings.Contains(prompt, "Santai") {
 		t.Fatalf("prompt: %.400s", prompt)
 	}
+
+	// so is a mission tile: a card called Mission, shown as its missions
+	tile := "n_card000003"
+	raw, _ = json.Marshal(map[string]any{"title": "Mission 2", "view": "mission"})
+	if err := h.ApplyOps(wid, []board.Op{{Op: "put", Node: &board.Node{ID: tile, Kind: KindOrchestrator, W: 440, H: 600, Data: raw}}}); err != nil {
+		t.Fatal(err)
+	}
+	s.Command(CommandRequest{Text: "halo lagi", WorkspaceID: wid, CardID: tile})
+	prompt = h.lastRun(t, "planner").Prompt
+	if !strings.Contains(prompt, "You are Aruna,") {
+		t.Fatalf("prompt: %.400s", prompt)
+	}
 }
 
 func TestWithoutThePlannerTheParserStillAnswers(t *testing.T) {

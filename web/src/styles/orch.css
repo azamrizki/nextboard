@@ -3693,3 +3693,275 @@ summary.memory-picker-head {
   min-width: calc(var(--s-12) + var(--s-4));
   justify-content: center;
 }
+
+/* =========================================================================
+   Mission tile: an orchestrator card shown as its missions (MissionTile.tsx):
+   tabs, the running mission with an answer box, the form, the history
+   ========================================================================= */
+
+.mission-tabs {
+  flex: 0 0 auto;
+  padding: var(--s-2) var(--s-3) 0;
+}
+.mission-tile-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s-2) var(--s-3) var(--s-3);
+}
+/* the tile scrolls as a whole: the card needs no room of its own */
+.mission-tile .mission-card.is-pinned {
+  margin: 0;
+}
+.mission-tile .mission-card.is-pinned .mission-details {
+  max-height: none;
+  overflow: visible;
+}
+.mission-tile-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-2) var(--s-3);
+  border-top: var(--hairline) solid var(--glass-border);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mission-tile-foot > svg {
+  flex: 0 0 auto;
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+}
+.mission-active {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.mission-answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.mission-answer.is-asking {
+  padding: var(--s-2);
+  border: var(--hairline) solid var(--tint-warning-border);
+  border-radius: var(--r-lg);
+  background: var(--tint-warning-bg);
+}
+.mission-question {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mission-question strong {
+  color: var(--tint-warning-text);
+  font-weight: var(--fw-semibold);
+}
+.mission-answer .orch-box textarea.control {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  max-height: 8em;
+  field-sizing: content;
+  padding-left: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  resize: none;
+}
+.mission-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-2);
+  text-align: center;
+}
+.mission-empty p {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.mission-empty-title {
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+.mission-last {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin-top: var(--s-3);
+  text-align: left;
+}
+/* the form */
+.mission-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.mission-form .field {
+  margin: 0;
+}
+.mission-form textarea.control {
+  min-height: 0;
+  resize: vertical;
+}
+/* goal and instructions are prose; the brief keeps the mono face */
+.mission-form textarea.control:not(.mono),
+.mission-answer .orch-box textarea.control {
+  font-family: inherit;
+}
+.mission-team-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+.mission-task-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-2);
+  padding: 0;
+  list-style: none;
+}
+.mission-task-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-lg);
+  background: var(--surface-input);
+}
+.mission-task-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.mission-task-line select.control {
+  flex: 0 1 9.5em;
+  min-width: 0;
+}
+.mission-task-line input.control {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.mission-task-id {
+  flex: 0 0 auto;
+  min-width: 2em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--wire);
+}
+.mission-after-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--fs-xs);
+}
+.mission-dep {
+  padding: 0 var(--s-2);
+  border: var(--hairline) solid var(--glass-border-strong);
+  border-radius: var(--r-pill, 999px);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.mission-dep:hover {
+  background: var(--surface-hover);
+}
+.mission-dep.is-on {
+  border-color: color-mix(in srgb, var(--wire) 60%, transparent);
+  background: color-mix(in srgb, var(--wire) 18%, transparent);
+  color: var(--text);
+}
+.mission-brief-add {
+  align-self: flex-start;
+}
+.mission-review {
+  padding: 0;
+}
+.mission-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-xs);
+}
+/* the history */
+.mission-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.mission-history-row {
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-lg);
+}
+.mission-history-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+  width: 100%;
+  min-width: 0;
+  padding: var(--s-2);
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.mission-history-head:hover {
+  background: var(--surface-hover);
+}
+.mission-history-goal {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mission-history-head .mission-chev {
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+  color: var(--text-3);
+}
+.mission-history-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+.mission-tile-title {
+  white-space: nowrap;
+}
+.mission-form-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+.mission-history-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: 0 var(--s-2) var(--s-2);
+}
+.mission-history-body .mission-card {
+  align-self: stretch;
+}

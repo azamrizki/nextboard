@@ -5,7 +5,8 @@ import { useEffectiveSettings } from '../agents/settings';
 import type { Settings } from '../lib/types';
 import type { ThreadMessage } from './types';
 
-const DEFAULT_TITLE = /^Orchestrator( \d+)?$/;
+// a mission card ("Mission", "Mission 2") is led by the hub's lead too
+const DEFAULT_TITLE = /^(?:Orchestrator|Mission)( \d+)?$/;
 const FALLBACK = 'Orchestrator';
 
 export function leadNameOf(s: Settings, cardTitle?: string): string {
