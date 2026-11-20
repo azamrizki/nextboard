@@ -2,8 +2,12 @@
 //
 // Protocol (docs/API.md):
 //   server → client: binary = raw output (first binary frame after each connect is the
-//                    scrollback snapshot → term.reset() first); text = {"t":"status",…}
-//   client → server: {"t":"i","d":"…"} input, {"t":"r","c":cols,"r":rows} resize
+//                    scrollback snapshot → term.reset() first); text = {"t":"status",…} and
+//                    {"t":"size","c":cols,"r":rows}, the terminal's size, which this view shows
+//   client → server: {"t":"i","d":"…"} input, {"t":"r","c":cols,"r":rows} the size this view
+//                    would take, {"t":"f"} focused. The view last typed into or focused decides
+//                    the size; the others follow it (docs/API.md), so two views of one console
+//                    never draw for one size what they show at another.
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Terminal, type ITheme } from '@xterm/xterm';
@@ -202,6 +206,12 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
 
       let awaitingSnapshot = true;
       let sent = { c: 0, r: 0 };
+      // the terminal's size as the hub says (size frames); until one comes (an older hub), the
+      // view fits itself as before
+      let hubSize: { c: number; r: number } | null = null;
+      const takeHubSize = () => {
+        if (hubSize && (term.cols !== hubSize.c || term.rows !== hubSize.r)) term.resize(hubSize.c, hubSize.r);
+      };
       // Snapshots take turns across consoles (snapshotQueue.ts): the focused one, then those on
       // screen. While one is parsed, input is held back: it is history, the terminal queries in it
       // (tmux asks on every attach, agent CLIs on every start) were answered long ago, and xterm's
@@ -218,8 +228,12 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         onMessage: (ev) => {
           if (typeof ev.data === 'string') {
             try {
-              const msg = JSON.parse(ev.data) as { t?: string };
+              const msg = JSON.parse(ev.data) as { t?: string; c?: number; r?: number };
               if (msg.t === 'status') store.patchSessionStatus(sessionId, msg as SessionStatusFrame);
+              else if (msg.t === 'size' && msg.c && msg.r) {
+                hubSize = { c: msg.c, r: msg.r };
+                takeHubSize();
+              }
             } catch {
               /* ignore malformed frames */
             }
@@ -235,16 +249,21 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         },
       });
 
-      // Fit to the container and report the size when it changed (or when forced on connect).
+      // Tell the hub the size this view would take (when it changed, or forced on connect). The
+      // screen itself shows the terminal's size, from the hub: this view's own size once it is
+      // the one last used, another view's while that one is.
       function fitAndSend(force = false) {
         if (!el.isConnected || el.clientWidth === 0 || el.clientHeight === 0) return;
+        let want: { cols: number; rows: number } | undefined;
         try {
-          fit.fit();
+          want = fit.proposeDimensions();
+          if (!hubSize) fit.fit();
         } catch {
           return;
         }
-        const c = term.cols;
-        const r = term.rows;
+        if (!want || !want.cols || !want.rows) return;
+        const c = want.cols;
+        const r = want.rows;
         if (!force && c === sent.c && r === sent.r) return;
         if (sock.sendJSON({ t: 'r', c, r })) sent = { c, r };
       }
@@ -252,6 +271,11 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
       const sendInput = (d: string) => {
         if (!feed.replaying) sock.sendJSON({ t: 'i', d });
       };
+      // focused, or pressed (a view already focused in a tab left and come back to gets no focus
+      // event): the hub gives this view's size to the terminal
+      const onFocus = () => sock.sendJSON({ t: 'f' });
+      term.textarea?.addEventListener('focus', onFocus);
+      el.addEventListener('pointerdown', onFocus, true);
       // the key bar's armed Ctrl or Alt changes the next key typed (consoleKeys.ts)
       const dataSub = term.onData((d) => sendInput(applyMods(d)));
       // Binary strings (legacy mouse reports) are passed through as-is.
@@ -378,6 +402,8 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         window.clearTimeout(resizeTimer);
         window.clearTimeout(wheelTimer);
         el.removeEventListener('paste', onPaste, true);
+        term.textarea?.removeEventListener('focus', onFocus);
+        el.removeEventListener('pointerdown', onFocus, true);
         undrop();
         ro.disconnect();
         dataSub.dispose();

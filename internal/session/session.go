@@ -194,10 +194,18 @@ type StatusMsg struct {
 	Active        bool       `json:"active"`
 }
 
-// Msg is one item on a subscriber channel: output bytes or a status change.
+// SizeMsg is the terminal's size after a change: every view sets its screen to it, so what the
+// program draws for that size shows right in each, however big the view is.
+type SizeMsg struct {
+	Cols uint16
+	Rows uint16
+}
+
+// Msg is one item on a subscriber channel: output bytes, a status change or a new size.
 type Msg struct {
 	Data   []byte
 	Status *StatusMsg
+	Size   *SizeMsg
 }
 
 // Sub is a terminal subscriber (one WebSocket). C is closed when the
@@ -210,6 +218,11 @@ type Sub struct {
 	// sum: those still in C are the last len(C) of them (one sender, under the session's lock).
 	sizes  []int
 	queued int
+
+	// the size its view would take (0 until it says) and when it was last typed into or
+	// focused: the view last used decides the terminal's size (the session's lock)
+	wantCols, wantRows uint16
+	used               time.Time
 }
 
 func (s *Sub) close() { s.once.Do(func() { close(s.C) }) }
@@ -274,11 +287,13 @@ type Session struct {
 	lastOutput time.Time
 	ring       *Ring
 	subs       map[*Sub]struct{}
-	cur        *run
-	gen        int
-	killing    bool
-	deleted    bool
-	dirty      bool // scrollback changed since last flush
+	// driver is the subscriber whose view decides the terminal's size (SubResize, Activate)
+	driver  *Sub
+	cur     *run
+	gen     int
+	killing bool
+	deleted bool
+	dirty   bool // scrollback changed since last flush
 	// ringOff: the scrollback is only in its file (parkRingLocked); ring is empty until
 	// ringLocked reads it back.
 	ringOff bool
@@ -468,12 +483,69 @@ func (s *Session) Subscribe() ([]byte, *Sub) {
 	return snap, sub
 }
 
-// Unsubscribe removes a subscriber.
+// Unsubscribe removes a subscriber. When its view decided the size, the view used last of
+// those left decides it now.
 func (s *Session) Unsubscribe(sub *Sub) {
 	s.mu.Lock()
 	delete(s.subs, sub)
+	var next *Sub
+	if s.driver == sub {
+		s.driver = nil
+		for o := range s.subs {
+			if o.wantCols > 0 && (next == nil || o.used.After(next.used)) {
+				next = o
+			}
+		}
+		s.driver = next
+	}
 	s.mu.Unlock()
 	sub.close()
+	if next != nil {
+		s.Resize(next.wantCols, next.wantRows)
+	}
+}
+
+// Size is the terminal's size now.
+func (s *Session) Size() (cols, rows uint16) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.spec.Cols, s.spec.Rows
+}
+
+// SubResize records the size sub's view would take. It applies when that view decides the
+// size: the one last typed into or focused (Activate), else the first to say. Two views of one
+// console then never pull its size back and forth, which made a program draw for one size what
+// the other showed at another (a full-screen agent's input box twice).
+func (s *Session) SubResize(sub *Sub, cols, rows uint16) {
+	s.mu.Lock()
+	_, live := s.subs[sub]
+	sub.wantCols, sub.wantRows = cols, rows
+	_, driverLive := s.subs[s.driver]
+	drive := live && (s.driver == sub || s.driver == nil || !driverLive)
+	if drive {
+		s.driver = sub
+	}
+	s.mu.Unlock()
+	if drive {
+		s.Resize(cols, rows)
+	}
+}
+
+// Activate makes sub's view the one that decides the size: it was typed into or focused.
+func (s *Session) Activate(sub *Sub) {
+	s.mu.Lock()
+	if _, live := s.subs[sub]; !live {
+		s.mu.Unlock()
+		return
+	}
+	sub.used = time.Now()
+	was := s.driver
+	s.driver = sub
+	cols, rows := sub.wantCols, sub.wantRows
+	s.mu.Unlock()
+	if was != sub && cols > 0 && rows > 0 {
+		s.Resize(cols, rows)
+	}
 }
 
 // fanoutLocked delivers msg to every subscriber; full ones, and ones with more than
@@ -988,7 +1060,7 @@ func (s *Session) trackLocked(p []byte) {
 	s.draft.feed(p)
 }
 
-// Resize applies the latest size from any client.
+// Resize sets the terminal's size (SubResize decides which view's size it is).
 func (s *Session) Resize(cols, rows uint16) {
 	cols = clamp(cols, 10, 500)
 	rows = clamp(rows, 4, 300)
@@ -1001,6 +1073,8 @@ func (s *Session) Resize(cols, rows uint16) {
 	}
 	s.spec.Cols, s.spec.Rows = cols, rows
 	r := s.cur
+	// every view takes the new size (SizeMsg)
+	s.fanoutLocked(Msg{Size: &SizeMsg{Cols: cols, Rows: rows}})
 	s.mu.Unlock()
 	s.scr.Resize(int(cols), int(rows))
 	if r != nil {

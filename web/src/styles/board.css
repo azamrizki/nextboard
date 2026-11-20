@@ -328,6 +328,9 @@
 .nb-term {
   width: 100%;
   height: 100%;
+  /* the screen has the terminal's size, which another view of the console may decide: a larger
+     one is cut here rather than spilling over the card */
+  overflow: hidden;
 }
 .nb-term .xterm {
   height: 100%;

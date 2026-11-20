@@ -131,17 +131,27 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, p *pri
 		}
 		switch m.T {
 		case "i":
+			// typed into: this view decides the terminal's size now
+			sess.Activate(sub)
 			_ = s.sessionInput(r.PathValue("id"), sess, []byte(m.D))
+		case "f":
+			sess.Activate(sub)
 		case "r":
 			if m.C > 0 && m.R > 0 {
-				sess.Resize(m.C, m.R)
+				sess.SubResize(sub, m.C, m.R)
 			}
 		case "s":
 			sess.Scroll(m.N)
 		}
 	}, readerDone)
 
-	// First binary frame is always the scrollback snapshot (maybe empty).
+	// First the size the terminal has, which this view takes until it decides the size itself,
+	// so the snapshot after it replays at the size it was written for; the first binary frame is
+	// always the scrollback snapshot (maybe empty).
+	cols, rows := sess.Size()
+	if conn.write(websocket.TextMessage, sizeFrame(&session.SizeMsg{Cols: cols, Rows: rows})) != nil {
+		return
+	}
 	if conn.write(websocket.BinaryMessage, snapshot) != nil {
 		return
 	}
@@ -155,8 +165,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, p *pri
 				conn.closeWith(websocket.CloseTryAgainLater, "resubscribe")
 				return
 			}
-			if msg.Status != nil {
-				b, _ := json.Marshal(statusFrame(msg.Status))
+			if b := textFrame(msg); b != nil {
 				if conn.write(websocket.TextMessage, b) != nil {
 					return
 				}
@@ -172,12 +181,11 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, p *pri
 					if !ok {
 						break drain
 					}
-					if next.Status != nil {
+					if b := textFrame(next); b != nil {
 						if conn.write(websocket.BinaryMessage, buf) != nil {
 							return
 						}
 						buf = nil
-						b, _ := json.Marshal(statusFrame(next.Status))
 						if conn.write(websocket.TextMessage, b) != nil {
 							return
 						}
@@ -206,6 +214,25 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, p *pri
 
 // statusFrame is the terminal WS status frame; the phase 1–4 fields keep
 // their meaning, agent fields are added (docs/API-agents.md §7).
+// textFrame is the JSON frame of a subscriber message that is not output: a status or a size;
+// nil for output.
+func textFrame(m session.Msg) []byte {
+	switch {
+	case m.Status != nil:
+		b, _ := json.Marshal(statusFrame(m.Status))
+		return b
+	case m.Size != nil:
+		return sizeFrame(m.Size)
+	}
+	return nil
+}
+
+// sizeFrame tells a view the terminal's size: {"t":"size","c":cols,"r":rows}.
+func sizeFrame(sz *session.SizeMsg) []byte {
+	b, _ := json.Marshal(map[string]any{"t": "size", "c": sz.Cols, "r": sz.Rows})
+	return b
+}
+
 func statusFrame(st *session.StatusMsg) map[string]any {
 	return map[string]any{"t": "status", "status": st.Status, "exitCode": st.ExitCode, "busy": st.Busy,
 		"agentState": st.AgentState, "activity": st.Activity, "needsYouSince": st.NeedsYouSince, "foreground": st.Foreground, "job": st.Job, "active": st.Active}

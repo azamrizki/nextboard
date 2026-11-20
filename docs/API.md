@@ -375,10 +375,11 @@ The client does not need to send anything. The server pings every 30 seconds.
 
 - **Server → client**
   - **Binary** frames: raw terminal output. The **first** binary frame is always the scrollback snapshot (may be empty). The client calls `term.reset()` before writing the snapshot.
-  - JSON **text** frames: `{"t":"status","status":"exited","exitCode":0,"busy":false}` when the status changes.
+  - JSON **text** frames: `{"t":"status","status":"exited","exitCode":0,"busy":false}` when the status changes; `{"t":"size","c":<cols>,"r":<rows>}` the terminal's size, first on every connect (before the snapshot, so it replays at the size it was written for) and again whenever it changes. Every view sets its screen to this size, however big the view is: a larger one leaves room, a smaller one is cut. A view that drew at its own size while the program drew at another's wrapped the program's lines differently, and an inline TUI (an agent's input box) was drawn twice.
 - **Client → server** (JSON text frames)
   - `{"t":"i","d":"<input>"}` keyboard input. While the process is still `starting`, keystrokes (without terminal reports, ≤ 4 KiB) are kept and handed over as soon as the process exists; a failed start or reattach → dropped
-  - `{"t":"r","c":<cols>,"r":<rows>}` resize (the terminal size follows the last resize from any client)
+  - `{"t":"r","c":<cols>,"r":<rows>}` the size this view would take. It becomes the terminal's size when this view decides the size: the one last typed into or focused, else the first to send one (a view that decided and leaves hands it to the one used last of those left). The others' sizes are kept for when they are used.
+  - `{"t":"f"}` this view was focused or pressed: it decides the size now (a typed key `i` does the same).
   - `{"t":"s","n":<lines>}` a mouse wheel over a console kept in tmux on a server (up when `n` < 0): tmux draws on the alternate screen, which has no scrollback in the client, so the wheel would become ↑/↓ and page a shell's history. The hub scrolls tmux's own history instead (copy mode, which ends at the bottom); a program there on the alternate screen itself (vim, less) gets Up/Down keys. Lines sent while one tmux command runs add up into the next; other consoles ignore it. The web sends it only while xterm shows the alternate screen and no program asked for the mouse.
 - Ping every 30 seconds. A slow subscriber (buffer of 512 full, or more than 4 MiB of output waiting) is cut off; the client reconnects and repaints from the snapshot.
 - A revoked device → all its WebSockets are closed at once (close code 4401). The token is checked only when the connection opens; a WS that is already connected is not cut when the token expires.

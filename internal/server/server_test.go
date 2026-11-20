@@ -230,9 +230,14 @@ func TestLocalTerminalOverWS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ws.Close()
-	typ, _, err := ws.ReadMessage()
+	// first the size the terminal has, which the view takes, then the snapshot at that size
+	typ, b, err := ws.ReadMessage()
+	if err != nil || typ != websocket.TextMessage || !strings.Contains(string(b), `"t":"size"`) || !strings.Contains(string(b), `"c":`) {
+		t.Fatalf("first frame should be the size: %v %q %v", typ, b, err)
+	}
+	typ, _, err = ws.ReadMessage()
 	if err != nil || typ != websocket.BinaryMessage {
-		t.Fatalf("first frame should be binary snapshot: %v %v", typ, err)
+		t.Fatalf("then the binary snapshot: %v %v", typ, err)
 	}
 	_ = ws.WriteJSON(map[string]any{"t": "r", "c": 90, "r": 25})
 	_ = ws.WriteJSON(map[string]any{"t": "i", "d": "echo nb-$((40+2))-ok; stty size\r"})
