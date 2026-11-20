@@ -1124,6 +1124,50 @@ func (m *SSH) TmuxHas(ctx context.Context, name string) (bool, error) {
 	return strings.Contains(out, "__NB_YES__"), nil
 }
 
+// MaxTmuxScroll bounds the lines one TmuxScroll moves.
+const MaxTmuxScroll = 60
+
+// TmuxScroll scrolls tmux session name by n lines, up when n < 0, as a mouse wheel would in a
+// terminal of its own. The hub's tmux draws on the alternate screen, which has no scrollback in
+// the browser, so xterm.js turned the wheel into ↑/↓ and a shell paged its command history. Here:
+// up enters copy mode (-e: it ends by itself at the bottom) and scrolls the history; down scrolls
+// back while in copy mode, else does nothing; while a program in the session uses the alternate
+// screen itself (vim, less), Up or Down keys go to it, as the wheel sent before. tmux's options
+// are not touched.
+func (m *SSH) TmuxScroll(ctx context.Context, name string, n int) error {
+	script, err := tmuxScrollScript(name, n)
+	if err != nil || script == "" {
+		return err
+	}
+	_, err = m.Exec(ctx, loginWrap(script))
+	return err
+}
+
+// tmuxScrollScript is the shell script of TmuxScroll; "" when there is nothing to do.
+func tmuxScrollScript(name string, n int) (string, error) {
+	if !tmuxNameRe.MatchString(name) {
+		return "", fmt.Errorf("invalid tmux session name: %q", name)
+	}
+	k := min(max(n, -n), MaxTmuxScroll)
+	if k == 0 {
+		return "", nil
+	}
+	t := Quote(name)
+	key, cmd := "Up", "scroll-up"
+	if n > 0 {
+		key, cmd = "Down", "scroll-down"
+	}
+	scroll := strings.TrimPrefix(strings.Repeat(` \; send-keys -X -t `+t+` `+cmd, k), ` \; `)
+	flag := func(f string) string { return `[ "$(tmux display-message -p -t ` + t + ` '#{` + f + `}')" = 1 ]` }
+	script := `if ` + flag("alternate_on") + `; then tmux send-keys -t ` + t + strings.Repeat(" "+key, k) + `; `
+	if n < 0 {
+		script += `else tmux copy-mode -e -t ` + t + ` \; ` + scroll + `; fi`
+	} else {
+		script += `elif ` + flag("pane_in_mode") + `; then tmux ` + scroll + `; fi`
+	}
+	return script, nil
+}
+
 // Foreground asks ps for the terminal's foreground process group of the
 // wrapper (pid) and its command name; read-only, 3 s timeout.
 func (m *SSH) Foreground(ctx context.Context, pid int) (int, string, error) {

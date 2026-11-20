@@ -262,11 +262,14 @@ type Session struct {
 	busy     bool
 	// What runs in the foreground of a shell console ("" at its prompt). jobKnown says
 	// the hub can tell: an SSH shell without tmux has no pid to ask about.
-	job        string
-	jobKnown   bool
-	jobAt      time.Time
-	jobBusy    bool // a check is on its way
-	panePid    int  // the tmux pane of an SSH shell
+	job      string
+	jobKnown bool
+	jobAt    time.Time
+	jobBusy  bool // a check is on its way
+	panePid  int  // the tmux pane of an SSH shell
+	// scrollBy: wheel lines not sent to its tmux yet; scrolling: one Scroll is sending them
+	scrollBy   int
+	scrolling  bool
 	startedAt  time.Time
 	lastOutput time.Time
 	ring       *Ring
@@ -1004,6 +1007,43 @@ func (s *Session) Resize(cols, rows uint16) {
 		_ = r.proc.Resize(cols, rows)
 	}
 	s.m.saveSoon()
+}
+
+// Scroll moves a console kept in tmux on a server by n lines of its history, up when n < 0, for
+// a mouse wheel over it (machine.SSH.TmuxScroll). Lines asked for while one command is on its way
+// add up and go in the next, so a fast wheel costs a command at a time. Other consoles: nothing,
+// the browser scrolls their scrollback itself.
+func (s *Session) Scroll(n int) {
+	s.mu.Lock()
+	name, mid := s.spec.TmuxName, s.spec.MachineID
+	if name == "" || n == 0 {
+		s.mu.Unlock()
+		return
+	}
+	s.scrollBy += n
+	if s.scrolling {
+		s.mu.Unlock()
+		return
+	}
+	s.scrolling = true
+	s.mu.Unlock()
+	sm, ok := s.m.machines.SSH(mid)
+	go func() {
+		for {
+			s.mu.Lock()
+			k := s.scrollBy
+			s.scrollBy = 0
+			if k == 0 || !ok {
+				s.scrolling = false
+				s.mu.Unlock()
+				return
+			}
+			s.mu.Unlock()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = sm.TmuxScroll(ctx, name, k)
+			cancel()
+		}
+	}()
 }
 
 // Screen returns a copy of the VT model's visible screen.

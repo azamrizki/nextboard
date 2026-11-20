@@ -280,6 +280,29 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         return true;
       });
 
+      // A console kept in tmux on a server shows tmux's alternate screen, which has no scrollback
+      // here, so xterm turned the wheel into ↑/↓ and a shell paged its command history. Its lines
+      // go to the hub instead, which scrolls tmux's own history (Session.Scroll); a program there
+      // that asks for the mouse still gets it from xterm.
+      let wheelLines = 0;
+      let wheelTimer: number | undefined;
+      const flushWheel = () => {
+        wheelTimer = undefined;
+        const n = Math.trunc(wheelLines);
+        if (!n) return;
+        wheelLines -= n;
+        sock.sendJSON({ t: 's', n });
+      };
+      term.attachCustomWheelEventHandler((ev) => {
+        if (!store.getState().sessions[sessionId]?.tmuxName) return true;
+        if (term.buffer.active.type !== 'alternate' || term.modes.mouseTrackingMode !== 'none') return true;
+        ev.preventDefault();
+        const rowPx = (term.options.fontSize ?? FONT_SIZE) * (term.options.lineHeight ?? 1);
+        wheelLines += ev.deltaMode === 1 ? ev.deltaY : ev.deltaMode === 2 ? ev.deltaY * term.rows : ev.deltaY / rowPx;
+        wheelTimer ??= window.setTimeout(flushWheel, 40);
+        return false;
+      });
+
       const attachFiles = async (files: File[]) => {
         const sent = await sendPasted(files, (f) => api.attachToSession(sessionId, f));
         const s = store.getState().sessions[sessionId];
@@ -353,6 +376,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
         unpool();
         unregister();
         window.clearTimeout(resizeTimer);
+        window.clearTimeout(wheelTimer);
         el.removeEventListener('paste', onPaste, true);
         undrop();
         ro.disconnect();

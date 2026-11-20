@@ -97,6 +97,8 @@ type termIn struct {
 	D string `json:"d"`
 	C uint16 `json:"c"`
 	R uint16 `json:"r"`
+	// N: lines of a wheel over a console kept in tmux ("s"), up when < 0
+	N int `json:"n"`
 }
 
 func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, p *principal) {
@@ -134,6 +136,8 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, p *pri
 			if m.C > 0 && m.R > 0 {
 				sess.Resize(m.C, m.R)
 			}
+		case "s":
+			sess.Scroll(m.N)
 		}
 	}, readerDone)
 
