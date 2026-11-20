@@ -255,7 +255,7 @@ Extra argument when live status is on: `-c 'notify=["sh","-c","eval \"$NB_HOOK_S
 | Machine | Hub listener | `NB_HOOK_URL` |
 |---|---|---|
 | This PC | `127.0.0.1:<random>` (HTTP, loopback) | `http://127.0.0.1:<port>/nb/hook` |
-| SSH | `ssh.Client.Listen("tcp","127.0.0.1:<port>")` (a `tcpip-forward` request on the hub's connection): the port it had before, else the first free of **9990–9999**, so `ss -ltnp`/`lsof` on the server tells a hub's port at a glance (`sshd` of the login user, listening on 127.0.0.1 only); all ten taken → any free port | `http://127.0.0.1:<portRemote>/nb/hook` |
+| SSH | `ssh.Client.Listen("tcp","127.0.0.1:<port>")` (a `tcpip-forward` request on the hub's connection): the port it had before, else the first free of **65500–65535** (above Linux's ephemeral ports; each server has its own), so `ss -ltnp`/`lsof` on the server tells a hub's port at a glance (`sshd` of the login user, listening on 127.0.0.1 only); all 36 taken → any free port | `http://127.0.0.1:<portRemote>/nb/hook` |
 
 - `POST /nb/hook`, body `"<type>;<payload>"` (≤ 16 KiB) → `204`; processed exactly like a marker (token required). Anyone on that server can reach its loopback, so the forward serves at most 8 connections at a time, with headers ≤ 8 KiB, 5 s to read the headers, 10 s for the request and the answer, and idle connections closed after 30 s; the token is compared in constant time. One forward per hub connection to the server, closed with it; `hookChannel: tty` opens none. Not part of `/api`.
 - On reconnect the hub asks for the same port first; on failure → a new port (old tmux sessions keep the stale URL → tty channel only).

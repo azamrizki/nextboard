@@ -7,13 +7,16 @@ import (
 	"time"
 )
 
-// The hook forward tries the port it had, then 9990–9999 in order, each once.
+// The hook forward tries the port it had, then 65500–65535 in order, each once.
 func TestForwardPorts(t *testing.T) {
-	all := []int{9990, 9991, 9992, 9993, 9994, 9995, 9996, 9997, 9998, 9999}
+	var all []int
+	for p := 65500; p <= 65535; p++ {
+		all = append(all, p)
+	}
 	if got := forwardPorts(0); !slices.Equal(got, all) {
 		t.Errorf("fresh: %v", got)
 	}
-	if got := forwardPorts(9994); got[0] != 9994 || len(got) != 10 || slices.Index(got[1:], 9994) >= 0 {
+	if got := forwardPorts(65510); got[0] != 65510 || len(got) != 36 || slices.Index(got[1:], 65510) >= 0 {
 		t.Errorf("last in range: %v", got)
 	}
 	// a port from before the range (an older hub): asked for first, then the range

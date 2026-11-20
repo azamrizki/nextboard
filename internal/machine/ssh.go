@@ -630,12 +630,12 @@ func (m *SSH) openForward(c *ssh.Client, gen int) {
 }
 
 // The hook forward listens on the server's loopback in this range, so `ss -ltnp` or `lsof` there
-// tells a hub's port at a glance (9990–9999): below the usual ephemeral ports (32768+), one port
-// per hub connection to that server. The last port comes first, so tmux sessions started before
+// tells a hub's port at a glance (65500–65535): above Linux's ephemeral ports (32768–60999) and
+// what services listen on, one port per hub connection to that server (each server has its own). The last port comes first, so tmux sessions started before
 // a reconnect keep a working NB_HOOK_URL; a port already taken is skipped.
 const (
-	forwardPortFirst = 9990
-	forwardPortLast  = 9999
+	forwardPortFirst = 65500
+	forwardPortLast  = 65535
 	// forwardConns bounds the hook connections served at once on one forward.
 	forwardConns = 8
 )
