@@ -155,6 +155,10 @@
   --nudge: 2px; /* optical alignment of icons next to text */
   --hairline: 1px;
 
+  /* islands (DESIGN.md §2.6): panels float apart on the backdrop, the gap between them is the divider */
+  --island-gap: 6px;
+  --r-island: 12px;
+
   /* radii */
   --r-sm: 8px;
   --r-md: 10px;
@@ -292,12 +296,16 @@
 
   /* ---- 2.3 background & glass layers ---- */
   --bg: #0a0a0a;
-  --bg-ambient: radial-gradient(ellipse 60% 42% at 50% 0, rgba(245, 245, 245, 0.06), transparent 70%), #0a0a0a;
-  --page-grid: rgba(245, 245, 245, 0.04);
+  /* the backdrop the islands float on: a soft white glow in two corners, monochrome */
+  --aura: radial-gradient(1100px 620px at 8% -12%, rgba(255, 255, 255, 0.075), transparent 60%),
+    radial-gradient(900px 640px at 105% 110%, rgba(255, 255, 255, 0.045), transparent 60%),
+    radial-gradient(700px 480px at 70% 30%, rgba(255, 255, 255, 0.025), transparent 65%);
+  --bg-ambient: var(--aura), #0a0a0a;
+  --page-grid: rgba(245, 245, 245, 0.025);
 
-  --glass-1: rgba(17, 17, 17, 0.66);
-  --glass-2: rgba(19, 19, 19, 0.86); /* cards and dialogs: a bright note behind must not wash them out */
-  --glass-3: rgba(23, 23, 23, 0.9);
+  --glass-1: rgba(20, 20, 20, 0.62);
+  --glass-2: rgba(20, 20, 20, 0.8); /* cards and dialogs: a bright note behind must not wash them out */
+  --glass-3: rgba(23, 23, 23, 0.86);
   --glass-3-dense: rgba(23, 23, 23, 0.98); /* menus over text-heavy glass (thread) */
   --glass-border: rgba(255, 255, 255, 0.09);
   --glass-border-strong: rgba(255, 255, 255, 0.17);
@@ -307,6 +315,8 @@
   --solid-3: #191919;
 
   --surface-solid: #0f0f0f;
+  --island-solid: #111111; /* an island that never shows what is behind it: editors, terminals */
+  --island-raised: rgba(255, 255, 255, 0.045); /* a block inside an island */
   --surface-input: rgba(255, 255, 255, 0.04);
   --card-foot-bg: rgba(0, 0, 0, 0.18);
   --surface-input-focus: rgba(255, 255, 255, 0.06);
@@ -331,7 +341,7 @@
   --focus-ring-color: #e5e5e5;
   --ring-input: 0 0 0 3px rgba(255, 255, 255, 0.13);
   --ring-input-error: 0 0 0 3px rgba(239, 68, 68, 0.28);
-  --ring-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 4px rgba(255, 255, 255, 0.12);
+  --ring-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 4px rgba(255, 255, 255, 0.12), 0 0 22px rgba(255, 255, 255, 0.08);
   --primary-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.5);
   --selected-bg: rgba(255, 255, 255, 0.07);
   --danger-ghost-hover: rgba(239, 68, 68, 0.12);
@@ -342,8 +352,8 @@
   /* ---- Phase 5: agent states ---- */
   --c-warning-hover: #fbbf24;
   --needs-ring: rgba(245, 158, 11, 0.3);
-  --ring-needs-you: 0 0 0 2px var(--c-warning), 0 0 0 6px var(--needs-ring);
-  --ring-needs-you-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 3px var(--c-warning), 0 0 0 7px var(--needs-ring);
+  --ring-needs-you: 0 0 0 2px var(--c-warning), 0 0 0 6px var(--needs-ring), 0 0 26px rgba(245, 158, 11, 0.22);
+  --ring-needs-you-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 3px var(--c-warning), 0 0 0 7px var(--needs-ring), 0 0 26px rgba(245, 158, 11, 0.22);
   --kbd-bg: rgba(255, 255, 255, 0.07);
 
   /* ---- Phase 6: orchestration ---- */
@@ -404,10 +414,11 @@
 
   /* ---- board tiles (Phase 4) ---- */
   /* solid tile surfaces: no glass on nodes (§3.5 performance) */
-  --tile-bg: #111111;
+  --tile-bg: #131313;
   --tile-card-bg: #1a1a1a;
   --tile-card-hover: #212121;
-  --tile-border: rgba(255, 255, 255, 0.09);
+  --tile-border: rgba(255, 255, 255, 0.085);
+  --tile-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --tile-outline: rgba(255, 255, 255, 0.42);
   --note-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
   /* kanban columns / calendar events (named colours) */
@@ -534,13 +545,16 @@
   --mono-5-text: #404040;
 
   /* ---- 2.3 background & glass layers ---- */
-  --bg: #fafafa;
-  --bg-ambient: radial-gradient(ellipse 60% 42% at 50% 0, rgba(13, 13, 13, 0.035), transparent 70%), #fafafa;
-  --page-grid: rgba(13, 13, 13, 0.045);
+  --bg: #f2f2f2;
+  --aura: radial-gradient(1100px 620px at 8% -12%, rgba(255, 255, 255, 0.95), transparent 60%),
+    radial-gradient(900px 640px at 105% 110%, rgba(0, 0, 0, 0.035), transparent 60%),
+    radial-gradient(700px 480px at 70% 30%, rgba(255, 255, 255, 0.6), transparent 65%);
+  --bg-ambient: var(--aura), #f2f2f2;
+  --page-grid: rgba(13, 13, 13, 0.03);
 
   --glass-1: rgba(255, 255, 255, 0.72);
-  --glass-2: rgba(255, 255, 255, 0.94); /* cards and dialogs: must stay white over the backdrop */
-  --glass-3: rgba(255, 255, 255, 0.96);
+  --glass-2: rgba(255, 255, 255, 0.86); /* cards and dialogs: must stay white over the backdrop */
+  --glass-3: rgba(255, 255, 255, 0.92);
   --glass-3-dense: rgba(255, 255, 255, 0.985);
   --glass-border: rgba(0, 0, 0, 0.09);
   --glass-border-strong: rgba(0, 0, 0, 0.17);
@@ -550,6 +564,8 @@
   --solid-3: #ffffff;
 
   --surface-solid: #ffffff;
+  --island-solid: #ffffff;
+  --island-raised: rgba(0, 0, 0, 0.03);
   --surface-input: rgba(0, 0, 0, 0.022);
   --card-foot-bg: rgba(0, 0, 0, 0.025);
   --surface-input-focus: #ffffff;
@@ -571,7 +587,7 @@
   --focus-ring-color: #262626;
   --ring-input: 0 0 0 3px rgba(0, 0, 0, 0.09);
   --ring-input-error: 0 0 0 3px rgba(220, 38, 38, 0.2);
-  --ring-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 4px rgba(0, 0, 0, 0.09);
+  --ring-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 4px rgba(0, 0, 0, 0.09), 0 0 22px rgba(0, 0, 0, 0.06);
   --primary-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.14);
   --selected-bg: rgba(0, 0, 0, 0.045);
   --danger-ghost-hover: rgba(220, 38, 38, 0.08);
@@ -581,8 +597,8 @@
 
   --c-warning-hover: #92400e;
   --needs-ring: rgba(217, 119, 6, 0.26);
-  --ring-needs-you: 0 0 0 2px var(--c-warning), 0 0 0 6px var(--needs-ring);
-  --ring-needs-you-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 3px var(--c-warning), 0 0 0 7px var(--needs-ring);
+  --ring-needs-you: 0 0 0 2px var(--c-warning), 0 0 0 6px var(--needs-ring), 0 0 26px rgba(217, 119, 6, 0.16);
+  --ring-needs-you-selected: 0 0 0 1px var(--c-primary-300), 0 0 0 3px var(--c-warning), 0 0 0 7px var(--needs-ring), 0 0 26px rgba(217, 119, 6, 0.16);
   --kbd-bg: rgba(0, 0, 0, 0.05);
 
   --wire: #737373;
@@ -638,7 +654,8 @@
   --tile-bg: #ffffff;
   --tile-card-bg: #f7f7f7;
   --tile-card-hover: #f0f0f0;
-  --tile-border: rgba(0, 0, 0, 0.1);
+  --tile-border: rgba(0, 0, 0, 0.09);
+  --tile-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
   --tile-outline: rgba(0, 0, 0, 0.42);
   --note-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   --tag-amber: #b7791f;
@@ -732,7 +749,7 @@
   }
 }
 
-/* Manual switch (debugging / QA): <html class="no-glass"> */
+/* Settings › Appearance › Surfaces: Solid (lib/theme.ts), also for debugging / QA: <html class="no-glass"> */
 :root.no-glass,
 .no-glass [data-theme] {
   --glass-1: var(--solid-1);

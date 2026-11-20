@@ -52,23 +52,26 @@ The primary color is ink: the primary button, the active choice, and the focus r
 
 | Token | Dark | Light |
 |---|---|---|
-| `--bg` | `#0A0A0A` | `#FAFAFA` |
-| `--bg-ambient` | soft neutral glow at the top | same, thinner |
-| `--page-grid` | faint 64 px grid behind the page, fading toward the bottom; not on the board (it already has dots) or Memory | same |
-| `--glass-1` | `rgba(17,17,17,.66)` chrome (header, dock, toolbar) | `rgba(255,255,255,.72)` |
-| `--glass-2` | `rgba(19,19,19,.86)` cards, modals | `rgba(255,255,255,.94)` |
-| `--glass-3` | `rgba(23,23,23,.9)` menus, popovers, toasts | `rgba(255,255,255,.96)` |
+| `--bg` | `#0A0A0A` | `#F2F2F2` |
+| `--aura` / `--bg-ambient` | the backdrop the islands float on: a soft white glow from the top left and a fainter one from the bottom right, monochrome | a white glow over light grey, a faint shade at the bottom right |
+| `--page-grid` | a very faint 64 px grid under the top-left glow, fading out; not on the board (it already has dots) or Memory | same |
+| `--glass-1` | `rgba(20,20,20,.62)` chrome (header, dock, toolbar, rails) | `rgba(255,255,255,.72)` |
+| `--glass-2` | `rgba(20,20,20,.8)` cards, modals | `rgba(255,255,255,.86)` |
+| `--glass-3` | `rgba(23,23,23,.86)` menus, popovers, toasts | `rgba(255,255,255,.92)` |
 | `--glass-border` | `rgba(255,255,255,.09)` | `rgba(0,0,0,.09)` |
 | `--glass-border-strong` | `rgba(255,255,255,.17)` | `rgba(0,0,0,.17)` |
 | `--surface-solid` | `#0F0F0F` | `#FFFFFF` |
-| `--tile-bg` | `#111111` | `#FFFFFF` |
+| `--tile-bg` | `#131313` board cards and the Code view's islands, with `--tile-shadow` | `#FFFFFF` |
+| `--island-solid` | `#111111` an island that never shows what is behind it | `#FFFFFF` |
 | `--surface-hover` | `rgba(255,255,255,.07)` | `rgba(0,0,0,.05)` |
 | `--surface-active` | `rgba(255,255,255,.11)` | `rgba(0,0,0,.085)` |
 | `--backdrop` | `rgba(0,0,0,.6)` + `blur(6px)` | `rgba(10,10,10,.3)` + `blur(6px)` |
 
 Blur: `--glass-blur-1` `blur(18px) saturate(140%)`, `-2` `blur(24px) saturate(150%)`, `-3` `blur(14px) saturate(130%)`.
 
-Required fallback: `@supports not (backdrop-filter: blur(1px))` and `@media (prefers-reduced-transparency: reduce)` → every `--glass-*` is replaced by that theme's `--solid-1/2/3`.
+Required fallback: `@supports not (backdrop-filter: blur(1px))` and `@media (prefers-reduced-transparency: reduce)` → every `--glass-*` is replaced by that theme's `--solid-1/2/3`. Settings › Appearance › **Surfaces** (Glass | Solid, per browser, `nb.glass`, set before the first paint by `public/theme-boot.js`) does the same with `<html class="no-glass">`.
+
+**Islands** (2026-11-20, "Glass Islands"): every panel, card and tile is an island, a rounded surface (`--r-island 12px`, cards and tiles `--r-lg`) with a hairline border and a soft shadow, floating on the backdrop. Between islands is a gap (`--island-gap 6px`), not a line: in the Code view the gap is also the sash, which shows a short line only under the pointer. Bars that are not islands (the Code view's top bar and status bar) lie on the backdrop with no fill or border. The accent stays the monochrome ink (white on near-black, black on white): islands bring no new colour. States glow: selected is the ink ring with a soft halo (`--ring-selected`), needs you the amber ring with an amber halo (`--ring-needs-you`), connecting the wire-grey ring with a halo. A console's screen is a well inside its island: inset by the gap, `--r-md`, in `--term-bg` with a hairline. Card headers have no fill or line of their own, they are part of the island.
 
 **Colors stored on the board** (`#E6EAF2` "Chalk" and seven other swatches) stay hex in the data, because a board is shared between clients whose themes can differ. When drawing, `inkColor()` (`board/palette.ts`) maps them to `--ink-*`, so Chalk becomes dark ink on a white canvas. Other colors show as they are. Sticky note paper is the same in both themes.
 
@@ -84,7 +87,7 @@ Required fallback: `@supports not (backdrop-filter: blur(1px))` and `@media (pre
 ### 2.5 Spacing, radius, elevation, motion
 
 - Base-4 spacing: `--s-1 4` `--s-2 8` `--s-3 12` `--s-4 16` `--s-5 20` `--s-6 24` `--s-8 32` `--s-10 40` `--s-12 48` (px). No values outside this scale.
-- Radius: `--r-sm 8px` (small chips, icons) · `--r-md 10px` (inputs, buttons) · `--r-lg 14px` (terminal nodes, menus) · `--r-xl 20px` (cards, modals) · `--r-pill 999px`.
+- Radius: `--r-sm 8px` (small chips, icons) · `--r-md 10px` (inputs, buttons) · `--r-island 12px` (the Code view's islands) · `--r-lg 14px` (terminal nodes, menus) · `--r-xl 20px` (cards, modals) · `--r-pill 999px`. Gap between islands: `--island-gap 6px`.
 - Elevation `--e-1/2/3`: dark has dense, tight shadows, light thin and wide ones (see `tokens.css`); always paired with `--glass-highlight`.
 - Motion: `--t-fast 120ms` (hover, color) · `--t-base 180ms` (modals, menus) · easing `cubic-bezier(.2,.8,.2,1)`. Only for state feedback; no decorative animation. The only repeating animation: the **busy** dot pulse (1.6 s). `prefers-reduced-motion: reduce` → 0 ms transitions, the pulse is replaced by a solid dot with a static ring.
 
@@ -380,6 +383,7 @@ For acting on several at once: projects, archived projects, groups, machines (`c
 A project as a full code editor, without the board (`studio/code/CodeViewPage.tsx`, route `/p/<project>/code`). It is the editor card's workbench (§3.5) full screen, with the same tabs and the same live editor state as the project's Root editor cards: closing a tab in one closes it in the other.
 
 - **Shell:** no app header, rails, command bar or canvas. The page binds the project's board opened last in this browser (else its first) with a board controller and UI store, so terminals and agents started in the editor land on that board as from a card; nothing is drawn. The board stays bound while the page is open, whatever board another tab opens; only if that board goes does the page bind another (its tabs stay, they are the project's). `CodeStudio` runs with `mode="page"` and `nodeId=""` (no card: the Root placement). No card chrome: no title bar, Fill or Close. Nothing adds cards to a board here: Add to Board is not offered, and a web page (the Ports panel's globe, labelled **Open in a tab** here) opens as a Browser tab on the machine of those ports. A chat continued elsewhere from the Chats tab opens its new console as a tab.
+- **Islands** (wide screens, not a phone): the activity bar, the top bar and the status bar lie on the page's backdrop; the side bar, the editor area, the panel and the lead-and-agents side bar are islands (`--tile-bg`, the editor and panel in `--surface-solid` like Monaco, `--r-island`, hairline, `--tile-shadow`) 6 px apart. The gaps are the sashes (a 2 px line along 40 % of the gap under the pointer). Tab strips hold 30 px pill tabs with `--r-sm`; the active tab has `--surface-active` and a hairline ring, in the focused group the ring is the ink. The active activity button is a small raised island. An editor card on the board keeps the flat workbench.
 - **Top bar** (44 high, `--wb-bar`, a hairline below): the brand mark (to Home); the project switcher; **Board | Code** (a `sm` segmented control, Code current; Board opens the board opened last); quick open (the command centre: Go to file, `>` for commands, Ctrl P); then on the right Save N while files are unsaved, the side bar, panel and lead-and-agents toggles (`sm` ghost icons, `secondary` while on); the usage, needs-you, consoles and Live pills; `⋯` (Projects, Memory, Machines, Devices, Settings, theme, About this hub, Log out). Below 1100 px quick open is an icon and the usage pill goes; below 800 px Board | Code are icons and the Live text goes.
 - **Activity bar:** after Ask, a 24 px hairline separator, then the tools (Chats, Memory, Studios, Vault, Browser, Loops, Mission Map). Each opens as an editor tab, and one already open is focused; Studios opens a menu of Documents, Diagrams, Markdown and Skills beside the bar. The button of the active tab's tool is lit. The palette has the same as `View: Open <tool>`.
 - **Right side bar:** the lead and the agents (Lead | Agents). Open or closed is the Code view's own, apart from the project's Root cards (`nb.codeview.right.<project>`): the first time a browser opens a project's Code view at 1000 px or wider it shows.

@@ -1556,7 +1556,7 @@
   border-radius: var(--r-lg);
   border: var(--hairline) solid var(--tile-border);
   background: var(--tile-bg);
-  box-shadow: var(--e-2), var(--glass-highlight);
+  box-shadow: var(--tile-shadow), var(--glass-highlight);
 }
 /* these two don't clip, for their wire knobs: the header keeps the corners itself */
 .tile-orchestrator > .tile-head,
@@ -1566,11 +1566,11 @@
 }
 .tile-orchestrator.selected,
 .tile-memory.selected {
-  box-shadow: var(--ring-selected), var(--e-2);
+  box-shadow: var(--ring-selected), var(--tile-shadow);
 }
 .tile-orchestrator.is-connecting,
 .tile-memory.is-connecting {
-  box-shadow: 0 0 0 2px var(--wire), 0 0 0 6px var(--wire-soft), var(--e-2);
+  box-shadow: 0 0 0 2px var(--wire), 0 0 0 6px var(--wire-soft), 0 0 24px var(--wire-soft), var(--tile-shadow);
 }
 .orch-body {
   flex: 1 1 auto;

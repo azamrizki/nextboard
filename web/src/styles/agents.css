@@ -166,10 +166,10 @@
 
 /* needs you: a warning ring around the whole console, visible when zoomed out */
 .nb-node.needs-you {
-  box-shadow: var(--ring-needs-you), var(--e-3);
+  box-shadow: var(--ring-needs-you), var(--tile-shadow);
 }
 .nb-node.needs-you.selected {
-  box-shadow: var(--ring-needs-you-selected), var(--e-3);
+  box-shadow: var(--ring-needs-you-selected), var(--tile-shadow);
 }
 
 /* bar under the header: agent exited / resume offer */

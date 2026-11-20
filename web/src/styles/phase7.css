@@ -86,7 +86,7 @@
   border-radius: var(--r-lg);
   border: var(--hairline) solid var(--tile-border);
   background: var(--tile-bg);
-  box-shadow: var(--e-2), var(--glass-highlight);
+  box-shadow: var(--tile-shadow), var(--glass-highlight);
 }
 .tile-web.selected,
 .tile-weblog.selected,

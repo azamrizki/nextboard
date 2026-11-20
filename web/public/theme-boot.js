@@ -11,7 +11,7 @@
   var light = pref === 'light' || (pref !== 'dark' && window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
   document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
   var meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', light ? '#fafafa' : '#0a0a0a');
+  if (meta) meta.setAttribute('content', light ? '#f2f2f2' : '#0a0a0a');
 })();
 (function () {
   var pref = null;
@@ -27,4 +27,12 @@
     pref === 'phone' || pref === 'tablet' || pref === 'desktop' ? pref : w < 600 || (touch && short < 600) ? 'phone' : w < 1200 || touch ? 'tablet' : 'desktop';
   document.documentElement.setAttribute('data-layout', layout);
   document.documentElement.setAttribute('data-input', touch ? 'touch' : 'mouse');
+})();
+(function () {
+  // Settings › Appearance › Glass: "solid" draws every glass layer opaque (lib/theme.ts)
+  try {
+    if (localStorage.getItem('nb.glass') === 'solid') document.documentElement.classList.add('no-glass');
+  } catch (e) {
+    /* storage blocked: full glass */
+  }
 })();

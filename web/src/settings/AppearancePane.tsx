@@ -1,10 +1,10 @@
-// Appearance (per browser): light or dark, the layout, and the terminal text size.
+// Appearance (per browser): light or dark, the layout, glass or solid surfaces, and the terminal text size.
 
 import { setGlobalTextScale, TEXT_STEPS, useGlobalTextScale } from '../agents/textSize';
 import { SegmentedControl } from '../components/form';
 import { SettingRow } from '../components/Switch';
 import { setLayoutPref, useLayout, type LayoutPref } from '../lib/layout';
-import { setConsolePref, setThemePref, useTheme, type ConsolePref, type ThemePref } from '../lib/theme';
+import { setConsolePref, setGlassPref, setThemePref, useTheme, type ConsolePref, type GlassPref, type ThemePref } from '../lib/theme';
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -21,6 +21,11 @@ const LAYOUTS: { value: LayoutPref; label: string }[] = [
 
 const LAYOUT_NAME = { phone: 'phone', tablet: 'tablet', desktop: 'desktop' } as const;
 
+const GLASS: { value: GlassPref; label: string }[] = [
+  { value: 'full', label: 'Glass' },
+  { value: 'solid', label: 'Solid' },
+];
+
 const CONSOLES: { value: ConsolePref; label: string }[] = [
   { value: 'match', label: 'Match the theme' },
   { value: 'dark', label: 'Always dark' },
@@ -28,7 +33,7 @@ const CONSOLES: { value: ConsolePref; label: string }[] = [
 
 export function AppearancePane() {
   const scale = useGlobalTextScale();
-  const { pref, consolePref } = useTheme();
+  const { pref, consolePref, glass } = useTheme();
   const shown = useLayout();
   return (
     <div className="settings-cards">
@@ -44,6 +49,9 @@ export function AppearancePane() {
           hint={`Auto picks from the screen: a phone under 600 px, a tablet under 1200 px or on any touch screen, a desktop otherwise. This browser shows the ${LAYOUT_NAME[shown.layout]} layout${shown.pref === 'auto' ? '' : ', as chosen here'}.`}
         >
           <SegmentedControl<LayoutPref> label="Layout" size="sm" value={shown.pref} onChange={setLayoutPref} options={LAYOUTS} />
+        </SettingRow>
+        <SettingRow title="Surfaces" hint="Glass lets the backdrop show softly through panels and cards. Solid draws them opaque, which is faster on an older device. A system setting to reduce transparency always gives Solid.">
+          <SegmentedControl<GlassPref> label="Surfaces" size="sm" value={glass} onChange={setGlassPref} options={GLASS} />
         </SettingRow>
       </section>
       <section className="card settings-card" aria-labelledby="appearance-text">

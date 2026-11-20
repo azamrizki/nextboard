@@ -485,7 +485,7 @@
   border-radius: var(--r-lg);
   border: var(--hairline) solid var(--tile-border);
   background: var(--tile-bg);
-  box-shadow: var(--e-2), var(--glass-highlight);
+  box-shadow: var(--tile-shadow), var(--glass-highlight);
   transition: box-shadow var(--t-fast) var(--ease);
 }
 .tile-checklist.selected,
@@ -497,7 +497,7 @@
 .tile-unsupported.selected,
 .tile-image.selected,
 .nb-node-missing.selected {
-  box-shadow: var(--ring-selected), var(--e-2);
+  box-shadow: var(--ring-selected), var(--tile-shadow);
 }
 /* one header for every card (TileHead, and a console's NodeHeader): mark, title, meta, actions,
    display, "…". The kind only sets the accent. */
@@ -511,8 +511,9 @@
   height: var(--h-node-header);
   min-width: 0;
   padding: 0 var(--s-1) 0 var(--s-3);
-  background: var(--node-header-bg);
-  border-bottom: var(--hairline) solid var(--glass-border);
+  /* part of the island: the card's own surface, no bar of its own */
+  background: transparent;
+  border-bottom: var(--hairline) solid transparent;
   cursor: grab;
   user-select: none;
 }

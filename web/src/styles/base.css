@@ -32,7 +32,8 @@ body {
   font-feature-settings: var(--font-features);
 }
 
-/* the faint grid behind the pages (not the board: it has its dots; not the sky of Memory) */
+/* the faint grid behind the pages, fading out under the glow (not the board: it has its dots;
+   not the sky of Memory) */
 body::before {
   content: '';
   position: fixed;
@@ -40,8 +41,8 @@ body::before {
   pointer-events: none;
   background-image: linear-gradient(var(--page-grid) 1px, transparent 1px), linear-gradient(90deg, var(--page-grid) 1px, transparent 1px);
   background-size: 64px 64px;
-  -webkit-mask-image: radial-gradient(ellipse 72% 60% at 50% 0, #000 28%, transparent 76%);
-  mask-image: radial-gradient(ellipse 72% 60% at 50% 0, #000 28%, transparent 76%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 30% 0, #000 20%, transparent 70%);
+  mask-image: radial-gradient(ellipse 60% 50% at 30% 0, #000 20%, transparent 70%);
 }
 body:has(.page-board, .page-memory)::before {
   display: none;
@@ -194,6 +195,14 @@ ul.plain {
 }
 
 /* ---- glass helpers ---- */
+.island {
+  border-radius: var(--r-island);
+  background: var(--glass-1);
+  -webkit-backdrop-filter: var(--glass-blur-1);
+  backdrop-filter: var(--glass-blur-1);
+  border: var(--hairline) solid var(--glass-border);
+  box-shadow: var(--e-2), var(--glass-highlight);
+}
 .glass-1 {
   background: var(--glass-1);
   -webkit-backdrop-filter: var(--glass-blur-1);

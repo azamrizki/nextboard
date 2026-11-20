@@ -9,6 +9,8 @@ export type ThemePref = 'system' | 'light' | 'dark';
 export type Theme = 'light' | 'dark';
 /** Agent CLIs can be set up for a dark terminal, so a console may stay dark in a light app. */
 export type ConsolePref = 'match' | 'dark';
+/** Glass (blur behind the islands), or every layer opaque: faster on a weak device. */
+export type GlassPref = 'full' | 'solid';
 
 const media = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: light)') : null;
 
@@ -17,15 +19,17 @@ const readPref = (): ThemePref => {
   return v === 'light' || v === 'dark' ? v : 'system';
 };
 const readConsole = (): ConsolePref => (prefs.get('consoleTheme') === 'dark' ? 'dark' : 'match');
+const readGlass = (): GlassPref => (prefs.get('glass') === 'solid' ? 'solid' : 'full');
 const resolve = (p: ThemePref): Theme => (p === 'system' ? (media?.matches ? 'light' : 'dark') : p);
 
 interface State {
   pref: ThemePref;
   theme: Theme;
   consolePref: ConsolePref;
+  glass: GlassPref;
 }
 
-let state: State = { pref: readPref(), theme: resolve(readPref()), consolePref: readConsole() };
+let state: State = { pref: readPref(), theme: resolve(readPref()), consolePref: readConsole(), glass: readGlass() };
 
 const listeners = new Set<() => void>();
 
@@ -37,6 +41,7 @@ function apply() {
     root.setAttribute('data-theme', state.theme);
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('theme-switching')));
   }
+  root.classList.toggle('no-glass', state.glass === 'solid');
   const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
   if (bg) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
 }
@@ -55,6 +60,11 @@ export function setThemePref(pref: ThemePref) {
 export function setConsolePref(consolePref: ConsolePref) {
   prefs.set('consoleTheme', consolePref);
   update({ consolePref });
+}
+
+export function setGlassPref(glass: GlassPref) {
+  prefs.set('glass', glass);
+  update({ glass });
 }
 
 export const currentAppTheme = (): Theme => state.theme;
@@ -93,9 +103,9 @@ media?.addEventListener('change', () => {
 
 // another tab of this browser changed it
 window.addEventListener('storage', (e) => {
-  if (e.key === 'nb.theme' || e.key === 'nb.consoleTheme') {
+  if (e.key === 'nb.theme' || e.key === 'nb.consoleTheme' || e.key === 'nb.glass') {
     const pref = readPref();
-    update({ pref, theme: resolve(pref), consolePref: readConsole() });
+    update({ pref, theme: resolve(pref), consolePref: readConsole(), glass: readGlass() });
   }
 });
 
