@@ -20,6 +20,7 @@ import { Icon } from '../../components/Icon';
 import { ContextMenu, Menu, type MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
+import { downloadMachineFile } from '../../lib/download';
 import { filesApi, gitApi } from '../api';
 import { MarkdownView } from '../MarkdownView';
 import { waitJob } from '../store';
@@ -1002,6 +1003,16 @@ function TabStrip({ ws, group, gi, onAddFile, onAi }: { ws: Workspace; group: Gr
     ...splitItems(t),
     { label: 'Compare with HEAD', icon: 'branch', disabled: !(t.path && ws.partOf(t.path)?.gitMark(t.path)), onSelect: () => t.path && ws.openDiff(t.path, 'head', gi) },
     { label: 'Local History', icon: 'history', onSelect: () => ws.openView({ kind: 'history', path: t.path }) },
+    {
+      label: 'Download',
+      icon: 'download',
+      title: ws.docs.get(t.path)?.dirty ? 'Saves the file as it is on disk; save first to include your edits' : 'Save this file on this device',
+      onSelect: () => {
+        if (!t.path) return;
+        const { machineId, abs } = splitKey(t.path);
+        downloadMachineFile(machineId, abs);
+      },
+    },
     { label: 'Reveal in Explorer', icon: 'folderOpen', onSelect: () => t.path && ws.revealInTree(t.path) },
     { label: 'Copy Path', icon: 'link', onSelect: () => t.path && void navigator.clipboard?.writeText(splitKey(t.path).abs).then(() => toast.success('Path copied.')) },
     { label: 'Copy Relative Path', icon: 'link', onSelect: () => t.path && void navigator.clipboard?.writeText(ws.relLabel(t.path)).then(() => toast.success('Path copied.')) },

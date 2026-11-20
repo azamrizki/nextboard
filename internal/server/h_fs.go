@@ -247,11 +247,24 @@ func (s *Server) handleFSRaw(w http.ResponseWriter, r *http.Request, p *principa
 	hd := w.Header()
 	hd.Set("Content-Type", ct)
 	hd.Set("Content-Security-Policy", "sandbox")
-	if ct == "application/octet-stream" {
+	switch {
+	case r.URL.Query().Get("download") == "1":
+		// Download in the Code view's menus: saved under its own name, whatever its type
+		hd.Set("Content-Disposition", attachmentHeader(st.Name))
+	case ct == "application/octet-stream":
 		hd.Set("Content-Disposition", "attachment")
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, io.LimitReader(br, machine.MaxFileBytes))
+}
+
+// attachmentHeader is a Content-Disposition that saves the bytes as name: the name as plain ASCII
+// for old clients and as UTF-8 (RFC 5987) for the rest; a name with nothing usable is "download".
+func attachmentHeader(name string) string {
+	if v := mime.FormatMediaType("attachment", map[string]string{"filename": name}); v != "" {
+		return v
+	}
+	return `attachment; filename="download"`
 }
 
 // handleFSWrite writes a file on the machine. Only ever called on an

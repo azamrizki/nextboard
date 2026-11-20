@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test, type Hub } from './hub';
@@ -258,6 +258,27 @@ test('the Code view keeps the board it bound while another is opened; it moves o
   await expect.poll(mark, { timeout: 15_000 }).toBe(0);
   await expect(page.locator('.cv-bar')).toBeVisible();
   await expect(page.locator('.wb-tab', { hasText: 'app.ts' })).toBeVisible({ timeout: 20_000 });
+});
+
+test('a file is downloaded from its menu in the tree and from its tab', async ({ page, hub }) => {
+  const p = await project(hub, 'Download Shop');
+  await page.goto(`/p/${p.id}/code`);
+  const tree = page.getByRole('tree', { name: 'Project files' });
+  const row = tree.getByRole('treeitem', { name: 'app.ts' });
+  await row.click({ button: 'right', timeout: 20_000 });
+  const fromTree = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Download' }).click();
+  const a = await fromTree;
+  // saved under its own name with its bytes, though a text file would otherwise be shown
+  expect(a.suggestedFilename()).toBe('app.ts');
+  expect(readFileSync((await a.path())!, 'utf8')).toBe('export const api = 1;\n');
+
+  await row.dblclick();
+  const tab = page.locator('.wb-tab', { hasText: 'app.ts' });
+  await tab.click({ button: 'right' });
+  const fromTab = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Download' }).click();
+  expect((await fromTab).suggestedFilename()).toBe('app.ts');
 });
 
 test.describe('on a phone', () => {

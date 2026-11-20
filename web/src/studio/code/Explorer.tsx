@@ -12,6 +12,7 @@ import { Icon } from '../../components/Icon';
 import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
 import { useMachines } from '../../store';
+import { downloadMachineFile, MAX_DOWNLOAD } from '../../lib/download';
 import { fileClip, type FileClip } from './fileClip';
 import { iconSrc, useIconTheme } from './iconTheme';
 import { isPartRoot } from './partGroups';
@@ -300,6 +301,16 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
         { label: 'Open to the Side', icon: 'layout', onSelect: () => ws.open(path, { pin: true, side: true }) },
         { label: 'Compare with HEAD', icon: 'branch', disabled: !ws.partOf(path)?.gitMark(path), onSelect: () => ws.openDiff(path, 'head') },
         { label: 'Local History', icon: 'history', onSelect: () => ws.openView({ kind: 'history', path }) },
+        {
+          label: 'Download',
+          icon: 'download',
+          disabled: e.size > MAX_DOWNLOAD,
+          title: e.size > MAX_DOWNLOAD ? 'Larger than 20 MB: copy it with a terminal instead' : 'Save this file on this device',
+          onSelect: () => {
+            const { machineId, abs } = splitKey(path);
+            downloadMachineFile(machineId, abs);
+          },
+        },
         'sep',
       );
     }
