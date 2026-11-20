@@ -178,7 +178,7 @@ test('a browser tab shows a page by its address, follows it, and the Ports panel
   await expect(tool.getByRole('textbox', { name: 'Address' })).toHaveValue(`http://localhost:${port}/checkout`);
 
   // the editor's openWeb: the Ports panel opens the port as a browser tab, and again focuses it
-  await page.locator('.cv-bar').getByRole('button', { name: /^Toggle panel/ }).click();
+  await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: /^Toggle panel/ }).click();
   await page.getByRole('tablist', { name: 'Panel' }).getByRole('tab', { name: 'Ports' }).click();
   const row = page.locator('.wb-ports tr').filter({ has: page.getByRole('cell', { name: String(port), exact: true }) });
   await row.getByRole('button', { name: 'Open in a tab' }).click({ timeout: 20_000 });

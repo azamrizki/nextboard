@@ -189,6 +189,11 @@ body:has(.page-code)::before {
 :root[data-layout='phone'] .page.page-code {
   padding-bottom: 0;
 }
+/* so nothing fixed sits above a tab bar there: the key bar goes to the bottom edge, below the
+   navigation the page lifts out of its way (the app's own tab bar is fixed, this one is not) */
+:root[data-layout='phone']:not([data-keyboard]):has(.page-code .tab-bar) {
+  --shell-bottom: var(--safe-b);
+}
 /* the key bar over the keyboard takes the bottom: the editor and terminals end above it, so the
    line being typed stays in sight (and above the keyboard where it lies over the page) */
 :root[data-keybar] .page.page-code,
@@ -360,102 +365,154 @@ body:has(.page-code)::before {
   overflow: auto;
 }
 
-/* =========================================================================
-   Islands (DESIGN.md §3.19, §2.6): on a wide screen the Code view's parts float on the page's
-   backdrop as rounded islands, the gap between them is the divider and the sash. The top bar and
-   the status bar lie on the backdrop itself. Surfaces stay solid (Monaco and xterm repaint
-   constantly, so no blur behind them). A card on the board and a phone keep the flat workbench.
-   ========================================================================= */
-
-.page-code > .wb:not(.is-phone) {
-  --wb-bar: var(--tile-bg);
-  --wb-line: var(--tile-border);
-  background: transparent;
-}
-.page-code > .cv-bar:not(.is-phone) {
+/* ---- the top bar on the backdrop (islands design, DESIGN.md §3.19) ---- */
+.page-code .cv-bar:not(.is-phone) {
+  height: 48px;
+  padding: 0 var(--s-3);
+  gap: var(--s-1);
   background: transparent;
   border-bottom-color: transparent;
-  padding: 0 var(--s-3);
 }
-.page-code > .wb:not(.is-phone) > .wb-body {
-  padding: 0 var(--island-gap) 0 0;
+.cv-bar .cv-quick.wb-command-center {
+  flex: 0 1 440px;
+  height: 32px;
+  margin: 0;
+  border-radius: var(--r-md);
 }
-.page-code > .wb:not(.is-phone) .wb-activity {
-  width: 50px;
-  padding: var(--nudge) 0;
-  gap: var(--s-1);
-  background: transparent;
-  border-right: 0;
-}
-.page-code > .wb:not(.is-phone) .wb-activity-btn.is-active {
-  background: var(--tile-bg);
-  box-shadow: var(--tile-shadow), inset 0 0 0 var(--hairline) var(--tile-border);
-}
-/* the islands */
-.page-code > .wb:not(.is-phone) :is(.wb-side, .wb-right),
-.page-code > .wb:not(.is-phone) .wb-center > .wb-editors,
-.page-code > .wb:not(.is-phone) .wb-panel-wrap {
-  border-radius: var(--r-island);
-  border: var(--hairline) solid var(--tile-border);
-  box-shadow: var(--tile-shadow), var(--glass-highlight);
-  overflow: hidden;
-}
-.page-code > .wb:not(.is-phone) .wb-center > .wb-editors {
-  background: var(--surface-solid);
-}
-.page-code > .wb:not(.is-phone) .wb-panel-wrap {
-  background: var(--surface-solid);
-}
-/* an editor group's tab strip: pills on the island's surface */
-.page-code > .wb:not(.is-phone) .wb-group > .wb-tabs,
-.page-code > .wb:not(.is-phone) .wb-right-tabs {
-  height: 40px;
+.cv-chip {
+  display: inline-flex;
   align-items: center;
-  gap: var(--s-1);
-  padding: 0 var(--s-1);
-}
-.page-code > .wb:not(.is-phone) .wb-tabs .wb-tab {
-  height: 30px;
-  border-right: 0;
-  border-radius: var(--r-sm);
-}
-.page-code > .wb:not(.is-phone) .wb-tabs .wb-tab.is-active {
-  background: var(--surface-active);
-  box-shadow: inset 0 0 0 var(--hairline) var(--glass-border-strong);
-}
-.page-code > .wb:not(.is-phone) .wb-group.is-active .wb-tab.is-active {
-  box-shadow: inset 0 0 0 var(--hairline) var(--c-primary-300);
-}
-/* sashes: the gap itself; a line shows only while the pointer is on it */
-.page-code > .wb:not(.is-phone) > .wb-body > .wb-sash-v,
-.page-code > .wb:not(.is-phone) .wb-center > .wb-sash-h {
-  background: transparent;
-}
-.page-code > .wb:not(.is-phone) > .wb-body > .wb-sash-v {
-  width: var(--island-gap);
-}
-.page-code > .wb:not(.is-phone) .wb-center > .wb-sash-h {
-  height: var(--island-gap);
-}
-.page-code > .wb:not(.is-phone) > .wb-body > .wb-sash-v:hover,
-.page-code > .wb:not(.is-phone) .wb-center > .wb-sash-h:hover {
-  background: linear-gradient(var(--c-primary-300), var(--c-primary-300)) center / 2px 40% no-repeat;
-}
-.page-code > .wb:not(.is-phone) .wb-center > .wb-sash-h:hover {
-  background-size: 40% 2px;
-}
-/* the side bars lying over the editor (a medium window) are islands too, not an edge */
-.page-code > .wb.is-medium:not(.is-phone) .wb-right {
-  top: 0;
-  bottom: 0;
-  right: var(--island-gap);
-  border-left: var(--hairline) solid var(--tile-border);
-}
-/* the status bar: on the backdrop */
-.page-code > .wb:not(.is-phone) .wb-status {
-  height: 28px;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 200px;
+  height: 32px;
   padding: 0 var(--s-2);
+  border: 0;
+  border-radius: var(--r-md);
   background: transparent;
-  border-top: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-chip:hover {
+  background: var(--surface-hover);
+}
+.cv-chip > svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
   color: var(--text-3);
+}
+.cv-chip > svg.chev {
+  width: 12px;
+  height: 12px;
+}
+.cv-chip-sub {
+  color: var(--text-3);
+  font-weight: var(--fw-regular);
+}
+.cv-run {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--surface-hover);
+}
+.cv-run .cv-chip {
+  height: 28px;
+  font-weight: var(--fw-regular);
+  color: var(--text-2);
+}
+.cv-run .cv-play {
+  color: var(--tint-success-text);
+}
+.cv-switch .editor-switch-icon,
+.wb-title-switch .editor-switch-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 9px;
+}
+@media (max-width: 1099px) {
+  .cv-run .cv-chip,
+  .cv-branch {
+    display: none;
+  }
+}
+
+/* ---- the top bar's controls, as the islands design draws them ---- */
+/* the project: a chip, no box; its icon, its name, the parts */
+.page-code .cv-bar:not(.is-phone) .cv-switch.project-switch {
+  height: 32px;
+  padding: 0 var(--s-2) 0 6px;
+  border-color: transparent;
+  background: transparent;
+  font-weight: var(--fw-medium);
+}
+.page-code .cv-bar:not(.is-phone) .cv-switch.project-switch:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+}
+/* Board | Code: a pill track, the current view raised */
+.page-code .cv-bar:not(.is-phone) .cv-views {
+  margin-left: var(--s-1);
+  padding: 2px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--surface-hover);
+}
+.page-code .cv-bar:not(.is-phone) .cv-views .segmented-item {
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-weight: var(--fw-regular);
+}
+.page-code .cv-bar:not(.is-phone) .cv-views .segmented-item[aria-current='page'] {
+  background: var(--code-bg);
+  color: var(--text);
+  box-shadow:
+    var(--raise-shadow),
+    0 0 0 var(--hairline) var(--tile-border);
+}
+/* Go to file: a field with its key in a small box */
+.cv-bar .cv-quick.wb-command-center {
+  background: var(--surface-hover);
+  border-color: var(--tile-border);
+}
+.cv-bar .cv-quick.wb-command-center kbd {
+  padding: 1px 6px;
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+/* the pills: one height, Live as a pill like the rest */
+.page-code .cv-bar:not(.is-phone) .cv-pills {
+  gap: 6px;
+}
+.page-code .cv-bar:not(.is-phone) .cv-pills > * {
+  height: 28px;
+  font-size: var(--fs-xs);
+}
+.page-code .cv-bar:not(.is-phone) .cv-pills .conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-pill);
+  background: var(--surface-hover);
+}
+.page-code .cv-bar:not(.is-phone) .cv-icon {
+  color: var(--text-2);
+}
+.cv-bar .cv-run + .btn,
+.cv-bar .cv-run {
+  margin-right: var(--s-1);
 }

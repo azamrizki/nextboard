@@ -2046,3 +2046,19 @@ textarea.text-body {
   -webkit-user-select: text;
   user-select: text;
 }
+
+/* islands: kanban columns are soft wells with the colour on their dot, the cards raised in them;
+   a done check is the ink */
+.kb-col {
+  border-color: transparent;
+  background: var(--surface-hover);
+  box-shadow: none;
+}
+.kb-card {
+  box-shadow: var(--card-raise);
+}
+.check-box[aria-checked='true'] {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+}
+

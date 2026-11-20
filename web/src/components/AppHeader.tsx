@@ -13,12 +13,12 @@
 import { lazy, Suspense, useState } from 'react';
 import { useAuth } from '../auth';
 import { useLayout } from '../lib/layout';
-import { Link, memoryPath, parseRoute, usePath } from '../lib/router';
+import { Link, parseRoute, usePath } from '../lib/router';
 import type { Project } from '../lib/types';
 import { useEventsConnected, useStoreReady } from '../store';
 import { Button } from './Button';
 import { HubInfoButton } from './HubInfo';
-import { ThemeToggle } from './ThemeToggle';
+import { openCode } from '../home/OpenChoice';
 import { Icon, type IconName } from './Icon';
 import { LiveChip } from './LiveChip';
 import { MoreMenu } from './MoreMenu';
@@ -133,7 +133,7 @@ function PhoneHeader({ project, workspaceId }: AppHeaderProps) {
 }
 
 export function AppHeader({ project, workspaceId }: AppHeaderProps) {
-  const { hub, me, logout } = useAuth();
+  const { hub } = useAuth();
   const { layout } = useLayout();
   const page = parseRoute(usePath()).page;
   const inProject = !!project;
@@ -163,9 +163,22 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
       </div>
 
       {project ? (
-        <nav className="app-tabs" aria-label="Workspaces">
-          <WorkspaceTabs project={project} activeId={workspaceId} />
-        </nav>
+        <>
+          <nav className="app-tabs" aria-label="Workspaces">
+            <WorkspaceTabs project={project} activeId={workspaceId} />
+          </nav>
+          {/* Board | Code, as the Code view's bar has it: this page is the board */}
+          <div className="segmented sm board-views" role="group" aria-label="View">
+            <span className="segmented-item" aria-current="page" title="Board view">
+              <Icon name="grid" />
+              <span className="board-views-label">Board</span>
+            </span>
+            <button type="button" className="segmented-item" title="Open this project in the Code view" onClick={() => openCode(project)}>
+              <Icon name="code" />
+              <span className="board-views-label">Code</span>
+            </button>
+          </div>
+        </>
       ) : (
         <nav className="app-nav" aria-label="Main">
           <div className="segmented">
@@ -185,15 +198,6 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
         <LiveChip />
         <ConnStatus />
         <div className="header-actions">
-          {inProject && desktop && (
-            <nav className="icon-nav" aria-label="Main">
-              {NAV.slice(1).map((n) => (
-                <Link key={n.to} to={n.page === 'memory' ? memoryPath(project?.id) : n.to} className="btn btn-ghost btn-sm btn-icon" aria-label={n.label} title={n.label} {...(n.page === 'memory' ? memoryLinkIntent : {})}>
-                  <Icon name={n.icon} />
-                </Link>
-              ))}
-            </nav>
-          )}
           <VaultButton />
           {desktop ? (
             <>
@@ -206,17 +210,9 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
               >
                 <Icon name="sliders" />
               </Link>
-              <ThemeToggle />
               <HubInfoButton />
-              {me.kind === 'admin' ? (
-                <Button variant="ghost" size="sm" icon="logout" className="logout-btn" onClick={() => void logout()} aria-label="Log out" title="Log out">
-                  <span className="logout-label">Log out</span>
-                </Button>
-              ) : (
-                <span className="device-name truncate" title="Signed in as this paired device">
-                  {me.deviceName}
-                </span>
-              )}
+              {/* the islands header: the rest (pages, theme, About, Log out) behind the hub's avatar */}
+              <MoreMenu project={project} avatar />
             </>
           ) : (
             <>

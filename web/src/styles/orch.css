@@ -3965,3 +3965,38 @@ summary.memory-picker-head {
 .mission-history-body .mission-card {
   align-self: stretch;
 }
+
+/* =========================================================================
+   Islands on the board (DESIGN.md §2.3, mockups/nextboard-islands): a group is a dashed frame
+   with its name as a floating glass pill; wires glow softly
+   ========================================================================= */
+.group-frame {
+  border-radius: 18px;
+  border-style: dashed;
+  background: color-mix(in srgb, var(--group-c) 5%, transparent);
+}
+.group-head {
+  top: -15px;
+  left: var(--s-4);
+  right: auto;
+  max-width: calc(100% - var(--s-8));
+  height: 28px;
+  padding: 0 var(--s-1) 0 var(--s-3);
+  border: var(--hairline) solid var(--glass-border-strong);
+  border-radius: var(--r-pill);
+  background: var(--glass-3);
+  -webkit-backdrop-filter: var(--glass-blur-3);
+  backdrop-filter: var(--glass-blur-3);
+  box-shadow: var(--e-2), var(--glass-highlight);
+}
+.group-head .group-role {
+  height: 18px;
+}
+.group-head .group-link {
+  height: 22px;
+  border-radius: var(--r-pill);
+}
+.nb-link .nb-edge {
+  filter: drop-shadow(0 0 3px var(--edge-glow));
+}
+

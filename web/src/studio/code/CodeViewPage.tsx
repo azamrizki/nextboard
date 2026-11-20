@@ -188,16 +188,47 @@ function ViewSwitch({ project }: { project: Project }) {
   );
 }
 
-/** The Code view's top bar, over the workbench. */
+/** The Git branch of the active file's part, with what is not pushed or pulled; opens Source Control. */
+function BranchChip({ ws, onOpen }: { ws: PageBar['ws']; onOpen: () => void }) {
+  const st = ws.activePart.git;
+  if (!st?.isRepo) return null;
+  return (
+    <button type="button" className="cv-chip cv-branch" onClick={onOpen} title={`Branch ${st.branch || 'detached'}. Open Source Control`}>
+      <Icon name="branch" />
+      <span className="truncate">{st.branch || 'detached'}</span>
+      {!!(st.ahead || st.behind) && (
+        <span className="cv-chip-sub tabular">
+          {st.ahead ? `↑${st.ahead}` : ''}
+          {st.behind ? `↓${st.behind}` : ''}
+        </span>
+      )}
+      <Icon name="chevronDown" className="chev" />
+    </button>
+  );
+}
+
+/** Run: a task of the project (the picker), Run again, and Start debugging. */
+function RunControls({ bar }: { bar: PageBar }) {
+  const { ws, run } = bar;
+  const last = ws.taskSelected ? ws.taskSelected.split('\u0001').pop() : '';
+  return (
+    <span className="cv-run" role="group" aria-label="Run">
+      <button type="button" className="cv-chip" onClick={() => run('tasks.run')} title="Run a task of the project">
+        <Icon name="checklist" />
+        <span className="truncate">{last || 'Run task'}</span>
+        <Icon name="chevronDown" className="chev" />
+      </button>
+      <Button size="sm" variant="ghost" iconOnly icon="play" className="cv-play" aria-label="Run without debugging (Ctrl+F5)" title="Run without debugging · Ctrl+F5" onClick={() => run('debug.run')} />
+      <Button size="sm" variant="ghost" iconOnly icon="bug" aria-label="Start debugging (F5)" title="Start debugging · F5" onClick={() => run('debug.start')} />
+    </span>
+  );
+}
+
+/** The Code view's top bar, over the workbench: on the page's backdrop, as in the islands design. */
 function CodeViewBar({ project, bar }: { project: Project; bar: PageBar }) {
   const { ws, quickOpen, phone } = bar;
   useWs(ws);
   const dirty = [...ws.docs.values()].filter((d) => d.dirty).length;
-  const toggle = (key: 'sideOpen' | 'rightOpen' | 'panelOpen') => {
-    ws[key] = !ws[key];
-    if (key === 'panelOpen' && !ws.panelOpen) ws.focusTick++;
-    ws.changed();
-  };
   return (
     <header className={`cv-bar ${phone ? 'is-phone' : ''}`}>
       {!phone && (
@@ -206,7 +237,9 @@ function CodeViewBar({ project, bar }: { project: Project; bar: PageBar }) {
         </Link>
       )}
       <EditorProjectSwitch project={project} target="code" className="cv-switch" />
+      {!phone && <BranchChip ws={ws} onOpen={() => bar.view('scm')} />}
       <ViewSwitch project={project} />
+      <span className="spacer" />
       {!phone && (
         <button type="button" className="wb-command-center cv-quick" onClick={() => quickOpen('')} title="Go to file · Ctrl+P">
           <Icon name="search" />
@@ -215,17 +248,11 @@ function CodeViewBar({ project, bar }: { project: Project; bar: PageBar }) {
         </button>
       )}
       <span className="spacer" />
-      {!phone && (
-        <span className="cv-tools">
-          {dirty > 0 && (
-            <Button size="sm" variant="ghost" icon="save" onClick={() => void ws.saveAll()} title="Save all · Ctrl+Alt+S">
-              Save {dirty}
-            </Button>
-          )}
-          <Button size="sm" variant={ws.sideOpen ? 'secondary' : 'ghost'} iconOnly icon="layout" aria-label="Toggle side bar (Ctrl+B)" aria-pressed={ws.sideOpen} title="Side bar · Ctrl+B" onClick={() => toggle('sideOpen')} />
-          <Button size="sm" variant={ws.panelOpen ? 'secondary' : 'ghost'} iconOnly icon="terminal" aria-label="Toggle panel (Ctrl+`)" aria-pressed={ws.panelOpen} title="Terminal panel · Ctrl+`" onClick={() => toggle('panelOpen')} />
-          <Button size="sm" variant={ws.rightOpen ? 'secondary' : 'ghost'} iconOnly icon="orchestrator" aria-label="Toggle the lead and agents side bar (Ctrl+Alt+B)" aria-pressed={ws.rightOpen} title="Lead and agents · Ctrl+Alt+B" onClick={() => toggle('rightOpen')} />
-        </span>
+      {!phone && <RunControls bar={bar} />}
+      {!phone && dirty > 0 && (
+        <Button size="sm" variant="primary" icon="save" onClick={() => void ws.saveAll()} title="Save all · Ctrl+Alt+S">
+          Save {dirty}
+        </Button>
       )}
       {!phone && (
         <span className="cv-pills">
@@ -235,7 +262,13 @@ function CodeViewBar({ project, bar }: { project: Project; bar: PageBar }) {
           <ConnStatus />
         </span>
       )}
-      <MoreMenu project={project} />
+      {!phone && (
+        <>
+          <Button size="sm" variant="ghost" iconOnly icon="search" className="cv-icon" aria-label="Search in files (Ctrl+Shift+F)" title="Search in files · Ctrl+Shift+F" onClick={() => bar.view('search')} />
+          <Button size="sm" variant="ghost" iconOnly icon="settings" className="cv-icon" aria-label="Settings" title="NextBoard settings" onClick={() => navigate('/settings')} />
+        </>
+      )}
+      <MoreMenu project={project} avatar={!phone} />
     </header>
   );
 }

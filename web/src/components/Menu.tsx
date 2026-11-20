@@ -94,6 +94,8 @@ interface MenuProps {
   triggerLabel?: string;
   /** Extra class names for the trigger button itself. */
   triggerClassName?: string;
+  /** Draw the trigger yourself (an avatar); its accessible name stays `label`. */
+  trigger?: ReactNode;
 }
 
 const stop = (e: SyntheticEvent) => e.stopPropagation();
@@ -317,7 +319,7 @@ export function useDismiss(open: boolean, listRef: RefObject<HTMLDivElement | nu
   }, [open, listRef, ignore]);
 }
 
-export function Menu({ label, icon = 'more', items, className, triggerLabel, triggerClassName }: MenuProps) {
+export function Menu({ label, icon = 'more', items, className, triggerLabel, triggerClassName, trigger }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -352,31 +354,56 @@ export function Menu({ label, icon = 'more', items, className, triggerLabel, tri
 
   return (
     <div className={`menu ${className ?? ''}`}>
-      <Button
-        ref={triggerRef}
-        variant="ghost"
-        size="sm"
-        iconOnly={!triggerLabel}
-        icon={icon}
-        className={triggerClassName}
-        aria-label={triggerLabel ? undefined : label}
-        title={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (open) close(false);
-          else setOpen(true);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown' && !open) {
-            e.preventDefault();
-            setOpen(true);
-          }
-        }}
-      >
-        {triggerLabel}
-      </Button>
+      {trigger ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          className={`menu-trigger ${triggerClassName ?? ''}`}
+          aria-label={label}
+          title={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (open) close(false);
+            else setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown' && !open) {
+              e.preventDefault();
+              setOpen(true);
+            }
+          }}
+        >
+          {trigger}
+        </button>
+      ) : (
+        <Button
+          ref={triggerRef}
+          variant="ghost"
+          size="sm"
+          iconOnly={!triggerLabel}
+          icon={icon}
+          className={triggerClassName}
+          aria-label={triggerLabel ? undefined : label}
+          title={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (open) close(false);
+            else setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown' && !open) {
+              e.preventDefault();
+              setOpen(true);
+            }
+          }}
+        >
+          {triggerLabel}
+        </Button>
+      )}
       {open && (
         <MenuList
           label={label}

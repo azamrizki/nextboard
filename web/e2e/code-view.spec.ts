@@ -196,11 +196,11 @@ test('the Code view: its top bar, the tools, Board | Code, and switchers that ke
   await expect(page.locator('.wb-tab', { hasText: 'Vault' })).toHaveCount(1);
 
   // the Ports panel opens a page as a tab here, not as a tile (it lists at least this test hub's port)
-  await bar.getByRole('button', { name: 'Toggle panel (Ctrl+`)' }).click();
+  await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Toggle panel (Ctrl+`)' }).click();
   await page.getByRole('tab', { name: 'Ports' }).click();
   await expect(page.getByRole('button', { name: 'Open in a tab' }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: 'Open in a tile' })).toHaveCount(0);
-  await bar.getByRole('button', { name: 'Toggle panel (Ctrl+`)' }).click();
+  await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Toggle panel (Ctrl+`)' }).click();
 
   // the switcher opens another project's Code view; its menu offers this one's board
   await switcher.click();

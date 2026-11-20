@@ -84,7 +84,9 @@ test('two instances on one host keep their own logins in one browser', async ({ 
 
     // logging out of personal leaves the default signed in
     await page.goto(`${personal.base}/`);
-    await page.getByRole('button', { name: 'Log out' }).click();
+    // Log out is in the avatar's menu (the islands header)
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Log out' }).click();
     await expect(page).toHaveURL(/\/login/);
     expect((await ctx.request.get(`${personal.base}/api/auth/me`)).status()).toBe(401);
     expect((await ctx.request.get(`${DEFAULT_BASE}/api/auth/me`)).status()).toBe(200);

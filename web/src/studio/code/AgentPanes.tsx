@@ -51,7 +51,7 @@ import { isTerminalPane, nameOf, ORCHESTRATOR_PANE, type Workspace } from './wor
 import type { RightTab } from './persist';
 import '../../styles/code-side.css';
 import { Modal } from '../../components/Modal';
-import { LeadChatSwitcher, NewChatButton } from '../../chats/LeadChatSwitcher';
+import { LeadChatSwitcher, newLeadChat, NewChatButton } from '../../chats/LeadChatSwitcher';
 import { ResumeChatList } from '../../chats/ResumeChatList';
 import { ResumeDialog } from '../../chats/ResumeDialog';
 import { useLeadActive } from '../../chats/store';
@@ -510,11 +510,15 @@ function LeadThread({ ws, main = false }: { ws: Workspace; main?: boolean }) {
         <LeadAvatar name={name} size="md" />
         <div className="wb-orch-who">
           <h2>{name}</h2>
-          <p className="truncate" title={summary}>
-            {summary}
-          </p>
+          {main ? (
+            // the Code view's Lead: who it is, and its chats a click away (New chat is the side bar's +)
+            <LeadChatSwitcher threadId={threadId} lead={name} scope={project.name} className="wb-orch-sub" />
+          ) : (
+            <p className="truncate" title={summary}>
+              {summary}
+            </p>
+          )}
         </div>
-        {main && <NewChatButton threadId={threadId} lead={name} />}
         {!main && cards.length > 0 && (
           <select className="control control-sm wb-orch-thread" aria-label="Thread" value={card} onChange={(e) => { setCardId(e.target.value); prefs.set(threadPref, e.target.value); }}>
             <option value="">Whole project</option>
@@ -526,11 +530,13 @@ function LeadThread({ ws, main = false }: { ws: Workspace; main?: boolean }) {
           </select>
         )}
       </header>
-      <div className="orch-chatbar wb-orch-chats">
-        <LeadChatSwitcher threadId={threadId} lead={name} scope={card ? (typeof cardTitle === 'string' && cardTitle ? cardTitle : 'Orchestrator') : project.name} />
-        <span className="spacer" />
-        {!main && <NewChatButton threadId={threadId} lead={name} />}
-      </div>
+      {!main && (
+        <div className="orch-chatbar wb-orch-chats">
+          <LeadChatSwitcher threadId={threadId} lead={name} scope={card ? (typeof cardTitle === 'string' && cardTitle ? cardTitle : 'Orchestrator') : project.name} />
+          <span className="spacer" />
+          <NewChatButton threadId={threadId} lead={name} />
+        </div>
+      )}
       <div className="wb-agents-thread nowheel">
         <ThreadList
           key={threadId}
@@ -556,49 +562,56 @@ function LeadThread({ ws, main = false }: { ws: Workspace; main?: boolean }) {
       <div className="wb-orch-foot">
         {pending && pending.kind !== 'proposal' && pending.kind !== 'mission' && <ConfirmationCard c={pending} compact />}
         {reply && <ReplyChip reply={reply} onClear={() => setReply(null)} />}
-        {(attached || shownTeam.length > 0) && (
-          <div className="wb-orch-chips">
-            {attached && (
-              <span className="wb-context-chip wb-pane-chip">
-                <Icon name="fileCode" />
-                <span className="truncate" title={attached.rel}>
-                  {attached.label}
+        {/* the composer: one card, as the islands design draws it: what goes with the order, the
+            text, then its tools and Send */}
+        <div className={`wb-composer ${main ? 'has-fab' : ''}`}>
+          {(attached || shownTeam.length > 0) && (
+            <div className="wb-orch-chips">
+              {attached && (
+                <span className="wb-context-chip wb-pane-chip">
+                  <Icon name="fileCode" />
+                  <span className="truncate" title={attached.rel}>
+                    {attached.label}
+                  </span>
+                  <button type="button" aria-label="Leave this out of the order" title="Leave this out of the order" onClick={() => setDropped(attached.label)}>
+                    <Icon name="close" />
+                  </button>
                 </span>
-                <button type="button" aria-label="Leave this out of the order" title="Leave this out of the order" onClick={() => setDropped(attached.label)}>
-                  <Icon name="close" />
-                </button>
-              </span>
-            )}
-            {shownTeam.map((s) => (
-              <AgentChip key={s.id} session={s} onMention={() => mention(s.handle!)} />
-            ))}
-            {team.length > TEAM_CHIPS && <span className="wb-orch-more">+{team.length - TEAM_CHIPS}</span>}
+              )}
+              {shownTeam.map((s) => (
+                <AgentChip key={s.id} session={s} onMention={() => mention(s.handle!)} />
+              ))}
+              {team.length > TEAM_CHIPS && <span className="wb-orch-more">+{team.length - TEAM_CHIPS}</span>}
+            </div>
+          )}
+          <div className="orch-box wb-pane-input">
+            <AttachChips att={att} inputRef={inputRef} />
+            <MentionInput
+              projectId={project.id}
+              workspaceId={ctl.workspaceId}
+              cardId={card || undefined}
+              value={text}
+              onChange={setText}
+              onSubmit={(t) => void send(t)}
+              local={() => localMentions(ctl.nodes, ctl.sync.state.edges, sessions, (a) => agentById(a)?.name ?? a, card || undefined, { workspaceId: ctl.workspaceId, project })}
+              placeholder={reply?.handle ? `Reply to @${reply.handle}…` : `Talk to ${name}… @ to reach an agent`}
+              label="Order for the agents"
+              onEscape={() => setReply(null)}
+              historyKey={`pane.${threadId}`}
+              disabled={sending}
+              inputRef={inputRef}
+              maxRows={6}
+              menuPlacement="up"
+              attachments={att}
+            />
           </div>
-        )}
-        <div className={`orch-box wb-pane-input ${main ? 'has-fab' : ''}`}>
-          <AttachChips att={att} inputRef={inputRef} />
-          {main && <LeadQuickActions ws={ws} />}
-          <MentionInput
-            projectId={project.id}
-            workspaceId={ctl.workspaceId}
-            cardId={card || undefined}
-            value={text}
-            onChange={setText}
-            onSubmit={(t) => void send(t)}
-            local={() => localMentions(ctl.nodes, ctl.sync.state.edges, sessions, (a) => agentById(a)?.name ?? a, card || undefined, { workspaceId: ctl.workspaceId, project })}
-            placeholder={reply?.handle ? `Reply to @${reply.handle}…` : `Talk to ${name}…`}
-            label="Order for the agents"
-            onEscape={() => setReply(null)}
-            historyKey={`pane.${threadId}`}
-            disabled={sending}
-            inputRef={inputRef}
-            maxRows={6}
-            menuPlacement="up"
-            attachments={att}
-          />
-          <Button size="sm" variant="primary" iconOnly icon="send" aria-label="Send order" disabled={!att.canSend(text) || sending} loading={sending} onClick={() => void send(text.trim())} />
+          <div className="wb-composer-bar">
+            {main && <LeadQuickActions ws={ws} />}
+            <Button size="sm" variant="ghost" iconOnly icon="at" aria-label="Mention an agent" title="Mention an agent (@)" onClick={() => fillIn(`${text}${text && !text.endsWith(' ') ? ' ' : ''}@`)} />
+            <span className="spacer" />
+            <Button size="sm" variant="primary" iconOnly icon="send" aria-label="Send order" disabled={!att.canSend(text) || sending} loading={sending} onClick={() => void send(text.trim())} />
+          </div>
         </div>
-        <p className="wb-orch-hint">Enter to send · Shift+Enter for a new line · @ to mention</p>
       </div>
     </div>
   );
@@ -798,6 +811,7 @@ export function AgentsList({ ws, onOpen }: { ws: Workspace; onOpen?: (id: string
 
 /** The code view's right side bar: Lead | Agents, then a pane put there (an agent's menu "in the side bar"). */
 function PageSideBar({ ws }: { ws: Workspace }) {
+  const lead = useLeadName();
   // a count, not the sessions: they change on every console's event
   const agents = useSessionsValue((all) => Object.values(all).filter((s) => s.projectId === ws.projectId && s.agentKind === 'agent' && s.status !== 'exited' && (!s.panel || ws.paneConsoles.includes(s.id))).length);
   const uid = useId();
@@ -873,7 +887,27 @@ function PageSideBar({ ws }: { ws: Workspace }) {
         <span className="spacer" />
         <div className="wb-tabs-tools">
           {tab === 'pane' && pane && <Button size="sm" variant="ghost" iconOnly icon="external" aria-label="Move to an editor tab" title="Move to an editor tab" onClick={() => ws.placePane(pane, 'tab')} />}
-          <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Hide the side bar" title="Hide · Ctrl+Alt+B (agents keep running)" onClick={() => ((ws.rightOpen = false), ws.changed())} />
+          <Button
+            size="sm"
+            variant="ghost"
+            iconOnly
+            icon="plus"
+            aria-label="New chat"
+            title={`New chat with ${lead}: this one is kept`}
+            onClick={() => {
+              show('lead');
+              void newLeadChat(ws.projectId, lead);
+            }}
+          />
+          <Menu
+            label="Side bar actions"
+            icon="moreVertical"
+            items={[
+              { label: `New chat with ${lead}`, icon: 'plus', onSelect: () => (show('lead'), void newLeadChat(ws.projectId, lead)) },
+              'sep',
+              { label: 'Hide the side bar', icon: 'close', title: 'Ctrl+Alt+B. The agents keep running', onSelect: () => ((ws.rightOpen = false), ws.changed()) },
+            ]}
+          />
         </div>
       </div>
       <div className="wb-right-body" role="tabpanel" id={panelId} aria-labelledby={tabId(tab === 'pane' ? `pane-${pane}` : tab)}>

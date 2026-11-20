@@ -31,12 +31,55 @@ tone('var(--c-primary-300)', ['md', 'markdown', 'mdx', 'txt', 'rst']);
 
 export const fileColor = (name: string) => EXT_TONE[extOf(name)];
 
-/** A file's or folder's icon: from the icon theme when one is chosen. */
+/** The badge a file type gets when no icon theme is chosen (the islands design): two letters on its tone. */
+const BADGE: Record<string, string> = {};
+const badge = (text: string, exts: string[]) => exts.forEach((e) => (BADGE[e] = text));
+badge('TS', ['ts', 'mts', 'cts']);
+badge('TX', ['tsx']);
+badge('JS', ['js', 'mjs', 'cjs']);
+badge('JX', ['jsx']);
+badge('{}', ['json', 'jsonc', 'json5']);
+badge('MD', ['md', 'markdown', 'mdx']);
+badge('CS', ['css', 'scss', 'less']);
+badge('<>', ['html', 'htm', 'xml', 'svg']);
+badge('GO', ['go']);
+badge('PY', ['py']);
+badge('RS', ['rs']);
+badge('PH', ['php']);
+badge('RB', ['rb']);
+badge('VU', ['vue']);
+badge('SV', ['svelte']);
+badge('JV', ['java']);
+badge('KT', ['kt', 'kts']);
+badge('C', ['c', 'h']);
+badge('C+', ['cc', 'cpp', 'hpp']);
+badge('SW', ['swift']);
+badge('DT', ['dart']);
+badge('YM', ['yaml', 'yml']);
+badge('TM', ['toml']);
+badge('SH', ['sh', 'bash', 'zsh']);
+badge('SQ', ['sql']);
+badge('LK', ['lock']);
+badge('EN', ['env']);
+badge('TX', ['txt']);
+const badgeOf = (name: string) => BADGE[extOf(name)] ?? (name.startsWith('.env') ? 'EN' : '');
+
+/** A file's or folder's icon: from the icon theme when one is chosen, else a type badge or a plain icon. */
 export function FileIcon({ name, dir, open }: { name: string; dir?: boolean; open?: boolean }) {
   useIconTheme();
   const src = iconSrc(name, !!dir, !!open);
   if (src) return <img className="wb-icon wb-icon-img" src={src} alt="" draggable={false} />;
-  return <Icon name={dir ? (open ? 'folderOpen' : 'folder') : 'file'} className="wb-icon" style={dir ? undefined : { color: fileColor(name) }} />;
+  if (dir) return <Icon name={open ? 'folderOpen' : 'folder'} className="wb-icon wb-icon-dir" />;
+  const text = badgeOf(name);
+  const color = fileColor(name);
+  if (text) {
+    return (
+      <span className="wb-icon wb-fbadge" style={{ '--fb': color ?? 'var(--c-grey)' } as CSSProperties} aria-hidden="true">
+        {text}
+      </span>
+    );
+  }
+  return <Icon name="file" className="wb-icon" style={{ color }} />;
 }
 
 interface Props {
@@ -396,8 +439,8 @@ export function Explorer({ ws, onAddFile, onAddFolder, onTerminal, onAsk }: Prop
   return (
     <div className="wb-view">
       <header className="wb-view-head">
-        <h2 className="truncate" title={multi ? 'Every part of the project, each a folder' : splitKey(ws.rootKey).abs}>
-          {ws.name}
+        <h2 className="truncate" title={`${ws.name}${partHere ? ` · ${partHere.name}` : ''}: ${multi ? 'every part of the project, each a folder' : splitKey(ws.rootKey).abs}`}>
+          Project
           {partHere ? ` · ${partHere.name}` : ''}
         </h2>
         <Button size="sm" variant="ghost" iconOnly icon="file" aria-label="New file" title={atRoot ? ROOT_FIRST : 'New file'} disabled={atRoot} onClick={() => ws.startInput('file', targetDir())} />

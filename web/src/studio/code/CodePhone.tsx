@@ -36,7 +36,15 @@ export function PhoneNav({ tab, sheet, onTab, onSheet }: { tab: PhoneTab; sheet:
             className="tab-bar-item"
             aria-current={current ? 'page' : undefined}
             title={t.id === 'lead' ? `${leadName}, the lead` : undefined}
-            onClick={() => (isSheet(t.id) ? onSheet(t.id) : onTab(t.id))}
+            // a tap must not take the keyboard from the editor first: the key bar would go and the
+            // page would move under the finger before the tap ends, so the tap would miss
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              // leaving the editor: its keyboard and key bar go with it
+              if (t.id !== 'editor' && document.activeElement instanceof HTMLElement && document.activeElement.closest('.monaco-editor')) document.activeElement.blur();
+              if (isSheet(t.id)) onSheet(t.id);
+              else onTab(t.id);
+            }}
           >
             <span className="tab-bar-icon">
               <Icon name={t.icon} />

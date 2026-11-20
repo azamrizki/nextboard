@@ -34,13 +34,13 @@ const highlight = HighlightStyle.define([
 
 const theme = EditorView.theme(
   {
-    '&': { height: '100%', color: 'var(--syn-text)', backgroundColor: 'var(--surface-solid)', fontSize: 'var(--fs-sm)' },
+    '&': { height: '100%', color: 'var(--syn-text)', backgroundColor: 'var(--code-bg)', fontSize: 'var(--fs-sm)' },
     '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.55' },
     '.cm-content': { caretColor: 'var(--c-primary-300)', padding: 'var(--s-2) 0' },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--c-primary-300)', borderLeftWidth: '2px' },
     '&.cm-focused': { outline: 'none' },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'var(--editor-selection)' },
-    '.cm-gutters': { backgroundColor: 'var(--surface-solid)', color: 'var(--text-3)', border: 'none', borderRight: 'var(--hairline) solid var(--glass-border)' },
+    '.cm-gutters': { backgroundColor: 'var(--code-bg)', color: 'var(--text-3)', border: 'none', borderRight: 'var(--hairline) solid var(--glass-border)' },
     '.cm-activeLineGutter': { backgroundColor: 'var(--surface-hover)', color: 'var(--text-2)' },
     '.cm-activeLine': { backgroundColor: 'var(--editor-active-line)' },
     '.cm-selectionMatch': { backgroundColor: 'var(--editor-match)' },

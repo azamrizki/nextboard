@@ -11,8 +11,8 @@ import type { Project } from '../lib/types';
 import { AboutHubDialog, useBuildLabel } from './HubInfo';
 import { Menu, type MenuEntry } from './Menu';
 
-export function MoreMenu({ project }: { project?: Project }) {
-  const { me, logout } = useAuth();
+export function MoreMenu({ project, avatar }: { project?: Project; avatar?: boolean }) {
+  const { me, logout, hub } = useAuth();
   const { theme } = useTheme();
   const { layout } = useLayout();
   const { state: installState, install } = useInstall();
@@ -45,7 +45,14 @@ export function MoreMenu({ project }: { project?: Project }) {
 
   return (
     <>
-      <Menu label="More" items={items} className="more-menu" />
+      <Menu
+        label="More"
+        items={items}
+        className="more-menu"
+        // the islands bar: the hub as a round avatar (its first letter), the same menu
+        trigger={avatar ? <span className="nb-avatar" aria-hidden="true">{(me?.kind === 'device' ? me.deviceName : hub?.name || 'N').trim().charAt(0).toUpperCase() || 'N'}</span> : undefined}
+        triggerClassName={avatar ? 'nb-avatar-btn' : undefined}
+      />
       {about && <AboutHubDialog onClose={() => setAbout(false)} />}
     </>
   );

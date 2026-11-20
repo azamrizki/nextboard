@@ -54,7 +54,7 @@ let ready = false;
 /** The NextBoard theme from the tokens of the app's light or dark mode. */
 function defineBuiltinTheme() {
   const syn = (name: string, fallback: string) => bare(tokenColor(name, fallback));
-  const surface = tokenColor('--surface-solid', '#0b1020');
+  const surface = tokenColor('--code-bg', '#0b1020'); // the editor island's surface (tokens.css)
   const card = tokenColor('--tile-card-bg', '#151c32');
   const text = tokenColor('--syn-text', '#e6eaf2');
   const text2 = tokenColor('--text-2', '#b4bccd');

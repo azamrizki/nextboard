@@ -49,12 +49,13 @@ import { fileKey, isRootKey, parentKey, splitKey, viewKey } from './paths';
 import { useFullscreen } from '../../lib/useFullscreen';
 import { useRemoteConfirm } from '../confirm';
 import { BottomPanel, newTerminal, useProblems } from './BottomPanel';
+import { crumbsOf } from './partGroups';
 import { DebugDialogs, DebugToolbar, DebugView, registerDebugHover } from './DebugPanel';
 import { EditorArea } from './EditorArea';
 import { Explorer } from './Explorer';
 import { applyTheme, loadExtensions, useBuiltinTheme } from './extensions';
-import { store } from '../../store';
-import { registerEditorFocus, takePendingPane } from '../../agents/jump';
+import { store, useNeedsYou } from '../../store';
+import { jumpToNextNeedsYou, registerEditorFocus, takePendingPane } from '../../agents/jump';
 import { AgentSideBar, ClosePaneDialog, PaneEnv, ResumeChatsDialog, startAgentPane, usePaneChoices } from './AgentPanes';
 import { allowESLint, eslintFixAll, eslintStatus, type EslintState } from './eslintRun';
 import { ExtensionsPanel } from './ExtensionsPanel';
@@ -93,6 +94,10 @@ export interface PageBar {
   quickOpen: (initial?: string) => void;
   /** The phone layout: the bottom navigation does what the bar's toggles do elsewhere. */
   phone: boolean;
+  /** Show a side view (the branch chip opens Source Control). */
+  view: (v: SideView) => void;
+  /** Run a palette command by its id (tasks.run, debug.start). */
+  run: (id: string) => void;
 }
 
 interface Props {
@@ -206,11 +211,20 @@ function StatusBar({ ws, onPick, onView, onPanel }: { ws: Workspace; onPick: (ki
           ws.changed();
         }}
       >
-        <Icon name="alertCircle" />
-        <span className="tabular">{errors}</span>
-        <Icon name="alert" />
-        <span className="tabular">{warnings}</span>
+        <span className={`wb-status-count ${errors ? 'is-error' : ''}`}>
+          <Icon name="alertCircle" />
+          <span className="tabular">{errors}</span>
+        </span>
+        <span className={`wb-status-count ${warnings ? 'is-warning' : ''}`}>
+          <Icon name="alert" />
+          <span className="tabular">{warnings}</span>
+        </span>
       </button>
+      {doc && (
+        <button type="button" className="wb-status-path wb-status-extra" onClick={() => ws.revealInTree(doc.path)} title="Show in the file tree">
+          <span className="truncate">{crumbsOf(ws.paths, doc.path).map((x) => x.label).join(' › ')}</span>
+        </button>
+      )}
       {[...ws.docs.values()].some((d) => d.saving) && <span className="wb-status-note">Saving…</span>}
       {ws.debug.active && (
         <span className="wb-status-note wb-status-debug">
@@ -272,6 +286,26 @@ function StatusBar({ ws, onPick, onView, onPanel }: { ws: Workspace; onPick: (ki
         </>
       )}
     </footer>
+  );
+}
+
+/** The right strip's bell: the consoles that need you, the next one a click away. */
+function NeedsYouBell() {
+  const list = useNeedsYou();
+  const n = list.length;
+  const first = list[0];
+  return (
+    <button
+      type="button"
+      className="wb-activity-btn"
+      aria-label={n ? `${n} console${n === 1 ? ' needs' : 's need'} you. Jump to the next one` : 'No console needs you'}
+      title={first ? `${first.handle ? `@${first.handle}` : first.name} needs you` : 'No console needs you'}
+      disabled={!n}
+      onClick={jumpToNextNeedsYou}
+    >
+      <Icon name="bell" />
+      {n > 0 && <span className="wb-activity-dot" aria-hidden="true" />}
+    </button>
   );
 }
 
@@ -1090,6 +1124,8 @@ function Workbench({
   const dirtyCount = [...ws.docs.values()].filter((d) => d.dirty).length;
   // the activity badges add up the parts the card shows
   const changedFiles = ws.parts.reduce((n, pt) => n + (pt.git?.files?.length ?? 0), 0);
+  const problems = useProblems(ws);
+  const problemCount = problems.errors + problems.warnings;
   const reviewCount = ws.parts.reduce((n, pt) => n + pt.reviewCount, 0);
 
   return (
@@ -1112,7 +1148,13 @@ function Workbench({
       }}
     >
       {page ? (
-        topBar?.({ ws, quickOpen: (initial = '') => setPalette({ initial }), phone })
+        topBar?.({
+          ws,
+          quickOpen: (initial = '') => setPalette({ initial }),
+          phone,
+          view: showView,
+          run: (id) => commands().find((c) => c.id === id)?.run(),
+        })
       ) : (
       <TileHead
         id={nodeId}
@@ -1187,6 +1229,29 @@ function Workbench({
             </button>
           )}
           <span className="spacer" />
+          {page && !phone && (
+            <>
+              <button type="button" className={`wb-activity-btn ${ws.panelOpen ? 'is-active' : ''}`} aria-label="Toggle panel (Ctrl+`)" aria-pressed={ws.panelOpen} title="Terminal panel · Ctrl+`" onClick={togglePanel}>
+                <Icon name="terminal" />
+              </button>
+              <button
+                type="button"
+                className={`wb-activity-btn ${ws.panelOpen && ws.panelView === 'problems' ? 'is-active' : ''}`}
+                aria-label="Problems"
+                aria-pressed={ws.panelOpen && ws.panelView === 'problems'}
+                title="Problems · Ctrl+Shift+M"
+                onClick={() => {
+                  const shown = ws.panelOpen && ws.panelView === 'problems';
+                  ws.panelOpen = !shown;
+                  ws.panelView = 'problems';
+                  ws.changed();
+                }}
+              >
+                <Icon name="alertCircle" />
+                {problemCount > 0 && <span className="wb-activity-badge tabular">{problemCount}</span>}
+              </button>
+            </>
+          )}
           <button type="button" className={`wb-activity-btn ${sideShown && ws.side === 'settings' ? 'is-active' : ''}`} aria-label="Settings" aria-pressed={sideShown && ws.side === 'settings'} title="Settings" onClick={() => showView('settings')}>
             <Icon name="sliders" />
           </button>
@@ -1229,6 +1294,36 @@ function Workbench({
             )}
             <AgentSideBar ws={ws} workspaceId={ctl.workspaceId} page={page} />
           </>
+        )}
+        {page && !phone && (
+          // the right strip: the lead and agents, the history, the layout
+          <nav className="wb-activity wb-activity-right" aria-label="Side bars">
+            <NeedsYouBell />
+            <button
+              type="button"
+              className={`wb-activity-btn ${ws.rightOpen ? 'is-active' : ''}`}
+              aria-label="Toggle the lead and agents side bar (Ctrl+Alt+B)"
+              aria-pressed={ws.rightOpen}
+              title="Lead and agents · Ctrl+Alt+B"
+              onClick={() => ((ws.rightOpen = !ws.rightOpen), ws.changed())}
+            >
+              <Icon name="users" />
+            </button>
+            <button type="button" className="wb-activity-btn" aria-label="Commit graph" title="Commit graph" onClick={() => ws.openView({ kind: 'graph' }, { pin: true })}>
+              <Icon name="branch" />
+            </button>
+            <span className="spacer" />
+            <button
+              type="button"
+              className={`wb-activity-btn ${ws.sideOpen ? 'is-active' : ''}`}
+              aria-label="Toggle side bar (Ctrl+B)"
+              aria-pressed={ws.sideOpen}
+              title="Side bar · Ctrl+B"
+              onClick={() => ((ws.sideOpen = !ws.sideOpen), ws.changed())}
+            >
+              <Icon name="layout" />
+            </button>
+          </nav>
         )}
       </div>
       {!phone && (

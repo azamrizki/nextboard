@@ -482,11 +482,11 @@ textarea.control {
 .segmented {
   display: inline-flex;
   align-items: stretch;
-  gap: var(--s-1);
-  padding: var(--s-1);
-  border: var(--hairline) solid var(--glass-border);
+  gap: 2px;
+  padding: 3px;
+  border: var(--hairline) solid transparent;
   border-radius: var(--r-md);
-  background: var(--surface-input);
+  background: var(--surface-hover);
   max-width: 100%;
 }
 .segmented.block {
@@ -523,18 +523,18 @@ textarea.control {
   background: var(--surface-hover);
   color: var(--text);
 }
-.segmented-item[aria-current='page'] {
-  background: var(--surface-active);
-  color: var(--text);
-}
-/* a choice shows inverted, as a primary button does */
+.segmented-item[aria-current='page'],
 .segmented-item[aria-checked='true'] {
-  background: var(--c-primary);
-  color: var(--text-on-primary);
+  background: var(--tile-bg);
+  color: var(--text);
+  box-shadow:
+    var(--raise-shadow),
+    0 0 0 var(--hairline) var(--glass-border-strong);
 }
+/* the choice is raised out of its track (the islands design), not inverted */
 .segmented-item[aria-checked='true']:hover {
-  background: var(--c-primary-600);
-  color: var(--text-on-primary);
+  background: var(--tile-bg);
+  color: var(--text);
 }
 .segmented-item:disabled {
   opacity: var(--opacity-disabled);
@@ -1733,4 +1733,33 @@ textarea.control {
   font-weight: var(--fw-medium);
   text-align: center;
   pointer-events: none;
+}
+
+/* the hub as a round avatar: the More menu */
+.menu-trigger.nb-avatar-btn {
+  display: inline-grid;
+  place-content: center;
+  width: 32px;
+  height: 32px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+.nb-avatar {
+  display: inline-grid;
+  place-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  color: var(--text-on-primary);
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
+}
+.menu-trigger.nb-avatar-btn:hover .nb-avatar,
+.menu-trigger.nb-avatar-btn[aria-expanded='true'] .nb-avatar {
+  box-shadow: 0 0 0 3px var(--surface-active);
 }

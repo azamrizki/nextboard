@@ -1322,3 +1322,13 @@ textarea.control.textarea-sm {
   width: 12px;
   height: 12px;
 }
+
+/* islands: a console's state reads as a word in a soft pill, not a shouted label */
+.nb-node-header .agent-pill {
+  height: 20px;
+  padding: 0 var(--s-2);
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 11px;
+}
+

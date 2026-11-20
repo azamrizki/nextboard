@@ -217,18 +217,6 @@ function Terminals({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) 
         {active ? <TerminalView key={active} sessionId={active} /> : <p className="wb-panel-msg">No terminal here: start one with New terminal, or bring one back from the editor area (its tab’s Move to Panel).</p>}
       </div>
       <div className="wb-term-list">
-        {ws.paths.multi ? (
-          // a Root card asks where: the root (every part) or one part, in the panel or the editor area
-          <Menu label="New terminal" icon="plus" triggerLabel="New terminal" items={() => terminalMenu(ws, workspaceId, active)} />
-        ) : (
-          // one click starts one in the panel, as before; the rest is in the menu beside it
-          <span className="wb-term-new">
-            <Button size="sm" variant="ghost" icon="plus" onClick={() => void newTerminal(ws, workspaceId)}>
-              New terminal
-            </Button>
-            <Menu label="More terminal actions" icon="chevronDown" items={() => terminalMenu(ws, workspaceId, active)} />
-          </span>
-        )}
         {ws.terminals.map((id, i) => (
           <TerminalTab key={id} ws={ws} id={id} index={i} />
         ))}
@@ -347,7 +335,7 @@ function Output({ ws }: { ws: Workspace }) {
 export function BottomPanel({ ws, workspaceId }: { ws: Workspace; workspaceId: string }) {
   useWs(ws);
   const { errors, warnings } = useProblems(ws);
-  const tab = (v: PanelView, label: string, badge?: number) => (
+  const tab = (v: PanelView, label: string, badge?: number, icon?: IconName) => (
     <button
       type="button"
       role="tab"
@@ -358,6 +346,7 @@ export function BottomPanel({ ws, workspaceId }: { ws: Workspace; workspaceId: s
         ws.changed();
       }}
     >
+      {icon && <Icon name={icon} />}
       {label}
       {badge ? <span className="wb-badge tabular">{badge}</span> : null}
     </button>
@@ -366,14 +355,24 @@ export function BottomPanel({ ws, workspaceId }: { ws: Workspace; workspaceId: s
     <div className="wb-panel">
       <div className="wb-panel-head">
         <div role="tablist" aria-label="Panel" className="wb-panel-tabs">
-          {tab('terminal', 'Terminal')}
-          {tab('problems', 'Problems', errors + warnings)}
+          {tab('terminal', 'Terminal', undefined, 'terminal')}
+          {tab('problems', 'Problems', errors + warnings, 'alertCircle')}
           {tab('tasks', 'Tasks', [...ws.taskRuns.values()].filter((r) => r.state === 'running').length)}
           {tab('output', 'Output')}
           {tab('ports', 'Ports')}
           {tab('debug', 'Debug Console')}
         </div>
         <span className="spacer" />
+        {ws.panelView === 'terminal' &&
+          (ws.paths.multi ? (
+            // a Root card asks where: the root (every part) or one part, in the panel or the editor area
+            <Menu label="New terminal" icon="plus" items={() => terminalMenu(ws, workspaceId, ws.activeTerminal)} />
+          ) : (
+            <>
+              <Button size="sm" variant="ghost" iconOnly icon="plus" aria-label="New terminal" title="New terminal" onClick={() => void newTerminal(ws, workspaceId)} />
+              <Menu label="More terminal actions" icon="splitRight" items={() => terminalMenu(ws, workspaceId, ws.activeTerminal)} />
+            </>
+          ))}
         <Button
           size="sm"
           variant="ghost"

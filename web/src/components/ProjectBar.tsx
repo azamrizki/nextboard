@@ -11,6 +11,7 @@ import { projectParts } from '../lib/parts';
 import { renameTo, useRenameDraft } from '../lib/renameDraft';
 import { boardPath, navigate } from '../lib/router';
 import { openBoard, openCode, openProject } from '../home/OpenChoice';
+import { ProjectIcon } from '../home/ProjectArt';
 import type { CloseAllPreview, Project, Workspace } from '../lib/types';
 import { isActive } from '../agents/state';
 import { store, useMachines, useProjectBadges, useProjectGroups, useProjects } from '../store';
@@ -272,9 +273,9 @@ export function EditorProjectSwitch({ project, target, label, className }: { pro
           setMenu(menu ? null : { x: r.left, y: r.bottom + 6 });
         }}
       >
-        <Icon name="folder" />
+        <ProjectIcon project={project} className="editor-switch-icon" />
         <span className="truncate">{label ?? project.name}</span>
-        {parts.length > 1 && target === 'code' && <span className="editor-switch-meta">{parts.length} parts</span>}
+        {parts.length > 1 && target === 'code' && <span className="editor-switch-meta">· {parts.length} parts</span>}
         <Icon name="chevronDown" className="chev" />
       </button>
       {menu && <SwitchMenu x={menu.x} y={menu.y} project={project} target={target} onClose={() => setMenu(null)} />}
@@ -306,8 +307,9 @@ export function ProjectSwitcher({ project }: { project: Project }) {
           setMenu(menu ? null : { x: r.left, y: r.bottom + 6 });
         }}
       >
-        <Icon name="folder" />
+        <ProjectIcon project={project} className="editor-switch-icon" />
         <span className="truncate">{project.name}</span>
+        {(project.parts?.length ?? 0) > 1 && <span className="editor-switch-meta">· {project.parts!.length} parts</span>}
         <Icon name="chevronDown" className="chev" />
       </button>
       {menu && <SwitchMenu x={menu.x} y={menu.y} project={project} onClose={() => setMenu(null)} onCloseAll={() => setClosingAll(true)} />}

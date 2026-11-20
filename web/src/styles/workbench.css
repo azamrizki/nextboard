@@ -3302,3 +3302,435 @@
 .wb-ports-machine + .wb-ports-machine {
   border-top: var(--hairline) solid var(--wb-line);
 }
+
+/* =========================================================================
+   Islands (DESIGN.md §3.19, §2.6): the workbench's parts float on a backdrop as rounded
+   islands; the gap between them is the divider and the sash. The Code view page and the editor
+   card on the board look the same; a phone keeps its one view at a time. Surfaces stay solid
+   (Monaco and xterm repaint constantly, so no blur behind them).
+   ========================================================================= */
+
+.wb:not(.is-phone) {
+  --wb-bar: var(--code-bg);
+  --wb-line: var(--tile-border);
+  background: transparent;
+}
+/* the card: its own backdrop, the page's glow */
+.tile-editor {
+  background: var(--bg-ambient);
+}
+.wb:not(.is-phone) > .wb-title {
+  background: transparent;
+  border-bottom-color: transparent;
+}
+.wb:not(.is-phone) > .wb-body {
+  padding: 0 var(--island-gap) 0 0;
+}
+.wb:not(.is-phone):not(.is-page) > .wb-body {
+  padding-bottom: var(--island-gap);
+}
+/* the activity strips: on the backdrop, the current view a small raised island */
+.wb:not(.is-phone) .wb-activity {
+  width: 50px;
+  padding: var(--nudge) 0;
+  gap: var(--s-1);
+  background: transparent;
+  border: 0;
+}
+.wb:not(.is-phone) .wb-activity-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-md);
+}
+.wb:not(.is-phone) .wb-activity-btn.is-active {
+  background: var(--tile-bg);
+  color: var(--text);
+  box-shadow: var(--tile-shadow), inset 0 0 0 var(--hairline) var(--tile-border);
+}
+.wb-activity-right {
+  width: 44px !important;
+  margin-right: calc(-1 * var(--island-gap));
+}
+/* the islands */
+.wb:not(.is-phone) :is(.wb-side, .wb-right),
+.wb:not(.is-phone) .wb-center > .wb-editors,
+.wb:not(.is-phone) .wb-panel-wrap {
+  border-radius: var(--r-island);
+  border: var(--hairline) solid var(--tile-border);
+  box-shadow: var(--tile-shadow), var(--glass-highlight);
+  overflow: hidden;
+}
+.wb:not(.is-phone) :is(.wb-side, .wb-right),
+.wb:not(.is-phone) .wb-center > .wb-editors,
+.wb:not(.is-phone) .wb-panel-wrap,
+.wb:not(.is-phone) .wb-panel,
+.wb:not(.is-phone) .wb-group {
+  background: var(--code-bg);
+}
+/* the panel's terminals on the island's surface (useTerminal reads --term-bg from the console) */
+.wb:not(.is-phone) .wb-panel {
+  --term-bg: var(--code-bg);
+}
+/* sashes: the gap itself; a short line only under the pointer */
+.wb:not(.is-phone) > .wb-body > .wb-sash-v,
+.wb:not(.is-phone) .wb-center > .wb-sash-h {
+  background: transparent;
+}
+.wb:not(.is-phone) > .wb-body > .wb-sash-v {
+  width: var(--island-gap);
+}
+.wb:not(.is-phone) .wb-center > .wb-sash-h {
+  height: var(--island-gap);
+}
+.wb:not(.is-phone) > .wb-body > .wb-sash-v:hover,
+.wb:not(.is-phone) .wb-center > .wb-sash-h:hover {
+  background: linear-gradient(var(--c-primary-300), var(--c-primary-300)) center / 2px 40% no-repeat;
+}
+.wb:not(.is-phone) .wb-center > .wb-sash-h:hover {
+  background-size: 40% 2px;
+}
+/* a side bar lying over the editor (a narrow or medium workbench) is an island too */
+.wb:is(.is-narrow, .is-medium):not(.is-phone) .wb-right {
+  right: var(--island-gap);
+  border-left: var(--hairline) solid var(--tile-border);
+}
+
+/* ---- inside the islands ---- */
+/* a view's head: its title in the island's own type, the tools after it */
+.wb:not(.is-phone) .wb-view-head {
+  height: 40px;
+  padding: 0 var(--s-1) 0 var(--s-3);
+}
+.wb:not(.is-phone) .wb-view-head h2 {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* tree rows: rounded, inset from the island's edges */
+.wb:not(.is-phone) .wb-tree {
+  padding: 2px var(--s-1) var(--s-2);
+}
+.wb:not(.is-phone) .wb-tree .wb-row {
+  height: 26px;
+  border-radius: 7px;
+  contain-intrinsic-size: auto 26px;
+}
+.wb:not(.is-phone) .wb-tree .wb-row.is-selected {
+  background: var(--surface-active);
+}
+.wb:not(.is-phone) .wb-tree:focus-visible {
+  box-shadow: none;
+}
+.wb:not(.is-phone) .wb-tree:focus-within .wb-row.is-selected {
+  box-shadow: inset 0 0 0 var(--hairline) var(--glass-border-strong);
+}
+/* a part's row: a small heading, its machine on the right */
+.wb:not(.is-phone) .wb-tree .wb-row.is-part {
+  margin-top: var(--s-2);
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.wb:not(.is-phone) .wb-tree .wb-row.is-part:first-child {
+  margin-top: 0;
+}
+.wb:not(.is-phone) .wb-tree .wb-row.is-part .wb-part-machine {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: var(--fw-regular);
+}
+/* tab strips: 30 px pills on the island's surface */
+.wb:not(.is-phone) .wb-group > .wb-tabs,
+.wb:not(.is-phone) .wb-right-tabs {
+  height: 42px;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0 var(--s-1) 0 var(--s-2);
+  background: transparent;
+}
+.wb:not(.is-phone) .wb-tabs .wb-tab {
+  height: 30px;
+  border-right: 0;
+  border: var(--hairline) solid transparent;
+  border-radius: var(--r-md);
+}
+.wb:not(.is-phone) .wb-tabs .wb-tab.is-active {
+  background: var(--surface-active);
+  border-color: var(--glass-border-strong);
+  box-shadow: none;
+}
+.wb:not(.is-phone) .wb-group.is-active .wb-tab.is-active {
+  border-color: var(--c-primary-300);
+  box-shadow: none;
+}
+.wb:not(.is-phone) .wb-right-tabs .wb-tabs-tools {
+  background: transparent;
+}
+/* the lead and agents: Lead | Agents as a segmented pill */
+.wb:not(.is-phone) .wb-right-tabs .wb-side-tabs {
+  padding: 3px;
+  border-radius: var(--r-md);
+}
+.wb:not(.is-phone) .wb-right-body,
+.wb:not(.is-phone) .wb-pane-tab {
+  background: transparent;
+}
+/* the panel: pill tabs; a terminal's instances as small pills along the top */
+.wb:not(.is-phone) .wb-panel-head {
+  height: 42px;
+  padding: 0 var(--s-1) 0 var(--s-2);
+}
+.wb:not(.is-phone) .wb-panel-tab {
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+}
+.wb:not(.is-phone) .wb-panel-tab.is-active {
+  background: var(--surface-active);
+  color: var(--text);
+}
+.wb:not(.is-phone) .wb-terms {
+  flex-direction: column-reverse;
+  min-height: 0;
+}
+.wb:not(.is-phone) .wb-terms > .wb-term-body {
+  min-height: 0;
+}
+.wb:not(.is-phone) .wb-terms > .wb-term-list {
+  flex: 0 0 auto;
+}
+.wb:not(.is-phone) .wb-term-list {
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  gap: var(--s-1);
+  padding: 0 var(--s-3) var(--s-1);
+  border-left: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.wb:not(.is-phone) .wb-term-tab {
+  flex: 0 0 auto;
+  max-width: 200px;
+  border-radius: var(--r-sm);
+  background: var(--surface-hover);
+}
+.wb:not(.is-phone) .wb-term-tab.is-active {
+  background: var(--surface-active);
+  box-shadow: inset 0 0 0 var(--hairline) var(--glass-border-strong);
+}
+.wb:not(.is-phone) .wb-term-tab > button:first-child {
+  padding: 0 var(--s-2);
+}
+.wb:not(.is-phone) .wb-term-new {
+  order: 99;
+}
+.wb:not(.is-phone) .wb-term-body {
+  padding: 2px 0 0 var(--s-3);
+}
+/* the status bar: on the backdrop */
+.wb:not(.is-phone) .wb-status {
+  height: 28px;
+  padding: 0 var(--s-2);
+  background: transparent;
+  border-top: 0;
+  color: var(--text-3);
+}
+.wb-status-path {
+  max-width: 40%;
+}
+
+/* ---- islands: the details the design draws ---- */
+/* a file's type as a small badge (FileIcon, no icon theme chosen) */
+.wb-fbadge {
+  display: inline-grid;
+  place-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--fb);
+  color: var(--wb-on-lane);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.wb-icon-dir {
+  color: color-mix(in srgb, var(--syn-title) 45%, var(--text-3));
+}
+/* the activity strips' dot (the bell: a console needs you) */
+.wb-activity-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.wb-activity-btn:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.wb-activity-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-3);
+}
+.wb:not(.is-phone) .wb-activity-badge {
+  top: 2px;
+  right: 1px;
+  bottom: auto;
+  min-width: 16px;
+  line-height: 16px;
+  font-weight: var(--fw-semibold);
+}
+/* the panel: icons on Terminal and Problems, counts as plain small numbers */
+.wb:not(.is-phone) .wb-panel-tab svg {
+  width: 14px;
+  height: 14px;
+}
+.wb:not(.is-phone) .wb-panel-tab .wb-badge {
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: inherit;
+}
+.wb:not(.is-phone) .wb-panel-head .menu .btn,
+.wb:not(.is-phone) .wb-panel-head > .btn {
+  color: var(--text-2);
+}
+/* terminals: pills with their name; move and close show on the pill under the pointer */
+.wb:not(.is-phone) .wb-term-tab > button:first-child svg {
+  display: none;
+}
+.wb:not(.is-phone) .wb-term-tab > button:first-child {
+  height: 24px;
+  color: var(--text-2);
+}
+.wb:not(.is-phone) .wb-term-tab.is-active > button:first-child {
+  color: var(--text);
+}
+.wb:not(.is-phone) .wb-term-tab > .wb-tab-close {
+  display: none;
+}
+.wb:not(.is-phone) .wb-term-tab:hover > .wb-tab-close {
+  display: grid;
+}
+/* the lead: who it is, the thread, and the composer as one floating card */
+.wb:not(.is-phone) .wb-orch-head {
+  gap: var(--s-2);
+  padding: var(--s-1) var(--wb-orch-gutter) var(--s-3);
+  border-bottom: 0;
+}
+.wb:not(.is-phone) .wb-orch-who h2 {
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+}
+.wb-orch-sub .lead-chat-btn {
+  height: auto;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.wb-orch-sub .lead-chat-btn:hover,
+.wb-orch-sub .lead-chat-btn[aria-expanded='true'] {
+  background: transparent;
+  color: var(--text);
+}
+.wb-orch-sub .lead-chat-btn > svg {
+  width: 12px;
+  height: 12px;
+}
+.wb-orch-foot {
+  padding-top: var(--s-1);
+}
+.wb-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-island);
+  background: var(--surface-hover);
+  box-shadow: var(--tile-shadow);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.wb-composer:focus-within {
+  border-color: var(--glass-border-strong);
+}
+.wb-composer > .orch-box,
+.wb-composer > .orch-box:focus-within {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.wb-composer .wb-orch-chips {
+  padding-top: 2px;
+}
+.wb-composer .wb-orch-chips .wb-context-chip {
+  height: 22px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+}
+.wb-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin-left: calc(-1 * var(--s-1));
+}
+.wb-composer-bar .wb-lead-fab {
+  align-self: center;
+}
+.wb-composer-bar .btn-primary {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+}
+/* the status bar: errors red, warnings amber while there are any */
+.wb-status-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.wb-status-count.is-error {
+  color: var(--c-danger-300);
+}
+.wb-status-count.is-warning {
+  color: var(--tint-warning-text);
+}
+.wb:not(.is-phone) .wb-status button,
+.wb:not(.is-phone) .wb-status-item,
+.wb:not(.is-phone) .wb-status-note {
+  padding: 0 6px;
+}
+/* the composer's Quick actions: a plain + like its other tools, not the command bar's round button */
+.wb-composer-bar .wb-lead-fab .cmd-fab {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-2);
+  box-shadow: none;
+}
+.wb-composer-bar .wb-lead-fab .cmd-fab:hover,
+.wb-composer-bar .wb-lead-fab .cmd-fab[aria-expanded='true'] {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
