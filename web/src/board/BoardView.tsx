@@ -1825,6 +1825,16 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
   const fitRef = useRef<boolean | null>(null);
   if (status === 'ready' && fitRef.current === null) fitRef.current = !initialViewport && state.nodes.length > 0;
   const fitOnInit = fitRef.current ?? false;
+  // A phone opens on its card list, where the canvas is skipped (content-visibility) and no card
+  // has a size: the first fit then lands at the smallest zoom with the cards off screen. Fit once
+  // more the first time the Board tab shows, unless the board has a view of its own to keep.
+  const phoneFitted = useRef(false);
+  useEffect(() => {
+    if (!phone || phoneTab !== 'board' || phoneFitted.current || !fitOnInit) return;
+    phoneFitted.current = true;
+    const t = window.setTimeout(() => void rf.fitView(FIT_OPTIONS), 80);
+    return () => window.clearTimeout(t);
+  }, [phone, phoneTab, fitOnInit, rf]);
   const moveTimer = useRef(0);
   const layerTimer = useRef(0);
   useEffect(
