@@ -426,11 +426,16 @@ interface ContextMenuProps {
   onClose: () => void;
   /** Hangs from y and scrolls, for rows that open and close: it never rises over its button. */
   anchored?: boolean;
+  /**
+   * A sheet instead: over the page with the same margin on every side and a backdrop under it,
+   * for a long list on a tablet, where one hanging from its button runs off the screen.
+   */
+  sheet?: boolean;
   className?: string;
 }
 
 /** Menu at the pointer (right-click). Focus moves into it; Esc / outside click closes. */
-export function ContextMenu({ x, y, label, items, onClose, anchored, className }: ContextMenuProps) {
+export function ContextMenu({ x, y, label, items, onClose, anchored, sheet, className }: ContextMenuProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number; maxHeight?: number } | null>(null);
   const prevFocus = useRef(document.activeElement as HTMLElement | null);
@@ -441,8 +446,9 @@ export function ContextMenu({ x, y, label, items, onClose, anchored, className }
     const h = el?.offsetHeight ?? 0;
     const gap = 8;
     const left = Math.max(gap, Math.min(x, window.innerWidth - w - gap));
-    setPos(anchored ? { left, top: y, maxHeight: window.innerHeight - y - gap } : { left, top: Math.max(gap, Math.min(y, window.innerHeight - h - gap)) });
-  }, [x, y, anchored]);
+    if (sheet) setPos({ left: 0, top: 0 }); // placed by its class
+    else setPos(anchored ? { left, top: y, maxHeight: window.innerHeight - y - gap } : { left, top: Math.max(gap, Math.min(y, window.innerHeight - h - gap)) });
+  }, [x, y, anchored, sheet]);
 
   const placed = pos !== null;
   useEffect(() => {
@@ -458,6 +464,13 @@ export function ContextMenu({ x, y, label, items, onClose, anchored, className }
   };
   useDismiss(true, listRef, () => onClose());
 
+  if (sheet)
+    return (
+      <>
+        <div className="menu-sheet-backdrop" aria-hidden="true" />
+        <MenuList label={label} items={items} listRef={listRef} onClose={close} className={`menu-sheet ${className ?? ''}`} style={pos ? {} : { visibility: 'hidden' }} />
+      </>
+    );
   return (
     <MenuList
       label={label}

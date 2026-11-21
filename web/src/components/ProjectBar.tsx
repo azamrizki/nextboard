@@ -3,6 +3,7 @@
 // right-click menu (a long press on a touch screen) does all of that too. Phones get one
 // switcher for the project and its workspaces instead (PhoneSwitcher).
 
+import { useLayout } from '../lib/layout';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, errorMessage } from '../api';
 import { BadgeMark, badgeSections } from '../home/badges';
@@ -135,6 +136,7 @@ function SwitchMenu({
   const projects = useProjects();
   const machines = useMachines();
   const groups = useProjectGroups();
+  const { layout } = useLayout();
   // the current project is always in sight when the menu opens
   const [collapsed, toggle] = useCollapsedGroups(groupChain(groups, project.groupId).map((g) => g.id));
   const [sort, chooseSort] = useMenuSort();
@@ -245,7 +247,8 @@ function SwitchMenu({
           ...(sorts.length ? (['sep', ...sorts] as MenuEntry[]) : []),
         ];
 
-  return <ContextMenu x={x} y={y} label="Switch project" items={items} onClose={onClose} anchored className="project-switch-menu" />;
+  // a tablet: a sheet nearly the size of the screen, the same margin on every side
+  return <ContextMenu x={x} y={y} label="Switch project" items={items} onClose={onClose} anchored sheet={layout === 'tablet'} className="project-switch-menu" />;
 }
 
 /**

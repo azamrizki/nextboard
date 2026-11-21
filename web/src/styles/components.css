@@ -1147,6 +1147,22 @@ textarea.control {
    Menu & popover
    ========================================================================= */
 
+/* a long menu on a tablet (ContextMenu sheet): over the page, the same margin on every side */
+.menu-list.menu-sheet {
+  inset: var(--s-6);
+  width: auto;
+  max-width: none;
+  max-height: none;
+}
+.menu-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu);
+  background: var(--backdrop);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  backdrop-filter: var(--backdrop-blur);
+  animation: nb-fade var(--t-base) var(--ease);
+}
 .menu-list {
   position: fixed;
   z-index: var(--z-menu);
