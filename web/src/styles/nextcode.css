@@ -1183,3 +1183,14 @@ textarea.control.nc-note {
 
 @media (prefers-reduced-motion: reduce) {
 }
+/* a reply being written is drawn block by block (Items.tsx GrowingMarkdown): the blocks lay out
+   as the one rendering of it would */
+.nc-md-block {
+  display: contents;
+}
+.nc-md > .nc-md-block:first-child > :first-child {
+  margin-top: 0;
+}
+.nc-md > .nc-md-block:last-child > :last-child {
+  margin-bottom: 0;
+}

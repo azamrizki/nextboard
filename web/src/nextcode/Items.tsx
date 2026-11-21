@@ -13,6 +13,7 @@ import { SentFiles } from './ChatAttachments';
 import { hunks, toolDiff, type Diff } from './diff';
 import { isLoginError, loginHelp } from './format';
 import type { Stream } from './reducer';
+import { splitBlocks, useSmoothText } from './smooth';
 import { inputText, tail, todosOf, toolArg, toolIcon, toolLabel, toolLook, toolMeta, toolPath } from './tools';
 import type { Item, Tool } from './types';
 
@@ -57,6 +58,47 @@ export function Markdown({ text, caret = false, className = '' }: { text: string
   }
   // eslint-disable-next-line react/no-danger -- sanitised by renderMarkdown
   return <div className={`nc-md ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+/** One block of a reply being written (smooth.ts splitBlocks): drawn again only when it changes. */
+const MdBlock = memo(function MdBlock({ src, caret }: { src: string; caret: boolean }) {
+  const md = useMarkdown();
+  const html = useMemo(() => {
+    if (!md) return '';
+    const out = md.renderMarkdown(src);
+    return caret ? withCaret(out) : out;
+  }, [md, src, caret]);
+  // eslint-disable-next-line react/no-danger -- sanitised by renderMarkdown
+  return <div className="nc-md-block" dangerouslySetInnerHTML={{ __html: html }} />;
+});
+
+/**
+ * Markdown that is still being written: the blocks that are done keep what they were drawn as,
+ * and only the last one is rendered again as text comes, however long the reply grows.
+ */
+function GrowingMarkdown({ text, caret, className = '' }: { text: string; caret: boolean; className?: string }) {
+  const md = useMarkdown();
+  const { done, tail } = useMemo(() => splitBlocks(text), [text]);
+  if (!md) return <Markdown text={text} caret={caret} className={className} />;
+  return (
+    <div className={`nc-md ${className}`}>
+      {done.map((src, i) => (
+        <MdBlock key={i} src={src} caret={false} />
+      ))}
+      <MdBlock key={done.length} src={tail} caret={caret} />
+    </div>
+  );
+}
+
+/**
+ * The agent's reply when it is complete. Its streamed block may not all be shown yet (smooth.ts):
+ * the rest is shown on from there, then the whole reply is rendered as one.
+ */
+function ReplyText({ item, className }: { item: Item; className: string }) {
+  const text = item.text ?? '';
+  const shown = useSmoothText(text, false, item.stream);
+  if (shown.length < text.length) return <GrowingMarkdown text={shown} caret className={className} />;
+  return <Markdown text={text} className={className} />;
 }
 
 /** The mark of NextCode: NextBoard's monochrome "N›" with the agent's violet dot. */
@@ -356,7 +398,7 @@ function ItemViewImpl({ item, compact, waitingFor, nested = false }: ItemProps) 
     case 'user':
       return <UserMessage item={item} />;
     case 'text':
-      return <Markdown text={item.text ?? ''} className={nested ? 'is-small' : ''} />;
+      return <ReplyText item={item} className={nested ? 'is-small' : ''} />;
     case 'thinking':
       return <Thinking text={item.text ?? ''} />;
     case 'tool':
@@ -413,12 +455,19 @@ export const StreamView = memo(function StreamView({ stream, compact }: { stream
       </div>
     );
   }
-  if (!stream.text && live) {
+  return <StreamText stream={stream} live={live} className={compact && stream.parent ? 'is-small' : ''} />;
+});
+
+/** A reply being streamed, shown smoothly (smooth.ts), with the caret while more comes. */
+function StreamText({ stream, live, className }: { stream: Stream; live: boolean; className: string }) {
+  const shown = useSmoothText(stream.text, live, stream.id, true);
+  const caret = live || shown.length < stream.text.length;
+  if (!shown && caret) {
     return (
       <div className="nc-md">
         <span className="nc-caret" aria-hidden="true" />
       </div>
     );
   }
-  return <Markdown text={stream.text} caret={live} className={compact && stream.parent ? 'is-small' : ''} />;
-});
+  return <GrowingMarkdown text={shown} caret={caret} className={className} />;
+}

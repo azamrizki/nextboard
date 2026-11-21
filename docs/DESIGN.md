@@ -424,6 +424,7 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
     its command and the end of its output;
   - a sub-agent's calls group under its Task call;
   - while text streams, a still caret ends it (only the busy dot animates, §2.5).
+  - streamed text shows smoothly (`nextcode/smooth.ts`): it comes in bursts, and each burst is spread over the next ~260 ms of frames (~140 ms once the reply is complete, never under 90 characters a second), so it reads as a steady flow without falling behind. The finished reply's item takes over where its stream was. Only the last block of Markdown is rendered again per frame; the blocks before it are done. A hidden tab shows the text as it is.
 - **Requests:** the needs-you card (the `--needs` tint and glow, like a needs-you tile):
   - **permission:** Allow once (primary), Always allow (only when the CLI offers a rule), and
     Deny… on the right; Deny… opens a note box with Deny and tell it / Deny and stop;
