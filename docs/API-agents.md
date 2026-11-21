@@ -1136,7 +1136,7 @@ NextCode is NextBoard's own code agent, a built-in next to Claude Code and Codex
   - The same chat, requests, states and REST/WebSocket as the Claude engine.
   - Its own home `<data>/agents/nextcode-codex` (`CODEX_HOME`, named "NextCode"), signed in through a Codex terminal (`codex login`).
   - No context from the hub at all: no MCP server, instructions or memory.
-  - The permission modes map to Codex's approval policy and sandbox: `default`/`acceptEdits` → `on-request` + `workspace-write`, `plan` → `on-request` + `read-only`, `auto` → `on-request` with the auto reviewer, `bypassPermissions` → `never` + `danger-full-access`.
+  - The permission modes map to Codex's approval policy and sandbox, so that each means what it means on the other engines: `default` (Always ask) → `on-request` + `read-only`, Codex's own Read Only preset, which reads and asks before every edit and every command that writes (in `workspace-write` it would edit the project without asking); `acceptEdits` → `on-request` + `workspace-write`; `plan` → `on-request` + `read-only` (Codex has no plan to approve here); `auto` → `on-request` + `workspace-write` with the auto reviewer; `bypassPermissions` → `never` + `danger-full-access`.
   - Approvals answer `accept`, `acceptForSession` (Always), `decline`, `cancel` (Deny and stop).
   - A message sent while a turn runs waits for its end.
   - This PC only.

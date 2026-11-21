@@ -425,7 +425,7 @@ func TestCodexArgv(t *testing.T) {
 
 func TestCodexModeMapping(t *testing.T) {
 	for _, c := range []struct{ mode, approval, sandbox, reviewer string }{
-		{"default", "on-request", "workspace-write", "user"},
+		{"default", "on-request", "read-only", "user"}, // Always ask: every edit asks
 		{"acceptEdits", "on-request", "workspace-write", "user"},
 		{"plan", "on-request", "read-only", "user"},
 		{"auto", "on-request", "workspace-write", "auto_review"},
@@ -441,7 +441,8 @@ func TestCodexModeMapping(t *testing.T) {
 
 func TestCodexStreamedTurnAndHistory(t *testing.T) {
 	dir := t.TempDir()
-	r := newCodexRig(t, dir, 0, "default")
+	// Accept edits: the workspace's sandbox (Always ask reads only, TestCodexModeMapping)
+	r := newCodexRig(t, dir, 0, "acceptEdits")
 	if err := r.d.Send("hello"); err != nil {
 		t.Fatal(err)
 	}
@@ -808,7 +809,7 @@ func TestCodexUnknownServerRequest(t *testing.T) {
 // The engine alone, for what the fake does not script.
 func TestCodexEngine(t *testing.T) {
 	e := newCodexEngine()
-	e.argv(codexBase(true), "default")
+	e.argv(codexBase(true), "acceptEdits")
 	reply := func(evs []ev, i int) map[string]any {
 		t.Helper()
 		if len(evs) <= i || evs[i].kind != evReply {

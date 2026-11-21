@@ -26,18 +26,23 @@ const (
 )
 
 // codexMode is the approval policy, sandbox mode and approvals reviewer of a permission mode;
-// "" for the CLI's own (its config).
+// "" for the CLI's own (its config). The five modes mean the same on every engine, as near as
+// Codex allows:
+//   - default (Always ask) is Codex's own Read Only preset: it reads and runs read-only commands,
+//     and asks before every edit and every command that writes. In a workspace-write sandbox it
+//     would edit the project without asking, which is acceptEdits.
+//   - plan reads only too: Codex has no plan to approve here, so it changes nothing.
 func codexMode(mode string) (approval, sandbox, reviewer string) {
 	switch mode {
 	case "":
 		return "", "", ""
-	case "plan":
+	case "default", "plan":
 		return "on-request", "read-only", "user"
 	case "auto":
 		return "on-request", "workspace-write", "auto_review"
 	case "bypassPermissions":
 		return "never", "danger-full-access", "user"
-	default: // default, acceptEdits
+	default: // acceptEdits
 		return "on-request", "workspace-write", "user"
 	}
 }
