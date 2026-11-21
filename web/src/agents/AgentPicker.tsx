@@ -11,8 +11,7 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { timeAgo } from '../lib/format';
 import type { Agent, Machine, ModelChoice, Profile, Session } from '../lib/types';
-import { agentChoiceName, foldEngines, isApiEngine, isNextCodeBuiltin } from '../nextcode/engines';
-import { EngineSwitch } from '../nextcode/EngineSwitch';
+import { agentChoiceName, foldEngines, isApiEngine, picksOwnAccount } from '../nextcode/engines';
 import { nextcodeProvider } from '../settings/nextcodeSettings';
 import { useMachineName, useProfiles } from '../store';
 import { AccountOptions, accountFor, NeedsProviderHint, needsProvider } from '../providers/AccountOptions';
@@ -89,7 +88,9 @@ export function AgentFlyout({ machineId, machineName, armed, onPick, choice, onC
   const rows = flyoutRows(foldEngines(ma.agents, armed), armed);
   const shell = ma.agents.find((a) => a.kind === 'shell');
   const armedAgent = ma.agents.find((a) => a.id === armed);
-  const noProvider = needsProvider(armedAgent, useProviders());
+  // NextCode starts on its own account and model (Settings › NextCode): nothing to pick for it here
+  const own = picksOwnAccount(armedAgent);
+  const noProvider = !own && needsProvider(armedAgent, useProviders());
 
   useEffect(() => {
     if (!ma.ready) return;
@@ -162,24 +163,12 @@ export function AgentFlyout({ machineId, machineName, armed, onPick, choice, onC
         <Icon name="grid" />
         <span className="menu-label">All agents…</span>
       </button>
-      {armedAgent && isNextCodeBuiltin(armedAgent.id) && (
-        <div className="flyout-model" onMouseDown={(e) => e.stopPropagation()}>
-          <EngineSwitch
-            agents={ma.agents}
-            value={armedAgent.id}
-            where={machineName}
-            onChange={(id) => {
-              const a = ma.agents.find((x) => x.id === id);
-              if (a) onPick(a);
-            }}
-          />
-        </div>
-      )}
       {noProvider ? (
         <div className="flyout-model" onMouseDown={(e) => e.stopPropagation()}>
           <NeedsProviderHint />
         </div>
       ) : (
+        !own &&
         (armedAgent?.models || isApiEngine(armedAgent)) &&
         armedAgent?.available !== false && (
           <div className="flyout-model" onMouseDown={(e) => e.stopPropagation()}>
@@ -325,7 +314,7 @@ export function AllAgentsDialog({ machine, machineId, armed, onPick, onClose }: 
             Cancel
           </Button>
           <Button variant="primary" icon="terminal" disabled={!sel} onClick={() => sel && (onPick(sel), onClose())}>
-            {sel ? `Arm ${agentChoiceName(sel, ma.agents)}` : 'Arm agent'}
+            {sel ? `Arm ${agentChoiceName(sel, foldEngines(ma.agents, value))}` : 'Arm agent'}
           </Button>
         </>
       }
@@ -337,7 +326,6 @@ export function AllAgentsDialog({ machine, machineId, armed, onPick, onClose }: 
       ) : (
         <div className="stack">
           <AgentList agents={foldEngines(ma.agents, value)} value={value} onChange={setValue} onActivate={(a) => (onPick(a), onClose())} machineName={name} label={`Agents on ${name}`} />
-          <EngineSwitch agents={ma.agents} value={value} onChange={setValue} where={name} field />
         </div>
       )}
     </Modal>
@@ -459,7 +447,6 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
         ) : (
           <AgentList agents={foldEngines(choices, value)} value={value} onChange={setValue} onActivate={() => void go()} machineName={machineName} label="Agent" />
         )}
-        {ma.ready && <EngineSwitch agents={choices} value={value} onChange={setValue} where={machineName} field />}
         {ma.ready && hidden.length > 0 && (
           <p className="setting-hint">
             {chatConsole

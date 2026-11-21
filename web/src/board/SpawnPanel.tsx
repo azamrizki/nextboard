@@ -3,9 +3,8 @@
 // it is. The profile starts at the default one (NextBoard unless settings say otherwise) every time
 // the panel opens or the agent changes, whatever another form picked last. In a project of several
 // parts it asks where: Root (all parts) or a part, the focused tile's by default. NextCode is a
-// tile of its own (a chat console), shown once with an Engine control for its Claude, Codex and
-// API agents; its logins are only its own engine's (nt.profileOptions), and its API engine runs on
-// an API provider only (Settings › NextCode's default first), so it cannot spawn without one.
+// tile of its own (a chat console), shown once: it starts on Settings › NextCode's account and
+// model, so it has no login, provider or model to pick here (its chat picks another model).
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { AgentBadge, shortAgentName } from '../agents/AgentBadge';
@@ -14,8 +13,7 @@ import { ModelPicker } from '../agents/ModelPicker';
 import { Button } from '../components/Button';
 import { SelectField } from '../components/form';
 import type { Agent } from '../lib/types';
-import { apiProviderChoice, foldEngines, isApiEngine } from '../nextcode/engines';
-import { EngineSwitch } from '../nextcode/EngineSwitch';
+import { apiProviderChoice, foldEngines, isApiEngine, picksOwnAccount } from '../nextcode/engines';
 import { AccountOptions, accountFor, NeedsProviderHint, needsProvider } from '../providers/AccountOptions';
 import { useProviders } from '../providers/providers';
 import type { useNewTerminal } from './NewTerminal';
@@ -38,9 +36,10 @@ export function SpawnPanel({ agents, nt, onSpawn }: Props) {
   // nt lists the profiles of the agent it has armed, which is the selected tile
   const profiles = sel.id === nt.agentId ? nt.profileOptions : [];
   const providers = sel.id === nt.agentId ? nt.providerOptions : isApiEngine(sel) ? allProviders : [];
-  const chosen = accountFor(sel, profileId, { profiles, providers }, nt.defaultProvider);
-  const blocked = needsProvider(sel, providers);
-  // NextCode once: the engine chosen stands for all of them
+  const own = picksOwnAccount(sel);
+  const chosen = own ? '' : accountFor(sel, profileId, { profiles, providers }, nt.defaultProvider);
+  const blocked = !own && needsProvider(sel, providers);
+  // NextCode once: it runs on its own account, whichever of its agents stands for it
   const tiles = foldEngines(agents, sel.id);
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -48,7 +47,7 @@ export function SpawnPanel({ agents, nt, onSpawn }: Props) {
   };
   /** A double click spawns a tile as it is: the account picked for the armed one, else the default. */
   const quick = (a: Agent) => {
-    const account = a.id === sel.id ? (blocked ? null : chosen) : isApiEngine(a) ? apiProviderChoice('', allProviders, nt.defaultProvider) || null : '';
+    const account = a.id === sel.id ? (blocked ? null : chosen) : isApiEngine(a) && !picksOwnAccount(a) ? apiProviderChoice('', allProviders, nt.defaultProvider) || null : '';
     if (account !== null) onSpawn(a, account);
   };
   return (
@@ -77,7 +76,6 @@ export function SpawnPanel({ agents, nt, onSpawn }: Props) {
           {sel.name}: {agentTagline(sel)}
         </span>
       )}
-      <EngineSwitch agents={agents} value={sel.id} onChange={nt.setAgentId} where={nt.machine?.name} field />
       {nt.multi && <PlacePicker project={nt.project} value={nt.placeValue} onChange={nt.setPlace} other={nt.placeValue === OTHER_VALUE} />}
       {blocked ? (
         <NeedsProviderHint />
@@ -88,7 +86,7 @@ export function SpawnPanel({ agents, nt, onSpawn }: Props) {
           </SelectField>
         )
       )}
-      <ModelPicker agent={sel} value={nt.modelChoice} onChange={nt.setModelChoice} profileId={chosen} />
+      {!own && <ModelPicker agent={sel} value={nt.modelChoice} onChange={nt.setModelChoice} profileId={chosen} />}
       <Button type="submit" size="sm" variant="primary" icon="play" disabled={blocked} title={blocked ? 'Add an API provider in Settings › API providers first' : undefined}>
         Spawn {shortAgentName(sel.name)}
       </Button>

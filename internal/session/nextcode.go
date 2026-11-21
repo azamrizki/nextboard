@@ -96,11 +96,18 @@ func (s *Session) launchChat(spec Spec, a agent.Agent, mode string) {
 		return
 	}
 	s.mu.Lock()
-	d := s.nc
+	d, handOver := s.nc, s.handOver
+	s.handOver = false
 	s.mu.Unlock()
-	if d != nil && (d.Engine() != a.Engine || (mode == agent.ModeFresh && d.Started())) {
-		// a new conversation (asked for, or another engine, which cannot continue the old one):
-		// the chat of the one before is kept beside it
+	if d != nil && (handOver || d.Engine() != a.Engine) {
+		// another account (SwitchChatAccount) or engine, which cannot continue the conversation:
+		// the chat stays, and its next message starts a new one there with the chat so far
+		d.HandOver(a.Engine, func(carry bool) string { return s.m.handOverNote(spec, a, carry) })
+		s.mu.Lock()
+		s.spec.AgentSessionID = ""
+		s.mu.Unlock()
+	} else if d != nil && mode == agent.ModeFresh && d.Started() {
+		// a new conversation asked for: the chat of the one before is kept beside it
 		d.Close()
 		path := s.m.chatHistoryPath(spec.ID)
 		_ = os.Rename(path, strings.TrimSuffix(path, ".jsonl")+fmt.Sprintf(".%d.jsonl", time.Now().Unix()))
@@ -110,7 +117,7 @@ func (s *Session) launchChat(spec Spec, a agent.Agent, mode string) {
 		s.mu.Unlock()
 	}
 	if d != nil {
-		d.Reset() // a restart: the next message starts a CLI with the launch as it is now
+		d.Reset() // a restart or hand-over: the next message starts a CLI with the launch as it is now
 	} else {
 		// a new console starts in the mode of Settings › NextCode; one with a chat keeps its own
 		nd, err := nextcode.New(nextcode.Config{Engine: a.Engine, HistoryPath: s.m.chatHistoryPath(spec.ID),

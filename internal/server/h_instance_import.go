@@ -348,7 +348,9 @@ func (s *Server) machineIDs() map[string]bool {
 }
 
 // remapImportedSettings is src made to fit this instance (dst is what it has now):
-//   - agents.profiles stays this instance's own: a login profile belongs to one instance;
+//   - agents.profiles stays this instance's own: a login profile belongs to one instance; so do
+//     NextCode's accounts and the account a new console starts on (nextcode.accounts, .account,
+//     .model, .effort), which name its login profiles;
 //   - previews.portRange stays this instance's own: each instance has its block of ports;
 //   - runner.provider, lead.runner and lead.providers follow the copied providers, or go back to
 //     the login when theirs was not copied; nextcode.provider follows them too, or is none;
@@ -358,6 +360,8 @@ func remapImportedSettings(src, dst settings.Settings, providers map[string]stri
 	next := src
 	var notes []string
 	next.Agents.Profiles = dst.Agents.Profiles
+	next.NextCode.Accounts, next.NextCode.Account = dst.NextCode.Accounts, dst.NextCode.Account
+	next.NextCode.Model, next.NextCode.Effort = dst.NextCode.Model, dst.NextCode.Effort
 	next.Previews.PortRange = dst.Previews.PortRange
 	mapProv := func(id, what string) string {
 		if id == "" {

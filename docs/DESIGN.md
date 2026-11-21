@@ -436,39 +436,47 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
   - the composer (the lead composer's card): Enter sends, Shift+Enter is a new line, "/" lists the
     CLI's commands, Stop while it works.
 - **Model menu:** the model chip (the toolbar in `tab`, the composer bar in `card` and `phone`)
-  shows "Model · effort" and the engine ("Claude"/"Codex").
-  - It opens a menu: Default, the agent's models, Other… (a typed name checked like the spawn
-    form's), and the efforts of the model.
-  - A new model switches at once; a new effort says "Applies to the next message".
+  shows "Model · effort" and the account it runs on ("Claude", "Codex", a provider's name).
+  - It opens a menu of every account NextCode has (One NextCode, 2026-11-21), each one's models
+    under its name in a small heading; the console's own account says "this chat", one that
+    cannot run "cannot run" (its rows disabled). Under the console's own: Default, its models,
+    Other… (a typed name checked like the spawn form's), and the efforts of the model.
+  - A new model of the same account switches at once; a new effort says "Applies to the next
+    message". A model of another account moves the chat there: a notice row in the chat ("Now on
+    Codex · gpt-5.5: a new conversation there, and your next message brings this chat so far"),
+    and the menu says so in a note under it.
 - **Attachments:** paste into the composer, drop on the chat ("Drop to attach to your message"),
   or use `+`.
   - Chips with a thumbnail or file icon, name and size, removable; Send waits for the uploads.
   - The message ends with "Attached: <paths>", which a sent bubble shows as chips again.
 - **@file:** `@` lists the console's files (its part, every part at a root, or its folder),
   fuzzy matched like Go to file; Enter or Tab inserts `@path`.
-- **Engine:** wherever NextCode is chosen (Spawn, All agents, Agent and model…, new console), it
-  is one entry with an Engine control (Claude | Codex).
-  - Codex is hidden when the hub has no Codex engine, and disabled when Codex is not installed.
-  - Lists without the control say "NextCode · Claude" / "NextCode · Codex".
+- **One NextCode:** wherever NextCode is chosen (Spawn, All agents, new console, Compose, the
+  Code view, handoff), it is one entry, "NextCode", with no engine, login profile, API provider
+  or model field: it starts on Settings › NextCode's start model. Its card menu has no Agent
+  and model… (the chat's menu picks the model), and its header's model chip says to change it
+  there. Settings › Lead has no "New NextCode consoles" provider row. Lists of profiles still say
+  "NextCode · Claude" / "NextCode · Codex" where both engines' logins stand side by side.
 - **Not logged in:** the error card says NextCode's login is its own and offers **Sign in
   NextCode**, which opens the sign-in dialog of the console's login right over the chat (Settings
   › NextCode on an API provider: "Open API providers"). Done after signing in sends the message
   that failed again; once the agent has replied after it, the card leaves the chat.
 - **Settings › NextCode:** its own pane after Agents, with these cards:
-  - one card per engine ("Claude engine", "Codex engine"): its logins (NextCode's only; each
-    home one is named "NextCode"), Add login, and its model and effort defaults;
-  - a shared **Defaults** card: the start permission mode as a segmented radio group, and the
-    idle time in minutes.
+  - **Accounts**: NextCode's accounts in its menu's order, one row each (user or key icon, name,
+    what it is: "Claude account, through Claude Code", "ChatGPT account, through Codex", "API
+    provider · OpenAI-compatible API"), with Sign in for a login, ↑ to move it up and × to
+    remove it from NextCode (the login or provider stays). **Add account** is a menu: per
+    login kind, the logins not added yet and "New Claude/ChatGPT login…" (the profile dialog;
+    the new login joins the list), then the API providers not added yet. Until changed, the
+    list is NextCode's defaults, and says so;
+  - **New consoles**: the start model as one select grouped by account ("Claude · Opus",
+    "E2E Chat · Default (e2e-model)"; first "NextCode's default"), its effort when the model has
+    any, the start permission mode as a segmented radio group, and the idle time in minutes.
 - **Card menu:** a NextCode card has no Copy text, Pick conversation, Pause, Sleep, Keep awake,
   Text size or Kill. Its Restart says that it stops the CLI, and Close says "Close console…".
 - **API engine** (2026-11-21, agent `nextcode-api`): NextCode's own agent, with no vendor CLI and
-  no login, on one of the hub's API providers. It is the third choice of the Engine control
-  (Claude | Codex | API), always enabled on This PC and absent on servers. Its account select lists
-  the API providers only (every one can run it), preselecting Settings › NextCode's provider; with
-  none, the `nextcode_needs_provider` error card offers Settings › API providers. The model menu
-  lists the provider's models and the efforts low to max, and names the engine "API". Settings ›
-  NextCode has an "API engine" card: its default provider (`nextcode.provider`) and its model and
-  effort defaults; no logins.
+  no login, on one of the hub's API providers: what runs an API provider account. The model menu
+  lists the provider's models under its name, with the efforts low to max.
 
 ### 3.9 Terminal palette (xterm)
 

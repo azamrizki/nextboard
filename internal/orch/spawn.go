@@ -127,8 +127,14 @@ func (s *Service) pickAgent(want, role, machineID string) string {
 	return "shell"
 }
 
-// slotModel fills in what a slot left to the settings.
+// slotModel fills in what a slot left to the settings. NextCode's are left alone: a slot that
+// names neither starts on Settings › NextCode's account and model (docs/API-agents.md §30).
 func (s *Service) slotModel(role, ag string, model, effort *string) (*string, *string) {
+	if model == nil && effort == nil {
+		if a, ok := agentByID(s.hub.Agents(), ag); ok && a.Engine != "" && a.Source == agent.SourceBuiltin {
+			return nil, nil
+		}
+	}
 	c := s.hub.Settings().Agents.ModelFor(role, ag)
 	if model == nil {
 		model = &c.Model

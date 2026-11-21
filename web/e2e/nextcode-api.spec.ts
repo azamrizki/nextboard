@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from './hub';
+
+const FAKE = fileURLToPath(new URL('./fake-nextcode.sh', import.meta.url));
 
 // NextCode's own engine (docs/API-agents.md §30): no CLI, the hub's own agent on an API provider.
 // The provider is a stand-in Chat Completions API on loopback that streams a reply, then a Bash
@@ -56,15 +59,27 @@ async function fakeChat(): Promise<{ url: string; server: Server; seen: Seen }> 
   return { url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, server, seen };
 }
 
-test('NextCode on its own engine: spawned on an API provider, it chats and asks before a command', async ({ page, hub }, info) => {
+test('One NextCode: an API provider added in Settings, spawned as plain NextCode, it chats, asks, and moves to another account', async ({ page, hub }, info) => {
   test.skip(info.project.name !== 'light' && info.project.name !== 'dark', 'desktop');
-  test.setTimeout(120_000);
+  test.setTimeout(150_000);
   const api = await fakeChat();
   const prov = await hub.call('POST', '/api/providers', { name: 'E2E Chat', kind: 'openai', api: 'chat', baseUrl: `${api.url}/v1`, model: 'e2e-model', apiKey: KEY });
   const p = await hub.project('NextCode API');
   const sessions = async () => ((await hub.call('GET', '/api/sessions')) as { id: string; handle: string; agent: string; workspaceId: string; providerId?: string; agentState?: string }[]).filter((s) => s.workspaceId === p.wid);
+  // the Claude login runs on the fake of Claude Code, for the move between accounts
+  await hub.call('PATCH', '/api/settings', { agents: { paths: { local: { claude: FAKE } } } });
   try {
-    // Spawn agent: NextCode, the API engine, on the provider (the only one, so it is picked)
+    // Settings › NextCode: the provider joins NextCode's accounts, and new consoles start on it
+    await page.goto('/settings/nextcode');
+    await page.getByRole('button', { name: 'Add account' }).click();
+    await page.getByRole('menuitem', { name: 'E2E Chat' }).click();
+    await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.accounts).toContain(prov.id);
+    await expect(page.getByRole('list', { name: 'NextCode’s accounts' })).toContainText('E2E Chat');
+    const start = page.getByLabel('Model', { exact: true });
+    await start.selectOption({ label: 'E2E Chat · Default (e2e-model)' });
+    await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.account).toBe(prov.id);
+
+    // Spawn agent: NextCode, with no engine, login or provider to pick
     await page.goto(`/p/${p.id}/w/${p.wid}`);
     const canvas = page.locator('.react-flow__pane');
     const box = (await canvas.boundingBox())!;
@@ -72,10 +87,9 @@ test('NextCode on its own engine: spawned on an API provider, it chats and asks 
     await page.getByRole('menuitem', { name: /^Spawn agent/ }).click();
     const panel = page.getByRole('dialog', { name: 'Spawn agent' });
     await panel.locator('[role="radio"][title^="NextCode"]').click();
-    await panel.getByRole('radio', { name: 'API', exact: true }).click();
-    const account = panel.getByLabel('API provider');
-    await expect(account).toBeVisible();
-    await expect(account.locator('option:checked')).toHaveText(/E2E Chat/);
+    await expect(panel.getByLabel('API provider')).toHaveCount(0);
+    await expect(panel.getByLabel('Login profile')).toHaveCount(0);
+    await expect(panel.getByRole('radio', { name: 'API', exact: true })).toHaveCount(0);
     await panel.getByRole('button', { name: /^Spawn / }).click();
     await expect.poll(async () => (await sessions()).map((s) => `${s.agent}:${s.providerId ?? ''}`)).toEqual([`nextcode-api:${prov.id}`]);
     const s = (await sessions())[0];
@@ -107,8 +121,28 @@ test('NextCode on its own engine: spawned on an API provider, it chats and asks 
     expect(await page.content()).not.toContain(KEY);
     // what it spent is the provider's (its ledger), in Settings › API providers' figures
     await expect.poll(async () => JSON.stringify(await hub.call('GET', `/api/providers/${prov.id}/spend`))).toContain('e2e-model');
+
+    // the model menu lists every account's models; one of the Claude login moves the chat there
+    await card.getByRole('button', { name: /^Model: / }).click();
+    const menu = page.locator('.nc-mm');
+    await expect(menu.getByRole('group', { name: 'E2E Chat' })).toContainText('this chat');
+    const claude = menu.getByRole('group', { name: 'Claude' });
+    await expect(claude).toBeVisible();
+    await claude.getByRole('radio').first().click();
+    await expect.poll(async () => (await hub.call('GET', `/api/sessions/${s.id}`)).agent).toBe('nextcode');
+    await expect(card.locator('.nc-notice', { hasText: 'Now on Claude' })).toBeVisible({ timeout: 15_000 });
+    // the chat stays; the next message brings it to the new conversation
+    await expect(card.getByText('Hello from the API engine.')).toBeVisible();
+    await expect.poll(async () => (await hub.call('GET', `/api/sessions/${s.id}`)).agentState, { timeout: 20_000 }).toBe('ready');
+    await input.fill('next');
+    await input.press('Enter');
+    await expect
+      .poll(async () => JSON.stringify((await hub.call('GET', `/api/sessions/${s.id}/nextcode`)).items), { timeout: 20_000 })
+      .toMatch(/Done: (<|\\u003c)conversation_so_far/);
+    await expect(card.locator('.nc-me', { hasText: /^next$/ })).toBeVisible();
   } finally {
     for (const x of await sessions()) await hub.call('DELETE', `/api/sessions/${x.id}`);
+    await hub.call('PATCH', '/api/settings', { nextcode: { accounts: null, account: null, model: null, effort: null }, agents: { paths: { local: { claude: null } } } });
     await hub.call('DELETE', `/api/providers/${prov.id}?purge=1`);
     api.server.close();
   }

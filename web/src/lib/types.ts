@@ -1021,7 +1021,17 @@ export interface Settings {
    * `provider`: the API provider (ap_…) a console of its API engine ("nextcode-api") runs on
    * when none is picked; empty or absent = none.
    */
-  nextcode?: { permissionMode: NextCodePermissionMode; idleExitMin: number; provider?: string };
+  nextcode?: {
+    permissionMode: NextCodePermissionMode;
+    idleExitMin: number;
+    provider?: string;
+    /** What NextCode runs on, in its menu's order: its logins (pf_…) and API providers (ap_…). null = not chosen yet. */
+    accounts?: string[] | null;
+    /** What a new console starts on ("" = NextCode's default login), with its model and effort. */
+    account?: string;
+    model?: string;
+    effort?: string;
+  };
   [key: string]: unknown;
 }
 

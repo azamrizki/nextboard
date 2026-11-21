@@ -1,9 +1,8 @@
 // Settings › NextCode (docs/API-agents.md §30): what a new NextCode console starts with, as the hub
-// keeps it in settings.nextcode. Its login is its own profile and its model the agent's own default;
-// its API engine has no login and runs on an API provider (nextcode.provider when none is picked).
+// keeps it in settings.nextcode: the accounts it runs on and the one a new console starts on
+// (nextcode/accounts.ts), the permission mode and the idle stop.
 
 import type { NextCodePermissionMode, Settings } from '../lib/types';
-import type { Engine } from '../nextcode/engines';
 
 /** The built-in NextCode agent. */
 export const NEXTCODE_ID = 'nextcode';
@@ -43,18 +42,9 @@ export function nextcodeProvider(s: Pick<Settings, 'nextcode'> | null | undefine
   return typeof p === 'string' ? p : '';
 }
 
-/** The CLI each engine runs on ('' for the API engine, which has none). */
-export const ENGINE_CLI: Record<Engine, string> = { claude: 'Claude Code', codex: 'Codex', api: '' };
-
-/** "a", "a and b", "a, b and c". */
-const joined = (words: string[], last: string) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} ${last} ${words[words.length - 1]}` : (words[0] ?? ''));
-
-/** The first lines of Settings › NextCode for the engines the hub has, in their order. */
-export function nextcodeIntro(engines: Engine[]): string {
-  const clis = engines.flatMap((e) => (ENGINE_CLI[e] ? [ENGINE_CLI[e]] : []));
-  const own = clis.length ? `NextCode keeps its own login and memory, apart from ${joined(clis, 'and')}. ` : '';
-  if (engines.length > 1) return `${own}It runs on ${joined(engines.map((e) => ENGINE_CLI[e] || 'an API provider'), 'or')}: pick the engine when you start a console.`;
-  return `${own}${engines[0] === 'api' ? 'It runs on an API provider.' : 'Powered by Claude.'}`;
+/** The first lines of Settings › NextCode. */
+export function nextcodeIntro(): string {
+  return 'NextCode is one agent: add the accounts it may run on (your Claude or ChatGPT login, or an API provider), and pick a model of any of them in its chat. It keeps its own logins and memory, apart from Claude Code and Codex.';
 }
 
 /** The idle minutes typed, as the hub takes them: whole, 1–1440. null when it is not a number. */

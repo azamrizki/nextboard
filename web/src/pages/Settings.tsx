@@ -30,7 +30,7 @@ import { pageTitle } from '../lib/instance';
 const PANES: { id: string; label: string; icon: IconName; hint: string }[] = [
   { id: 'general', label: 'General', icon: 'sliders', hint: 'Where projects open' },
   { id: 'agents', label: 'Agents', icon: 'bot', hint: 'Catalog, defaults, your agents' },
-  { id: 'nextcode', label: 'NextCode', icon: 'message', hint: 'Its engines, own logins, models and permissions' },
+  { id: 'nextcode', label: 'NextCode', icon: 'message', hint: 'Its accounts, models and permissions' },
   { id: 'lead', label: 'Lead agent', icon: 'orchestrator', hint: 'Its name, how it talks and leads' },
   { id: 'profiles', label: 'Login profiles', icon: 'user', hint: 'Several accounts per CLI' },
   { id: 'providers', label: 'API providers', icon: 'plug', hint: 'Other models through an API' },

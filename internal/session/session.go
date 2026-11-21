@@ -346,6 +346,8 @@ type Session struct {
 
 	// nc drives a NextCode console's CLI (nextcode.go); nil for a terminal console.
 	nc *nextcode.Driver
+	// handOver: the next launch moves the chat to another account (SwitchChatAccount).
+	handOver bool
 }
 
 func newSession(m *Manager, spec Spec) *Session {

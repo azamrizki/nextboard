@@ -11,10 +11,15 @@ export const chatSocketPath = (id: string) => `${base(id)}/ws`;
 
 type Ok = { ok: boolean };
 
-/** PUT …/nextcode/model: "" is the CLI's own choice, a field left out stays as it is. */
+/**
+ * PUT …/nextcode/model: "" is the CLI's own choice, a field left out stays as it is. account: the
+ * login (pf_…) or API provider (ap_…) the model is on; another than the console's moves the chat
+ * there (One NextCode), with the account's own model and effort for what is left out.
+ */
 export interface ModelChange {
   model?: string;
   effort?: string;
+  account?: string;
 }
 
 export const nextcodeApi = {

@@ -76,6 +76,7 @@ type Driver struct {
 	gen       int
 	expecting bool // the running CLI was asked to end
 	started   bool // the CLI has the conversation: the next CLI resumes it
+	handOver  bool // the next message starts a new conversation with the chat so far (HandOver)
 	denied    map[string]bool
 	subs      map[*Sub]struct{}
 	idle      *time.Timer
@@ -109,6 +110,12 @@ type meta struct {
 	Started      bool   `json:"started,omitempty"`
 	Conversation string `json:"conversation,omitempty"`
 	Mode         string `json:"mode,omitempty"`
+	// New: the chat moved to another account (HandOver) on Engine; a new conversation starts
+	// here, and with HandOver its first message brings the chat so far, until HandedOver.
+	New        bool   `json:"new,omitempty"`
+	Engine     string `json:"engine,omitempty"`
+	HandOver   bool   `json:"handOver,omitempty"`
+	HandedOver bool   `json:"handedOver,omitempty"`
 }
 
 func (d *Driver) load() error {
@@ -128,6 +135,12 @@ func (d *Driver) load() error {
 			d.upsertLocked(*r.Item)
 		}
 		if m := r.Meta; m != nil {
+			if m.New {
+				d.started, d.handOver, d.status.Conversation = false, m.HandOver, ""
+			}
+			if m.HandedOver {
+				d.handOver = false
+			}
 			d.started = d.started || m.Started
 			if m.Conversation != "" {
 				d.status.Conversation = m.Conversation
@@ -323,7 +336,14 @@ func (d *Driver) Send(text string) error {
 	d.broadcastLocked(Frame{T: FrameItem, Item: &it})
 	d.turnStartLocked(now)
 	d.stopIdleLocked()
-	b := d.eng.message(text)
+	msg := text
+	if d.handOver && !d.started {
+		// the first message of the conversation that took the chat over brings the chat so far
+		msg = handOverPrompt(d.items[:len(d.items)-1]) + text
+		d.handOver = false
+		d.persistLocked(record{Meta: &meta{HandedOver: true}})
+	}
+	b := d.eng.message(msg)
 	d.unlock()
 	if b == nil {
 		return nil // the engine sends it once the CLI is ready for it

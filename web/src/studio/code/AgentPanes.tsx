@@ -57,7 +57,7 @@ import { ResumeDialog } from '../../chats/ResumeDialog';
 import { useLeadActive } from '../../chats/store';
 import type { ChatView } from '../../chats/types';
 import { useIsNextCode } from '../../nextcode/detect';
-import { agentChoiceName, apiProviderChoice, isApiEngine, NEEDS_PROVIDER } from '../../nextcode/engines';
+import { agentChoiceName, apiProviderChoice, foldEngines, isApiEngine, NEEDS_PROVIDER, picksOwnAccount } from '../../nextcode/engines';
 import { providersStore } from '../../providers/providers';
 import { nextcodeProvider } from '../../settings/nextcodeSettings';
 import { NextCodeChat } from '../../nextcode/NextCodeChat';
@@ -110,9 +110,10 @@ function pickPlace(ws: Workspace, v: string) {
 export async function startAgentPane(ws: Workspace, workspaceId: string, agent: Agent, where: Where, place?: Placement, card?: string) {
   try {
     const at = place ?? agentPlace(ws);
-    // NextCode's API engine runs on an API provider: Settings › NextCode's, else the first
+    // a custom agent on NextCode's API engine runs on an API provider: Settings › NextCode's, else
+    // the first; NextCode itself starts on its own account (the hub's choice)
     let providerId: string | undefined;
-    if (isApiEngine(agent)) {
+    if (isApiEngine(agent) && !picksOwnAccount(agent)) {
       await providersStore.load();
       providerId = apiProviderChoice('', providersStore.get(), nextcodeProvider(store.getState().settings));
       if (!providerId) {
@@ -148,7 +149,8 @@ export function usePaneChoices(ws: Workspace, workspaceId: string): PaneChoices 
   const project = useProject(ws.projectId);
   const multiPart = !!project && isMultiPart(project);
   const remote = !!useEffectiveSettings().agents?.remoteTools;
-  const sorted = useMemo(() => agents.filter((a) => a.kind === 'agent' && a.available !== false).sort(byPriority), [agents]);
+  // NextCode once: it starts on its own account (Settings › NextCode), whichever agent stands for it
+  const sorted = useMemo(() => foldEngines(agents.filter((a) => a.kind === 'agent' && a.available !== false)).sort(byPriority), [agents]);
   const placed = ws.paneConsoles;
   // a card of one part offers its own part's agents; a Root card every one
   // only these sessions: not a render for every console's busy tick on the hub

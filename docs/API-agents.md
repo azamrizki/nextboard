@@ -1142,7 +1142,13 @@ NextCode is NextBoard's own code agent, a built-in next to Claude Code and Codex
   - This PC only.
 - **API** (`id: "nextcode-api"`, no `base`, `engine: "api"`): NextCode's own agent, on one of the hub's API providers, with no vendor CLI (§ NextCode's own engine, below).
 
-The web shows NextCode once, with an Engine choice. Everything below is the Claude engine unless it says so. Its console has **no terminal**: the hub runs Claude Code's unmodified CLI headless and the console shows a chat drawn by NextBoard. The terminal agents (Claude Code, Codex and the rest) are not changed by it, and a console cannot switch between a terminal agent and NextCode (`POST …/restart {"agent"}` → `409 nextcode_switch`).
+**One NextCode** (owner, 2026-11-21). NextCode is one agent; which engine runs it is its own business. The owner adds the **accounts** it may run on in Settings › NextCode, and picks a model of any of them in its chat:
+- an account is one of NextCode's own login profiles (`pf_…`: a Claude login runs the Claude engine, a ChatGPT login the Codex engine) or an API provider (`ap_…`: NextCode's own engine, `nextcode-api`);
+- the web lists NextCode once and offers no engine, login, provider or model when it starts one: `POST /api/sessions` (and spawn slots, handoff, layouts) for a NextCode built-in that names no `profileId`, `providerId`, `model` or `effort` starts on `settings.nextcode.account` with `settings.nextcode.model` and `.effort`, as that account's agent (the console's `agent` is then `nextcode`, `nextcode-codex` or `nextcode-api`). An account that cannot run (removed, a spent budget, its agent turned off) or none set leaves the request as it was: the agent asked for, on its default login. A request that names any of the four stays on the agent asked for, as before;
+- the chat's model menu lists the models of every account, under its name; a model of another account is `PUT …/nextcode/model {"account"}` (below): the chat moves there and stays one chat;
+- the five permission modes mean the same on every engine (the Codex mapping below), and the effort list is the model's.
+
+Everything below is the Claude engine unless it says so. Its console has **no terminal**: the hub runs Claude Code's unmodified CLI headless and the console shows a chat drawn by NextBoard. The terminal agents (Claude Code, Codex and the rest) are not changed by it, and a console cannot switch between a terminal agent and NextCode (`POST …/restart {"agent"}` → `409 nextcode_switch`).
 
 **Independent of NextBoard's Claude Code** (owner, 2026-11-20). NextCode has its own login and its own memory, and the two never mix:
 - its own NextBoard home folder `<data>/agents/nextcode`, with its own login, settings and Claude memory;
@@ -1187,13 +1193,16 @@ What it keeps from the project is what makes it work safely there:
 - `permissionMode`: the mode a new console starts in: `default` (ask), `acceptEdits`, `plan`, `auto` or `bypassPermissions`. Default `default`.
 - `idleExitMin`: 1–1440, default 30.
 - `provider`: the API provider (`ap_…`) a console of NextCode's own engine runs on when none is picked; absent or `""` = none. Cleared when that provider is deleted, and mapped on an instance import like `runner.provider`.
+- `accounts`: what NextCode runs on, in the order its model menu lists them: ids of NextCode's own login profiles (`pf_…`) and of API providers (`ap_…`), each once, at most 32. `null` (never chosen) = the web offers NextCode's default Claude login, its default Codex login where Codex is installed, and `provider`; `[]` = none.
+- `account`, `model`, `effort`: the account a new console starts on (above), with its model and effort (`""` = the account's own). Absent = NextCode's default login with the agent's own model (`agents.models.nextcode`).
+- A deleted login profile or provider leaves `accounts`, and `account` with its model and effort when it was that one. An instance import keeps this instance's own `accounts`, `account`, `model` and `effort`, as it keeps its profiles.
 
-Its model and effort defaults are the agent's own (`agents.models.nextcode`, `agents.models.nextcode-api`), and its login is its profiles above. `400 bad_setting` otherwise.
+`400 bad_setting` otherwise.
 
 **NextCode's own engine** (`nextcode-api`, 2026-11-21). An agent of NextBoard's, not a vendor's CLI: the hub runs its own program, `nextboard nextcode-agent` (package `internal/nextcode/native`, a hidden subcommand), in the console's folder. It speaks the part of Claude Code's stream-json the Claude engine reads, so the chat, the requests, the states, Orders and the REST/WebSocket routes below are the same; `status.engine` is `"api"`.
 - **No CLI and no login.** Nothing has to be on PATH: it is always available on This PC (`agents.paths.<machine>.nextcode-api` can point it at another program) and never on a server. It has no login profiles, no home folder and no sign-in: a `profileId` is `400 profile_mismatch`, `POST /api/profiles` for it `400 profile_unsupported`.
 - **Only on an API provider** (§10.2), of every kind and API: an Anthropic-compatible Messages API (`auth` bearer or `x-api-key`), an OpenAI-compatible Chat Completions API or the Responses API. Every provider can run it (`providers.Compatible`), so the lead lists it under each one. A console runs on its `providerId`, else on `settings.nextcode.provider` while that provider exists; with neither, `POST /api/sessions`, `restart` and spawn answer `400 nextcode_needs_provider` ("NextCode's own engine runs on an API provider: pick one, or add one in Settings › API providers"). A restart never moves it to a login: `providerId: ""` or a removed provider takes the setting's, or is that error. A spent budget is `409 provider_budget`, as for the CLIs.
-- **Engine switch.** `restart {"agent"}` between `nextcode`, `nextcode-codex` and `nextcode-api` starts a new conversation on the other engine, the old chat kept beside it. To this engine: its provider as above. From it: the provider stays when the other engine can run on it, else that engine's own login.
+- **Engine switch.** `restart {"agent"}` between `nextcode`, `nextcode-codex` and `nextcode-api` hands the chat over to the other engine, as a move to another account does (`PUT …/nextcode/model {"account"}`, below). To this engine: its provider as above. From it: the provider stays when the other engine can run on it, else that engine's own login.
 - **The command line** (the hub's contract with the agent):
 
 ```
@@ -1217,7 +1226,7 @@ NB_NEXTCODE_GUARD  {"blocked":[patterns],"sandbox":{"network":bool,"write":[dirs
   - What it spent: `<data>/providers/<id>/nextcode/usage.jsonl`, one line per call of the model in the ledger's format (`{"at","model","purpose":"nextcode","input","output","cacheRead","cacheWrite"}`). The hub makes that folder (0700) and puts nothing in it.
 - **Budgets.** That ledger counts in the provider's spend (`GET /api/providers/{id}/spend`, the list's `monthCost`) and so in its budget: the five-minute check warns at 80% and at 100%, and a spent budget refuses new consoles and restarts on it. `GET /api/sessions/{id}/cost` has no figure for one conversation yet: the ledger is the provider's.
 - **Limits.** This PC only: a server or a read-only part is `422 nextcode_this_pc_only`. No images in messages yet, no MCP servers yet. Each `Bash` call runs in a shell of its own and ends what it started in the background when it ends: no dev server outlives the call.
-- **Tested** (`internal/server`): with a fake agent (the Claude Code fake), its launch and environment exactly, the setting's provider, every refusal above, the ledger's spend and budget, the delete, the engine switch both ways, a spawn; end to end through the real agent (the test binary as the hub's program) on a fake Chat Completions API that streams: an answer, a `Bash` request allowed, its output and the answer after it, the console's states, the spend from its ledger, and its command line without the key. In the browser (`web/e2e/nextcode-api.spec.ts`): spawned from Spawn agent with the API engine on a stand-in Chat Completions API, a reply, a `Bash` request allowed on the card, the provider's spend.
+- **Tested** (`internal/server`): with a fake agent (the Claude Code fake), its launch and environment exactly, the setting's provider, every refusal above, the ledger's spend and budget, the delete, the engine switch both ways, a spawn; end to end through the real agent (the test binary as the hub's program) on a fake Chat Completions API that streams: an answer, a `Bash` request allowed, its output and the answer after it, the console's states, the spend from its ledger, and its command line without the key. In the browser (`web/e2e/nextcode-api.spec.ts`): a stand-in Chat Completions API added to NextCode's accounts in Settings › NextCode and made the start model, NextCode spawned from Spawn agent with nothing to pick, a reply, a `Bash` request allowed on the card, the provider's spend, then a model of the Claude login picked in the chat's menu: the notice, the chat kept, and the next message's new conversation with the chat so far.
 
 **Chat.** `Item`:
 
@@ -1259,10 +1268,14 @@ The chat is kept in `<data>/nextcode/<sessionId>.jsonl` (JSON lines, `0600`). It
   - Errors: `400 bad_decision`, `404 request_gone` (answered, or cancelled by the CLI).
 - `POST /api/sessions/{id}/nextcode/interrupt` → `200`: stops the turn (a notice "Stopped.", not an error). `409 not_working`.
 - `PUT /api/sessions/{id}/nextcode/mode {"mode"}` → `{"status"}`: `default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`. It applies now and to every CLI after this one.
-- `PUT /api/sessions/{id}/nextcode/model {"model"?, "effort"?}` → `{"status"}`. A field left out is unchanged; `""` is the CLI's own.
+- `PUT /api/sessions/{id}/nextcode/model {"model"?, "effort"?, "account"?}` → `{"status"}`. A field left out is unchanged; `""` is the CLI's own.
   - Kept in the console (`model`, `effort`) for every CLI after this one.
   - The model switches the running CLI at once (Claude: `set_model`; Codex: from its next turn). The effort applies from the CLI's next start: the hub ends the CLI as soon as it is idle.
-  - `400 bad_model` when a name is not a model or effort name.
+  - `account` (One NextCode): the login profile or API provider the model is on. The console's own account is the same as leaving it out. Another one **moves the chat there**: the console restarts as that account's agent (`nextcode`, `nextcode-codex` or `nextcode-api`) on that login or provider, with the model and effort sent (left out = the account's own). No CLI can continue another's conversation, so:
+    - the chat stays as it is (its file is not set aside), with a notice where it moved ("Now on Codex · gpt-5.5: a new conversation there, and your next message brings this chat so far.");
+    - the next message starts a new conversation and carries the chat so far, written out from the chat's items in front of the owner's message, inside `<conversation_so_far>`: the owner's messages and the replies (each up to 6 KB, head and tail), each tool call in a line with what it acted on, how it ended and the tail of what it gave (800 bytes); no thinking, no sub-agents' steps, no notices; the latest 48 KB of it, saying when the earliest part is left out. The owner's item is what they wrote;
+    - this survives a hub restart until that message goes (the chat file's records `{"meta":{"new","engine","handOver"}}` and `{"meta":{"handedOver"}}`).
+  - Errors: `400 bad_model` when a name is not a model or effort name; `400 nextcode_account` for an id that is neither a NextCode login nor an API provider; `404 profile_not_found` / `provider_not_found`; `409 provider_budget`; `409 agent_disabled`.
 
 **WebSocket** `GET /api/sessions/{id}/nextcode/ws` (same auth and origin rules as the terminal socket). The view sends nothing. The hub sends JSON text frames:
 - `{"t":"snapshot","items":[…],"more","requests":[…],"status"}`, first;
@@ -1280,6 +1293,8 @@ A view that falls behind is closed with `1013` and reconnects for a new snapshot
   - a NextCode console end to end through REST, WebSocket and a delivery;
   - its independence: its own home profile and `CLAUDE_CONFIG_DIR`, a Claude Code profile refused, no memory or MCP in its launch in a project, sign-in through a Claude Code terminal, and a Claude Code console unchanged;
   - the settings section.
+- `internal/nextcode` (hand-over): the chat stays, the next message starts a new conversation with the chat so far and the owner's item as written, once, also after a reload; the written-out chat (`handOverPrompt`) leaves out thinking, sub-agents and notices, clips long parts on whole characters and keeps the latest;
+- `internal/server` (One NextCode, `TestNextCodeAccounts`): a spawn of `nextcode` on the setting's provider with its model and effort, one naming a model left on the agent asked for; a move from the provider to the Claude login (the notice, the new conversation's first message with the chat so far, the owner's items as written), the same account switching the model only, the refusals; a deleted provider and a deleted login leaving the settings;
 - e2e (`web/e2e/nextcode.spec.ts`, fake `fake-nextcode.sh`):
   - the board card and a Code view tab of one console, live together;
   - a message streamed, a permission allowed, a question answered from the tab;

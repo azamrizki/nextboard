@@ -22,8 +22,7 @@ import { isRoot, partNamesOn, partOn, type Placement } from '../lib/parts';
 import { defaultPlacement, isMultiPart, lastPlacement, machineOfPlace, partOfPlace, placeFromValue, placeShort, placeValue, rememberPlacement, ROOT_VALUE } from '../lib/placement';
 import type { Agent, Machine, Project, ModelChoice } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { agentChoiceName, foldEngines, isApiEngine } from '../nextcode/engines';
-import { EngineSwitch } from '../nextcode/EngineSwitch';
+import { agentChoiceName, foldEngines, isApiEngine, picksOwnAccount } from '../nextcode/engines';
 import { nextcodeProvider } from '../settings/nextcodeSettings';
 import { useMachines, useProfiles } from '../store';
 import { AccountOptions, accountFor, isProviderId, NeedsProviderHint, needsProvider } from '../providers/AccountOptions';
@@ -59,7 +58,8 @@ export interface TerminalChoice {
 
 /** Model and effort of the armed agent, in the forms (on an API provider: the provider's models). */
 function ModelField({ nt }: { nt: ReturnType<typeof useNewTerminal> }) {
-  if (!nt.agent || (!nt.agent.models && !nt.providerId)) return null;
+  // NextCode starts on Settings › NextCode's model; its chat picks another
+  if (!nt.agent || nt.ownAccount || (!nt.agent.models && !nt.providerId)) return null;
   return (
     <div className="field">
       <span className="field-label">Model and effort</span>
@@ -133,15 +133,16 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
   // NextCode has permission modes (Settings › NextCode) instead of Yolo
   const yoloable = hasYolo(agent);
   const yolo = yoloable ? (yoloChoice ?? settings.agents.yoloDefault) : false;
-  // its own logins only: NextCode never gets Claude Code's, nor Claude Code NextCode's
-  const profileOptions = agentProfiles(profiles, machineId, agent);
+  // NextCode picks its account itself (Settings › NextCode): no login or provider to choose here
+  const ownAccount = picksOwnAccount(agent);
+  const profileOptions = ownAccount ? [] : agentProfiles(profiles, machineId, agent);
   // agents run on This PC, whatever machine they work on, so any provider that can run this one
-  const providerOptions = agent ? providers.filter((p) => compatible(agent, p)) : [];
-  // NextCode's API engine has no login: a provider always, Settings › NextCode's default first
-  const providersOnly = isApiEngine(agent);
+  const providerOptions = agent && !ownAccount ? providers.filter((p) => compatible(agent, p)) : [];
+  // a custom agent on NextCode's API engine has no login: a provider always, Settings › NextCode's default first
+  const providersOnly = isApiEngine(agent) && !ownAccount;
   const defaultProvider = nextcodeProvider(settings);
   const account = accountFor(agent, profileId, { profiles: profileOptions, providers: providerOptions }, defaultProvider);
-  const noProvider = needsProvider(agent, providerOptions);
+  const noProvider = !ownAccount && needsProvider(agent, providerOptions);
   const defaultProfile = settings.agents.profiles?.[machineId]?.[agentId] ?? '';
   const modelDefault = defaultChoice(settings, undefined, agentId);
   const modelChoice = modelChoices[agentId] ?? modelDefault;
@@ -175,10 +176,11 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     cwd: place ? (isRoot(place) ? '' : cwd.trim()) : cwd.trim() || (partOn(project, machineId)?.path ?? ''),
     // NextCode asks in the permission mode of its settings, never in the hub's Yolo default
     yolo: isChatAgent(agent) ? false : yoloable && yoloChoice !== undefined ? yoloChoice : undefined,
-    profileId: account && !isProviderId(account) ? account : undefined,
-    providerId: isProviderId(account) ? account : undefined,
-    model: modelChoices[agentId]?.model,
-    effort: modelChoices[agentId]?.effort,
+    // NextCode names none of these: the hub starts it on Settings › NextCode's account and model
+    profileId: !ownAccount && account && !isProviderId(account) ? account : undefined,
+    providerId: !ownAccount && isProviderId(account) ? account : undefined,
+    model: ownAccount ? undefined : modelChoices[agentId]?.model,
+    effort: ownAccount ? undefined : modelChoices[agentId]?.effort,
   });
 
   /** Returns true on success. */
@@ -232,6 +234,8 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     providerId: isProviderId(account) ? account : '',
     /** Whether there is any choice of account to show. */
     hasAccounts: profileOptions.length > 0 || providerOptions.length > 0,
+    /** NextCode: it starts on its own account and model (Settings › NextCode). */
+    ownAccount,
     defaultProfile,
     /** NextCode's API engine: the account is an API provider, never a login. */
     providersOnly,
@@ -290,7 +294,7 @@ function serverHint(nt: NT): string | undefined {
     : 'Agents run on This PC. On a server you get a plain shell.';
 }
 
-/** Agent options grouped like the pickers: Detected · Your agents · Shell · Not installed. NextCode once (EngineField picks its engine). */
+/** Agent options grouped like the pickers: Detected · Your agents · Shell · Not installed. NextCode once. */
 function AgentOptions({ nt }: { nt: NT }) {
   if (nt.agents.length === 0) return <option value="">{nt.agentsError ? 'Agents unavailable' : 'Loading…'}</option>;
   const agents = foldEngines(nt.agents, nt.agentId);
@@ -312,11 +316,6 @@ function AgentOptions({ nt }: { nt: NT }) {
       {missing.length > 0 && <optgroup label="Not installed">{missing.map(opt)}</optgroup>}
     </>
   );
-}
-
-/** NextCode's engine, under the agent field while NextCode is chosen. */
-function EngineField({ nt }: { nt: NT }) {
-  return <EngineSwitch agents={nt.agents} value={nt.agentId} onChange={nt.setAgentId} where={nt.machine?.name} field />;
 }
 
 /**
@@ -490,7 +489,6 @@ function NewTerminalDock({ nt, onBrowse }: { nt: NT; onBrowse: () => void }) {
           <AgentOptions nt={nt} />
         </select>
       </div>
-      <EngineSwitch agents={nt.agents} value={nt.agentId} onChange={nt.setAgentId} where={nt.machine?.name} className="dock-engine" />
 
       {nt.hasAccounts && (
         <div className="input-group has-lead dock-profile" title={nt.providersOnly ? 'API provider' : 'Login profile or API provider'}>
@@ -609,7 +607,6 @@ function NewTerminalSheet({ nt, onClose, onBrowse, resume }: { nt: NT; onClose: 
             >
               <AgentOptions nt={nt} />
             </SelectField>
-            <EngineField nt={nt} />
             <ModelField nt={nt} />
             <AccountField nt={nt} />
             {askCwd(nt) && (
@@ -744,7 +741,6 @@ function NewTerminalPanel({ nt, onBrowse, onDone, head = true }: { nt: NT; onBro
       <SelectField label="Agent" value={nt.agentId} onChange={(e) => nt.setAgentId(e.target.value)} className="control-sm" error={nt.agentsError || undefined} hint={agentTagline(nt.agent) || undefined}>
         <AgentOptions nt={nt} />
       </SelectField>
-      <EngineField nt={nt} />
       <ModelField nt={nt} />
       <AccountField nt={nt} className="control-sm" />
       {askCwd(nt) && (

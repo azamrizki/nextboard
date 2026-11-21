@@ -1160,10 +1160,39 @@ textarea.control.nc-note {
   vertical-align: middle;
 }
 
-/* the Engine control of the spawn forms (nextcode/EngineSwitch.tsx) */
-.nc-engines {
-  width: max-content;
-  max-width: 100%;
+/* with several accounts the list is taller: each one's models under its name */
+.nc-mm-list:has(> .nc-mm-account + .nc-mm-account) {
+  max-height: min(60vh, calc(var(--h-model-list) * 2));
+}
+/* one account's models in the menu (One NextCode): its name over them */
+.nc-mm-account {
+  display: flex;
+  flex-direction: column;
+}
+.nc-mm-account + .nc-mm-account {
+  margin-top: var(--s-1);
+  padding-top: var(--s-1);
+  border-top: var(--hairline) solid var(--tile-border);
+}
+.nc-mm-acc {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-1) var(--s-3) 2px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.nc-mm-acc-tag {
+  flex: 0 0 auto;
+  padding: 0 var(--s-1);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-pill);
+  font-weight: 400;
+}
+.nc-mm-acc-tag.is-bad {
+  color: var(--c-danger-300);
 }
 
 /* ---- where it is mounted ---- */

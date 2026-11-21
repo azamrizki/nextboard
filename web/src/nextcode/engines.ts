@@ -1,8 +1,8 @@
 // NextCode's engines (docs/API-agents.md §30): one NextCode, run by Claude Code (agent "nextcode"),
 // by Codex (agent "nextcode-codex"), each with logins of its own, or by its own engine on an API
-// provider (agent "nextcode-api": no CLI and no login). The pickers show NextCode once, with an
-// Engine control that picks between the agents; everywhere else the catalog's `engine` says which
-// consoles are chats. Pure, so tests can read it.
+// provider (agent "nextcode-api": no CLI and no login). The pickers show NextCode once, with no
+// engine to choose: NextCode runs on the account of the model picked (accounts.ts); everywhere
+// else the catalog's `engine` says which consoles are chats. Pure, so tests can read it.
 
 import type { Agent } from '../lib/types';
 
@@ -52,56 +52,13 @@ export function agentOfEngine<T extends AgentLike>(agents: T[], engine: Engine):
   return agents.find((a) => a.id === NEXTCODE_AGENTS[engine]);
 }
 
-export interface EngineChoice {
-  value: Engine;
-  label: string;
-  agentId: string;
-  disabled: boolean;
-  title: string;
-}
-
-/** What runs each engine, for the titles. */
-const RUNS_ON: Record<Engine, { cli: string; needs: string }> = {
-  claude: { cli: 'Claude Code', needs: 'Claude Code' },
-  codex: { cli: 'Codex', needs: 'the codex CLI' },
-  api: { cli: '', needs: '' },
-};
-
-export interface EngineChoiceOptions {
-  /** The machine's name, for why an engine is not offered. */
-  where?: string;
-  /** How many API providers there are: with none, the API engine cannot start. Unknown when absent. */
-  providers?: number;
-}
-
 /**
- * The Engine control's options for the agents of a list: the engines the hub has there, none
- * unless at least two (an older hub, or the others turned off in Settings). An engine whose CLI is
- * not installed is disabled, and the API engine with no API provider to run on.
+ * The list with NextCode once, in the place of the first of its agents: the one chosen
+ * (`selected`), else the one of `prefer`'s engine when it can run here, else one that can. Which
+ * of them it is matters little: NextCode starts on Settings › NextCode's account, whichever engine
+ * that is (docs/API-agents.md §30).
  */
-export function engineChoices(agents: AgentLike[], opts: EngineChoiceOptions | string = {}): EngineChoice[] {
-  const { where = 'this machine', providers } = typeof opts === 'string' ? { where: opts } : opts;
-  const rows = ENGINES.flatMap((e) => {
-    const a = agentOfEngine(agents, e.value);
-    return a ? [{ e, a }] : [];
-  });
-  if (rows.length < 2) return [];
-  return rows.map(({ e, a }) => {
-    const missing = a.available === false;
-    const noProvider = e.value === 'api' && providers === 0;
-    const own = RUNS_ON[e.value];
-    let title: string;
-    if (e.value === 'api') title = missing ? `The API engine does not run on ${where}` : noProvider ? 'Add an API provider in Settings › API providers first' : 'NextCode’s own engine: no CLI, it runs on an API provider';
-    else title = missing ? `The ${e.label} engine needs ${own.needs}, which is not installed on ${where}` : `NextCode runs on ${own.cli}, with its own logins`;
-    return { value: e.value, label: e.label, agentId: a.id, disabled: missing || noProvider, title };
-  });
-}
-
-/**
- * The list with NextCode once: of the built-ins, the one chosen (`selected`) takes the place of
- * the first, else the preferred engine's when it can run here, else one that can.
- */
-export function foldEngines<T extends AgentLike>(agents: T[], selected?: string, prefer: Engine = preferredEngine()): T[] {
+export function foldEngines<T extends AgentLike>(agents: T[], selected?: string, prefer: Engine = 'claude'): T[] {
   const builtins = agents.filter((a) => isNextCodeBuiltin(a.id));
   if (builtins.length < 2) return agents;
   const usable = (a: T) => a.available !== false;
@@ -110,10 +67,12 @@ export function foldEngines<T extends AgentLike>(agents: T[], selected?: string,
   return agents.flatMap((a) => (!isNextCodeBuiltin(a.id) ? [a] : a === first ? [keep] : []));
 }
 
-/** The other engine's agent for a NextCode agent and the engine picked: what the control switches to. */
-export function engineSwitch<T extends AgentLike>(agents: T[], engine: Engine): string {
-  return agentOfEngine(agents, engine)?.id ?? '';
-}
+/**
+ * NextCode picks what runs it (One NextCode, docs/API-agents.md §30): a form that starts one names
+ * no login, provider, model or effort, and the hub starts it on Settings › NextCode's account.
+ * Its chat picks another model, of any account. A custom agent built on an engine is not NextCode.
+ */
+export const picksOwnAccount = (a: Pick<Agent, 'id'> | undefined) => isNextCodeBuiltin(a?.id);
 
 /**
  * An agent's name in a list where several NextCode engines may stand side by side (menus with no
@@ -136,31 +95,4 @@ export function apiProviderChoice(chosen: string | undefined, providers: { id: s
   if (has(chosen)) return chosen!;
   if (has(defaultProvider)) return defaultProvider!;
   return providers[0]?.id ?? '';
-}
-
-// ---- the engine picked last, per browser ----
-
-const ENGINE_KEY = 'nb.nextcode.engine';
-
-let preferred: Engine | null = null;
-
-/** The engine NextCode was last started with in this browser: a NextCode tile opens on it. */
-export function preferredEngine(): Engine {
-  if (preferred) return preferred;
-  try {
-    const v = window.localStorage.getItem(ENGINE_KEY);
-    preferred = v === 'codex' || v === 'api' ? v : 'claude';
-  } catch {
-    preferred = 'claude';
-  }
-  return preferred;
-}
-
-export function rememberEngine(e: Engine) {
-  preferred = e;
-  try {
-    window.localStorage.setItem(ENGINE_KEY, e);
-  } catch {
-    /* ignore */
-  }
 }

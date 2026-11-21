@@ -43,17 +43,9 @@ describe('the API engine’s default provider', () => {
 });
 
 describe('nextcodeIntro', () => {
-  it('names the engines the hub has, and the CLIs NextCode’s logins are kept apart from', () => {
-    expect(nextcodeIntro(['claude', 'codex', 'api'])).toBe(
-      'NextCode keeps its own login and memory, apart from Claude Code and Codex. It runs on Claude Code, Codex or an API provider: pick the engine when you start a console.',
-    );
-    expect(nextcodeIntro(['claude', 'codex'])).toBe('NextCode keeps its own login and memory, apart from Claude Code and Codex. It runs on Claude Code or Codex: pick the engine when you start a console.');
-    expect(nextcodeIntro(['claude', 'api'])).toBe('NextCode keeps its own login and memory, apart from Claude Code. It runs on Claude Code or an API provider: pick the engine when you start a console.');
-  });
-
-  it('with one engine, says what runs it', () => {
-    expect(nextcodeIntro(['claude'])).toBe('NextCode keeps its own login and memory, apart from Claude Code. Powered by Claude.');
-    expect(nextcodeIntro(['api'])).toBe('It runs on an API provider.');
+  it('says NextCode is one agent on the accounts added, apart from Claude Code and Codex', () => {
+    expect(nextcodeIntro()).toMatch(/^NextCode is one agent: add the accounts it may run on/);
+    expect(nextcodeIntro()).toMatch(/apart from Claude Code and Codex\.$/);
   });
 });
 

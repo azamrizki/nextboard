@@ -4,6 +4,7 @@
 // useConsoleActions() holds the agent actions and their dialogs so the header menu and
 // the exit bar share them.
 
+import { picksOwnAccount } from '../nextcode/engines';
 import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
 import { api, errorMessage, isCode } from '../api';
 import { launchAgent, NEXTCODE_SWITCH, restartConsole, resumeMode } from '../agents/actions';
@@ -445,9 +446,11 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
   }
   if (!agentConsole && (session.resumeArgs?.length ?? 0) > 0)
     items.push({ label: 'Restart and resume', icon: 'play', disabled: exited, title: `Restart with ${session.resumeArgs?.join(' ')}`, onSelect: () => void restartConsole(session, { resume: true }) });
-  // A console whose agent has ended is exactly one you may want to give to another.
-  items.push({ label: 'Agent and model…', icon: 'bot', disabled: session.agentState === undefined || !!switching, onSelect: () => setDialog({ t: 'switch' }) });
-  if (backTo) {
+  // A console whose agent has ended is exactly one you may want to give to another. NextCode stays
+  // NextCode and picks its model, of any account, in its chat (One NextCode).
+  if (!picksOwnAccount(agent))
+    items.push({ label: 'Agent and model…', icon: 'bot', disabled: session.agentState === undefined || !!switching, onSelect: () => setDialog({ t: 'switch' }) });
+  if (backTo && !picksOwnAccount(agent)) {
     items.push({ label: `Back to ${backToAgent?.name ?? backTo.agent}…`, icon: 'history', disabled: !!switching, onSelect: () => setDialog({ t: 'switch', agent: backTo.agent }) });
   }
   // Phase 6: pause / resume, hand off, forward, group membership
@@ -594,7 +597,7 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
             </span>
           )}
           {modelSummary(session.model, session.effort) && (
-            <span className="node-model truncate" title={`Model and effort of this console. They stay when it restarts. Change them under Agent and model…`}>
+            <span className="node-model truncate" title={picksOwnAccount(agent) ? 'Model and effort of this chat. Change them in its model menu.' : `Model and effort of this console. They stay when it restarts. Change them under Agent and model…`}>
               {modelSummary(session.model, session.effort)}
             </span>
           )}

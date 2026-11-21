@@ -79,10 +79,11 @@ test('a NextCode console is a chat on the board and in the Code view', async ({ 
   }
 });
 
-test('Settings › NextCode has its own login and defaults', async ({ page, hub }, info) => {
+test('Settings › NextCode has its accounts and defaults', async ({ page, hub }, info) => {
   test.skip(info.project.name !== 'light' && info.project.name !== 'dark', 'desktop');
   await page.goto('/settings/nextcode');
-  await expect(page.getByText('NextCode keeps its own login and memory', { exact: false })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('NextCode is one agent', { exact: false })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: 'Accounts' })).toBeVisible();
   await page.getByRole('radio', { name: 'Accept edits', exact: true }).click();
   await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.permissionMode).toBe('acceptEdits');
   await page.getByRole('radio', { name: 'Ask', exact: true }).click();

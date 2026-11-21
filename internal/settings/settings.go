@@ -193,6 +193,46 @@ type NextCode struct {
 	// Provider is the API provider a new console of NextCode's own engine (agent nextcode-api)
 	// runs on when none is picked; that engine has no login (docs/API-agents.md §30). "" = none.
 	Provider string `json:"provider,omitempty"`
+	// Accounts are what NextCode runs on, in the order its model menu lists them: its own login
+	// profiles (pf_…, Claude or Codex) and API providers (ap_…). nil = not chosen yet: the web
+	// offers NextCode's default logins and the default provider.
+	Accounts []string `json:"accounts"`
+	// Account is the account a new console starts on, with Model and Effort ("" = the account's
+	// own); "" = the agent asked for, on its default login (docs/API-agents.md §30).
+	Account string `json:"account,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+}
+
+// MaxNextCodeAccounts bounds nextcode.accounts.
+const MaxNextCodeAccounts = 32
+
+// IsNextCodeAccount reports whether id names an account NextCode can run on: a login profile or
+// an API provider.
+func IsNextCodeAccount(id string) bool { return profileRe.MatchString(id) || providerRe.MatchString(id) }
+
+// WithoutAccount is the section with an account gone from it (a deleted login or provider):
+// changed reports whether it named it.
+func (n NextCode) WithoutAccount(id string) (NextCode, bool) {
+	changed := false
+	if n.Accounts != nil {
+		kept := make([]string, 0, len(n.Accounts))
+		for _, a := range n.Accounts {
+			if a == id {
+				changed = true
+			} else {
+				kept = append(kept, a)
+			}
+		}
+		n.Accounts = kept
+	}
+	if n.Account == id {
+		n.Account, n.Model, n.Effort, changed = "", "", "", true
+	}
+	if n.Provider == id {
+		n.Provider, changed = "", true
+	}
+	return n, changed
 }
 
 // NextCodeModes are the values nextcode.permissionMode may take: "default" asks before anything
@@ -436,6 +476,25 @@ func validate(s *Settings) error {
 	}
 	if s.NextCode.Provider != "" && !providerRe.MatchString(s.NextCode.Provider) {
 		return badSetting("nextcode.provider must be the id of an API provider")
+	}
+	if len(s.NextCode.Accounts) > MaxNextCodeAccounts {
+		return badSetting("nextcode.accounts: at most %d", MaxNextCodeAccounts)
+	}
+	seen := map[string]bool{}
+	for _, id := range s.NextCode.Accounts {
+		if !IsNextCodeAccount(id) || seen[id] {
+			return badSetting("nextcode.accounts: the ids of login profiles (pf_…) and API providers (ap_…), each once")
+		}
+		seen[id] = true
+	}
+	if a := s.NextCode.Account; a != "" && !IsNextCodeAccount(a) {
+		return badSetting("nextcode.account must be the id of a login profile or an API provider")
+	}
+	if m := s.NextCode.Model; m != "" && !modelRe.MatchString(m) {
+		return badSetting("nextcode.model is not a model name")
+	}
+	if e := s.NextCode.Effort; e != "" && !effortRe.MatchString(e) {
+		return badSetting("nextcode.effort is not an effort name")
 	}
 	s.Lead.Name = strings.TrimSpace(s.Lead.Name)
 	if n := len([]rune(s.Lead.Name)); n < 1 || n > 24 || strings.ContainsAny(s.Lead.Name, "\r\n") {

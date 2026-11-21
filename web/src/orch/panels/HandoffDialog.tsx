@@ -7,7 +7,7 @@
 import { orchError } from '../actions';
 import { useMemo, useState, type FormEvent } from 'react';
 import { byPriority, useMachineAgents } from '../../agents/catalog';
-import { agentChoiceName, isApiEngine } from '../../nextcode/engines';
+import { agentChoiceName, foldEngines, isApiEngine, picksOwnAccount } from '../../nextcode/engines';
 import { nextcodeProvider } from '../../settings/nextcodeSettings';
 import { defaultProfileOf, useEffectiveSettings } from '../../agents/settings';
 import { jumpToSession } from '../../agents/jump';
@@ -53,7 +53,8 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
   const place = multi && project && placeVal !== OTHER_VALUE ? normalPlacement(project, placeFromValue(placeVal)) : null;
   const machineId = place && project ? machineOfPlace(project, place) : chosenMachine;
   const ma = useMachineAgents(machineId);
-  const options = useMemo(() => ma.agents.filter((a) => a.kind === 'agent' && a.available !== false).sort(byPriority), [ma.agents]);
+  // NextCode once: it starts on its own account (Settings › NextCode)
+  const options = useMemo(() => foldEngines(ma.agents.filter((a) => a.kind === 'agent' && a.available !== false)).sort(byPriority), [ma.agents]);
   const [agent, setAgent] = useState('');
   const [profileId, setProfileId] = useState('');
   const [note, setNote] = useState('');
@@ -64,12 +65,13 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
   const target = useSession(h?.targetSessionId ?? '');
   const chosen = agent || options.find((a) => a.id !== (source?.agent || source?.preset))?.id || options[0]?.id || '';
   const chosenAgent = options.find((a) => a.id === chosen);
-  const providersOnly = isApiEngine(chosenAgent);
-  const profs = providersOnly ? [] : profiles.filter((p) => p.machineId === machineId && p.agent === chosen);
-  const provs = providers.filter((p) => compatible(chosenAgent, p));
+  const own = picksOwnAccount(chosenAgent);
+  const providersOnly = isApiEngine(chosenAgent) && !own;
+  const profs = providersOnly || own ? [] : profiles.filter((p) => p.machineId === machineId && p.agent === chosen);
+  const provs = own ? [] : providers.filter((p) => compatible(chosenAgent, p));
   const defaultProvider = nextcodeProvider(settings);
-  const account = accountFor(chosenAgent, profileId, { profiles: profs, providers: provs }, defaultProvider);
-  const noProvider = needsProvider(chosenAgent, provs);
+  const account = own ? '' : accountFor(chosenAgent, profileId, { profiles: profs, providers: provs }, defaultProvider);
+  const noProvider = !own && needsProvider(chosenAgent, provs);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

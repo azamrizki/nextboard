@@ -26,7 +26,7 @@ import { defaultPlacement, focusedPlacement, isMultiPart, lastPlacement, machine
 import { FOCUS_PARAM } from '../../board/focus';
 import { PlacePicker } from '../../board/PlacePicker';
 import type { Agent, ModelChoice, Project } from '../../lib/types';
-import { agentChoiceName, apiProviderChoice, isApiEngine } from '../../nextcode/engines';
+import { agentChoiceName, apiProviderChoice, foldEngines, isApiEngine, picksOwnAccount } from '../../nextcode/engines';
 import { AccountOptions, NeedsProviderHint } from '../../providers/AccountOptions';
 import { useProviders } from '../../providers/providers';
 import { nextcodeProvider } from '../../settings/nextcodeSettings';
@@ -83,7 +83,8 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const installed = useMemo(() => ma.agents.filter((a) => a.available !== false).sort(byPriority), [ma.agents]);
+  // NextCode once: it runs on its own account, whichever of its agents stands for it
+  const installed = useMemo(() => foldEngines(ma.agents.filter((a) => a.available !== false)).sort(byPriority), [ma.agents]);
   const cyclable = installed.filter((a) => a.kind === 'agent');
   const roleAgent = settings.agents.roleAgents?.[role] || '';
   const fallback = (roleAgent && installed.some((a) => a.id === roleAgent) ? roleAgent : '') || ma.defaultAgent || cyclable[0]?.id || 'shell';
@@ -94,13 +95,14 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
   const modelOf = (id: string): ModelChoice => modelPicks[id] ?? defaultChoice(settings, usedRole, id);
   const slotAgents = [...new Set(Array.from({ length: count }, (_, i) => slotAgent(i)))].flatMap((id) => {
     const a = agentOf(id);
-    return a?.models ? [a] : [];
+    // NextCode starts on its own account and model (Settings › NextCode)
+    return a?.models && !picksOwnAccount(a) ? [a] : [];
   });
   // NextCode's API engine has no login: its slots share one API provider
   const providers = useProviders();
   const [apiPick, setApiPick] = useState('');
   const apiProvider = apiProviderChoice(apiPick, providers, nextcodeProvider(settings));
-  const apiSlots = Array.from({ length: count }, (_, i) => slotAgent(i)).some((id) => isApiEngine(agentOf(id)));
+  const apiSlots = Array.from({ length: count }, (_, i) => slotAgent(i)).some((id) => isApiEngine(agentOf(id)) && !picksOwnAccount(agentOf(id)));
   const noProvider = apiSlots && !apiProvider;
 
   const cycle = (i: number) => {
@@ -127,9 +129,13 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
         slots: Array.from({ length: count }, (_, i) => ({
           agent: slotAgent(i),
           machineId: !place && machineId !== project.machineId ? machineId : undefined,
-          ...(isApiEngine(agentOf(slotAgent(i))) ? { providerId: apiProvider } : {}),
-          model: modelOf(slotAgent(i)).model ?? '',
-          effort: modelOf(slotAgent(i)).effort ?? '',
+          ...(picksOwnAccount(agentOf(slotAgent(i)))
+            ? {} // NextCode: the hub starts it on Settings › NextCode's account and model
+            : {
+                ...(isApiEngine(agentOf(slotAgent(i))) ? { providerId: apiProvider } : {}),
+                model: modelOf(slotAgent(i)).model ?? '',
+                effort: modelOf(slotAgent(i)).effort ?? '',
+              }),
         })),
         // every slot: at the root (root: true) or in the part (part: id)
         ...(place ? orchPlace(place) : {}),

@@ -1,20 +1,36 @@
-// The chat's model chip (docs/API-agents.md §30): the console's model and effort, and a menu of what
-// its CLI can run (§25: "Default" for the CLI's own choice, "Other…" for a typed name). A pick goes
-// to PUT …/nextcode/model: the model switches at once, the effort with the CLI's next start, so an
-// effort alone says "Applies to the next message". The chip follows the session's model and effort
-// as the hub's session events bring them; a refused pick leaves them as they were. A console on an
-// API provider (always so on the API engine) lists that provider's models (ModelPicker useModelList).
+// The chat's model chip (docs/API-agents.md §30): the console's model and effort, and a menu of the
+// models of every account NextCode has (One NextCode: its Claude and ChatGPT logins, its API
+// providers; accounts.ts), each account's under its name (§25: "Default" for its own choice,
+// "Other…" for a typed name, on the account the console runs on). A pick goes to PUT
+// …/nextcode/model: on the same account the model switches at once and the effort with the CLI's
+// next start, so an effort alone says "Applies to the next message"; a model of another account
+// moves the chat there, and the next message brings the chat so far. The chip follows the session
+// as the hub's session events bring it; a refused pick leaves it as it was.
 
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useAgentCatalog, useMachineAgents } from '../agents/catalog';
 import { useModelList } from '../agents/ModelPicker';
+import { useEffectiveSettings } from '../agents/settings';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Popover } from '../components/Popover';
 import { toast } from '../components/Toast';
 import type { Agent, ModelChoice, Session } from '../lib/types';
+import { useProviders } from '../providers/providers';
+import { useProfiles } from '../store';
+import { menuAccounts, sessionAccount, type AccountSources, type NcAccount } from './accounts';
 import type { ModelChange } from './api';
 import { engineLabel } from './engines';
 import { menuModels, modelChange, modelChipText, modelNameProblem, onlyEffort } from './modelMenu';
+
+/** Where NextCode's accounts come from: the settings, its logins, the API providers and the catalog. */
+export function useAccountSources(): AccountSources {
+  const settings = useEffectiveSettings();
+  const profiles = useProfiles();
+  const providers = useProviders();
+  const { agents } = useMachineAgents('local');
+  return useMemo(() => ({ settings, profiles, providers, agents }), [settings, profiles, providers, agents]);
+}
 
 /** How long "Applies to the next message" stays by the chip. */
 const HINT_MS = 6000;
@@ -33,8 +49,13 @@ interface Props {
 }
 
 export function ModelMenu({ session, agent, running, engine, compact = false, disabled = false, onChange }: Props) {
-  const account = session?.providerId || session?.profileId || '';
-  const { list, onProvider, pickable } = useModelList(agent, account);
+  const src = useAccountSources();
+  const account = sessionAccount(session, src);
+  const accounts = useMemo(() => menuAccounts(account, src), [account, src]);
+  const own = accounts.find((a) => a.id === account);
+  const { list, onProvider, pickable: ownPickable } = useModelList(agent, account);
+  // another account's models can be picked too, when it has any
+  const pickable = ownPickable || accounts.length > 1;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState(false);
@@ -62,16 +83,26 @@ export function ModelMenu({ session, agent, running, engine, compact = false, di
 
   const text = modelChipText(shown, running, list?.models);
   const eng = engineLabel(engine);
-  const engineTag = eng && (
-    <span className="nc-engine" title={engine === 'api' ? 'NextCode runs on its own engine in this console, on an API provider' : `NextCode runs on ${eng === 'Codex' ? 'Codex' : eng === 'Claude' ? 'Claude Code' : eng} in this console`}>
-      {eng}
+  // the account it runs on: "Claude", "Codex", the provider's name
+  const where = own?.name || eng;
+  const engineTag = where && (
+    <span className="nc-engine" title={engine === 'api' ? `NextCode runs on ${where}, an API provider, with its own engine` : `NextCode runs on ${where}, through ${eng === 'Codex' ? 'Codex' : 'Claude Code'}`}>
+      {where}
     </span>
   );
 
   const apply = async (pick: ModelChange) => {
     setOpen(false);
     ref.current?.focus();
-    const change = modelChange(shown, pick, list);
+    if (pick.account && pick.account !== account) {
+      // another account: the chat moves there with the model picked (its own effort)
+      setBusy(true);
+      const ok = await onChange({ account: pick.account, model: pick.model ?? '' });
+      setBusy(false);
+      if (ok) setPicked({ model: pick.model ?? '', effort: '' });
+      return;
+    }
+    const change = modelChange(shown, { model: pick.model, effort: pick.effort }, list);
     if (!change) return;
     setBusy(true);
     const ok = await onChange(change);
@@ -122,7 +153,17 @@ export function ModelMenu({ session, agent, running, engine, compact = false, di
       )}
       {open && (
         <Popover anchor={ref} onClose={() => setOpen(false)} label="Model and effort" placement={compact ? 'above' : 'below'} align="start" className="nc-model-pop">
-          <ModelMenuBody agent={agent} list={list} onProvider={onProvider} now={shown} engine={eng} nextTurn={engine === 'codex' || engine === 'api'} onPick={(p) => void apply(p)} />
+          <ModelMenuBody
+            agent={agent}
+            list={list}
+            onProvider={onProvider}
+            now={shown}
+            engine={where}
+            account={account}
+            accounts={accounts}
+            nextTurn={engine === 'codex' || engine === 'api'}
+            onPick={(p) => void apply(p)}
+          />
         </Popover>
       )}
     </span>
@@ -134,13 +175,17 @@ interface BodyProps {
   list: ReturnType<typeof useModelList>['list'];
   onProvider: boolean;
   now: ModelChoice;
+  /** The account's name (else the engine's), in the heading. */
   engine: string;
+  /** The account the console runs on, and every account NextCode has. */
+  account: string;
+  accounts: NcAccount[];
   /** A new model, too, applies from the next message (Codex, the API engine), not at once. */
   nextTurn: boolean;
   onPick: (c: ModelChange) => void;
 }
 
-function ModelMenuBody({ agent, list, onProvider, now, engine, nextTurn, onPick }: BodyProps) {
+function ModelMenuBody({ agent, list, onProvider, now, engine, account, accounts, nextTurn, onPick }: BodyProps) {
   const model = now.model ?? '';
   const effort = now.effort ?? '';
   const view = menuModels(list, model, effort);
@@ -203,19 +248,36 @@ function ModelMenuBody({ agent, list, onProvider, now, engine, nextTurn, onPick 
     </button>
   );
 
+  // several accounts: each one's models under its name, the console's own first among them as listed
+  const several = accounts.length > 1;
   return (
     <div className="nc-mm" ref={boxRef} onKeyDown={onKey}>
       <div className="menu-heading" id={`${uid}-model`}>
-        Model{engine ? ` · ${engine}` : ''}
+        Model{engine && !several ? ` · ${engine}` : ''}
       </div>
       <div role="radiogroup" aria-labelledby={`${uid}-model`} className="nc-mm-list">
-        {!list && !onProvider && agent?.models && (
-          <div className="nc-mm-note" role="status">
-            <span className="spinner" aria-hidden="true" /> Reading what the CLI can run…
-          </div>
+        {accounts.map((a) =>
+          a.id === account ? (
+            <div key={a.id} role="group" aria-label={a.name} className="nc-mm-account">
+              {several && <AccountHeading account={a} current />}
+              {!list && !onProvider && agent?.models && (
+                <div className="nc-mm-note" role="status">
+                  <span className="spinner" aria-hidden="true" /> Reading what the CLI can run…
+                </div>
+              )}
+              {row('', view.defaultLabel, onProvider ? 'The API provider’s own model' : 'What the CLI runs when told nothing')}
+              {view.models.map((m) => row(m.id, m.name, m.description || m.id))}
+            </div>
+          ) : (
+            <OtherAccount key={a.id} account={a} onPick={(model) => onPick({ account: a.id, model })} />
+          ),
         )}
-        {row('', view.defaultLabel, onProvider ? 'The API provider’s own model' : 'What the CLI runs when told nothing')}
-        {view.models.map((m) => row(m.id, m.name, m.description || m.id))}
+        {!accounts.some((a) => a.id === account) && (
+          <>
+            {row('', view.defaultLabel, onProvider ? 'The API provider’s own model' : 'What the CLI runs when told nothing')}
+            {view.models.map((m) => row(m.id, m.name, m.description || m.id))}
+          </>
+        )}
         <button type="button" role="radio" aria-checked={typing} className="menu-item nc-mm-model" onClick={() => setTyping(true)}>
           <span className="menu-label">Other…</span>
           {typing && <Icon name="check" className="menu-check" />}
@@ -264,6 +326,42 @@ function ModelMenuBody({ agent, list, onProvider, now, engine, nextTurn, onPick 
           <p className="nc-mm-note">{nextTurn ? 'A new model or effort applies from the next message.' : 'A new model applies at once, a new effort from the next message.'}</p>
         </>
       )}
+      {several && <p className="nc-mm-note">A model of another account starts a new conversation there; your next message brings this chat along.</p>}
+    </div>
+  );
+}
+
+function AccountHeading({ account, current }: { account: NcAccount; current?: boolean }) {
+  return (
+    <div className="nc-mm-acc" title={account.detail}>
+      <span className="truncate">{account.name}</span>
+      {current && <span className="nc-mm-acc-tag">this chat</span>}
+      {account.missing && <span className="nc-mm-acc-tag is-bad">cannot run</span>}
+    </div>
+  );
+}
+
+/** Another account's models: picking one moves the chat there. */
+function OtherAccount({ account, onPick }: { account: NcAccount; onPick: (model: string) => void }) {
+  const catalog = useAgentCatalog();
+  const agent = catalog.agents.find((a) => a.id === account.agentId);
+  const { list, onProvider } = useModelList(agent, account.id);
+  const view = menuModels(list, '', '');
+  const item = (id: string, label: string, title: string) => (
+    <button key={id || '\0default'} type="button" role="radio" aria-checked={false} className="menu-item nc-mm-model" title={title} disabled={account.missing} onClick={() => onPick(id)}>
+      <span className="menu-label">{label}</span>
+    </button>
+  );
+  return (
+    <div role="group" aria-label={account.name} className="nc-mm-account">
+      <AccountHeading account={account} />
+      {!list && !onProvider && agent?.models && (
+        <div className="nc-mm-note" role="status">
+          <span className="spinner" aria-hidden="true" /> Reading its models…
+        </div>
+      )}
+      {item('', view.defaultLabel, `${account.name}: ${onProvider ? 'the API provider’s own model' : 'what its CLI runs when told nothing'}`)}
+      {view.models.map((m) => item(m.id, m.name, `${account.name} · ${m.description || m.id}`))}
     </div>
   );
 }

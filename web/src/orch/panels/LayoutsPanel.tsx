@@ -16,7 +16,7 @@ import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import type { Agent, Project } from '../../lib/types';
-import { agentChoiceName, isApiEngine, NEEDS_PROVIDER, PROVIDERS_PATH } from '../../nextcode/engines';
+import { agentChoiceName, isApiEngine, NEEDS_PROVIDER, picksOwnAccount, PROVIDERS_PATH } from '../../nextcode/engines';
 import { Link } from '../../lib/router';
 import { nextcodeProvider } from '../../settings/nextcodeSettings';
 import { ApiError } from '../../api';
@@ -516,7 +516,8 @@ function LaneInspector({
   /** NextCode's API engine runs on an API provider only: the lane's, else Settings › NextCode's, else the first. */
   const apiLaneProvider = (agentId: string, o: LaneOverride) => {
     const a = ma.agents.find((x) => x.id === agentId);
-    return isApiEngine(a) ? accountFor(a, o.providerId ?? '', { profiles: [], providers }, defaultProvider) || null : undefined;
+    // NextCode itself starts on its own account (the hub's choice); a custom agent on its API engine needs one
+    return isApiEngine(a) && !picksOwnAccount(a) ? accountFor(a, o.providerId ?? '', { profiles: [], providers }, defaultProvider) || null : undefined;
   };
   /** Click cycles through the installed agents (right-click / select picks any). */
   const cycle = (key: string, current: string) => {

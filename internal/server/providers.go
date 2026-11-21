@@ -81,6 +81,13 @@ func (h providerHub) Launch(id string, a agent.Agent) (*agent.ProviderLaunch, er
 		Model: p.Model, FastModel: p.FastModel, Key: key, ConfigDir: dir, Scrub: bwrap == nil}, nil
 }
 
+func (h providerHub) Name(id string) string {
+	if p, ok := h.s.providers.Get(id); ok {
+		return p.Name
+	}
+	return ""
+}
+
 func (h providerHub) ConfigDir(id string, a agent.Agent) string {
 	if f := providerFolder(a.CapBase()); f != "" {
 		return h.s.st.Path("providers", id, f)
@@ -583,8 +590,8 @@ func (s *Server) handleProviderDelete(w http.ResponseWriter, r *http.Request, p 
 	if set.Runner.Provider == id {
 		patch["runner"] = map[string]any{"provider": nil}
 	}
-	if set.NextCode.Provider == id {
-		patch["nextcode"] = map[string]any{"provider": nil}
+	if nc, changed := set.NextCode.WithoutAccount(id); changed {
+		patch["nextcode"] = nextcodeAccountsPatch(nc)
 	}
 	lead := map[string]any{}
 	if set.Lead.Runner == id {

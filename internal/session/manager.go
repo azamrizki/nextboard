@@ -579,6 +579,8 @@ type ProviderHub interface {
 	Launch(id string, a agent.Agent) (*agent.ProviderLaunch, error)
 	// ConfigDir: the CLI's folder for the provider, where its conversations are ("" = none).
 	ConfigDir(id string, a agent.Agent) string
+	// Name is the provider's name ("" = there is none by that id).
+	Name(id string) string
 }
 
 func (m *Manager) checkProvider(id string, a agent.Agent) error {
@@ -755,6 +757,7 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		return Info{}, machine.ErrNotFound
 	}
 	st := m.Settings()
+	a = m.nextcodeDefault(a, &req, st)
 	if a.Kind == agent.KindAgent && st.Agents.Disabled[a.ID] {
 		return Info{}, ErrAgentDisabled
 	}

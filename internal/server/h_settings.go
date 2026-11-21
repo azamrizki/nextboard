@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -185,7 +186,31 @@ func (s *Server) handleProfileDelete(w http.ResponseWriter, r *http.Request, p *
 		return
 	}
 	s.events.Publish(map[string]any{"type": "profileRemoved", "id": id})
+	// NextCode no longer offers it, nor starts on it
+	if nc, changed := s.settings.View().NextCode.WithoutAccount(id); changed {
+		if b, err := json.Marshal(map[string]any{"nextcode": nextcodeAccountsPatch(nc)}); err == nil {
+			if _, err := s.settings.Patch(b); err != nil {
+				log.Printf("settings after removing profile %s: %v", id, err)
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, okBody)
+}
+
+// nextcodeAccountsPatch is the merge patch that puts NextCode's accounts as nc has them.
+func nextcodeAccountsPatch(nc settings.NextCode) map[string]any {
+	orNull := func(v string) any {
+		if v == "" {
+			return nil
+		}
+		return v
+	}
+	var accounts any
+	if nc.Accounts != nil {
+		accounts = nc.Accounts
+	}
+	return map[string]any{"accounts": accounts, "account": orNull(nc.Account), "model": orNull(nc.Model), "effort": orNull(nc.Effort),
+		"provider": orNull(nc.Provider)}
 }
 
 // ---- jobs (API-studio.md §1.2) ----

@@ -928,6 +928,47 @@ textarea.control.textarea-sm {
   flex: 0 0 auto;
 }
 
+/* NextCode's accounts (settings/NextCodePane.tsx): what it runs on, in its menu's order */
+.nc-accounts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-account {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-top: var(--hairline) solid var(--glass-border);
+  color: var(--text-2);
+}
+.nc-account > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  color: var(--text-3);
+}
+.nc-account-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+.nc-account-name {
+  color: var(--text-1);
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+.nc-account-detail {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.nc-account-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--s-1);
+}
+
 /* signing in to a profile (settings/ProfileSignIn.tsx) */
 .profile-signin {
   display: flex;
@@ -1117,7 +1158,8 @@ textarea.control.textarea-sm {
     width: 100%;
     justify-content: flex-end;
   }
-  .profile-row {
+  .profile-row,
+  .nc-account {
     flex-wrap: wrap;
   }
   .profile-actions {

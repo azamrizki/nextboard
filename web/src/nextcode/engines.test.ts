@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Agent } from '../lib/types';
-import { agentChoiceName, apiProviderChoice, engineChoices, engineLabel, engineOf, engineSwitch, foldEngines, isApiEngine, isNextCodeBuiltin, NEXTCODE_AGENTS, preferredEngine, rememberEngine } from './engines';
+import { agentChoiceName, apiProviderChoice, engineLabel, engineOf, foldEngines, isApiEngine, isNextCodeBuiltin, NEXTCODE_AGENTS, picksOwnAccount } from './engines';
 
 const agent = (id: string, over: Partial<Agent> = {}) => ({ id, name: id, kind: 'agent', ...over }) as Agent;
 
@@ -41,84 +41,6 @@ describe('NextCode engines', () => {
     expect(isApiEngine({ id: 'nextcode-api' })).toBe(true);
     expect([ncClaude, ncCodex, claude, mine, undefined].some(isApiEngine)).toBe(false);
   });
-
-  it('a browser with nothing stored prefers Claude', () => {
-    expect(preferredEngine()).toBe('claude');
-  });
-});
-
-describe('the engine picked last', () => {
-  afterEach(() => {
-    rememberEngine('claude');
-    vi.unstubAllGlobals();
-  });
-
-  it('remembers the API engine as well as the others, and reads it back', () => {
-    const kept = new Map<string, string>();
-    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v) } });
-    rememberEngine('api');
-    expect(preferredEngine()).toBe('api');
-    expect(kept.get('nb.nextcode.engine')).toBe('api');
-    rememberEngine('codex');
-    expect(preferredEngine()).toBe('codex');
-  });
-});
-
-describe('engineChoices', () => {
-  it('offers Claude and Codex, each mapped to its agent', () => {
-    const c = engineChoices([claude, codex, ncClaude, ncCodex]);
-    expect(c.map((x) => [x.value, x.label, x.agentId, x.disabled])).toEqual([
-      ['claude', 'Claude', 'nextcode', false],
-      ['codex', 'Codex', 'nextcode-codex', false],
-    ]);
-  });
-
-  it('offers the API engine third, with a title of its own', () => {
-    const c = engineChoices([claude, codex, ncClaude, ncCodex, ncApi], { providers: 2 });
-    expect(c.map((x) => [x.value, x.label, x.agentId, x.disabled])).toEqual([
-      ['claude', 'Claude', 'nextcode', false],
-      ['codex', 'Codex', 'nextcode-codex', false],
-      ['api', 'API', 'nextcode-api', false],
-    ]);
-    expect(c[2].title).toBe('NextCode’s own engine: no CLI, it runs on an API provider');
-    expect(c[0].title).toMatch(/Claude Code, with its own logins/);
-    expect(c[1].title).toMatch(/Codex, with its own logins/);
-  });
-
-  it('disables the API engine while there is no API provider, and says where to add one', () => {
-    const c = engineChoices([ncClaude, ncCodex, ncApi], { providers: 0 });
-    expect(c.map((x) => x.disabled)).toEqual([false, false, true]);
-    expect(c[2].title).toBe('Add an API provider in Settings › API providers first');
-    // the count not known yet (the list still loading): not held back
-    expect(engineChoices([ncClaude, ncApi]).map((x) => x.disabled)).toEqual([false, false]);
-  });
-
-  it('offers any two engines the hub has, and disables one the hub says cannot run', () => {
-    expect(engineChoices([ncClaude, ncApi], { providers: 1 }).map((x) => x.value)).toEqual(['claude', 'api']);
-    expect(engineChoices([ncCodex, ncApi], { providers: 1 }).map((x) => x.value)).toEqual(['codex', 'api']);
-    const off = engineChoices([ncClaude, { ...ncApi, available: false }], { where: 'This PC', providers: 1 });
-    expect(off[1]).toMatchObject({ disabled: true, title: 'The API engine does not run on This PC' });
-  });
-
-  it('disables an engine whose CLI is not installed, and says why', () => {
-    const c = engineChoices([ncClaude, { ...ncCodex, available: false }], 'This PC');
-    expect(c.map((x) => x.disabled)).toEqual([false, true]);
-    expect(c[1].title).toMatch(/codex CLI.*This PC/);
-  });
-
-  it('offers no control when the hub has one engine only (an older hub, or the others turned off)', () => {
-    expect(engineChoices([claude, ncClaude])).toEqual([]);
-    expect(engineChoices([codex, ncCodex])).toEqual([]);
-    expect(engineChoices([ncApi], { providers: 3 })).toEqual([]);
-    expect(engineChoices([])).toEqual([]);
-  });
-
-  it('maps an engine to the agent to switch to', () => {
-    expect(engineSwitch([ncClaude, ncCodex], 'codex')).toBe('nextcode-codex');
-    expect(engineSwitch([ncClaude, ncCodex], 'claude')).toBe('nextcode');
-    expect(engineSwitch([ncClaude, ncCodex, ncApi], 'api')).toBe('nextcode-api');
-    expect(engineSwitch([ncClaude], 'codex')).toBe('');
-  });
 });
 
 describe('foldEngines', () => {
@@ -130,7 +52,7 @@ describe('foldEngines', () => {
     expect(ids(foldEngines(list, 'nextcode', 'codex'))).toEqual(['claude', 'codex', 'nextcode', 'gemini', 'mine']);
   });
 
-  it('with another agent chosen, takes the engine preferred, if it can run here', () => {
+  it('with another agent chosen, takes Claude’s, else one that can run here', () => {
     expect(ids(foldEngines(list, 'claude', 'codex'))).toEqual(['claude', 'codex', 'nextcode-codex', 'gemini', 'mine']);
     expect(ids(foldEngines(list, 'claude', 'claude'))).toEqual(['claude', 'codex', 'nextcode', 'gemini', 'mine']);
     const noCodexCli = [ncClaude, { ...ncCodex, available: false }];
@@ -148,7 +70,7 @@ describe('foldEngines', () => {
   it('folds all three engines into one NextCode, in the place of the first', () => {
     const three = [claude, ncClaude, ncCodex, gemini, ncApi];
     expect(ids(foldEngines(three, 'nextcode-api', 'claude'))).toEqual(['claude', 'nextcode-api', 'gemini']);
-    expect(ids(foldEngines(three, 'gemini', 'api'))).toEqual(['claude', 'nextcode-api', 'gemini']);
+    expect(ids(foldEngines(three, 'gemini'))).toEqual(['claude', 'nextcode', 'gemini']);
     expect(ids(foldEngines(three, 'gemini', 'codex'))).toEqual(['claude', 'nextcode-codex', 'gemini']);
     // two of them are enough to fold
     expect(ids(foldEngines([ncClaude, ncApi], '', 'api'))).toEqual(['nextcode-api']);
@@ -195,5 +117,12 @@ describe('apiProviderChoice', () => {
 
   it('has nothing to run on without a provider', () => {
     expect(apiProviderChoice('ap_glm', [], 'ap_glm')).toBe('');
+  });
+});
+
+describe('picksOwnAccount', () => {
+  it('is NextCode, whichever of its agents, and never a custom agent or a terminal agent', () => {
+    for (const a of [ncClaude, ncCodex, ncApi]) expect(picksOwnAccount(a)).toBe(true);
+    for (const a of [claude, codex, gemini, mine, undefined]) expect(picksOwnAccount(a)).toBe(false);
   });
 });

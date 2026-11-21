@@ -157,12 +157,32 @@ func (s *Server) handleNextCodeModel(w http.ResponseWriter, r *http.Request, p *
 	var req struct {
 		Model  *string `json:"model"`
 		Effort *string `json:"effort"`
+		// Account: the login profile or API provider the model is on (One NextCode); another
+		// than the console's moves the chat there.
+		Account string `json:"account"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	sess, d, ok := s.nextcodeDriver(w, r)
 	if !ok {
+		return
+	}
+	if req.Account != "" {
+		if _, err := s.sessions.SwitchChatAccount(sess.ID(), req.Account, req.Model, req.Effort); err != nil {
+			switch {
+			case errors.Is(err, session.ErrBadRequest):
+				writeErrCode(w, http.StatusBadRequest, "bad_model", "not a model or effort name")
+			case errors.Is(err, session.ErrNextCodeAccount):
+				writeErrCode(w, http.StatusBadRequest, "nextcode_account", err.Error())
+			case errors.Is(err, session.ErrNotNextCode):
+				writeErrCode(w, http.StatusConflict, "not_nextcode", err.Error())
+			default:
+				s.sessionErr(w, err)
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": d.Status()})
 		return
 	}
 	if err := sess.SetChatModel(req.Model, req.Effort); err != nil {
