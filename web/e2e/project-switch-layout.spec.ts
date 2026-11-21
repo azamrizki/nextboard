@@ -6,7 +6,8 @@ import { expect, test } from './hub';
 test('the project switcher is a sheet on a tablet', async ({ page, hub }, info) => {
   const p = await hub.project('Switcher');
   await page.goto(`/p/${p.id}/code`);
-  await page.getByRole('button', { name: /Switch project/ }).first().click();
+  const button = page.getByRole('button', { name: /Switch project/ }).first();
+  await button.click();
   const menu = page.getByRole('menu', { name: 'Switch project' });
   await expect(menu).toBeVisible();
   const box = (await menu.boundingBox())!;
@@ -17,7 +18,11 @@ test('the project switcher is a sheet on a tablet', async ({ page, hub }, info) 
     expect(margins[0]).toBeGreaterThan(8);
     expect(margins[0]).toBeLessThan(40);
   } else {
-    expect(box.height).toBeLessThan(view.height * 0.8);
+    // no sheet: it hangs from its button, however many projects the hub has
+    await expect(page.locator('.menu-sheet-backdrop')).toHaveCount(0);
+    await expect(menu).not.toHaveClass(/menu-sheet/);
+    const b = (await button.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(b.y + b.height - 2);
   }
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
