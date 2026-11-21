@@ -728,8 +728,10 @@ Needs Go 1.26+ and Node 22+. Go module: `github.com/azamrizki/nextboard`. `go in
 | `make dev` | Hub + Vite; web `:15173`, hub `:12312`, data `./.devdata`, which `scripts/devinstance` makes the instance `dev` (cookie `nb_session_http_dev`, so it does not log the browser out of an installed hub on the same host; one login again after the upgrade); a changed Go file → the hub restarts through air (`RELOAD=0` turns this off) |
 | `make dev-hub`, `make dev-web` | One side only |
 | `make test` | `go vet` + `go test -race -timeout 30m ./...` |
+| `make test-fast` | The same tests side by side (`scripts/go-test-fast.sh`): `internal/server` and `internal/machine` split by test name (`scripts/ci-shard.sh`, as the release workflow does) and run at the same time as the other packages, after everything is compiled |
 | `make test-web` | Web unit tests (Vitest); needs `web/node_modules` |
 | `make test-e2e` | Browser tests (Playwright) against a temporary hub with fake agents; needs `cd web && npx playwright install chromium` once. Not part of the release workflow |
+| `make test-e2e-fast` | The same suite over several temporary hubs side by side (`scripts/e2e-shards.sh`, `--shard=i/n`, each hub on its own port and folder); `E2E_SHARDS=n`, default a third of the CPUs (at most 6). The whole suite took 9.5 min in 4 shards against ~30 min on one hub. A failed shard's summary is printed at the end, its log is `$TMPDIR/nextboard-e2e-shard-<i>.log` |
 | `make test-ssh` | SSH tests against a temporary sshd |
 | `make build` | Web + `bin/nextboard` |
 | `make snapshot` | Local goreleaser |

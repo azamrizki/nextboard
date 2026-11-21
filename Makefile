@@ -10,7 +10,7 @@ LISTEN  ?= 0.0.0.0:12312
 WEB_PORT ?= 15173
 RELOAD  ?= 1
 
-.PHONY: all web build test test-web test-e2e test-ssh demo dev dev-hub dev-web clean snapshot
+.PHONY: all web build test test-fast test-web test-e2e test-e2e-fast test-ssh demo dev dev-hub dev-web clean snapshot
 
 all: build
 
@@ -28,6 +28,19 @@ test:
 # Needs web/node_modules: `make web` or `cd web && npm ci` first.
 test-web:
 	cd web && npm test
+
+# The Go tests of `make test`, the slow packages split by test name and run side by side with the
+# rest (scripts/go-test-fast.sh): a few minutes instead of ~15.
+test-fast:
+	scripts/go-test-fast.sh
+
+# The browser tests over several throwaway hubs side by side (scripts/e2e-shards.sh): what
+# `make test-e2e` runs, in a fraction of the time. E2E_SHARDS=n picks how many.
+test-e2e-fast:
+	cd web && npm run build
+	touch internal/webui/dist/.gitkeep
+	CGO_ENABLED=0 go build -buildvcs=false -o bin/e2e/nextboard ./cmd/nextboard
+	NEXTBOARD_E2E_BIN=$(CURDIR)/bin/e2e/nextboard scripts/e2e-shards.sh $(E2E_SHARDS)
 
 # Browser tests against a throwaway hub with fake agents; never a real agent CLI. Needs
 # `cd web && npx playwright install chromium` once.
