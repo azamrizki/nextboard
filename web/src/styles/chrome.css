@@ -2422,3 +2422,12 @@ textarea.control.prose {
   width: 28px;
   height: 28px;
 }
+/* a finger: the header's + and Board | Code are 40 (DESIGN.md §4) */
+:root[data-input='touch'] .ws-tabs-wrap > .ws-add {
+  width: 40px;
+  height: 40px;
+}
+:root[data-input='touch'] .board-views .segmented-item {
+  min-width: 40px;
+  min-height: 40px;
+}
