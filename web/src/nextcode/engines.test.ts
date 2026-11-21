@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Agent } from '../lib/types';
-import { agentChoiceName, apiProviderChoice, engineLabel, engineOf, foldEngines, isApiEngine, isNextCodeBuiltin, NEXTCODE_AGENTS, picksOwnAccount } from './engines';
+import { agentChoiceName, apiProviderChoice, engineLabel, engineOf, foldEngines, isApiEngine, isNextCodeBuiltin, NEXTCODE_AGENTS, NEXTCODE_EFFORTS, picksOwnAccount, withNextCodeCommands } from './engines';
 
 const agent = (id: string, over: Partial<Agent> = {}) => ({ id, name: id, kind: 'agent', ...over }) as Agent;
 
@@ -124,5 +124,16 @@ describe('picksOwnAccount', () => {
   it('is NextCode, whichever of its agents, and never a custom agent or a terminal agent', () => {
     for (const a of [ncClaude, ncCodex, ncApi]) expect(picksOwnAccount(a)).toBe(true);
     for (const a of [claude, codex, gemini, mine, undefined]) expect(picksOwnAccount(a)).toBe(false);
+  });
+});
+
+describe('NextCode’s own commands and efforts', () => {
+  it('lists /model, /effort and /mode first, then the CLI’s other commands once', () => {
+    expect(withNextCodeCommands(['review', 'effort', 'compact'])).toEqual(['model', 'effort', 'mode', 'review', 'compact']);
+    expect(withNextCodeCommands([])).toEqual(['model', 'effort', 'mode']);
+  });
+
+  it('has one effort scale on every account', () => {
+    expect(NEXTCODE_EFFORTS).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
   });
 });

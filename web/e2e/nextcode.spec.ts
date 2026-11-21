@@ -29,6 +29,13 @@ test('a NextCode console is a chat on the board and in the Code view', async ({ 
     await expect(card.locator('.nc-me', { hasText: 'hello' })).toBeVisible();
     await expect(card.getByText('Done: hello')).toBeVisible({ timeout: 15_000 });
 
+    // /effort is NextCode's own, on every engine: the chat says so and the chip follows, no turn
+    await input.fill('/effort high');
+    await input.press('Enter');
+    await expect(card.locator('.nc-notice', { hasText: 'Effort: high, from the next message' })).toBeVisible({ timeout: 15_000 });
+    await expect(card.getByRole('button', { name: /^Model: .*high/ })).toBeVisible();
+    expect((await hub.call('GET', `/api/sessions/${s.id}`)).effort).toBe('high');
+
     // a permission request: the card needs you, Allow once runs the tool
     await input.fill('run tests');
     await input.press('Enter');
@@ -88,4 +95,9 @@ test('Settings › NextCode has its accounts and defaults', async ({ page, hub }
   await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.permissionMode).toBe('acceptEdits');
   await page.getByRole('radio', { name: 'Ask', exact: true }).click();
   await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.permissionMode).toBe('default');
+  // NextCode's effort for new consoles, on every account
+  await page.getByRole('radiogroup', { name: 'Effort of new NextCode consoles' }).getByRole('radio', { name: 'xhigh', exact: true }).click();
+  await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.effort).toBe('xhigh');
+  await page.getByRole('radiogroup', { name: 'Effort of new NextCode consoles' }).getByRole('radio', { name: 'Default', exact: true }).click();
+  await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.effort ?? '').toBe('');
 });

@@ -16,7 +16,7 @@ import { useProfiles, useSession } from '../store';
 import type { ModelChange } from './api';
 import { useChatAttachments } from './ChatAttachments';
 import { Composer } from './Composer';
-import { engineOf } from './engines';
+import { engineOf, withNextCodeCommands } from './engines';
 import { costText, elapsed, liveLine, modeOf, modesFor, rateLimitText, retryAfterSignIn, withoutSettledLogins } from './format';
 import { ChatAccount, ChildItems, ChildStreams, ItemView, NcMark, StreamView } from './Items';
 import { groupItems, groupStreams, type Stream } from './reducer';
@@ -182,6 +182,8 @@ function ChatView({ sessionId, variant, chat, focusTick, className = '' }: NextC
   const tree = useMemo(() => groupItems(state.items), [state.items]);
   const streams = useMemo(() => groupStreams(state.streams, tree.ids), [state.streams, tree.ids]);
   const rows = useMemo(() => rowsOf(withoutSettledLogins(tree.top)), [tree.top]);
+  // NextCode's own commands (/model, /effort, /mode) on every engine, then the CLI's
+  const commands = useMemo(() => withNextCodeCommands(status?.commands ?? []), [status?.commands]);
   const waitingFor = useMemo(() => new Set(state.requests.map((r) => r.toolUseId ?? '').filter(Boolean)), [state.requests]);
 
   const who = session ? (session.handle ? `@${session.handle}` : session.name) : 'NextCode';
@@ -354,7 +356,7 @@ function ChatView({ sessionId, variant, chat, focusTick, className = '' }: NextC
               working={working}
               stopping={!!status?.stopping}
               disabled={ended}
-              commands={status?.commands ?? []}
+              commands={commands}
               mode={mode}
               onMode={(m) => void chat.setMode(m)}
               onSend={send}

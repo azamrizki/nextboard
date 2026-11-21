@@ -17,8 +17,21 @@ export const ENGINES: { value: Engine; label: string }[] = [
   { value: 'api', label: 'API' },
 ];
 
-/** What the API engine takes as an effort (the hub's list wins when it gives one). */
-export const API_EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+/**
+ * NextCode's efforts, the same on every account (One NextCode): the hub fits one to what the
+ * model takes when it starts it (a Codex model with no max runs at its highest).
+ */
+export const NEXTCODE_EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** What the API engine takes as an effort: NextCode's own. */
+export const API_EFFORTS = NEXTCODE_EFFORTS;
+
+/** NextCode's own commands, carried out by NextCode on every engine (never the CLI's). */
+export const NEXTCODE_COMMANDS: readonly string[] = ['model', 'effort', 'mode'];
+
+/** The composer's commands: NextCode's own first, then the CLI's other ones. */
+export function withNextCodeCommands(cli: readonly string[]): string[] {
+  return [...NEXTCODE_COMMANDS, ...cli.filter((c) => !NEXTCODE_COMMANDS.includes(c))];
+}
 
 /** Where an API provider is added, and why the API engine cannot start without one. */
 export const PROVIDERS_PATH = '/settings/providers';

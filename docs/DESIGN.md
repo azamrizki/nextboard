@@ -445,6 +445,13 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
     message". A model of another account moves the chat there: a notice row in the chat ("Now on
     Codex · gpt-5.5: a new conversation there, and your next message brings this chat so far"),
     and the menu says so in a note under it.
+  - Its Effort row is NextCode's own on every account: Default, low, medium, high, xhigh, max
+    (each titled that a model without it runs at its nearest); it stays when the model or the
+    account changes.
+- **NextCode's commands:** the composer's "/" list starts with NextCode's own, `model`,
+  `effort` and `mode`, then the CLI's. NextCode answers them in the chat itself: the command as a
+  bubble and a notice row ("Effort: high, from the next message, on every model of this chat."),
+  with no turn and no working state.
 - **Attachments:** paste into the composer, drop on the chat ("Drop to attach to your message"),
   or use `+`.
   - Chips with a thumbnail or file icon, name and size, removable; Send waits for the uploads.
@@ -470,8 +477,9 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
     the new login joins the list), then the API providers not added yet. Until changed, the
     list is NextCode's defaults, and says so;
   - **New consoles**: the start model as one select grouped by account ("Claude · Opus",
-    "E2E Chat · Default (e2e-model)"; first "NextCode's default"), its effort when the model has
-    any, the start permission mode as a segmented radio group, and the idle time in minutes.
+    "E2E Chat · Default (e2e-model)"; first "NextCode's default"), the effort as a segmented
+    radio group (Default, low … max) that holds on every account and model, the start permission
+    mode as a segmented radio group, and the idle time in minutes.
 - **Card menu:** a NextCode card has no Copy text, Pick conversation, Pause, Sleep, Keep awake,
   Text size or Kill. Its Restart says that it stops the CLI, and Close says "Close console…".
 - **API engine** (2026-11-21, agent `nextcode-api`): NextCode's own agent, with no vendor CLI and

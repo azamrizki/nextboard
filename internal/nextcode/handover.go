@@ -171,3 +171,25 @@ func validTail(s string) string {
 	}
 	return s
 }
+
+// Note puts what the owner typed and NextCode's answer in the chat, with no turn of the CLI: a
+// command of NextCode's own (/effort, /model, /mode), which it carries out itself on every
+// engine. answer "" puts the command only.
+func (d *Driver) Note(command, answer string) error {
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return ErrClosed
+	}
+	now := time.Now().UTC()
+	for _, it := range []Item{{ID: newID("u"), Kind: KindUser, At: now, Text: command}, {ID: newID("n"), Kind: KindNotice, At: now, Text: answer}} {
+		if it.Text == "" {
+			continue
+		}
+		d.upsertLocked(it)
+		d.persistLocked(record{Item: &it})
+		d.broadcastLocked(Frame{T: FrameItem, Item: &it})
+	}
+	d.unlock()
+	return nil
+}

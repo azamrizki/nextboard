@@ -109,3 +109,58 @@ func TestListModels(t *testing.T) {
 		t.Fatalf("%+v", l)
 	}
 }
+
+// NextCode's efforts are the same on every engine (One NextCode); a Codex launch gets the nearest
+// one its model takes.
+func TestNextCodeEfforts(t *testing.T) {
+	for _, c := range []struct {
+		want string
+		have []string
+		got  string
+	}{
+		{"max", []string{"low", "medium", "high", "xhigh"}, "xhigh"},
+		{"xhigh", []string{"low", "medium", "high"}, "high"},
+		{"low", []string{"medium", "high"}, "medium"},
+		{"high", []string{"minimal", "low", "medium", "high"}, "high"},
+		{"medium", nil, "medium"},
+		{"", []string{"low"}, ""},
+	} {
+		if got := FitEffort(c.want, c.have); got != c.got {
+			t.Errorf("FitEffort(%q, %v) = %q, want %q", c.want, c.have, got, c.got)
+		}
+	}
+	home := t.TempDir()
+	cat := `{"models":[{"slug":"gpt-a","visibility":"list","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},
+		{"slug":"gpt-b","visibility":"list","supported_reasoning_levels":[{"effort":"minimal"},{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}]}]}`
+	if err := os.WriteFile(filepath.Join(home, "models_cache.json"), []byte(cat), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("model = \"gpt-b\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	codex := Agent{ID: "nextcode-codex", Kind: KindAgent, Base: "codex", Engine: "codex"}
+	claude := Agent{ID: "nextcode", Kind: KindAgent, Base: "claude", Engine: "claude"}
+	for _, c := range []struct {
+		a             Agent
+		model, effort string
+		home          string
+		got           string
+	}{
+		{codex, "gpt-a", "max", home, "high"},
+		{codex, "", "max", home, "xhigh"}, // config.toml's model
+		{codex, "gpt-z", "max", home, "xhigh"},
+		{codex, "gpt-a", "max", t.TempDir(), "xhigh"}, // no list yet: Codex's usual efforts
+		{claude, "opus", "max", home, "max"},
+	} {
+		if got := NextCodeEffort(c.a, c.model, c.effort, c.home); got != c.got {
+			t.Errorf("NextCodeEffort(%s, %q, %q) = %q, want %q", c.a.ID, c.model, c.effort, got, c.got)
+		}
+	}
+	// every NextCode agent takes NextCode's efforts only; Codex itself keeps its own
+	if !ValidEffortFor(codex, "max") || ValidEffortFor(codex, "minimal") || ValidEffortFor(claude, "ultra") || !ValidEffortFor(Agent{ID: "codex", Kind: KindAgent}, "minimal") {
+		t.Fatal("ValidEffortFor")
+	}
+	if got := NextCodeEfforts(); len(got) != 5 || got[0] != "low" || got[4] != "max" {
+		t.Fatalf("NextCodeEfforts %v", got)
+	}
+}

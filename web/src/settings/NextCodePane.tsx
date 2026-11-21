@@ -5,7 +5,7 @@
 // on one account's model (nextcode.account, .model, .effort); its chat picks a model of any of them.
 // The permission mode a new console starts in and how long its CLI may sit idle are shared.
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../api';
 import { useAgentCatalog } from '../agents/catalog';
 import { useModelList } from '../agents/ModelPicker';
@@ -20,7 +20,7 @@ import { toast } from '../components/Toast';
 import { Link, navigate } from '../lib/router';
 import type { Agent, NextCodePermissionMode, Profile } from '../lib/types';
 import { accountIds, addableLogins, ncAccounts, type NcAccount } from '../nextcode/accounts';
-import { NEXTCODE_AGENTS, PROVIDERS_PATH } from '../nextcode/engines';
+import { NEXTCODE_AGENTS, NEXTCODE_EFFORTS, PROVIDERS_PATH } from '../nextcode/engines';
 import { useAccountSources } from '../nextcode/ModelMenu';
 import { providersStore } from '../providers/providers';
 import { useMachines } from '../store';
@@ -233,7 +233,7 @@ function StartModel() {
   const onPick = (v: string) => {
     if (!v) return void save({ nextcode: { account: null, model: null, effort: null } }, 'the model of new consoles');
     const [acc, m] = v.split(SEP);
-    void save({ nextcode: { account: acc, model: m || null, effort: acc === account ? (nc?.effort ?? null) : null } }, 'the model of new consoles');
+    void save({ nextcode: { account: acc, model: m || null } }, 'the model of new consoles');
   };
   return (
     <>
@@ -246,7 +246,7 @@ function StartModel() {
           {!known && <option value={value}>An account removed from NextCode</option>}
         </select>
       </SettingRow>
-      {account && <StartEffort account={accounts.find((a) => a.id === account)} model={model} effort={nc?.effort ?? ''} />}
+      <StartEffort effort={nc?.effort ?? ''} />
     </>
   );
 }
@@ -272,28 +272,15 @@ function AccountModels({ account }: { account: NcAccount }) {
   );
 }
 
-/** The effort of the start model, as its account lists them. */
-function StartEffort({ account, model, effort }: { account: NcAccount | undefined; model: string; effort: string }) {
-  const catalog = useAgentCatalog();
-  const agent = account ? catalog.agents.find((a) => a.id === account.agentId) : undefined;
-  const { list } = useModelList(agent, account?.id);
-  const efforts = useMemo(() => {
-    const row = list?.models.find((m) => m.id === model);
-    const own = [...((row?.efforts?.length ? row.efforts : list?.efforts) ?? [])];
-    if (effort && !own.includes(effort)) own.push(effort);
-    return own;
-  }, [list, model, effort]);
-  if (!agent?.efforts || !efforts.length) return null;
+/**
+ * NextCode's effort for new consoles: its own scale, the same on every account and model (the hub
+ * fits it to what a model takes). Each chat changes its own in the model menu or with /effort.
+ */
+function StartEffort({ effort }: { effort: string }) {
+  const options = [{ value: '', label: 'Default', title: 'Each model’s own effort' }, ...NEXTCODE_EFFORTS.map((e) => ({ value: e, label: e, title: `${e} on every model: one without it runs at its nearest` }))];
   return (
-    <SettingRow title="Effort" htmlFor="nc-start-effort" hint="How hard the model thinks: Default is the account’s own.">
-      <select id="nc-start-effort" className="control control-sm" value={effort} onChange={(e) => void save({ nextcode: { effort: e.target.value || null } }, 'the effort of new consoles')}>
-        <option value="">Default</option>
-        {efforts.map((x) => (
-          <option key={x} value={x}>
-            {x}
-          </option>
-        ))}
-      </select>
+    <SettingRow title="Effort" hint="How hard NextCode thinks, on every account and model; a model that has no such level runs at its nearest. Each chat changes its own in the model menu, or with /effort.">
+      <SegmentedControl<string> label="Effort of new NextCode consoles" size="sm" value={effort} onChange={(v) => void save({ nextcode: { effort: v || null } }, 'the effort of new consoles')} options={options} />
     </SettingRow>
   );
 }

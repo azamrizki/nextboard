@@ -83,11 +83,12 @@ func (s *Server) handleNextCodeMessage(w http.ResponseWriter, r *http.Request, p
 	if !decode(w, r, &req) {
 		return
 	}
-	_, d, ok := s.nextcodeDriver(w, r)
+	sess, _, ok := s.nextcodeDriver(w, r)
 	if !ok {
 		return
 	}
-	if err := d.Send(req.Text); err != nil {
+	// through the console, so that NextCode's own commands (/effort, /model, /mode) are its own
+	if err := sess.SendChat(req.Text); err != nil {
 		nextcodeErr(w, err)
 		return
 	}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -145,4 +146,76 @@ func TestNextCodeAccounts(t *testing.T) {
 	if nc := h.srv.settings.Get().NextCode; !slices.Equal(nc.Accounts, []string{home}) || nc.Account != "" || nc.Model != "" {
 		t.Fatalf("after the login went %+v", nc)
 	}
+}
+
+// NextCode's own settings (One NextCode): its effort for new consoles on any account, /effort,
+// /model and /mode carried out by NextCode on every engine (never handed to the CLI), and the
+// chat's effort going along when it moves to another account.
+func TestNextCodeOwnCommandsAndEffort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	h := newTestHub(t)
+	h.setup()
+	dir := t.TempDir()
+	t.Setenv("FAKE_DIR", dir)
+	bin := fakeAPIAgent(t, dir)
+	paths := map[string]any{"local": map[string]any{"claude": filepath.Join(dir, "claude"), "nextcode-api": bin}}
+	h.do("PATCH", "/api/settings", map[string]any{"agents": map[string]any{"paths": paths}}, nil)
+	api := newFakeAPI(t)
+	_, pv := h.do("POST", "/api/providers", map[string]any{"name": "Router", "kind": "openai", "api": "chat", "baseUrl": api.URL + "/v1", "model": "glm-4.6", "apiKey": providerKey}, nil)
+	pid := pv["id"].(string)
+
+	// NextCode's effort for new consoles, with no account chosen: the agent asked for, with it
+	if st, r := h.do("PATCH", "/api/settings", map[string]any{"nextcode": map[string]any{"effort": "minimal"}}, nil); st != 400 || r["code"] != "bad_setting" {
+		t.Fatalf("a Codex-only effort %d %v", st, r)
+	}
+	h.do("PATCH", "/api/settings", map[string]any{"nextcode": map[string]any{"effort": "xhigh"}}, nil)
+	st, in := h.do("POST", "/api/sessions", map[string]any{"agent": "nextcode", "cwd": dir}, nil)
+	if st != 201 || in["agent"] != "nextcode" || in["effort"] != "xhigh" {
+		t.Fatalf("spawned %d %v", st, in)
+	}
+	id := in["id"].(string)
+	h.waitEngine(id, "claude")
+	h.waitInfo(id, "ready", func(in map[string]any) bool { return in["agentState"] == "ready" })
+	argsBefore, _ := os.ReadFile(filepath.Join(dir, "args"))
+
+	answer := func(text, want string) {
+		t.Helper()
+		if st, r := h.do("POST", "/api/sessions/"+id+"/nextcode/messages", map[string]any{"text": text}, nil); st != 202 {
+			t.Fatalf("%s: %d %v", text, st, r)
+		}
+		h.waitChat(id, want, func(it map[string]any) bool { return it["kind"] == "notice" && strings.Contains(fmt.Sprint(it["text"]), want) })
+	}
+	answer("/effort", "Effort: xhigh.")
+	answer("/effort max", "Effort: max, from the next message")
+	answer("/effort minimal", "“minimal” is not one of NextCode's efforts")
+	answer("/mode plan", "Mode: Plan.")
+	answer("/model sonnet", "Model: sonnet, on Claude.")
+	answer("/model", "Model: sonnet, on Claude. /model <name>")
+	_, info := h.do("GET", "/api/sessions/"+id, nil, nil)
+	if info["effort"] != "max" || info["model"] != "sonnet" {
+		t.Fatalf("after the commands %v", info)
+	}
+	if _, chat := h.do("GET", "/api/sessions/"+id+"/nextcode", nil, nil); chat["status"].(map[string]any)["permissionMode"] != "plan" {
+		t.Fatalf("mode %v", chat["status"])
+	}
+	// none of them reached the CLI, and none started a turn
+	if after, _ := os.ReadFile(filepath.Join(dir, "args")); string(after) != string(argsBefore) {
+		t.Fatalf("a CLI started for a command: %q", after)
+	}
+	if _, info := h.do("GET", "/api/sessions/"+id, nil, nil); info["agentState"] != "ready" {
+		t.Fatalf("state %v", info["agentState"])
+	}
+	// any other "/" is the CLI's, as before
+	h.do("POST", "/api/sessions/"+id+"/nextcode/messages", map[string]any{"text": "/review"}, nil)
+	h.waitChat(id, "the CLI's reply", func(it map[string]any) bool { return it["text"] == "Done: /review" })
+
+	// the chat's effort goes along to another account
+	if st, r := h.do("PUT", "/api/sessions/"+id+"/nextcode/model", map[string]any{"account": pid}, nil); st != 200 {
+		t.Fatalf("switch %d %v", st, r)
+	}
+	h.waitEngine(id, "api")
+	if _, info := h.do("GET", "/api/sessions/"+id, nil, nil); info["effort"] != "max" || info["providerId"] != pid || info["model"] != nil && info["model"] != "" {
+		t.Fatalf("after the move %v", info)
+	}
+	h.do("DELETE", "/api/sessions/"+id, nil, nil)
 }

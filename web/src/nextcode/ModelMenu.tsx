@@ -20,7 +20,7 @@ import { useProviders } from '../providers/providers';
 import { useProfiles } from '../store';
 import { menuAccounts, sessionAccount, type AccountSources, type NcAccount } from './accounts';
 import type { ModelChange } from './api';
-import { engineLabel } from './engines';
+import { engineLabel, NEXTCODE_EFFORTS } from './engines';
 import { menuModels, modelChange, modelChipText, modelNameProblem, onlyEffort } from './modelMenu';
 
 /** Where NextCode's accounts come from: the settings, its logins, the API providers and the catalog. */
@@ -99,10 +99,12 @@ export function ModelMenu({ session, agent, running, engine, compact = false, di
       setBusy(true);
       const ok = await onChange({ account: pick.account, model: pick.model ?? '' });
       setBusy(false);
-      if (ok) setPicked({ model: pick.model ?? '', effort: '' });
+      // the chat's effort is NextCode's: it goes along
+      if (ok) setPicked({ model: pick.model ?? '', effort: shown.effort ?? '' });
       return;
     }
-    const change = modelChange(shown, { model: pick.model, effort: pick.effort }, list);
+    // NextCode's effort stays whatever the model (the hub fits it to the model): no list to check it against
+    const change = modelChange(shown, { model: pick.model, effort: pick.effort }, null);
     if (!change) return;
     setBusy(true);
     const ok = await onChange(change);
@@ -316,9 +318,18 @@ function ModelMenuBody({ agent, list, onProvider, now, engine, account, accounts
             Effort
           </div>
           <div role="radiogroup" aria-labelledby={`${uid}-effort`} className="nc-mm-efforts">
-            {['', ...view.efforts].map((x) => (
-              <button key={x || '\0default'} type="button" role="radio" aria-checked={x === effort} className="menu-item choice-item" title={x ? undefined : 'What the CLI uses when told nothing'} onClick={() => onPick({ effort: x })}>
-                {x || view.defaultEffortLabel}
+            {/* NextCode's efforts on every account; one this chat has from before stays listed */}
+            {['', ...NEXTCODE_EFFORTS, ...(effort && !NEXTCODE_EFFORTS.includes(effort) ? [effort] : [])].map((x) => (
+              <button
+                key={x || '\0default'}
+                type="button"
+                role="radio"
+                aria-checked={x === effort}
+                className="menu-item choice-item"
+                title={x ? `NextCode's ${x}, on every model of this chat: a model without it runs at its nearest` : 'The model’s own effort'}
+                onClick={() => onPick({ effort: x })}
+              >
+                {x || 'Default'}
               </button>
             ))}
           </div>

@@ -28,8 +28,73 @@ var modelFlags = map[string]struct {
 	"nextcode-api": {model: "--model", effort: "--effort"},
 }
 
-// nextcodeEfforts are the efforts NextCode's own agent takes; each wire maps them to its own.
+// nextcodeEfforts are NextCode's efforts, the same on every engine (One NextCode): its own agent
+// maps them onto each wire, Claude Code takes them as they are, and a Codex launch gets the
+// nearest one its model has (NextCodeEffort).
 var nextcodeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
+// NextCodeEfforts are NextCode's efforts, lowest first.
+func NextCodeEfforts() []string { return slices.Clone(nextcodeEfforts) }
+
+// effortOrder ranks every effort a CLI names, so one can be fitted to another's list.
+var effortOrder = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// FitEffort is want, when have takes it; else the nearest effort of have below it, else the
+// nearest above it. have empty (not known): want as it is.
+func FitEffort(want string, have []string) string {
+	if want == "" || len(have) == 0 || slices.Contains(have, want) {
+		return want
+	}
+	rank := slices.Index(effortOrder, want)
+	if rank < 0 {
+		return want
+	}
+	below, above := "", ""
+	for _, e := range have {
+		r := slices.Index(effortOrder, e)
+		switch {
+		case r < 0:
+		case r < rank && (below == "" || r > slices.Index(effortOrder, below)):
+			below = e
+		case r > rank && (above == "" || r < slices.Index(effortOrder, above)):
+			above = e
+		}
+	}
+	if below != "" {
+		return below
+	}
+	return above
+}
+
+// NextCodeEffort is the effort a NextCode launch gives its CLI: NextCode's own, fitted to what
+// the model takes. Claude Code and NextCode's own agent take all of them. Codex names its
+// efforts per model, in models_cache.json of its home (codexHome); a model it does not list, or
+// no list yet, takes Codex's usual ones (low to xhigh).
+func NextCodeEffort(a Agent, model, effort, codexHome string) string {
+	if effort == "" || a.Engine != "codex" {
+		return effort
+	}
+	have := []string{"low", "medium", "high", "xhigh"}
+	if b, err := os.ReadFile(filepath.Join(codexHome, "models_cache.json")); err == nil {
+		var cat codexCatalog
+		if json.Unmarshal(b, &cat) == nil {
+			if model == "" {
+				if c, err := os.ReadFile(filepath.Join(codexHome, "config.toml")); err == nil {
+					model, _ = codexConfigModel(c)
+				}
+			}
+			for _, m := range cat.Models {
+				if m.Slug == model && len(m.Levels) > 0 {
+					have = have[:0]
+					for _, l := range m.Levels {
+						have = append(have, l.Effort)
+					}
+				}
+			}
+		}
+	}
+	return FitEffort(effort, have)
+}
 
 var (
 	modelRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,127}$`)
@@ -42,10 +107,10 @@ func ValidModel(m string) bool { return m == "" || modelRe.MatchString(m) }
 // ValidEffort reports whether e can be passed to a CLI ("" = the CLI's own choice).
 func ValidEffort(e string) bool { return e == "" || effortRe.MatchString(e) }
 
-// ValidEffortFor reports whether a launch of a can be told effort e: NextCode's own agent takes
-// only its own efforts and refuses to start on another.
+// ValidEffortFor reports whether a launch of a can be told effort e: NextCode, on any engine,
+// takes only its own efforts (NextCodeEfforts), which each launch fits to its model.
 func ValidEffortFor(a Agent, e string) bool {
-	if a.CapBase() == "nextcode-api" && e != "" {
+	if (a.CapBase() == "nextcode-api" || a.Engine != "") && e != "" {
 		return slices.Contains(nextcodeEfforts, e)
 	}
 	return ValidEffort(e)

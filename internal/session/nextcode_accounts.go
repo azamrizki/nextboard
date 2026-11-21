@@ -71,31 +71,35 @@ func isNextCodeBuiltin(a agent.Agent) bool { return a.Engine != "" && a.Source =
 // default login.
 func (m *Manager) nextcodeDefault(a agent.Agent, req *CreateRequest, st settings.Settings) agent.Agent {
 	nc := st.NextCode
-	if !isNextCodeBuiltin(a) || nc.Account == "" || req.ProfileID != nil || req.ProviderID != nil || req.Model != nil || req.Effort != nil {
+	if !isNextCodeBuiltin(a) || req.ProfileID != nil || req.ProviderID != nil || req.Model != nil || req.Effort != nil {
 		return a
 	}
-	na, profileID, providerID, err := m.nextcodeAccount(nc.Account)
-	if err != nil || st.Agents.Disabled[na.ID] {
-		return a
+	na := a
+	if nc.Account != "" {
+		if acc, profileID, providerID, err := m.nextcodeAccount(nc.Account); err == nil && !st.Agents.Disabled[acc.ID] {
+			na = acc
+			if profileID != "" {
+				req.ProfileID = &profileID
+			} else {
+				req.ProviderID = &providerID
+			}
+			model := nc.Model
+			req.Model = &model
+			if req.Name == a.Name {
+				req.Name = na.Name
+			}
+		}
 	}
-	if profileID != "" {
-		req.ProfileID = &profileID
-	} else {
-		req.ProviderID = &providerID
-	}
-	model, effort := nc.Model, nc.Effort
-	if !agent.ValidEffortFor(na, effort) {
-		effort = ""
-	}
-	req.Model, req.Effort = &model, &effort
-	if req.Name == a.Name {
-		req.Name = na.Name
+	// NextCode's effort is its own, on whichever account (each launch fits it to the model)
+	if effort := nc.Effort; effort != "" && agent.ValidEffortFor(na, effort) {
+		req.Effort = &effort
 	}
 	return na
 }
 
-// SwitchChatAccount moves a NextCode console to another account with a model and effort of
-// that account (nil = the account's own): another login or provider, often another engine. The
+// SwitchChatAccount moves a NextCode console to another account with a model of that account
+// (nil = the account's own) and an effort (nil = the chat's, which is NextCode's and goes along):
+// another login or provider, often another engine. The
 // chat stays; its next message starts a new conversation there with the chat so far. On the
 // account it already runs on, it is SetChatModel.
 func (m *Manager) SwitchChatAccount(id, account string, model, effort *string) (Info, error) {
@@ -133,7 +137,12 @@ func (m *Manager) SwitchChatAccount(id, account string, model, effort *string) (
 		model = &empty // the account's own model, not the one of the account it leaves
 	}
 	if effort == nil {
-		effort = &empty
+		// the chat's effort is NextCode's: it goes along (fitted to the new model at launch)
+		keep := sp.Effort
+		if !agent.ValidEffortFor(na, keep) {
+			keep = ""
+		}
+		effort = &keep
 	}
 	req := RestartRequest{Agent: na.ID, Model: model, Effort: effort}
 	if profileID != "" {
@@ -156,6 +165,20 @@ func (m *Manager) SwitchChatAccount(id, account string, model, effort *string) (
 // handOverNote is what the chat says where it moved to another account: "Now on Codex ·
 // gpt-5.5: a new conversation there, with this chat so far."
 func (m *Manager) handOverNote(sp Spec, a agent.Agent, carry bool) string {
+	where := m.accountLabel(sp, a)
+	model := sp.Model
+	if model == "" {
+		model = "its default model"
+	}
+	if !carry {
+		return fmt.Sprintf("Now on %s · %s.", where, model)
+	}
+	return fmt.Sprintf("Now on %s · %s: a new conversation there, and your next message brings this chat so far.", where, model)
+}
+
+// accountLabel is the account a console runs on as the chat names it: "Claude", "Codex (Work)",
+// an API provider's name.
+func (m *Manager) accountLabel(sp Spec, a agent.Agent) string {
 	where := map[string]string{"claude": "Claude", "codex": "Codex", agent.EngineAPI: "an API provider"}[a.Engine]
 	if where == "" {
 		where = a.Name
@@ -169,12 +192,5 @@ func (m *Manager) handOverNote(sp Spec, a agent.Agent, carry bool) string {
 			where = fmt.Sprintf("%s (%s)", where, p.Name)
 		}
 	}
-	model := sp.Model
-	if model == "" {
-		model = "its default model"
-	}
-	if !carry {
-		return fmt.Sprintf("Now on %s · %s.", where, model)
-	}
-	return fmt.Sprintf("Now on %s · %s: a new conversation there, and your next message brings this chat so far.", where, model)
+	return where
 }

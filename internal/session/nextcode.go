@@ -171,6 +171,14 @@ func (s *Session) chatStart(resume bool, line func([]string) []string) (*nextcod
 	if p := st.Agents.Paths[sp.MachineID][a.Base]; o.Command == "" && p != "" {
 		o.Command = p // the path set for Claude Code is NextCode's CLI too
 	}
+	if a.Engine == nextcode.EngineCodex {
+		// NextCode's effort, fitted to what the Codex model takes (One NextCode)
+		home := o.ProfileDir
+		if o.Provider != nil && o.Provider.ConfigDir != "" {
+			home = o.Provider.ConfigDir
+		}
+		o.Effort = agent.NextCodeEffort(a, o.Model, o.Effort, home)
+	}
 	var extra []string
 	if a.ProviderOnly() {
 		// NextCode's own agent is the hub's own program (agents.paths can point it elsewhere)
@@ -276,6 +284,10 @@ func (s *Session) SendChat(text string) error {
 			return errors.New("the console is not running")
 		}
 		return ErrNotNextCode
+	}
+	// NextCode's own commands (/effort, /model, /mode) it carries out itself, on every engine
+	if handled, err := s.chatCommand(d, text); handled {
+		return err
 	}
 	return d.Send(text)
 }
