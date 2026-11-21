@@ -178,14 +178,25 @@ func (r *ExecResult) fill(w *execWatch, timedOut, idle, cancelled bool) {
 
 // command builds the process of spec: its own process group, the login PATH.
 func (l *Local) command(spec ExecSpec) *exec.Cmd {
+	// The run's own variables go to the process, not into the script: in the script they would
+	// be on the command line of /bin/sh until its exec, which ps shows every user of the machine,
+	// and they can be an API provider's key. Last in the list, they win as an export would.
+	vars := spec.Env
+	spec.Env = nil
 	cmd := exec.Command("/bin/sh", "-c", execScript(spec))
-	env := make([]string, 0, len(os.Environ())+4)
+	env := make([]string, 0, len(os.Environ())+len(vars)+4)
 	for _, kv := range os.Environ() {
 		if !strippedEnv(kv) {
 			env = append(env, kv)
 		}
 	}
-	cmd.Env = append(env, "PATH="+l.pathEnv(), "HOME="+l.home, "TERM=dumb")
+	env = append(env, "PATH="+l.pathEnv(), "HOME="+l.home, "TERM=dumb")
+	for _, kv := range vars {
+		if k, _, ok := strings.Cut(kv, "="); ok && envName.MatchString(k) {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = env
 	cmd.Dir = l.home
 	// A session of its own, so no terminal: a hub started by hand has the user's, and
 	// a git hook asking on /dev/tty would stop there, or take what the user types.
