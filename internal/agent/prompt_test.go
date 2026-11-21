@@ -111,6 +111,22 @@ func TestInputPromptPasted(t *testing.T) {
 	if ok, _ := InputPromptPasted("claude", wrapped[:5], 4); ok {
 		t.Fatal("incomplete box accepted")
 	}
+	// An agent without screen rules: a long answer pasted on one line (no bracketed paste)
+	// wraps below its "> " prompt, and the cursor ends on the wrapped rest (seen in the browser
+	// tests on a narrow card: "no known input prompt on the cursor line: ]").
+	generic := []string{"Done: run the tests", `> now fix the failing one  [This answers what @Bintang said: "Done: run the te`, `sts >"]`}
+	if ok, _ := InputPrompt("", generic, 2); ok {
+		t.Fatal("strict check must not accept a continuation row")
+	}
+	if ok, why := InputPromptPasted("", generic, 2); !ok {
+		t.Fatalf("generic wrapped paste refused: %s", why)
+	}
+	if ok, _ := InputPromptPasted("", []string{"Running the tests…", "  still going", "  3 of 9"}, 2); ok {
+		t.Fatal("a generic screen with no prompt accepted")
+	}
+	if ok, _ := InputPromptPasted("", []string{"> pasted text", "Do you want to proceed?", " ❯ 1. Yes", "   2. No"}, 2); ok {
+		t.Fatal("a generic dialog accepted")
+	}
 	for _, f := range []string{"testdata/dialogs/codex-update-cursor-on-option.txt", "testdata/dialogs/claude-permission.txt", "testdata/dialogs/codex-update-real.txt"} {
 		lines, cy, rules, _ := readScreen(t, f)
 		if ok, _ := InputPromptPasted(rules, lines, cy); ok {

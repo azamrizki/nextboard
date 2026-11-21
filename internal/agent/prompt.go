@@ -243,6 +243,9 @@ func dialogLineIn(lines []string, cursorY int, boxed bool, strong, weak []*regex
 var promptStart = map[string]*regexp.Regexp{
 	"claude": regexp.MustCompile(`^❯(\s|$)`),
 	"codex":  regexp.MustCompile(`^[›▌](\s|$)`),
+	// agents without screen rules: the prompt character of their input shape (inputShapes[""]),
+	// so that a long paste wrapped onto the rows below it is still at the prompt
+	"": regexp.MustCompile(`^\s*(│\s*)?[>❯›»](\s|$)`),
 }
 
 const maxInputRows = 30
