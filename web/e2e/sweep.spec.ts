@@ -99,6 +99,7 @@ async function project(hub: Hub, name: string) {
 }
 
 test('every page and settings pane fits the screen', async ({ page, hub }, info) => {
+  test.setTimeout(120_000); // some twenty pages, each loaded to network idle
   const p = await project(hub, 'Sweep');
   await hub.memory(p.id, '# Notes\n\nWhat the agents should know.');
   const where = [
