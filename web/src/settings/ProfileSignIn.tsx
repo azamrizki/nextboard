@@ -84,11 +84,13 @@ export function ProfileSignIn({ profile, agentName, onSignedIn }: { profile: Pro
 }
 
 /**
- * Sign in to a profile: right after adding it (fresh), or later from its row. cliName: the CLI
- * that signs in when it is not the agent itself (a NextCode profile signs in in Claude Code).
+ * Sign in to a profile: right after adding it (fresh), later from its row, or from a NextCode chat
+ * whose login failed. cliName: the CLI that signs in when it is not the agent itself (a NextCode
+ * profile signs in in Claude Code or Codex). onClose says whether it was signed in.
  */
-export function ProfileSignInDialog({ profile, agentName, cliName, fresh, onClose }: { profile: Profile; agentName: string; cliName?: string; fresh?: boolean; onClose: () => void }) {
+export function ProfileSignInDialog({ profile, agentName, cliName, fresh, onClose: close }: { profile: Profile; agentName: string; cliName?: string; fresh?: boolean; onClose: (signedIn: boolean) => void }) {
   const [signedIn, setSignedIn] = useState(false);
+  const onClose = () => close(signedIn);
   const cli = cliName || agentName;
   const other = cli !== agentName;
   return (

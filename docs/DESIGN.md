@@ -451,7 +451,9 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
   - Codex is hidden when the hub has no Codex engine, and disabled when Codex is not installed.
   - Lists without the control say "NextCode · Claude" / "NextCode · Codex".
 - **Not logged in:** the error card says NextCode's login is its own and offers **Sign in
-  NextCode** (Settings › NextCode).
+  NextCode**, which opens the sign-in dialog of the console's login right over the chat (Settings
+  › NextCode on an API provider: "Open API providers"). Done after signing in sends the message
+  that failed again; once the agent has replied after it, the card leaves the chat.
 - **Settings › NextCode:** its own pane after Agents, with these cards:
   - one card per engine ("Claude engine", "Codex engine"): its logins (NextCode's only; each
     home one is named "NextCode"), Add login, and its model and effort defaults;

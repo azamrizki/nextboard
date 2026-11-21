@@ -29,7 +29,7 @@ export const ChildStreams = createContext<Map<string, Stream[]>>(new Map());
  * What the console runs on, for what an error says: its engine ("claude" | "codex" | "api") and
  * whether an API provider runs it instead of a login (always so on the API engine).
  */
-export const ChatAccount = createContext<{ engine: string; onProvider: boolean }>({ engine: '', onProvider: false });
+export const ChatAccount = createContext<{ engine: string; onProvider: boolean; signIn?: () => void }>({ engine: '', onProvider: false });
 const NO_ITEMS: Item[] = [];
 const NO_STREAMS: Stream[] = [];
 
@@ -167,7 +167,7 @@ function ErrorItem({ text }: { text: string }) {
         <>
           <span className="nc-err-hint">{help.hint}</span>
           <span className="nc-err-actions">
-            <Button size="sm" variant="primary" onClick={() => navigate(help.to)}>
+            <Button size="sm" variant="primary" onClick={() => (account.signIn && !account.onProvider ? account.signIn() : navigate(help.to))}>
               {help.action}
             </Button>
           </span>

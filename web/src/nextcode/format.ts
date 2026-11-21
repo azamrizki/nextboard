@@ -120,6 +120,40 @@ export function isLoginError(text: string): boolean {
   return /not logged in|please run \/login|invalid api key|authentication[_ ]error|oauth token|401\b/i.test(text);
 }
 
+/** What the agent gives back in a turn that worked: its reply, its thinking or a tool call. */
+const REPLY_KINDS = new Set(['text', 'thinking', 'tool']);
+
+/**
+ * The main conversation without the sign-in failures that are over: once the agent replied after
+ * one (signed in since, or the key fixed), its card has nothing left to say. Others stay.
+ */
+export function withoutSettledLogins<T extends { kind: string; text?: string }>(top: T[]): T[] {
+  let replied = false;
+  let drop: Set<T> | null = null;
+  for (let i = top.length - 1; i >= 0; i--) {
+    const it = top[i];
+    if (REPLY_KINDS.has(it.kind)) replied = true;
+    else if (replied && it.kind === 'error' && isLoginError(it.text ?? '')) (drop ??= new Set()).add(it);
+  }
+  return drop ? top.filter((it) => !drop.has(it)) : top;
+}
+
+/**
+ * The message to send again after signing in: the owner's last one, when the chat ends on a
+ * sign-in failure that came after it. '' when there is none (the agent replied since, or the
+ * failure was not about the login).
+ */
+export function retryAfterSignIn<T extends { kind: string; text?: string }>(top: T[]): string {
+  let failed = false;
+  for (let i = top.length - 1; i >= 0; i--) {
+    const it = top[i];
+    if (it.kind === 'error' && isLoginError(it.text ?? '')) failed = true;
+    else if (it.kind === 'user') return failed ? (it.text ?? '') : '';
+    else if (it.kind !== 'notice') return '';
+  }
+  return '';
+}
+
 export interface LoginHelp {
   title: string;
   hint: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { costText, elapsed, isLoginError, liveLine, loginHelp, matchCommands, MODES, modeOf, modesFor, rateLimitText } from './format';
+import { costText, elapsed, isLoginError, liveLine, loginHelp, matchCommands, MODES, modeOf, modesFor, rateLimitText, retryAfterSignIn, withoutSettledLogins } from './format';
 import { planOf, questionsOf, shortPath, tail, toolArg, toolLabel, toolMeta } from './tools';
 import type { Status } from './types';
 
@@ -138,5 +138,28 @@ describe('tools', () => {
     ]);
     expect(questionsOf(undefined)).toEqual([]);
     expect(planOf({ plan: '1. Do it' })).toBe('1. Do it');
+  });
+});
+
+describe('a sign-in failure that is over', () => {
+  const u = (text: string) => ({ kind: 'user', text });
+  const err = (text = 'Not logged in · Please run /login') => ({ kind: 'error', text });
+  const reply = { kind: 'text', text: 'Hello!' };
+
+  it('leaves the chat once the agent replied after it', () => {
+    const failed = err();
+    expect(withoutSettledLogins([u('hello'), failed, u('hello'), reply])).toEqual([u('hello'), u('hello'), reply]);
+    // still the last word: it stays, and so does an error that was not about the login
+    expect(withoutSettledLogins([u('hello'), failed])).toEqual([u('hello'), failed]);
+    const other = err('API Error: 529 overloaded');
+    expect(withoutSettledLogins([u('a'), other, reply])).toEqual([u('a'), other, reply]);
+  });
+
+  it('gives the message to send again while the chat ends on it', () => {
+    expect(retryAfterSignIn([u('first'), reply, u('hello'), err()])).toBe('hello');
+    expect(retryAfterSignIn([u('hello'), err(), { kind: 'notice', text: 'Stopped.' }])).toBe('hello');
+    expect(retryAfterSignIn([u('hello'), err(), reply])).toBe('');
+    expect(retryAfterSignIn([u('hello'), err('API Error: 500')])).toBe('');
+    expect(retryAfterSignIn([err()])).toBe('');
   });
 });

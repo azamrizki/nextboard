@@ -5,18 +5,19 @@
 // screen). The console's state on the live line comes from the session (agentState, activity) as
 // for any agent. Files dropped anywhere on the chat are attached to the next message.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { useAgent } from '../agents/catalog';
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useAgent, useAgentCatalog } from '../agents/catalog';
+import { defaultProfileOf, useEffectiveSettings } from '../agents/settings';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { useFileDrop } from '../lib/fileDrop';
 import type { Agent, Session } from '../lib/types';
-import { useSession } from '../store';
+import { useProfiles, useSession } from '../store';
 import type { ModelChange } from './api';
 import { useChatAttachments } from './ChatAttachments';
 import { Composer } from './Composer';
 import { engineOf } from './engines';
-import { costText, elapsed, liveLine, modeOf, modesFor, rateLimitText } from './format';
+import { costText, elapsed, liveLine, modeOf, modesFor, rateLimitText, retryAfterSignIn, withoutSettledLogins } from './format';
 import { ChatAccount, ChildItems, ChildStreams, ItemView, NcMark, StreamView } from './Items';
 import { groupItems, groupStreams, type Stream } from './reducer';
 import { ModelMenu } from './ModelMenu';
@@ -24,6 +25,8 @@ import { RequestCard } from './RequestCard';
 import type { Item, PermissionMode, Status } from './types';
 import { useNextCode, type NextCodeChatController } from './useNextCode';
 import '../styles/nextcode.css';
+
+const ProfileSignInDialog = lazy(() => import('../settings/ProfileSignIn').then((m) => ({ default: m.ProfileSignInDialog })));
 
 export type NextCodeVariant = 'tab' | 'card' | 'phone';
 
@@ -164,12 +167,21 @@ function ChatView({ sessionId, variant, chat, focusTick, className = '' }: NextC
   const status = state.status;
   const mode = modeOf(status);
   const engine = status?.engine || engineOf(agent);
+  const onProvider = engine === 'api' || !!session?.providerId;
+  // the login this console runs on (its own, else its agent's default), signed in right from the chat
+  const settings = useEffectiveSettings();
+  const profiles = useProfiles();
+  const catalog = useAgentCatalog();
+  const agentId = session ? session.agent || session.preset : '';
+  const loginId = onProvider ? '' : session?.profileId || defaultProfileOf(settings, 'local', agentId);
+  const login = profiles.find((p) => p.id === loginId);
+  const [signing, setSigning] = useState(false);
   // an API console has no login: a refused key is the provider's
-  const account = useMemo(() => ({ engine, onProvider: engine === 'api' || !!session?.providerId }), [engine, session?.providerId]);
+  const account = useMemo(() => ({ engine, onProvider, signIn: login ? () => setSigning(true) : undefined }), [engine, onProvider, login]);
 
   const tree = useMemo(() => groupItems(state.items), [state.items]);
   const streams = useMemo(() => groupStreams(state.streams, tree.ids), [state.streams, tree.ids]);
-  const rows = useMemo(() => rowsOf(tree.top), [tree.top]);
+  const rows = useMemo(() => rowsOf(withoutSettledLogins(tree.top)), [tree.top]);
   const waitingFor = useMemo(() => new Set(state.requests.map((r) => r.toolUseId ?? '').filter(Boolean)), [state.requests]);
 
   const who = session ? (session.handle ? `@${session.handle}` : session.name) : 'NextCode';
@@ -252,6 +264,13 @@ function ChatView({ sessionId, variant, chat, focusTick, className = '' }: NextC
     const ok = await chat.send(text);
     if (ok) toEnd();
     return ok;
+  };
+
+  // signed in from the card: the message that failed goes again, and the card leaves with the reply
+  const signedIn = (yes: boolean) => {
+    setSigning(false);
+    const again = yes ? retryAfterSignIn(tree.top) : '';
+    if (again) void send(again);
   };
 
   const act = useMemo(() => ({ answer: chat.answer, setMode: chat.setMode }), [chat.answer, chat.setMode]);
@@ -346,6 +365,11 @@ function ChatView({ sessionId, variant, chat, focusTick, className = '' }: NextC
           </div>
         </div>
       </div>
+      {signing && login && (
+        <Suspense fallback={null}>
+          <ProfileSignInDialog profile={login} agentName="NextCode" cliName={engine === 'codex' ? 'Codex' : catalog.agents.find((a) => a.id === 'claude')?.name || 'Claude Code'} onClose={signedIn} />
+        </Suspense>
+      )}
     </ChatAccount.Provider>
   );
 }
