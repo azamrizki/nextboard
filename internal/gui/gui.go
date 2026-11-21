@@ -478,11 +478,7 @@ func (m *Manager) launch(req LaunchRequest, pageURL string) (Session, error) {
 	s.managedVersion = managed
 	x, err := m.bootstrap(s, e, target, clamp(req.Width, 320, 3840, defaultW), clamp(req.Height, 200, 2160, defaultH))
 	if err != nil {
-		m.terminate(s)
-		m.mu.Lock()
-		delete(m.sessions, s.pub.ID)
-		m.mu.Unlock()
-		close(s.gone)
+		m.abandon(s)
 		return Session{}, newErr(http.StatusInternalServerError, "gui_start_failed", "failed to open %s: %v", e.Name, err)
 	}
 	m.mu.Lock()
@@ -1125,6 +1121,24 @@ func (m *Manager) Stop(id string) error {
 	}
 	m.end(s, ReasonStopped, "")
 	return nil
+}
+
+// abandon tears down a session whose start failed. The teardown has one owner: a Stop that came
+// while it started (end) took it already and closes gone itself; closing it here as well
+// panicked the hub ("close of closed channel", seen opening two web tiles at once).
+func (m *Manager) abandon(s *session) {
+	m.mu.Lock()
+	taken := s.stopping
+	s.stopping = true
+	m.mu.Unlock()
+	if taken {
+		return
+	}
+	m.terminate(s)
+	m.mu.Lock()
+	delete(m.sessions, s.pub.ID)
+	m.mu.Unlock()
+	close(s.gone)
 }
 
 // end starts the teardown once; the session stays listed until it finished,

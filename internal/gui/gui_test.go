@@ -431,3 +431,33 @@ func TestStatusMissing(t *testing.T) {
 		t.Errorf("launch: %v", err)
 	}
 }
+
+// A session whose start failed is torn down once, whether a Stop came first or after: gone is
+// closed once (twice panicked the hub, which killed every console with it).
+func TestFailedStartTornDownOnce(t *testing.T) {
+	for _, stopFirst := range []bool{true, false} {
+		m := New(Config{Dir: t.TempDir()})
+		s := &session{pub: Session{ID: "gs_test" + map[bool]string{true: "a", false: "b"}[stopFirst]}, quit: make(chan struct{}), gone: make(chan struct{})}
+		m.mu.Lock()
+		m.sessions[s.pub.ID] = s
+		m.mu.Unlock()
+		if stopFirst {
+			m.end(s, ReasonStopped, "")
+			m.abandon(s)
+		} else {
+			m.abandon(s)
+			m.end(s, ReasonStopped, "")
+		}
+		select {
+		case <-s.gone:
+		case <-time.After(15 * time.Second):
+			t.Fatalf("stop first %v: never gone", stopFirst)
+		}
+		m.mu.Lock()
+		_, listed := m.sessions[s.pub.ID]
+		m.mu.Unlock()
+		if listed {
+			t.Fatalf("stop first %v: still listed", stopFirst)
+		}
+	}
+}
