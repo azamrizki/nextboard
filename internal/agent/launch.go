@@ -129,10 +129,11 @@ var MissionReadTools = []string{"mission_read"}
 var CredentialTools = []string{"credential_list", "credential_run", "credential_result"}
 
 // TakesContext reports whether the hub can hand this CLI instructions, memory
-// and tools per launch, without writing to its config.
+// and tools per launch, without writing to its config. NextCode's own agent takes the context of
+// a NextCode console (its folders, the commands that ask, the sandbox, the prompt).
 func (a Agent) TakesContext() bool {
 	switch a.CapBase() {
-	case "claude", "codex", "opencode":
+	case "claude", "codex", "opencode", "nextcode-api":
 		return true
 	}
 	return false
@@ -278,6 +279,23 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		}
 		b, _ := json.Marshal(cfg)
 		p.env = append(p.env, "OPENCODE_CONFIG_CONTENT="+string(b))
+	case "nextcode-api":
+		// NextCode's own agent (This PC only): the prompt and its folders as flags of its own, the
+		// commands that ask and the sandbox for it to enforce in NB_NEXTCODE_GUARD
+		if c.Prompt != "" {
+			p.args = append(p.args, "--append-system-prompt-file", c.PromptFile)
+		}
+		if c.AttachDir != "" {
+			p.args = append(p.args, "--add-dir", c.AttachDir)
+		}
+		if !c.Remote {
+			for _, d := range c.AddDirs {
+				p.args = append(p.args, "--add-dir", d)
+			}
+		}
+		if g := nextcodeGuard(c.Blocked, c.Sandbox); g != "" {
+			p.env = append(p.env, "NB_NEXTCODE_GUARD="+g)
+		}
 	}
 	return p
 }
@@ -613,13 +631,37 @@ func WrapperLine(mode, id string, yolo bool, model, effort string) string {
 // ErrNotWrapped: shell agents run without the wrapper.
 var ErrNotWrapped = errors.New("shell agents do not use the wrapper")
 
+// ErrNeedsProvider: NextCode's own engine has no login, it runs on one of the hub's API providers.
+var ErrNeedsProvider = errors.New("NextCode's own engine runs on an API provider only")
+
 // Build prepares a launch of agent a.
 func Build(a Agent, o Options) (Plan, error) {
+	p, _, err := buildFull(a, o)
+	return p, err
+}
+
+// launchParts are the pieces of a launch that the wrapper script assembles in the shell.
+type launchParts struct {
+	command  string
+	args     []string // after the mode's arguments: live status, context, settings, provider
+	yoloArgs []string
+	yoloEnv  []string
+	yolo     bool
+	model    string
+	effort   string
+}
+
+// buildFull prepares a launch of agent a: the wrapper plan, and the parts a headless launch
+// (Headless) runs the CLI with instead of the wrapper.
+func buildFull(a Agent, o Options) (Plan, launchParts, error) {
 	if a.Kind == KindShell {
-		return Plan{Mode: ModeShell, LiveStatus: "off"}, nil
+		return Plan{Mode: ModeShell, LiveStatus: "off"}, launchParts{}, nil
 	}
 	if !ValidMode(o.Mode) && o.Mode != "" {
-		return Plan{}, fmt.Errorf("unknown launch mode: %q", o.Mode)
+		return Plan{}, launchParts{}, fmt.Errorf("unknown launch mode: %q", o.Mode)
+	}
+	if a.ProviderOnly() && o.Provider == nil {
+		return Plan{}, launchParts{}, ErrNeedsProvider
 	}
 	mode, id := ResolveMode(a, o.Mode, o.AgentSessionID)
 	command := o.Command
@@ -632,7 +674,7 @@ func Build(a Agent, o Options) (Plan, error) {
 	memoryDir := ""
 	if c := o.Context; c != nil {
 		if c.Remote && !a.WorksOnServers() {
-			return Plan{}, fmt.Errorf("%s cannot work on servers yet", a.Name)
+			return Plan{}, launchParts{}, fmt.Errorf("%s cannot work on servers yet", a.Name)
 		}
 		if a.TakesContext() {
 			cp := planContext(a, c)
@@ -730,7 +772,7 @@ func Build(a Agent, o Options) (Plan, error) {
 		n += len(machine.Quote(kv)) + 1
 	}
 	if n > MaxCommandLine/2 {
-		return Plan{}, fmt.Errorf("the launch command line is too long (%d bytes)", n)
+		return Plan{}, launchParts{}, fmt.Errorf("the launch command line is too long (%d bytes)", n)
 	}
 	// Only This PC gets these: the process env, never a command line.
 	if o.Provider != nil && a.CapBase() == "opencode" {
@@ -743,5 +785,7 @@ func Build(a Agent, o Options) (Plan, error) {
 	if o.Provider != nil {
 		p.Env = append(p.Env, providerEnv(a, o.Provider, model)...)
 	}
-	return p, nil
+	parts := launchParts{command: command, args: wrapperArgs, yoloArgs: a.YoloArgs, yoloEnv: a.YoloEnv,
+		yolo: o.Yolo && a.HasYolo(), model: model, effort: effort}
+	return p, parts, nil
 }

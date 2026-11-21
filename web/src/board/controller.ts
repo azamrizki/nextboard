@@ -6,7 +6,8 @@
 //   terminal node, whose id is remapped for older history entries)
 // - selection lives here too, so keyboard shortcuts, menus and tiles agree on it
 
-import { api, errorMessage } from '../api';
+import { api, errorMessage, isCode } from '../api';
+import { NEEDS_PROVIDER } from '../nextcode/engines';
 import { toast } from '../components/Toast';
 import { newId } from '../lib/ids';
 import { projectParts } from '../lib/parts';
@@ -470,7 +471,7 @@ export class BoardController {
       }
       return s;
     } catch (err) {
-      toast.error(`Could not start the terminal: ${errorMessage(err)}`);
+      toast.error(`Could not start the terminal: ${isCode(err, 'nextcode_needs_provider') ? NEEDS_PROVIDER : errorMessage(err)}`);
       return null;
     }
   }

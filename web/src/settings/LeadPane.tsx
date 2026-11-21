@@ -10,6 +10,7 @@ import { patchSettings, useEffectiveSettings } from '../agents/settings';
 import { SettingRow, SwitchRow } from '../components/Switch';
 import { compatible, useProviders, type ApiProvider } from '../providers/providers';
 import { toast } from '../components/Toast';
+import { agentChoiceName, isApiEngine } from '../nextcode/engines';
 import { leadLanguageOptions, leadNameOf } from '../orch/lead';
 import { LeadAvatar } from '../orch/OrderBits';
 import '../styles/orch.css';
@@ -231,10 +232,12 @@ function LeadRunner() {
         rows.map((a) => {
           const opts = providers.filter((p) => compatible(a, p));
           const v = picks[a.id] ?? '';
+          const an = agentChoiceName(a, rows);
           return (
-            <SettingRow key={a.id} title={`New ${a.name} consoles`} hint={`What a ${a.name} console ${name} starts runs on. An order that names a provider (“start two Claude on the API”) or “login” wins.`}>
-              <select className="control control-sm" aria-label={`${a.name} consoles the lead starts`} value={v} onChange={(e) => void save({ providers: { [a.id]: e.target.value || null } })}>
-                <option value="">Its login</option>
+            <SettingRow key={a.id} title={`New ${an} consoles`} hint={`What a ${an} console ${name} starts runs on. An order that names a provider (“start two Claude on the API”) or “login” wins.`}>
+              <select className="control control-sm" aria-label={`${an} consoles the lead starts`} value={v} onChange={(e) => void save({ providers: { [a.id]: e.target.value || null } })}>
+                {/* NextCode's API engine has no login: its default is Settings › NextCode's provider */}
+                <option value="">{isApiEngine(a) ? 'NextCode’s default provider' : 'Its login'}</option>
                 {opts.map((p) => (
                   <option key={p.id} value={p.id}>
                     API · {p.name}

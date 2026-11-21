@@ -57,6 +57,12 @@ func (s *Server) sessionErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusPreconditionFailed, "wrap_missing", err.Error())
 	case errors.Is(err, session.ErrOffline):
 		writeErrCode(w, http.StatusServiceUnavailable, "machine_offline", err.Error())
+	case errors.Is(err, session.ErrNextCodeSwitch):
+		writeErrCode(w, http.StatusConflict, "nextcode_switch", err.Error())
+	case errors.Is(err, session.ErrNextCodeThisPC):
+		writeErrCode(w, http.StatusUnprocessableEntity, "nextcode_this_pc_only", err.Error())
+	case errors.Is(err, session.ErrNextCodeNeedsProvider):
+		writeErrCode(w, http.StatusBadRequest, "nextcode_needs_provider", err.Error())
 	default:
 		writeErr(w, http.StatusBadRequest, err.Error())
 	}

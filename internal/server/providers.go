@@ -57,7 +57,7 @@ func compatHint(a agent.Agent, p providers.Provider) string {
 	case "codex":
 		return a.Name + " needs an OpenAI provider with the Responses API"
 	}
-	return a.Name + " cannot use API providers; Claude Code, Codex and OpenCode can"
+	return a.Name + " cannot use API providers; Claude Code, Codex, OpenCode and NextCode can"
 }
 
 func (h providerHub) Launch(id string, a agent.Agent) (*agent.ProviderLaunch, error) {
@@ -82,20 +82,33 @@ func (h providerHub) Launch(id string, a agent.Agent) (*agent.ProviderLaunch, er
 }
 
 func (h providerHub) ConfigDir(id string, a agent.Agent) string {
-	switch base := a.CapBase(); base {
+	if f := providerFolder(a.CapBase()); f != "" {
+		return h.s.st.Path("providers", id, f)
+	}
+	return ""
+}
+
+// providerFolder names the folder of a CLI in a provider's (<data>/providers/<id>/<folder>): Claude
+// Code's and Codex's config, NextCode's own agent's usage ledger. "" = the CLI has none.
+func providerFolder(base string) string {
+	switch base {
 	case "claude", "codex":
-		return h.s.st.Path("providers", id, base)
+		return base
+	case "nextcode-api":
+		return "nextcode"
 	}
 	return ""
 }
 
 // providerConfigDir makes the CLI's own folder for a provider: apart from every login, so the
 // subscription is neither used nor overwritten, and with Claude Code's first-run questions answered.
+// NextCode's own agent gets an empty one for its usage ledger (NEXTCODE_HOME).
 func (s *Server) providerConfigDir(p providers.Provider, base, key string) (string, error) {
-	if base != "claude" && base != "codex" {
+	folder := providerFolder(base)
+	if folder == "" {
 		return "", nil
 	}
-	dir := s.st.Path("providers", p.ID, base)
+	dir := s.st.Path("providers", p.ID, folder)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -233,8 +246,8 @@ type cachedTurns struct {
 
 func monthOf(t time.Time) string { return t.Local().Format("2006-01") }
 
-// providerTurns are the turns of a provider's consoles (their transcripts in its folders) and
-// of the hidden runs made through it (its ledger).
+// providerTurns are the turns of a provider's consoles (their transcripts in its folders, the
+// usage ledger of NextCode's own agent) and of the hidden runs made through it (its ledger).
 func (s *Server) providerTurns(id string) []usage.Turn {
 	var out []usage.Turn
 	c := &s.spend
@@ -269,6 +282,7 @@ func (s *Server) providerTurns(id string) []usage.Turn {
 			out = append(out, turns...)
 		}
 	}
+	out = append(out, ledgerFileTurns(filepath.Join(s.st.Path("providers", id, providerFolder("nextcode-api")), "usage.jsonl"))...)
 	return append(out, s.ledgerTurns(id)...)
 }
 
@@ -454,7 +468,14 @@ func (s *Server) noteProviderRun(id, model, purpose string, t usage.Tokens) {
 }
 
 func (s *Server) ledgerTurns(id string) []usage.Turn {
-	b, err := os.ReadFile(filepath.Join(s.st.Path("providers", id), "ledger.jsonl"))
+	return ledgerFileTurns(filepath.Join(s.st.Path("providers", id), "ledger.jsonl"))
+}
+
+// ledgerFileTurns reads a file of ledgerEntry lines: the hub's ledger of hidden runs, or the one
+// NextCode's own agent keeps of its calls (<NEXTCODE_HOME>/usage.jsonl). A line it cannot read
+// (cut short by a crash) is left out.
+func ledgerFileTurns(path string) []usage.Turn {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -555,11 +576,15 @@ func (s *Server) handleProviderDelete(w http.ResponseWriter, r *http.Request, p 
 		providerErr(w, err)
 		return
 	}
-	// nothing may keep naming it: the hidden runs, the lead, the lead's consoles (broadcast by the store)
+	// nothing may keep naming it: the hidden runs, NextCode's own engine, the lead, the lead's
+	// consoles (broadcast by the store)
 	set := s.settings.View()
 	patch := map[string]any{}
 	if set.Runner.Provider == id {
 		patch["runner"] = map[string]any{"provider": nil}
+	}
+	if set.NextCode.Provider == id {
+		patch["nextcode"] = map[string]any{"provider": nil}
 	}
 	lead := map[string]any{}
 	if set.Lead.Runner == id {

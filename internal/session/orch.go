@@ -34,7 +34,9 @@ type DeliveryView struct {
 	Foreground    string
 	ManualAgent   bool
 	Paused        bool
-	Running       bool // a process generation is attached
+	Running       bool // a process generation is attached (NextCode: its chat is open)
+	// Chat: a NextCode console; a delivery goes to it as a message (SendChat), not typed.
+	Chat bool
 	// LastHuman is the last client input (WebSocket / POST input);
 	// deliveries do not count.
 	LastHuman  time.Time
@@ -76,7 +78,7 @@ func (s *Session) deliveryStateLocked() DeliveryView {
 	return DeliveryView{TurnStartedAt: turn,
 		Handle: s.spec.Handle, ProjectID: s.spec.ProjectID, WorkspaceID: s.spec.WorkspaceID,
 		Agent: s.spec.Agent, AgentKind: s.ag.Kind, Status: s.status, AgentState: es.AgentState, StateSince: es.StateSince,
-		Foreground: es.Foreground, ManualAgent: es.ManualAgent, Paused: s.spec.Paused, Running: s.cur != nil,
+		Foreground: es.Foreground, ManualAgent: es.ManualAgent, Paused: s.spec.Paused, Running: s.cur != nil || s.nc != nil, Chat: s.nc != nil,
 		LastHuman: s.lastInput, LastOutput: s.lastOutput, ScreenRules: s.ag.ScreenRules,
 	}
 }

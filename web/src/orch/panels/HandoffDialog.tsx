@@ -1,11 +1,14 @@
 // Handoff (docs/API-orchestration.md §9, D18): continue a console's task in a fresh console
 // of another agent — on any machine (a NextBoard extension). In a project of several parts it
 // goes where the source works (its root or part) unless another place is picked. The hub collects the
-// transcript, writes a brief, starts the new console next to the source and delivers it.
+// transcript, writes a brief, starts the new console next to the source and delivers it. NextCode's
+// API engine runs on an API provider only, so it waits for one.
 
 import { orchError } from '../actions';
 import { useMemo, useState, type FormEvent } from 'react';
 import { byPriority, useMachineAgents } from '../../agents/catalog';
+import { agentChoiceName, isApiEngine } from '../../nextcode/engines';
+import { nextcodeProvider } from '../../settings/nextcodeSettings';
 import { defaultProfileOf, useEffectiveSettings } from '../../agents/settings';
 import { jumpToSession } from '../../agents/jump';
 import { ApiError } from '../../api';
@@ -19,7 +22,7 @@ import { useMachines, useProfiles, useProject, useSession } from '../../store';
 import { normalPlacement, placementOfSession } from '../../lib/parts';
 import { isMultiPart, machineOfPlace, orchPlace, placeFromValue, placeValue } from '../../lib/placement';
 import { OTHER_VALUE, PlacePicker } from '../../board/PlacePicker';
-import { AccountOptions, splitAccount } from '../../providers/AccountOptions';
+import { AccountOptions, accountFor, NeedsProviderHint, needsProvider, splitAccount } from '../../providers/AccountOptions';
 import { compatible, useProviders } from '../../providers/providers';
 import { orchApi } from '../api';
 import { is404, orchStore, useOrch } from '../store';
@@ -60,13 +63,17 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
   const h = useOrch((s) => (hid ? s.handoffs[hid] : undefined));
   const target = useSession(h?.targetSessionId ?? '');
   const chosen = agent || options.find((a) => a.id !== (source?.agent || source?.preset))?.id || options[0]?.id || '';
-  const profs = profiles.filter((p) => p.machineId === machineId && p.agent === chosen);
-  const provs = providers.filter((p) => compatible(options.find((a) => a.id === chosen), p));
-  const account = profs.some((p) => p.id === profileId) || provs.some((p) => p.id === profileId) ? profileId : '';
+  const chosenAgent = options.find((a) => a.id === chosen);
+  const providersOnly = isApiEngine(chosenAgent);
+  const profs = providersOnly ? [] : profiles.filter((p) => p.machineId === machineId && p.agent === chosen);
+  const provs = providers.filter((p) => compatible(chosenAgent, p));
+  const defaultProvider = nextcodeProvider(settings);
+  const account = accountFor(chosenAgent, profileId, { profiles: profs, providers: provs }, defaultProvider);
+  const noProvider = needsProvider(chosenAgent, provs);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!chosen) return;
+    if (!chosen || noProvider) return;
     setBusy(true);
     setError('');
     try {
@@ -120,7 +127,7 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
             <Button variant="secondary" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" form="handoff-form" variant="primary" icon="handoff" loading={busy} disabled={!chosen}>
+            <Button type="submit" form="handoff-form" variant="primary" icon="handoff" loading={busy} disabled={!chosen || noProvider}>
               Hand off
             </Button>
           </>
@@ -143,14 +150,22 @@ export default function HandoffDialog({ sessionId, workspaceId, projectId, onClo
           <SelectField label="Continue with" value={chosen} onChange={(e) => setAgent(e.target.value)} error={!options.length && ma.ready ? 'No agent is installed on that machine.' : undefined}>
             {options.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name}
+                {agentChoiceName(a, options)}
               </option>
             ))}
           </SelectField>
-          {profs.length + provs.length > 0 && (
-            <SelectField label="Login profile" optional value={account} onChange={(e) => setProfileId(e.target.value)}>
-              <AccountOptions profiles={profs} defaultProfile={defaultProfileOf(settings, machineId, chosen)} providers={provs} />
+          {noProvider ? (
+            <NeedsProviderHint />
+          ) : providersOnly ? (
+            <SelectField label="API provider" value={account} onChange={(e) => setProfileId(e.target.value)}>
+              <AccountOptions profiles={[]} defaultProfile="" providers={provs} providersOnly defaultProvider={defaultProvider} />
             </SelectField>
+          ) : (
+            profs.length + provs.length > 0 && (
+              <SelectField label="Login profile" optional value={account} onChange={(e) => setProfileId(e.target.value)}>
+                <AccountOptions profiles={profs} defaultProfile={defaultProfileOf(settings, machineId, chosen)} providers={provs} />
+              </SelectField>
+            )
           )}
           <Field label="Note for the next agent" optional hint="Added to the brief, for example what to focus on.">
             {({ labelId: _l, ...a11y }) => <textarea className="control" rows={3} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} {...a11y} />}

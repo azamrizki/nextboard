@@ -32,7 +32,10 @@ func (c consoleAdapter) AgentForeground(ctx context.Context) (bool, error) {
 	return c.s.AgentForeground(ctx)
 }
 func (c consoleAdapter) Write(p []byte) error { return c.s.WriteDelivery(p) }
-func (c consoleAdapter) Wake() bool           { return c.s.Wake() }
+
+// SendMessage sends a delivery to a NextCode console (delivery.ChatConsole).
+func (c consoleAdapter) SendMessage(text string) error { return c.s.SendChat(text) }
+func (c consoleAdapter) Wake() bool                    { return c.s.Wake() }
 
 // setupOrchestration creates the delivery engine and the service and
 // connects them to sessions, boards and events.

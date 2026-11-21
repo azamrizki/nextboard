@@ -581,7 +581,7 @@ func (m *Manager) startsAsleep(s *Session) bool {
 	s.mu.Lock()
 	sp, a := s.spec, s.ag
 	s.mu.Unlock()
-	if sp.MachineID != machine.LocalID || a.Kind != agent.KindAgent {
+	if sp.MachineID != machine.LocalID || a.Kind != agent.KindAgent || a.Engine != "" {
 		return false
 	}
 	if sp.Asleep {

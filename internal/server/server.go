@@ -216,6 +216,12 @@ func New(opts Options) (_ *Server, err error) {
 	}
 	mgr := session.NewManager(st, reg)
 	mgr.Settings, mgr.Profiles = sets.View, profs
+	// NextCode's own engine runs as this program (`nextboard nextcode-agent`)
+	if self, err := os.Executable(); err == nil {
+		mgr.SelfPath = self
+	} else {
+		log.Printf("NextCode's own engine cannot start: %v", err)
+	}
 	mgr.Frozen = projects.IsArchived // an archived project's consoles stay as they are
 	if err := mgr.Load(); err != nil {
 		return nil, err
@@ -610,13 +616,19 @@ func (s *Server) startHookListener() error {
 // ensureAgentHomes gives every built-in agent with a config folder its state
 // folder in the NextBoard data folder and makes it the default once, so the
 // agents share one login and memory and the user's own CLI setup stays apart.
-// A default the user turned off later stays off.
+// A default the user turned off later stays off. NextCode gets its own, apart from Claude
+// Code's: its own login and memory (docs/API-agents.md §30). NextCode's own engine has no login,
+// so no home.
 func (s *Server) ensureAgentHomes() error {
 	for _, a := range s.agents.All() {
-		if a.Kind != agent.KindAgent || a.Source != agent.SourceBuiltin || a.ProfileEnv == "" {
+		if a.Kind != agent.KindAgent || a.Source != agent.SourceBuiltin || !a.TakesProfiles() {
 			continue
 		}
-		pf, created, err := s.profiles.EnsureHome(machine.LocalID, a.ID)
+		name := "NextBoard"
+		if a.Engine != "" {
+			name = a.Name // "NextCode": its own account, not Claude Code's
+		}
+		pf, created, err := s.profiles.EnsureHomeNamed(machine.LocalID, a.ID, name)
 		if err != nil {
 			return err
 		}

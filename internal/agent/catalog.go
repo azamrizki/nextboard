@@ -31,6 +31,10 @@ const (
 	TranscriptClaude = "claude"
 	TranscriptCodex  = "codex"
 	TranscriptNone   = "none"
+
+	// EngineAPI is NextCode's own engine (docs/API-agents.md §30): the hub's own program on one
+	// of its API providers, with no vendor CLI and no login.
+	EngineAPI = "api"
 )
 
 // Placeholder is the only template allowed in agent arguments.
@@ -74,7 +78,18 @@ type Agent struct {
 	// Models and Efforts: a launch can name them (models.go).
 	Models  bool `json:"models,omitempty"`
 	Efforts bool `json:"efforts,omitempty"`
+	// Engine marks a NextCode agent (docs/API-agents.md §30): the hub drives its CLI headless
+	// through internal/nextcode with this engine ("claude", "codex", EngineAPI), and its console
+	// has a chat instead of a terminal. "" for every terminal agent.
+	Engine string `json:"engine,omitempty"`
 }
+
+// ProviderOnly reports whether the agent runs only on one of the hub's API providers: NextCode's
+// own engine, which has no login of its own. Its ProfileEnv carries the provider's folder for it.
+func (a Agent) ProviderOnly() bool { return a.Engine == EngineAPI }
+
+// TakesProfiles reports whether a console of the agent can run on a login profile (§10).
+func (a Agent) TakesProfiles() bool { return a.ProfileEnv != "" && !a.ProviderOnly() }
 
 // HasYolo reports whether a yolo launch changes anything.
 func (a Agent) HasYolo() bool { return len(a.YoloArgs) > 0 || len(a.YoloEnv) > 0 }
@@ -82,7 +97,7 @@ func (a Agent) HasYolo() bool { return len(a.YoloArgs) > 0 || len(a.YoloEnv) > 0
 // CapBase is the built-in whose capabilities a console uses: the agent
 // itself for built-ins, its base for custom agents.
 func (a Agent) CapBase() string {
-	if a.Source == SourceCustom {
+	if a.Source == SourceCustom || a.Base != "" { // a built-in with a base: NextCode
 		return a.Base
 	}
 	return a.ID
@@ -121,6 +136,33 @@ func Builtins() []Agent {
 			Resume: Resume{Kind: ResumeSessionID, LaunchArgs: s(), ResumeArgs: s("resume", Placeholder),
 				ContinueArgs: s("resume", "--last"), PickerArgs: s("resume")},
 			LiveStatus: LiveCodexNotify, Transcript: TranscriptCodex, ProfileEnv: "CODEX_HOME", ScreenRules: "codex"},
+		// NextCode (§30): Claude Code's own CLI, unmodified, driven headless by the hub with its
+		// conversation in a chat. Its logins, models, context and conversation files are Claude
+		// Code's (Base); its state comes from the stream, not from hooks or the screen.
+		// No Yolo: it has permission modes instead (bypassPermissions is one), so the "Yolo by
+		// default" setting never reaches it.
+		{ID: "nextcode", Name: "NextCode", Kind: KindAgent, Base: "claude", Engine: "claude", Command: "claude",
+			Color: "#a78bfa", Detect: "claude",
+			Resume: Resume{Kind: ResumeSessionID, LaunchArgs: s("--session-id", Placeholder), ResumeArgs: s("--resume", Placeholder),
+				ContinueArgs: s("--continue")},
+			LiveStatus: LiveNone, Transcript: TranscriptClaude, ProfileEnv: "CLAUDE_CONFIG_DIR"},
+		// NextCode on Codex's engine (§30): Codex's own CLI, unmodified, as `codex app-server`; its
+		// own logins (CODEX_HOME), apart from Codex's. Its conversation id comes from the CLI.
+		{ID: "nextcode-codex", Name: "NextCode", Kind: KindAgent, Base: "codex", Engine: "codex", Command: "codex",
+			Color: "#a78bfa", Detect: "codex",
+			Resume: Resume{Kind: ResumeSessionID, LaunchArgs: s(), ResumeArgs: s("resume", Placeholder),
+				ContinueArgs: s("resume", "--last")},
+			LiveStatus: LiveNone, Transcript: TranscriptCodex, ProfileEnv: "CODEX_HOME"},
+		// NextCode's own engine (§30): no vendor CLI but the hub's own program (`nextboard
+		// nextcode-agent`, internal/nextcode/native), which speaks Claude Code's stream-json to the
+		// driver and runs on one of the hub's API providers only. Nothing to find on PATH, so it
+		// is there on This PC and never on a server. NEXTCODE_HOME is the provider's folder for it
+		// (its usage ledger), never a login's; the hub picks its conversation id, as for nextcode.
+		{ID: "nextcode-api", Name: "NextCode", Kind: KindAgent, Engine: EngineAPI, Command: "nextboard", Args: s("nextcode-agent"),
+			Color: "#a78bfa",
+			Resume: Resume{Kind: ResumeSessionID, LaunchArgs: s("--session-id", Placeholder), ResumeArgs: s("--resume", Placeholder),
+				ContinueArgs: s("--continue")},
+			LiveStatus: LiveNone, Transcript: TranscriptNone, ProfileEnv: "NEXTCODE_HOME"},
 		// Gemini's `--resume latest` is unverified (not installed on the
 		// reference machine): resume stays off until tested.
 		{ID: "gemini", Name: "Gemini CLI", Kind: KindAgent, Command: "gemini", Color: "#4285f4", Detect: "gemini",

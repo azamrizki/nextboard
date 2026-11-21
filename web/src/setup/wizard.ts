@@ -55,16 +55,23 @@ export interface HomeProfile {
 }
 
 /**
+ * Agents whose login is always NextBoard's own: NextCode (docs/API-agents.md §30) has no CLI you
+ * run yourself, and with no profile it would use Claude Code's ~/.claude (its Codex engine
+ * Codex's ~/.codex) and its memory.
+ */
+export const NEXTBOARD_ONLY_LOGINS: readonly string[] = ['nextcode', 'nextcode-codex'];
+
+/**
  * The settings patch a choice makes. Separate logins: each agent's NextBoard login profile in
  * this instance's data folder is its default again. Own logins: no profile, so the CLI uses
- * ~/.claude or ~/.codex as in a terminal. A provider keeps the separate logins for consoles and,
- * when asked, runs the lead and the other hidden runs on it.
+ * ~/.claude or ~/.codex as in a terminal; NextCode keeps its own. A provider keeps the separate
+ * logins for consoles and, when asked, runs the lead and the other hidden runs on it.
  */
 export function signInPatch(mode: SignInMode, homes: HomeProfile[], providerForRuns?: string): Record<string, unknown> | null {
   const local: Record<string, string> = {};
   if (mode === 'own') {
     const agents = new Set<string>([...LOGIN_AGENTS, ...homes.map((h) => h.agent)]);
-    for (const a of agents) local[a] = '';
+    for (const a of agents) local[a] = (NEXTBOARD_ONLY_LOGINS.includes(a) && homes.find((h) => h.agent === a)?.id) || '';
   } else {
     for (const h of homes) local[h.agent] = h.id;
   }

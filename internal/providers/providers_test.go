@@ -80,8 +80,10 @@ func TestStore(t *testing.T) {
 
 func TestCompatible(t *testing.T) {
 	a := Provider{Kind: KindAnthropic}
+	key := Provider{Kind: KindAnthropic, Auth: AuthAPIKey}
 	chat := Provider{Kind: KindOpenAI, API: APIChat}
 	resp := Provider{Kind: KindOpenAI, API: APIResponses}
+	plain := Provider{Kind: KindOpenAI}
 	for _, c := range []struct {
 		base string
 		p    Provider
@@ -89,6 +91,9 @@ func TestCompatible(t *testing.T) {
 	}{
 		{"claude", a, true}, {"claude", chat, false}, {"codex", resp, true}, {"codex", chat, false}, {"codex", a, false},
 		{"opencode", a, true}, {"opencode", chat, true}, {"gemini", a, false},
+		// NextCode's own agent speaks every kind and API
+		{"nextcode-api", a, true}, {"nextcode-api", key, true}, {"nextcode-api", chat, true}, {"nextcode-api", resp, true}, {"nextcode-api", plain, true},
+		{"nextcode", chat, false}, {"", a, false},
 	} {
 		if got := Compatible(c.base, c.p); got != c.want {
 			t.Errorf("%s on %+v: %v", c.base, c.p, got)

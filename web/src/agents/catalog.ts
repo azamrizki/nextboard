@@ -6,7 +6,8 @@
 
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { api, isStatus } from '../api';
-import type { Agent, Preset } from '../lib/types';
+import type { Agent, Preset, Profile } from '../lib/types';
+import { isApiEngine } from '../nextcode/engines';
 import { store } from '../store';
 
 /** Preset (Phase 4) → Agent with conservative capabilities. */
@@ -38,23 +39,57 @@ export function presetToAgent(p: Preset): Agent {
 
 // ---- capabilities ----
 
-export const hasYolo = (a: Agent | undefined) => !!a && a.kind === 'agent' && ((a.yoloArgs?.length ?? 0) > 0 || (a.yoloEnv?.length ?? 0) > 0);
+/** What the catalog says about NextCode-like agents: an engine the hub drives headless. */
+type EngineOf = Pick<Agent, 'id'> & { engine?: string };
+
+/**
+ * A NextCode agent (docs/API-agents.md §30): the hub runs its CLI headless and its console is a
+ * chat, not a terminal. "" engine for every terminal agent.
+ */
+export const isChatAgent = (a: EngineOf | undefined) => !!a?.engine;
+
+/** One line that says what a chat agent is, for the pickers; '' for a terminal agent. */
+export const agentTagline = (a: EngineOf | undefined) => (isChatAgent(a) ? 'Chat · built for NextBoard' : '');
+
+/** NextCode has permission modes (Settings › NextCode) instead of Yolo. */
+export const hasYolo = (a: Agent | undefined) => !!a && a.kind === 'agent' && !isChatAgent(a) && ((a.yoloArgs?.length ?? 0) > 0 || (a.yoloEnv?.length ?? 0) > 0);
 export const canResumeExact = (a: Agent | undefined) => !!a && a.resume?.kind === 'session-id' && (a.resume.resumeArgs?.length ?? 0) > 0;
 export const canContinue = (a: Agent | undefined) => !!a && (a.resume?.continueArgs?.length ?? 0) > 0;
 export const canPickInCli = (a: Agent | undefined) => !!a && (a.resume?.pickerArgs?.length ?? 0) > 0;
 export const hasTranscript = (a: Agent | undefined) => !!a && !!a.transcript && a.transcript !== 'none';
-export const supportsProfiles = (a: Agent | undefined) => !!a && !!a.profileEnv;
+/** A login profile is a config folder for the agent's CLI: NextCode's API engine has neither, it runs on an API provider. */
+export const supportsProfiles = (a: Agent | undefined) => !!a && !!a.profileEnv && !isApiEngine(a);
 export const hasLiveStatus = (a: Agent | undefined) => !!a && (a.liveStatus === 'claude-hooks' || a.liveStatus === 'codex-notify');
 
 export const SOURCE_LABEL: Record<string, string> = { builtin: 'Built-in', catalog: 'Catalog', custom: 'Your agent' };
 
-/** Agent display order for pickers: claude, codex, gemini first, then by name. */
-const PRIORITY = ['claude', 'codex', 'gemini'];
-export function byPriority(a: Agent, b: Agent): number {
+/** Agent display order for pickers: claude, codex, nextcode (its Claude engine, its Codex one, then its API one), gemini first, then by name. */
+const PRIORITY = ['claude', 'codex', 'nextcode', 'nextcode-codex', 'nextcode-api', 'gemini'];
+export function byPriority(a: Pick<Agent, 'id' | 'name'>, b: Pick<Agent, 'id' | 'name'>): number {
   const pa = PRIORITY.indexOf(a.id);
   const pb = PRIORITY.indexOf(b.id);
   if (pa !== pb) return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb);
   return a.name.localeCompare(b.name);
+}
+
+/**
+ * The login profiles a console of this agent may use on a machine: its own and no other agent's.
+ * NextCode's are never Claude Code's and the other way round (the hub answers 400
+ * profile_mismatch to a profile of another agent).
+ */
+export function agentProfiles<P extends Pick<Profile, 'machineId' | 'agent'>>(profiles: P[], machineId: string, agent: Agent | undefined): P[] {
+  if (!agent || !supportsProfiles(agent)) return [];
+  return profiles.filter((p) => p.machineId === machineId && p.agent === agent.id);
+}
+
+/**
+ * What a console of `current` may switch to: a terminal console only to terminal agents, a
+ * NextCode console only to NextCode (the hub answers 409 nextcode_switch otherwise). `hidden` are
+ * the agents left out for that reason.
+ */
+export function switchTargets<T extends EngineOf>(agents: T[], current: EngineOf | undefined): { list: T[]; hidden: T[] } {
+  const chat = isChatAgent(current);
+  return { list: agents.filter((a) => isChatAgent(a) === chat), hidden: agents.filter((a) => isChatAgent(a) !== chat) };
 }
 
 // ---- tiny cache with listeners ----

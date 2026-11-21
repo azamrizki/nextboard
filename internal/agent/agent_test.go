@@ -42,8 +42,9 @@ func req(t *testing.T, v map[string]any) Request {
 func TestCatalogOrderAndShape(t *testing.T) {
 	s := newStore(t)
 	all := s.All()
-	if all[0].ID != "shell" || all[1].ID != "claude" || all[2].ID != "codex" || all[3].ID != "gemini" || all[4].Source != SourceCatalog {
-		t.Fatalf("order %v %v %v", all[0].ID, all[1].ID, all[4].Source)
+	if all[0].ID != "shell" || all[1].ID != "claude" || all[2].ID != "codex" || all[3].ID != "nextcode" || all[4].ID != "nextcode-codex" ||
+		all[5].ID != "nextcode-api" || all[6].ID != "gemini" || all[7].Source != SourceCatalog {
+		t.Fatalf("order %v %v %v %v %v %v %v", all[0].ID, all[1].ID, all[3].ID, all[4].ID, all[5].ID, all[6].ID, all[7].Source)
 	}
 	c, _ := s.Get("claude")
 	if c.Resume.Kind != ResumeSessionID || c.LiveStatus != LiveClaudeHooks || c.ProfileEnv != "CLAUDE_CONFIG_DIR" ||

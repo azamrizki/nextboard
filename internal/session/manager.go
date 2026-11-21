@@ -152,6 +152,9 @@ type Manager struct {
 	HubID string
 	// LocalEnv is added to the environment of every console of This PC (NEXTBOARD_INSTANCE).
 	LocalEnv []string
+	// SelfPath is the hub's own program, which runs NextCode's own engine (`nextcode-agent`,
+	// docs/API-agents.md §30) unless agents.paths names another. "" = it cannot start.
+	SelfPath string
 
 	// HubName returns the hub's display name (used as "This PC" label).
 	HubName  func() string
@@ -596,22 +599,36 @@ func (m *Manager) validateProfile(id, machineID string, a agent.Agent) error {
 	if !ok {
 		return ErrProfileNotFound
 	}
-	if a.ProfileEnv == "" || p.MachineID != machineID || (p.Agent != a.ID && p.Agent != a.CapBase()) {
-		return ErrProfileMismatch
+	if !a.TakesProfiles() || p.MachineID != machineID || (p.Agent != a.ID && (a.Engine != "" || p.Agent != a.CapBase())) {
+		return ErrProfileMismatch // NextCode takes only its own profiles (§30), never Claude Code's; its own engine none
 	}
 	return nil
+}
+
+// signsInFor: a NextCode profile signs in through its base CLI's terminal (Claude Code's own
+// login flow, docs/API-agents.md §30).
+func (m *Manager) signsInFor(profileID string, a agent.Agent) bool {
+	if m.Profiles == nil {
+		return false
+	}
+	p, ok := m.Profiles.Get(profileID)
+	if !ok {
+		return false
+	}
+	nc, ok := m.Agents.Get(p.Agent)
+	return ok && nc.Engine != "" && nc.Base == a.ID && a.Engine == ""
 }
 
 // defaultProfile is the login a console of this agent gets unless told otherwise:
 // the NextBoard account (docs/API-agents.md §10), or none when that default was
 // turned off. A stale default never blocks a launch.
 func (m *Manager) defaultProfile(machineID string, a agent.Agent) string {
-	if a.ProfileEnv == "" {
+	if !a.TakesProfiles() {
 		return ""
 	}
 	st := m.Settings()
 	id := st.Agents.Profiles[machineID][a.ID]
-	if id == "" {
+	if id == "" && a.Engine == "" { // NextCode never falls back to Claude Code's login (§30)
 		id = st.Agents.Profiles[machineID][a.CapBase()]
 	}
 	if m.validateProfile(id, machineID, a) != nil {
@@ -643,43 +660,9 @@ func (m *Manager) profileDir(sp Spec) string {
 
 // plan builds the wrapper launch of an agent console.
 func (m *Manager) plan(s *Session, a agent.Agent, sp Spec, mode string) (agent.Plan, error) {
-	st := m.Settings()
-	s.mu.Lock()
-	token := s.priv.HookToken
-	s.mu.Unlock()
-	o := agent.Options{Mode: mode, AgentSessionID: sp.AgentSessionID, Yolo: sp.Yolo, LiveStatus: st.Agents.LiveStatus,
-		SessionID: sp.ID, Token: token, ProfileDir: m.profileDir(sp), Model: sp.Model, Effort: sp.Effort, CoAuthor: st.Agents.CoAuthor,
-		WorkDir: sp.Cwd}
-	if p := st.Agents.Paths[sp.MachineID][a.ID]; p != "" {
-		o.Command = p
-	}
-	if sp.ProviderID != "" {
-		if m.Providers == nil {
-			return agent.Plan{}, ErrProviderNotFound
-		}
-		pl, err := m.Providers.Launch(sp.ProviderID, a)
-		if err != nil {
-			return agent.Plan{}, err
-		}
-		o.Provider, o.ProfileDir = pl, ""
-	}
-	if st.Agents.HookChannel != "tty" && m.HookURL != nil {
-		o.HookURL = m.HookURL(sp.MachineID)
-	}
-	if m.LaunchContext != nil && a.Kind == agent.KindAgent && sp.MachineID == machine.LocalID {
-		c, err := m.LaunchContext(sp)
-		switch {
-		case err == nil:
-			o.Context = c
-		case sp.RemoteMachineID != "":
-			return agent.Plan{}, err
-		default:
-			log.Printf("launch context %s: %v", sp.ID, err)
-		}
-	}
-	// Never launch without the tools: the agent would act on This PC.
-	if sp.RemoteMachineID != "" && (o.Context == nil || !o.Context.Remote) {
-		return agent.Plan{}, ErrAgentThisPC
+	o, st, err := m.launchOptions(s, a, sp, mode)
+	if err != nil {
+		return agent.Plan{}, err
 	}
 	p, err := agent.Build(a, o)
 	if err != nil {
@@ -703,6 +686,51 @@ func (m *Manager) plan(s *Session, a agent.Agent, sp Spec, mode string) (agent.P
 		}
 	}
 	return p, nil
+}
+
+// launchOptions are what a launch of an agent console gets from the hub (the login profile or
+// API provider, model, the hub's context and tools), for the wrapper launch (plan) and a
+// NextCode console's headless one alike.
+func (m *Manager) launchOptions(s *Session, a agent.Agent, sp Spec, mode string) (agent.Options, settings.Settings, error) {
+	st := m.Settings()
+	s.mu.Lock()
+	token := s.priv.HookToken
+	s.mu.Unlock()
+	o := agent.Options{Mode: mode, AgentSessionID: sp.AgentSessionID, Yolo: sp.Yolo, LiveStatus: st.Agents.LiveStatus,
+		SessionID: sp.ID, Token: token, ProfileDir: m.profileDir(sp), Model: sp.Model, Effort: sp.Effort, CoAuthor: st.Agents.CoAuthor,
+		WorkDir: sp.Cwd}
+	if p := st.Agents.Paths[sp.MachineID][a.ID]; p != "" {
+		o.Command = p
+	}
+	if sp.ProviderID != "" {
+		if m.Providers == nil {
+			return o, st, ErrProviderNotFound
+		}
+		pl, err := m.Providers.Launch(sp.ProviderID, a)
+		if err != nil {
+			return o, st, err
+		}
+		o.Provider, o.ProfileDir = pl, ""
+	}
+	if st.Agents.HookChannel != "tty" && m.HookURL != nil {
+		o.HookURL = m.HookURL(sp.MachineID)
+	}
+	if m.LaunchContext != nil && a.Kind == agent.KindAgent && sp.MachineID == machine.LocalID {
+		c, err := m.LaunchContext(sp)
+		switch {
+		case err == nil:
+			o.Context = c
+		case sp.RemoteMachineID != "":
+			return o, st, err
+		default:
+			log.Printf("launch context %s: %v", sp.ID, err)
+		}
+	}
+	// Never launch without the tools: the agent would act on This PC.
+	if sp.RemoteMachineID != "" && (o.Context == nil || !o.Context.Remote) {
+		return o, st, ErrAgentThisPC
+	}
+	return o, st, nil
 }
 
 func (m *Manager) partReadOnly(projectID, partID string) bool {
@@ -743,10 +771,13 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 	} else if req.Card != "" && !board.IDRe.MatchString(req.Card) {
 		return Info{}, ErrBadRequest
 	}
+	target := req.MachineID
+	if a.Engine != "" && a.Engine != "claude" && (target != machine.LocalID || readOnly) {
+		return Info{}, ErrNextCodeThisPC // only Claude Code's engine works through the hub's tools yet
+	}
 	if readOnly && (!st.Agents.RemoteTools || !a.WorksOnServers() || m.RemoteWorkDir == nil) {
 		return Info{}, ErrPartReadOnly
 	}
-	target := req.MachineID
 	if a.Kind == agent.KindAgent && target != machine.LocalID {
 		if !st.Agents.RemoteTools || !a.WorksOnServers() || m.RemoteWorkDir == nil {
 			return Info{}, ErrAgentThisPC
@@ -790,7 +821,7 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		if a.ProfileEnv == "" {
 			profileID = ""
 		}
-		if err := m.validateProfile(profileID, req.MachineID, a); err != nil {
+		if err := m.validateProfile(profileID, req.MachineID, a); err != nil && !(req.SignIn && m.signsInFor(profileID, a)) {
 			return Info{}, err
 		}
 	}
@@ -799,8 +830,16 @@ func (m *Manager) Create(req CreateRequest) (Info, error) {
 		if err := m.checkProvider(*req.ProviderID, a); err != nil {
 			return Info{}, err
 		}
+		providerID = *req.ProviderID
+	} else if a.ProviderOnly() {
+		// NextCode's own engine has no login: the provider of Settings › NextCode
+		if providerID, err = m.nextcodeProvider(a); err != nil {
+			return Info{}, err
+		}
+	}
+	if providerID != "" {
 		// its own folder instead of a login; its own model unless one was chosen
-		providerID, profileID = *req.ProviderID, ""
+		profileID = ""
 		if req.Model == nil {
 			model = ""
 		}
@@ -892,6 +931,9 @@ func chooseModel(a agent.Agent, model, effort *string, defModel, defEffort strin
 	}
 	if !a.HasEfforts() {
 		e = ""
+	}
+	if !agent.ValidEffortFor(a, e) {
+		return "", "", ErrBadRequest
 	}
 	return m, e, nil
 }
@@ -992,6 +1034,12 @@ func (m *Manager) Restart(id string, req RestartRequest) (Info, error) {
 		if na.Kind == agent.KindAgent && m.Settings().Agents.Disabled[na.ID] {
 			return Info{}, ErrAgentDisabled
 		}
+		if (na.Engine != "") != (a.Engine != "") {
+			return Info{}, ErrNextCodeSwitch
+		}
+		if na.Engine != "" && na.Engine != "claude" && sp.RemoteMachineID != "" {
+			return Info{}, ErrNextCodeThisPC // only Claude Code's engine works through the hub's tools yet
+		}
 		if na.Kind == agent.KindAgent && (sp.MachineID != machine.LocalID || (sp.RemoteMachineID != "" && !na.WorksOnServers())) {
 			return Info{}, ErrAgentThisPC
 		}
@@ -1021,6 +1069,9 @@ func (m *Manager) Restart(id string, req RestartRequest) (Info, error) {
 	// also a restart of the agent it has: the part may have become read-only since, and then the
 	// agent works through the hub's tools from now on
 	if a.Kind == agent.KindAgent && !sp.Root && m.partReadOnly(sp.ProjectID, sp.PartID) && sp.RemoteMachineID == "" {
+		if a.Engine != "" && a.Engine != "claude" {
+			return Info{}, ErrNextCodeThisPC
+		}
 		if sp.MachineID != machine.LocalID || !m.Settings().Agents.RemoteTools || !a.WorksOnServers() || m.RemoteWorkDir == nil {
 			return Info{}, ErrPartReadOnly
 		}
@@ -1088,6 +1139,17 @@ func (m *Manager) Restart(id string, req RestartRequest) (Info, error) {
 			// another agent that cannot run on it, or a provider that is gone
 			backToLogin()
 		case a.ID != left.Agent && req.Model == nil:
+			sp.Model = ""
+		}
+	}
+	if a.ProviderOnly() && sp.ProviderID == "" {
+		// NextCode's own engine has no login to go back to: the provider of Settings › NextCode
+		pid, err := m.nextcodeProvider(a)
+		if err != nil {
+			return Info{}, err
+		}
+		sp.ProviderID, sp.ProfileID = pid, ""
+		if req.Model == nil {
 			sp.Model = ""
 		}
 	}
@@ -1236,6 +1298,7 @@ func (m *Manager) Delete(id string) error {
 	}
 	s.launchMu.Lock()
 	s.stop()
+	s.closeChat()
 	s.mu.Lock()
 	s.deleted = true
 	s.gen++
@@ -1257,6 +1320,10 @@ func (m *Manager) Delete(id string) error {
 	}
 	m.mu.Unlock()
 	_ = os.Remove(m.scrollbackPath(id))
+	_ = os.Remove(m.chatHistoryPath(id))
+	if sp := s.Spec(); m.agentFor(sp).ProviderOnly() {
+		m.removeConversation(sp.AgentSessionID)
+	}
 	m.saveNow()
 	if m.OnRemove != nil {
 		m.OnRemove(s.Spec())
@@ -1584,6 +1651,7 @@ func (m *Manager) Shutdown() {
 	m.saveNow()
 	var wg sync.WaitGroup
 	for _, s := range m.all() {
+		s.closeChat()
 		s.mu.Lock()
 		r := s.cur
 		local := s.spec.MachineID == machine.LocalID

@@ -1,0 +1,1185 @@
+/* NextCode's chat (nextcode/NextCodeChat.tsx, docs/API-agents.md §30): a console with no terminal.
+   Glass Islands like the rest: the chat lies in its island (a board card, a Code view tab), tools
+   are raised blocks inside it, what needs the owner glows amber, and the only colour of its own
+   is the violet dot on NextCode's mark. Three layouts: .is-tab (wide, centred column, toolbar),
+   .is-card (a board card: tools as rows) and .is-phone (narrow, full-width buttons). */
+
+.nc-chat {
+  --nc-fs: var(--fs-sm);
+  --nc-gap: var(--s-3);
+  --nc-pad: var(--s-3);
+  --nc-head: 28px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--nc-fs);
+  line-height: var(--lh-body);
+  cursor: auto;
+}
+.nc-chat.is-tab {
+  --nc-fs: var(--fs-md);
+  --nc-pad: var(--s-5);
+  --nc-head: var(--s-8);
+}
+.nc-chat.is-phone {
+  --nc-fs: var(--fs-md);
+  --nc-gap: var(--s-2);
+}
+:root[data-input='touch'] .nc-chat {
+  --nc-head: var(--s-10);
+}
+
+/* the mark: NextBoard's own "N›", monochrome, with the agent's violet as its dot */
+.nc-mark {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: var(--s-6);
+  height: var(--s-6);
+  border-radius: var(--r-sm);
+  border: var(--hairline) solid var(--tile-border);
+  background: var(--island-raised);
+  color: var(--text);
+  font: var(--fw-semibold) 11px/1 var(--font-mono);
+  letter-spacing: -0.04em;
+}
+.nc-mark::after {
+  content: '';
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: var(--s-2);
+  height: var(--s-2);
+  border-radius: var(--r-pill);
+  background: var(--nextcode);
+  box-shadow: 0 0 0 2px var(--tile-bg);
+}
+.nc-mark.is-sm {
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+}
+
+/* ---- toolbar (the wide view) ---- */
+.nc-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: var(--hairline) solid var(--tile-border);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.nc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  max-width: var(--w-chip-max, 220px);
+  height: var(--s-6);
+  padding: 0 var(--s-2);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-sm);
+  background: var(--surface-hover);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nc-chip svg {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  color: var(--text-3);
+}
+.nc-chip:hover:not(.is-static) {
+  background: var(--surface-active);
+}
+.nc-chip.is-static {
+  cursor: default;
+}
+:root[data-input='touch'] .nc-chip {
+  height: var(--s-8);
+}
+.nc-modes .nc-mode-danger[aria-checked='true'] {
+  color: var(--c-danger-300);
+}
+.nc-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.nc-usage .is-bad {
+  color: var(--c-danger-300);
+}
+
+/* ---- the conversation ---- */
+.nc-scroll-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+.nc-scroll {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: var(--nc-pad) var(--nc-pad) var(--s-2);
+  user-select: text;
+}
+.nc-scroll:focus-visible {
+  outline: 2px solid var(--c-primary-300);
+  outline-offset: -2px;
+}
+.nc-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nc-gap);
+  width: 100%;
+  min-width: 0;
+}
+/* the conversation's column fills the view, so an empty chat's welcome sits in its middle */
+.nc-scroll > .nc-col {
+  flex: 1 0 auto;
+}
+.nc-chat.is-tab .nc-col {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.nc-older {
+  align-self: center;
+}
+.nc-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-4) 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.nc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  margin: auto 0;
+  padding: var(--s-8) var(--s-4);
+  text-align: center;
+}
+.nc-empty .nc-mark {
+  width: var(--s-10);
+  height: var(--s-10);
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
+}
+.nc-empty-title {
+  margin: var(--s-2) 0 0;
+  font-weight: var(--fw-semibold);
+}
+.nc-empty p {
+  max-width: 420px;
+  margin: 0;
+}
+.nc-quiet {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.nc-label {
+  display: block;
+  margin-bottom: var(--s-1);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-caps, 0.06em);
+  text-transform: uppercase;
+}
+.nc-more {
+  align-self: flex-start;
+  font-size: var(--fs-xs);
+}
+.nc-clamp-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* the owner's message */
+.nc-me {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  max-width: 82%;
+  min-width: 0;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-lg) var(--r-lg) var(--s-1) var(--r-lg);
+  background: var(--surface-active);
+}
+.nc-chat.is-phone .nc-me,
+.nc-chat.is-card .nc-me {
+  max-width: 90%;
+}
+.nc-me-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nc-me-text.is-folded {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+  line-clamp: 8;
+  overflow: hidden;
+}
+
+/* the agent's run: its mark, then its work */
+.nc-agent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.nc-agent > .nc-mark {
+  margin-top: 1px;
+}
+.nc-agent-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+/* Markdown */
+.nc-md {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.nc-md.is-plain {
+  white-space: pre-wrap;
+}
+.nc-md.is-small {
+  font-size: var(--fs-sm);
+}
+.nc-md > :first-child {
+  margin-top: 0;
+}
+.nc-md > :last-child {
+  margin-bottom: 0;
+}
+.nc-md p,
+.nc-md ul,
+.nc-md ol,
+.nc-md blockquote,
+.nc-md pre,
+.nc-md table {
+  margin: 0 0 var(--s-2);
+}
+.nc-md h1,
+.nc-md h2,
+.nc-md h3,
+.nc-md h4 {
+  margin: var(--s-3) 0 var(--s-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-heading, 1.25);
+}
+.nc-md h1 {
+  font-size: var(--fs-lg);
+}
+.nc-md ul,
+.nc-md ol {
+  padding-left: var(--s-5);
+}
+.nc-md li + li {
+  margin-top: 2px;
+}
+.nc-md a {
+  color: var(--c-primary-300);
+  text-underline-offset: 2px;
+}
+.nc-md code {
+  padding: 1px var(--s-1);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: 5px;
+  background: var(--surface-hover);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.nc-md pre {
+  padding: var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+  overflow-x: auto;
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+}
+.nc-md pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+}
+.nc-md blockquote {
+  padding: 0 var(--s-3);
+  border-left: 3px solid var(--glass-border-strong);
+  color: var(--text-2);
+}
+.nc-md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.nc-md th,
+.nc-md td {
+  padding: var(--s-1) var(--s-2);
+  border: var(--hairline) solid var(--tile-border);
+}
+.nc-md hr {
+  margin: var(--s-3) 0;
+  border: 0;
+  border-top: var(--hairline) solid var(--tile-border);
+}
+.nc-md img {
+  max-width: 100%;
+}
+
+/* the caret of a reply being streamed */
+.nc-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: var(--text);
+}
+
+/* thinking, folded */
+.nc-thought-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.nc-thought {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--s-6);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-xs);
+}
+button.nc-thought {
+  cursor: pointer;
+}
+button.nc-thought:hover {
+  color: var(--text-2);
+}
+.nc-thought svg {
+  width: 13px;
+  height: 13px;
+}
+.nc-thought .nc-chev {
+  width: 12px;
+  height: 12px;
+}
+.nc-dots::after {
+  content: '…';
+}
+.nc-thought-text {
+  padding: var(--s-1) 0 var(--s-1) var(--s-3);
+  border-left: 2px solid var(--tile-border);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* ---- tools: a raised block in the island ---- */
+.nc-tool,
+.nc-sub {
+  min-width: 0;
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-md);
+  background: var(--island-raised);
+  overflow: hidden;
+}
+.nc-thead {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-height: var(--nc-head);
+  padding: 0 var(--s-3);
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  text-align: left;
+}
+.nc-chat.is-tab .nc-thead {
+  font-size: var(--fs-sm);
+}
+button.nc-thead {
+  cursor: pointer;
+}
+button.nc-thead:hover {
+  background: var(--surface-hover);
+}
+.nc-ticon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+}
+.nc-tname {
+  flex: 0 0 auto;
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+.nc-targ {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.nc-tstate {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.nc-tstate.is-done {
+  color: var(--tint-success-text);
+}
+.nc-tstate.is-error {
+  color: var(--c-danger-300);
+}
+.nc-tstate.is-denied,
+.nc-tstate.is-needs {
+  color: var(--tint-warning-text);
+}
+.nc-spin {
+  width: 12px;
+  height: 12px;
+}
+.nc-add {
+  color: var(--diff-add);
+}
+.nc-del {
+  color: var(--diff-del);
+}
+.nc-tbody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border-top: var(--hairline) solid var(--tile-border);
+  font-size: var(--fs-xs);
+  min-width: 0;
+}
+.nc-tbody pre,
+.nc-diff {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.nc-tbody pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nc-diff {
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+}
+.nc-diff > span {
+  display: block;
+  min-width: max-content;
+  padding: 0 var(--s-1);
+  white-space: pre;
+}
+.nc-dadd {
+  color: var(--diff-add);
+  background: var(--diff-add-bg);
+}
+.nc-ddel {
+  color: var(--diff-del);
+  background: var(--diff-del-bg);
+}
+.nc-gap {
+  color: var(--text-3);
+}
+.nc-diff .nc-more {
+  margin-top: var(--s-1);
+  font-family: var(--font-ui);
+}
+.nc-cmdline {
+  color: var(--text) !important;
+}
+.nc-prompt {
+  color: var(--text-3);
+  user-select: none;
+}
+.nc-out {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.nc-out pre {
+  max-height: 360px;
+  overflow-y: auto;
+}
+.nc-out.is-error pre {
+  color: var(--c-danger-300);
+}
+.nc-input {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.nc-todos {
+  list-style: none;
+}
+.nc-todos li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  color: var(--text-2);
+}
+.nc-todos li svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  color: var(--text-3);
+}
+.nc-todos li.is-completed {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.nc-todos li.is-completed svg {
+  color: var(--tint-success-text);
+}
+.nc-todos li.is-in_progress {
+  color: var(--text);
+}
+
+/* a sub-agent's work, grouped under its call */
+.nc-sub {
+  border-style: dashed;
+  background: transparent;
+}
+.nc-sub-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  border-top: var(--hairline) dashed var(--tile-border);
+}
+.nc-sub-result {
+  padding-top: var(--s-2);
+  border-top: var(--hairline) solid var(--tile-border);
+}
+
+/* errors and notices */
+.nc-err {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-3);
+  border: var(--hairline) solid var(--tint-danger-border);
+  border-radius: var(--r-island);
+  background: var(--tint-danger-bg);
+  font-size: var(--fs-sm);
+}
+.nc-err strong {
+  color: var(--c-danger-300);
+}
+.nc-err-text {
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nc-err-hint {
+  color: var(--text);
+}
+.nc-err-actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+}
+.nc-notice {
+  align-self: center;
+  padding: 2px var(--s-3);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+/* ---- what needs the owner: the amber glow ---- */
+.nc-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-3);
+  border: var(--hairline) solid var(--tint-warning-border);
+  border-radius: var(--r-island);
+  background: var(--tint-warning-bg);
+  box-shadow: 0 0 24px -6px var(--needs-ring);
+}
+.nc-ask-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  color: var(--tint-warning-text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.nc-ask-head svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+.nc-ask-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.nc-ask-why {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+}
+.nc-ask-about {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+.nc-ask-about code {
+  font-family: var(--font-mono);
+}
+.nc-cmd {
+  display: block;
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  padding: var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-sm);
+  background: var(--term-bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nc-cmd.is-arg {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nc-ask-diff {
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-sm);
+  background: var(--term-bg);
+  overflow: hidden;
+}
+.nc-ask-diff .nc-tbody {
+  border-top: 0;
+}
+.nc-ask-opts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+.nc-ask-opts.is-stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+.nc-ask-opts.is-stacked .spacer {
+  display: none;
+}
+.nc-ask-opts.is-stacked .btn {
+  width: 100%;
+}
+/* a note to the agent is prose, not a key or code (components.css textarea.control) */
+textarea.control.nc-note {
+  min-height: 0;
+  resize: vertical;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+}
+
+/* a question's options */
+.nc-question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.nc-q-text {
+  margin: 0;
+  font-size: var(--nc-fs);
+}
+.nc-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nc-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-md);
+  background: var(--surface-hover);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.nc-opt:hover {
+  border-color: var(--glass-border-strong);
+}
+.nc-opt.is-on {
+  border-color: var(--c-primary);
+  box-shadow: inset 0 0 0 var(--hairline) var(--c-primary);
+  background: var(--selected-bg);
+}
+.nc-opt-mark {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 1.5px solid var(--text-3);
+  border-radius: var(--r-pill);
+}
+.nc-opt.is-multi .nc-opt-mark {
+  border-radius: 4px;
+}
+.nc-opt.is-on .nc-opt-mark {
+  border: 4px solid var(--c-primary);
+}
+.nc-opt.is-multi.is-on .nc-opt-mark {
+  border-width: 7px;
+}
+.nc-opt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.nc-opt-label.is-other {
+  color: var(--text-3);
+}
+.nc-opt-desc {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.nc-other {
+  width: 100%;
+}
+
+/* a plan to approve */
+.nc-plan {
+  max-height: 420px;
+  overflow-y: auto;
+  padding: var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+}
+.nc-plan.is-compact {
+  max-height: 260px;
+}
+
+/* back to the end */
+.nc-jump {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s-2);
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: var(--s-6);
+  padding: 0 var(--s-3);
+  border: var(--hairline) solid var(--glass-border-strong);
+  border-radius: var(--r-pill);
+  background: var(--solid-3);
+  box-shadow: var(--e-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.nc-jump svg {
+  width: 12px;
+  height: 12px;
+}
+.nc-jump.is-needs {
+  border-color: var(--tint-warning-border);
+  color: var(--tint-warning-text);
+}
+:root[data-input='touch'] .nc-jump {
+  height: var(--s-8);
+}
+
+/* ---- the foot: the live line and the composer ---- */
+.nc-foot {
+  flex: 0 0 auto;
+  padding: var(--s-1) var(--nc-pad) var(--s-3);
+}
+.nc-chat.is-tab .nc-foot {
+  padding-bottom: var(--s-4);
+}
+.nc-foot > .nc-col {
+  gap: var(--s-2);
+}
+.nc-live {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: 0 2px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.nc-live .dot {
+  flex: 0 0 auto;
+}
+.nc-live-text {
+  min-width: 0;
+}
+.nc-live-time {
+  margin-left: auto;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.nc-live-err {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--c-danger-300);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the composer: one card, as the lead's (workbench.css .wb-composer) */
+.nc-composer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-island);
+  background: var(--surface-hover);
+  box-shadow: var(--raise-shadow);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.nc-composer:focus-within {
+  border-color: var(--glass-border-strong);
+  box-shadow: var(--raise-shadow), 0 0 0 var(--hairline) var(--glass-border-strong);
+}
+.nc-input {
+  width: 100%;
+  min-height: 0;
+  max-height: none;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--nc-fs);
+  line-height: var(--lh-body);
+  resize: none;
+  outline: none; /* the composer's border shows the focus */
+}
+.nc-input::placeholder {
+  color: var(--text-3);
+}
+.nc-input:disabled {
+  cursor: not-allowed;
+}
+.nc-cbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin-left: calc(-1 * var(--s-1));
+}
+.nc-cbar .nc-send {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+}
+.nc-cbar .nc-stop {
+  height: 30px;
+}
+:root[data-input='touch'] .nc-cbar .nc-send,
+:root[data-input='touch'] .nc-cbar .nc-stop {
+  height: var(--h-control-sm);
+}
+:root[data-input='touch'] .nc-cbar .nc-send {
+  width: var(--h-control-sm);
+}
+.nc-slash {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: var(--z-popover);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: var(--s-1);
+  border: var(--hairline) solid var(--glass-border-strong);
+  border-radius: var(--r-md);
+  background: var(--solid-3);
+  box-shadow: var(--e-2);
+  font-size: var(--fs-sm);
+}
+.nc-slash-opt {
+  display: flex;
+  gap: var(--s-3);
+  padding: 6px var(--s-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.nc-slash-opt.is-active {
+  background: var(--surface-active);
+}
+.nc-slash-name {
+  font-family: var(--font-mono);
+}
+:root[data-input='touch'] .nc-slash-opt {
+  min-height: var(--h-menu-item);
+  align-items: center;
+}
+
+/* the "@" list: a path with the letters typed marked, as in Go to file */
+.nc-file-opt {
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.nc-file-opt svg {
+  flex: 0 0 auto;
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+  color: var(--text-3);
+}
+.nc-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.nc-file-path mark {
+  background: var(--editor-search);
+  color: inherit;
+  border-radius: var(--nudge);
+}
+.nc-slash-note {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-2);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+/* files going with the next message: chips at the top of the composer (orch.css .attach-chip) */
+.nc-attach {
+  flex: 0 0 auto;
+  padding: 0 0 var(--s-2);
+  margin-right: var(--s-1);
+  border-bottom: var(--hairline) solid var(--tile-border);
+}
+/* and under a message that took them */
+.nc-sent-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-me .nc-sent-files .attach-chip {
+  background: var(--surface-hover);
+}
+/* a file dragged over the chat: the frame of lib/fileDrop.ts */
+.nc-chat.is-file-over {
+  position: relative;
+}
+
+/* the model chip, its engine and its menu */
+.nc-model {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.nc-model .nc-chip {
+  min-width: 0;
+}
+.nc-model .nc-chip:disabled {
+  cursor: default;
+  color: var(--text-2);
+}
+.nc-chip .nc-chip-spin {
+  width: var(--fs-xs);
+  height: var(--fs-xs);
+  border-width: var(--hairline);
+}
+.nc-engine {
+  flex: 0 0 auto;
+  padding: 0 var(--s-2);
+  border: var(--hairline) solid var(--tile-border);
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: calc(var(--s-5) - 2 * var(--hairline));
+  white-space: nowrap;
+}
+.nc-model.is-compact .nc-engine {
+  padding: 0 var(--s-1);
+  border: 0;
+  color: var(--text-3);
+}
+.nc-model-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.popover.nc-model-pop {
+  width: min(var(--w-model-menu), calc(100vw - 2 * var(--s-4)));
+  padding: var(--menu-pad);
+}
+.nc-mm {
+  display: flex;
+  flex-direction: column;
+}
+.nc-mm-list {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--h-model-list);
+  overflow-y: auto;
+}
+.nc-mm-list > * {
+  flex-shrink: 0;
+}
+.nc-mm-other {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-3) var(--s-2);
+}
+.nc-mm-other .control {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.nc-mm-problem {
+  flex: 1 0 100%;
+  color: var(--c-danger-300);
+  font-size: var(--fs-xs);
+}
+.nc-mm-efforts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  padding: 0 var(--s-3) var(--s-1);
+}
+.nc-mm-note {
+  margin: 0;
+  padding: var(--s-1) var(--s-3) var(--s-2);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.nc-mm-note .spinner {
+  margin-right: var(--s-1);
+  vertical-align: middle;
+}
+
+/* the Engine control of the spawn forms (nextcode/EngineSwitch.tsx) */
+.nc-engines {
+  width: max-content;
+  max-width: 100%;
+}
+
+/* ---- where it is mounted ---- */
+/* a board card: the chat lies in the card's island, not in a terminal's well */
+.nc-node-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+/* a Code view tab */
+.nc-pane {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+}

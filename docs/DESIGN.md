@@ -404,6 +404,69 @@ A project as a full code editor, without the board (`studio/code/CodeViewPage.ts
 - **Project card menu:** always **Open in Code view** and **Open in Board view** first, then a separator, whatever the setting.
 - **Settings › General › Open projects in:** radio cards in one column: Ask every time, Board view, Code view, each with one line of description, and the hint "Kept on the hub, so every browser and phone follows it." The first pane of Settings.
 
+### 3.20 NextCode chat (2026-11-20)
+
+NextCode (docs/API-agents.md §30) is an agent whose console is a chat drawn by NextBoard instead
+of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the repo).
+- **Where:** it replaces the terminal body wherever a console is drawn: the board card (its header,
+  AgentBar and handles stay), a Code view tab, the bottom panel, and the phone.
+  - Variants: `tab` (wide, with a toolbar), `card`, `phone`.
+  - A terminal console looks exactly as before.
+  - The key bar shows nothing for it.
+- **Mark:** "N›" in Geist Mono on a raised square, with a dot in `--nextcode`. That violet is the
+  agent's colour only, never an accent: buttons stay ink.
+- **Toolbar** (the `tab` variant): the model as a chip, the permission mode as a segmented control
+  (Ask, Accept edits, Plan, Auto, Bypass), and the cost on the right.
+- **Messages:**
+  - the owner's are right-aligned bubbles (`--sel-strong`); the agent's text is Markdown at 13.5 px;
+  - thinking folds into "Thought";
+  - small tools (Read, Grep, Glob, …) are 30 px rows; Edit/Write are cards with the diff; Bash shows
+    its command and the end of its output;
+  - a sub-agent's calls group under its Task call;
+  - while text streams, a still caret ends it (only the busy dot animates, §2.5).
+- **Requests:** the needs-you card (the `--needs` tint and glow, like a needs-you tile):
+  - **permission:** Allow once (primary), Always allow (only when the CLI offers a rule), and
+    Deny… on the right; Deny… opens a note box with Deny and tell it / Deny and stop;
+  - **question:** radio or checkbox options with their descriptions, Other…, Answer;
+  - **plan:** the plan as Markdown with Approve and start / Approve, accept edits / Keep planning….
+- **Bottom:**
+  - a live line: the state dot, "Working · <activity>" / "Needs you · <what>" / "Ready", and the
+    turn's time;
+  - the composer (the lead composer's card): Enter sends, Shift+Enter is a new line, "/" lists the
+    CLI's commands, Stop while it works.
+- **Model menu:** the model chip (the toolbar in `tab`, the composer bar in `card` and `phone`)
+  shows "Model · effort" and the engine ("Claude"/"Codex").
+  - It opens a menu: Default, the agent's models, Other… (a typed name checked like the spawn
+    form's), and the efforts of the model.
+  - A new model switches at once; a new effort says "Applies to the next message".
+- **Attachments:** paste into the composer, drop on the chat ("Drop to attach to your message"),
+  or use `+`.
+  - Chips with a thumbnail or file icon, name and size, removable; Send waits for the uploads.
+  - The message ends with "Attached: <paths>", which a sent bubble shows as chips again.
+- **@file:** `@` lists the console's files (its part, every part at a root, or its folder),
+  fuzzy matched like Go to file; Enter or Tab inserts `@path`.
+- **Engine:** wherever NextCode is chosen (Spawn, All agents, Agent and model…, new console), it
+  is one entry with an Engine control (Claude | Codex).
+  - Codex is hidden when the hub has no Codex engine, and disabled when Codex is not installed.
+  - Lists without the control say "NextCode · Claude" / "NextCode · Codex".
+- **Not logged in:** the error card says NextCode's login is its own and offers **Sign in
+  NextCode** (Settings › NextCode).
+- **Settings › NextCode:** its own pane after Agents, with these cards:
+  - one card per engine ("Claude engine", "Codex engine"): its logins (NextCode's only; each
+    home one is named "NextCode"), Add login, and its model and effort defaults;
+  - a shared **Defaults** card: the start permission mode as a segmented radio group, and the
+    idle time in minutes.
+- **Card menu:** a NextCode card has no Copy text, Pick conversation, Pause, Sleep, Keep awake,
+  Text size or Kill. Its Restart says that it stops the CLI, and Close says "Close console…".
+- **API engine** (2026-11-21, agent `nextcode-api`): NextCode's own agent, with no vendor CLI and
+  no login, on one of the hub's API providers. It is the third choice of the Engine control
+  (Claude | Codex | API), always enabled on This PC and absent on servers. Its account select lists
+  the API providers only (every one can run it), preselecting Settings › NextCode's provider; with
+  none, the `nextcode_needs_provider` error card offers Settings › API providers. The model menu
+  lists the provider's models and the efforts low to max, and names the engine "API". Settings ›
+  NextCode has an "API engine" card: its default provider (`nextcode.provider`) and its model and
+  effort defaults; no logins.
+
 ### 3.9 Terminal palette (xterm)
 
 From the `--term-*` tokens in `tokens.css`, read by `useTerminal` from the console element, so it follows the `data-theme` around it. Changing the theme does not recreate the terminal; the screen content stays.

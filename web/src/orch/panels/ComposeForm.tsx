@@ -1,7 +1,8 @@
 // What a new team looks like (docs/API-orchestration.md §5, D14/C2): name, role, one slot per
 // console, how many. Click a slot to cycle its agent, right-click for the whole catalog, or fill
 // every slot at once. One POST /api/workspaces/{id}/spawn; the hub places everything in one board
-// update. Shown in the board's right-click ring and in the team composer dialog.
+// update. Shown in the board's right-click ring and in the team composer dialog. Slots of
+// NextCode's API engine run on one API provider, picked here (Settings › NextCode's by default).
 
 import { useMemo, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { AgentBadge, shortAgentName } from '../../agents/AgentBadge';
@@ -25,6 +26,10 @@ import { defaultPlacement, focusedPlacement, isMultiPart, lastPlacement, machine
 import { FOCUS_PARAM } from '../../board/focus';
 import { PlacePicker } from '../../board/PlacePicker';
 import type { Agent, ModelChoice, Project } from '../../lib/types';
+import { agentChoiceName, apiProviderChoice, isApiEngine } from '../../nextcode/engines';
+import { AccountOptions, NeedsProviderHint } from '../../providers/AccountOptions';
+import { useProviders } from '../../providers/providers';
+import { nextcodeProvider } from '../../settings/nextcodeSettings';
 import { store, useMachines } from '../../store';
 import { orchError } from '../actions';
 import { orchApi } from '../api';
@@ -91,6 +96,12 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
     const a = agentOf(id);
     return a?.models ? [a] : [];
   });
+  // NextCode's API engine has no login: its slots share one API provider
+  const providers = useProviders();
+  const [apiPick, setApiPick] = useState('');
+  const apiProvider = apiProviderChoice(apiPick, providers, nextcodeProvider(settings));
+  const apiSlots = Array.from({ length: count }, (_, i) => slotAgent(i)).some((id) => isApiEngine(agentOf(id)));
+  const noProvider = apiSlots && !apiProvider;
 
   const cycle = (i: number) => {
     if (!cyclable.length) return;
@@ -108,6 +119,7 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
         return;
       }
     }
+    if (noProvider) return;
     setBusy(true);
     setError('');
     try {
@@ -115,6 +127,7 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
         slots: Array.from({ length: count }, (_, i) => ({
           agent: slotAgent(i),
           machineId: !place && machineId !== project.machineId ? machineId : undefined,
+          ...(isApiEngine(agentOf(slotAgent(i))) ? { providerId: apiProvider } : {}),
           model: modelOf(slotAgent(i)).model ?? '',
           effort: modelOf(slotAgent(i)).effort ?? '',
         })),
@@ -143,7 +156,7 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
     const set = (id: string) => (slot === null ? fillAll(id) : setPicks((p) => ({ ...p, [slot]: id })));
     return [
       { type: 'heading', label: 'Installed' },
-      ...installed.map((a): MenuEntry => ({ label: a.name, icon: a.kind === 'shell' ? 'terminal' : 'bot', checked: slot !== null && slotAgent(slot) === a.id, onSelect: () => set(a.id) })),
+      ...installed.map((a): MenuEntry => ({ label: agentChoiceName(a, installed), icon: a.kind === 'shell' ? 'terminal' : 'bot', checked: slot !== null && slotAgent(slot) === a.id, onSelect: () => set(a.id) })),
       ...(ma.agents.some((a) => a.available === false)
         ? ([{ type: 'heading', label: 'Not installed' }, ...ma.agents.filter((a) => a.available === false).map((a): MenuEntry => ({ label: a.name, disabled: true, onSelect: () => undefined }))] as MenuEntry[])
         : []),
@@ -204,7 +217,7 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
               className="compose-slot"
               style={{ '--agent-c': a?.color } as CSSProperties}
               title="Click to change the agent · right-click for all agents"
-              aria-label={`Slot ${i + 1}: ${a?.name ?? slotAgent(i)}. Click to change.`}
+              aria-label={`Slot ${i + 1}: ${a ? agentChoiceName(a, installed) : slotAgent(i)}. Click to change.`}
               onClick={() => cycle(i)}
               onContextMenu={(e: ReactMouseEvent) => {
                 e.preventDefault();
@@ -220,7 +233,7 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
       <div className="compose-fill" role="group" aria-label="Fill every slot with">
         <span className="compose-fill-label">Fill all</span>
         {installed.slice(0, FILL_ROW).map((a) => (
-          <button key={a.id} type="button" className="compose-fill-btn" title={`Every slot runs ${a.name}`} aria-label={`Every slot runs ${a.name}`} onClick={() => fillAll(a.id)}>
+          <button key={a.id} type="button" className="compose-fill-btn" title={`Every slot runs ${agentChoiceName(a, installed)}`} aria-label={`Every slot runs ${agentChoiceName(a, installed)}`} onClick={() => fillAll(a.id)}>
             <AgentBadge agent={a} small />
           </button>
         ))}
@@ -241,11 +254,29 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
           {slotAgents.map((a) => (
             <div key={a.id} className="compose-model">
               <AgentBadge agent={a} small />
-              <ModelPicker agent={a} value={modelOf(a.id)} onChange={(c) => setModelPicks((m) => ({ ...m, [a.id]: c }))} />
+              <ModelPicker agent={a} value={modelOf(a.id)} onChange={(c) => setModelPicks((m) => ({ ...m, [a.id]: c }))} profileId={isApiEngine(a) ? apiProvider : undefined} />
             </div>
           ))}
         </div>
       )}
+      {apiSlots &&
+        (noProvider ? (
+          <NeedsProviderHint />
+        ) : (
+          <SelectField
+            label="API provider"
+            hint="What the NextCode · API slots run on."
+            value={apiProvider}
+            onChange={(e) => {
+              setApiPick(e.target.value);
+              // a model of another provider would not exist on this one
+              setModelPicks((m) => Object.fromEntries(Object.entries(m).filter(([id]) => !isApiEngine(agentOf(id)))));
+            }}
+            className="control-sm"
+          >
+            <AccountOptions profiles={[]} defaultProfile="" providers={providers} providersOnly defaultProvider={nextcodeProvider(settings)} />
+          </SelectField>
+        ))}
       {place && <PlacePicker project={project} value={placeValue(place)} onChange={setPlaceVal} />}
       {place && partOfPlace(project, place)?.readOnly && <p className="fs-xs text-3">Read only: agents there only read and investigate.</p>}
       {!place && machines.length > 1 && (
@@ -271,7 +302,7 @@ export default function ComposeForm({ ctl, project, opts, at, onClose, onSpawned
         </span>
         <Button size="sm" variant="ghost" iconOnly icon="plus" aria-label="One console more" disabled={count >= maxSlots} onClick={() => setCount((c) => Math.min(maxSlots, c + 1))} />
         <span className="spacer" />
-        <Button type="submit" variant="primary" icon="play" loading={busy} disabled={!count}>
+        <Button type="submit" variant="primary" icon="play" loading={busy} disabled={!count || noProvider} title={noProvider ? 'Add an API provider in Settings › API providers first' : undefined}>
           Spawn {count}
         </Button>
       </footer>

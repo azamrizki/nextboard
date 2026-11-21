@@ -48,7 +48,10 @@ function SignInTerminal({ sessionId }: { sessionId: string }) {
   return <div className="profile-signin-term" ref={ref} data-keep-escape="" data-theme={theme} data-session={sessionId} />;
 }
 
-/** The terminal and what it says about the sign-in; signedIn turns true once the CLI is at its prompt. */
+/**
+ * The terminal and what it says about the sign-in; signedIn turns true once the CLI is at its
+ * prompt. agentName is the CLI in the terminal: for a NextCode profile, Claude Code.
+ */
 export function ProfileSignIn({ profile, agentName, onSignedIn }: { profile: Profile; agentName: string; onSignedIn?: (yes: boolean) => void }) {
   const { sessionId, error, retry } = useSignInConsole(profile.id);
   const s = useSession(sessionId);
@@ -80,12 +83,17 @@ export function ProfileSignIn({ profile, agentName, onSignedIn }: { profile: Pro
   );
 }
 
-/** Sign in to a profile: right after adding it (fresh), or later from its row. */
-export function ProfileSignInDialog({ profile, agentName, fresh, onClose }: { profile: Profile; agentName: string; fresh?: boolean; onClose: () => void }) {
+/**
+ * Sign in to a profile: right after adding it (fresh), or later from its row. cliName: the CLI
+ * that signs in when it is not the agent itself (a NextCode profile signs in in Claude Code).
+ */
+export function ProfileSignInDialog({ profile, agentName, cliName, fresh, onClose }: { profile: Profile; agentName: string; cliName?: string; fresh?: boolean; onClose: () => void }) {
   const [signedIn, setSignedIn] = useState(false);
+  const cli = cliName || agentName;
+  const other = cli !== agentName;
   return (
     <Modal
-      title={`Sign in to “${profile.name}”`}
+      title={other ? `Sign in to ${agentName} · “${profile.name}”` : `Sign in to “${profile.name}”`}
       icon="user"
       size="lg"
       onClose={onClose}
@@ -97,10 +105,11 @@ export function ProfileSignInDialog({ profile, agentName, fresh, onClose }: { pr
     >
       <p className="setting-hint">
         {fresh ? `“${profile.name}” is added. ` : ''}
-        {agentName} runs here with this profile’s folder and asks for its login when it has none. Closing stops this console; the login stays in the profile
-        {fresh ? ', and a console started with the profile later asks again if you skip it now.' : '.'}
+        {cli} runs here with this profile’s folder and asks for its login when it has none.{other ? ` ${agentName} then uses that login, and only ${agentName} does.` : ''} Closing stops this
+        console; the login stays in the profile
+        {fresh ? (other ? `; if you skip it now, sign in later from its row: ${agentName}’s chat cannot ask for a login.` : ', and a console started with the profile later asks again if you skip it now.') : '.'}
       </p>
-      <ProfileSignIn profile={profile} agentName={agentName} onSignedIn={setSignedIn} />
+      <ProfileSignIn profile={profile} agentName={cli} onSignedIn={setSignedIn} />
     </Modal>
   );
 }

@@ -704,6 +704,15 @@
 .text-size-seg {
   flex-wrap: wrap;
 }
+/* Settings › NextCode */
+.settings-intro {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.nextcode-modes {
+  flex-wrap: wrap;
+}
 /* Settings › Install app */
 .app-steps {
   display: flex;
@@ -876,6 +885,19 @@ textarea.control.textarea-sm {
 .profile-machine svg {
   width: var(--size-icon);
   height: var(--size-icon);
+  color: var(--text-3);
+}
+/* one agent's profiles on a machine (NextCode's apart from Claude Code's) */
+.profile-agent-group + .profile-agent-group {
+  margin-top: var(--s-2);
+}
+.profile-agent {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: var(--s-2) 0 var(--s-1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   color: var(--text-3);
 }
 .profile-row {

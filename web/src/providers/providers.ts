@@ -1,10 +1,12 @@
 // API providers (docs/API-agents.md §10.2): an Anthropic- or OpenAI-compatible endpoint a console
-// of Claude Code, Codex or OpenCode can run on instead of a subscription login. The key never
-// comes back from the hub: the list only says whether one is set.
+// of Claude Code, Codex or OpenCode can run on instead of a subscription login, and what NextCode's
+// API engine (§30) always runs on. The key never comes back from the hub: the list only says
+// whether one is set.
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { apiRequest } from '../api';
-import type { Agent } from '../lib/types';
+import type { Agent, AgentModel, ModelList } from '../lib/types';
+import { API_EFFORTS, isApiEngine } from '../nextcode/engines';
 import { store } from '../store';
 
 export interface ProviderPrice {
@@ -90,14 +92,18 @@ export const providersApi = {
   sessionCost: (sessionId: string) => apiRequest<Spend>('GET', `/api/sessions/${enc(sessionId)}/cost`),
 };
 
-/** The CLI a console is built on, as the hub counts it. */
+/** The CLI a console is built on, as the hub counts it: its own id when it has no base (NextCode's API engine has no CLI at all). */
 export function baseOf(a: Pick<Agent, 'id' | 'base'>): string {
   return a.base || a.id;
 }
 
-/** Which agents a provider can run: Claude Code on Anthropic's API, Codex on the Responses API, OpenCode on both. */
-export function compatible(a: Pick<Agent, 'id' | 'base'> | undefined, p: ApiProvider): boolean {
+/**
+ * Which agents a provider can run: Claude Code on Anthropic's API, Codex on the Responses API,
+ * OpenCode and NextCode's API engine on any of them (Anthropic, OpenAI Chat Completions or Responses).
+ */
+export function compatible(a: (Pick<Agent, 'id' | 'base'> & { engine?: string }) | undefined, p: ApiProvider): boolean {
   if (!a) return false;
+  if (isApiEngine(a)) return true;
   switch (baseOf(a)) {
     case 'claude':
       return p.kind === 'anthropic';
@@ -112,6 +118,15 @@ export function compatible(a: Pick<Agent, 'id' | 'base'> | undefined, p: ApiProv
 /** The models to offer for a provider: the default, the fast one, and those it listed. */
 export function providerModels(p: ApiProvider): string[] {
   return [...new Set([p.model, ...(p.fastModel ? [p.fastModel] : []), ...(p.models ?? [])])];
+}
+
+/**
+ * What an agent can run on a provider: the provider's models, its own model the default, with the
+ * efforts the agent's list gives; NextCode's API engine takes low to max when the hub lists none.
+ */
+export function providerModelList(p: ApiProvider, efforts: string[] | undefined, agent?: Pick<Agent, 'id'> & { engine?: string }): ModelList {
+  const own = efforts?.length ? efforts : isApiEngine(agent) ? [...API_EFFORTS] : [];
+  return { efforts: own, source: 'provider', models: providerModels(p).map((id): AgentModel => ({ id, name: id })), current: p.model };
 }
 
 export function money(n: number | undefined): string {

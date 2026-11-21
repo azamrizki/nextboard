@@ -1,5 +1,8 @@
 // Agent pickers (docs/API-agents.md §17, C2): the Spawn tool flyout next to the rail,
 // the "All agents" dialog (Detected / Your agents / Not installed) and "Switch agent".
+// NextCode (§30) is a choice of its own after Codex, listed once with an Engine control for its
+// Claude, Codex and API agents (nextcode/engines.ts); a console never switches between it and a
+// terminal agent. Its API engine has no login: it runs on an API provider.
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { Button } from '../components/Button';
@@ -8,12 +11,15 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { timeAgo } from '../lib/format';
 import type { Agent, Machine, ModelChoice, Profile, Session } from '../lib/types';
+import { agentChoiceName, foldEngines, isApiEngine, isNextCodeBuiltin } from '../nextcode/engines';
+import { EngineSwitch } from '../nextcode/EngineSwitch';
+import { nextcodeProvider } from '../settings/nextcodeSettings';
 import { useMachineName, useProfiles } from '../store';
-import { AccountOptions } from '../providers/AccountOptions';
+import { AccountOptions, accountFor, NeedsProviderHint, needsProvider } from '../providers/AccountOptions';
 import { compatible, useProviders } from '../providers/providers';
 import { AgentLogo } from './AgentLogo';
 import { agentLogo } from './logos';
-import { byPriority, canResumeExact, canContinue, hasLiveStatus, hasYolo, supportsProfiles, useMachineAgents } from './catalog';
+import { agentProfiles, agentTagline, byPriority, canResumeExact, canContinue, hasLiveStatus, hasYolo, isChatAgent, supportsProfiles, switchTargets, useAgent, useMachineAgents } from './catalog';
 import { ModelPicker } from './ModelPicker';
 import { defaultChoice, modelSummary } from './models';
 import { defaultProfileOf, useEffectiveSettings } from './settings';
@@ -80,9 +86,10 @@ interface FlyoutProps {
 export function AgentFlyout({ machineId, machineName, armed, onPick, choice, onChoice, onAll, onClose, place }: FlyoutProps) {
   const ma = useMachineAgents(machineId);
   const ref = useRef<HTMLDivElement>(null);
-  const rows = flyoutRows(ma.agents, armed);
+  const rows = flyoutRows(foldEngines(ma.agents, armed), armed);
   const shell = ma.agents.find((a) => a.kind === 'shell');
   const armedAgent = ma.agents.find((a) => a.id === armed);
+  const noProvider = needsProvider(armedAgent, useProviders());
 
   useEffect(() => {
     if (!ma.ready) return;
@@ -134,11 +141,12 @@ export function AgentFlyout({ machineId, machineName, armed, onPick, choice, onC
           className="menu-item"
           tabIndex={-1}
           disabled={a.available === false}
-          title={`${a.command}${a.available === false ? ' — not installed' : ''}`}
+          title={`${agentTagline(a) || a.command}${a.available === false ? ' — not installed' : ''}`}
           onClick={() => onPick(a)}
         >
           <AgentSwatch agent={a} />
           <span className="menu-label">{a.name}</span>
+          {isChatAgent(a) && <span className="cap-chip">Chat</span>}
           {a.id === armed && <Icon name="check" className="menu-check" />}
         </button>
       ))}
@@ -154,10 +162,30 @@ export function AgentFlyout({ machineId, machineName, armed, onPick, choice, onC
         <Icon name="grid" />
         <span className="menu-label">All agents…</span>
       </button>
-      {armedAgent?.models && armedAgent.available !== false && (
+      {armedAgent && isNextCodeBuiltin(armedAgent.id) && (
         <div className="flyout-model" onMouseDown={(e) => e.stopPropagation()}>
-          <ModelPicker agent={armedAgent} value={choice} onChange={onChoice} />
+          <EngineSwitch
+            agents={ma.agents}
+            value={armedAgent.id}
+            where={machineName}
+            onChange={(id) => {
+              const a = ma.agents.find((x) => x.id === id);
+              if (a) onPick(a);
+            }}
+          />
         </div>
+      )}
+      {noProvider ? (
+        <div className="flyout-model" onMouseDown={(e) => e.stopPropagation()}>
+          <NeedsProviderHint />
+        </div>
+      ) : (
+        (armedAgent?.models || isApiEngine(armedAgent)) &&
+        armedAgent?.available !== false && (
+          <div className="flyout-model" onMouseDown={(e) => e.stopPropagation()}>
+            <ModelPicker agent={armedAgent} value={choice} onChange={onChoice} />
+          </div>
+        )
       )}
       <p className="flyout-hint">Pick an agent, then click on the board to place it.</p>
     </div>
@@ -250,10 +278,14 @@ function AgentList({ agents, value, onChange, onActivate, machineName, label }: 
                   <AgentSwatch agent={a} />
                   <span className="agent-opt-main">
                     <span className="agent-opt-name">{a.name}</span>
-                    <span className="agent-opt-cmd mono truncate" title={[a.command, ...(a.args ?? [])].join(' ')}>
-                      {missing ? `Not found on ${machineName}: ` : ''}
-                      {[a.command, ...(a.args ?? [])].join(' ')}
-                    </span>
+                    {agentTagline(a) && !missing ? (
+                      <span className="agent-opt-cmd truncate">{agentTagline(a)}</span>
+                    ) : (
+                      <span className="agent-opt-cmd mono truncate" title={[a.command, ...(a.args ?? [])].join(' ')}>
+                        {missing ? `Not found on ${machineName}: ` : ''}
+                        {[a.command, ...(a.args ?? [])].join(' ')}
+                      </span>
+                    )}
                     <AgentCaps agent={a} />
                   </span>
                 </div>
@@ -293,7 +325,7 @@ export function AllAgentsDialog({ machine, machineId, armed, onPick, onClose }: 
             Cancel
           </Button>
           <Button variant="primary" icon="terminal" disabled={!sel} onClick={() => sel && (onPick(sel), onClose())}>
-            {sel ? `Arm ${sel.name}` : 'Arm agent'}
+            {sel ? `Arm ${agentChoiceName(sel, ma.agents)}` : 'Arm agent'}
           </Button>
         </>
       }
@@ -303,7 +335,10 @@ export function AllAgentsDialog({ machine, machineId, armed, onPick, onClose }: 
           <span className="spinner" aria-hidden="true" /> Loading agents…
         </div>
       ) : (
-        <AgentList agents={ma.agents} value={value} onChange={setValue} onActivate={(a) => (onPick(a), onClose())} machineName={name} label={`Agents on ${name}`} />
+        <div className="stack">
+          <AgentList agents={foldEngines(ma.agents, value)} value={value} onChange={setValue} onActivate={(a) => (onPick(a), onClose())} machineName={name} label={`Agents on ${name}`} />
+          <EngineSwitch agents={ma.agents} value={value} onChange={setValue} where={name} field />
+        </div>
       )}
     </Modal>
   );
@@ -334,14 +369,26 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
   const [goBack, setGoBack] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const sel = ma.agents.find((a) => a.id === value && a.available !== false);
-  const options: Profile[] = sel && supportsProfiles(sel) ? profiles.filter((p) => p.machineId === session.machineId && p.agent === sel.id) : [];
+  // a terminal console only to terminal agents, a NextCode console only to NextCode (409 nextcode_switch)
+  const currentAgent = useAgent(current) ?? ma.agents.find((a) => a.id === current);
+  const chatConsole = isChatAgent(currentAgent);
+  const { list: choices, hidden } = useMemo(() => switchTargets(ma.agents, currentAgent), [ma.agents, currentAgent]);
+  const sel = choices.find((a) => a.id === value && a.available !== false);
+  // NextCode's engines are one name ("NextCode"), said once
+  const hiddenNames = [...new Set(hidden.map((a) => a.name))];
+  const options: Profile[] = agentProfiles(profiles, session.machineId, sel);
   const provOptions = providers.filter((p) => compatible(sel, p));
   const settings = useEffectiveSettings();
   const defaultId = sel ? defaultProfileOf(settings, session.machineId, sel.id) : '';
+  // NextCode's API engine runs on a provider only: the one picked, its console's, else Settings › NextCode's
+  const providersOnly = isApiEngine(sel);
+  const defaultProvider = nextcodeProvider(settings);
+  const noProvider = needsProvider(sel, provOptions);
   // the default account is the empty choice, whether it was picked or came with the session
-  const chosen = profileId === defaultId ? '' : profileId;
-  const sameAgent = sel?.id === current && (chosen || defaultId) === (session.providerId || session.profileId || defaultId);
+  const chosen = providersOnly ? accountFor(sel, profileId, { profiles: [], providers: provOptions }, defaultProvider) : profileId === defaultId ? '' : profileId;
+  // what the console runs on now (an API console the hub started on the default provider may not name it)
+  const runsOn = session.providerId || session.profileId || (providersOnly ? accountFor(sel, '', { profiles: [], providers: provOptions }, defaultProvider) : defaultId);
+  const sameAgent = sel?.id === current && (chosen || defaultId) === runsOn;
   const [picked, setPicked] = useState<Record<string, ModelChoice>>({});
   const startsWith: ModelChoice = sel?.id === current ? { model: session.model ?? '', effort: session.effort ?? '' } : defaultChoice(settings, undefined, sel?.id ?? '');
   const modelNow = (sel && picked[sel.id]) || startsWith;
@@ -360,14 +407,14 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
   }, []);
 
   const go = async () => {
-    if (!sel || same) return;
+    if (!sel || same || noProvider) return;
     setBusy(true);
     setError('');
     try {
       if (sameAgent) await onModel(modelNow);
       else {
         const own = picked[sel.id];
-        await onSwitch(sel.id, options.some((p) => p.id === chosen) || provOptions.some((p) => p.id === chosen) ? chosen : '', { brief, note: note.trim(), fresh: !!past && !goBack, model: own?.model, effort: own?.effort });
+        await onSwitch(sel.id, accountFor(sel, chosen, { profiles: options, providers: provOptions }, defaultProvider), { brief, note: note.trim(), fresh: !!past && !goBack, model: own?.model, effort: own?.effort });
       }
       onClose();
     } catch (err) {
@@ -398,8 +445,8 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" icon="restart" loading={busy} disabled={!sel || same} onClick={() => void go()}>
-            {sel ? (sameAgent ? `Restart with ${modelSummary(modelNow.model, modelNow.effort) || 'the default'}` : past && goBack ? `Back to ${sel.name}` : `Switch to ${sel.name}`) : 'Switch'}
+          <Button variant="primary" icon="restart" loading={busy} disabled={!sel || same || noProvider} onClick={() => void go()}>
+            {sel ? (sameAgent ? `Restart with ${modelSummary(modelNow.model, modelNow.effort) || 'the default'}` : past && goBack ? `Back to ${agentChoiceName(sel, choices)}` : `Switch to ${agentChoiceName(sel, choices)}`) : 'Switch'}
           </Button>
         </>
       }
@@ -410,19 +457,31 @@ export function SwitchAgentDialog({ session, initial, onClose, onSwitch, onModel
             <span className="spinner" aria-hidden="true" /> Loading agents…
           </div>
         ) : (
-          <AgentList agents={ma.agents} value={value} onChange={setValue} onActivate={() => void go()} machineName={machineName} label="Agent" />
+          <AgentList agents={foldEngines(choices, value)} value={value} onChange={setValue} onActivate={() => void go()} machineName={machineName} label="Agent" />
         )}
-        {options.length + provOptions.length > 0 && (
-          <div className="field">
-            <label className="field-label" htmlFor="switch-profile">
-              Login profile
-            </label>
-            <select id="switch-profile" className="control" value={chosen} onChange={(e) => setProfileId(e.target.value)}>
-              <AccountOptions profiles={options} defaultProfile={defaultId} providers={provOptions} />
-            </select>
-          </div>
+        {ma.ready && <EngineSwitch agents={choices} value={value} onChange={setValue} where={machineName} field />}
+        {ma.ready && hidden.length > 0 && (
+          <p className="setting-hint">
+            {chatConsole
+              ? 'A NextCode console stays NextCode: its chat cannot become a terminal. For another agent, start a new console.'
+              : `${hiddenNames.join(', ')} ${hiddenNames.length === 1 ? 'runs' : 'run'} in a chat console of ${hiddenNames.length === 1 ? 'its' : 'their'} own, not in a terminal: start one from Spawn.`}
+          </p>
         )}
-        {sel?.models && (
+        {noProvider ? (
+          <NeedsProviderHint />
+        ) : (
+          options.length + provOptions.length > 0 && (
+            <div className="field">
+              <label className="field-label" htmlFor="switch-profile">
+                {providersOnly ? 'API provider' : 'Login profile'}
+              </label>
+              <select id="switch-profile" className="control" value={chosen} onChange={(e) => setProfileId(e.target.value)}>
+                <AccountOptions profiles={options} defaultProfile={defaultId} providers={provOptions} providersOnly={providersOnly} defaultProvider={defaultProvider} />
+              </select>
+            </div>
+          )
+        )}
+        {sel && (sel.models || (isApiEngine(sel) && !noProvider)) && (
           <div className="field">
             <span className="field-label">Model and effort</span>
             <ModelPicker agent={sel} value={modelNow} onChange={(c) => setPicked((p) => ({ ...p, [sel.id]: c }))} profileId={chosen} />

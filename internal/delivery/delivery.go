@@ -142,6 +142,13 @@ type StateConsole interface {
 	State() session.DeliveryView
 }
 
+// ChatConsole is a NextCode console (docs/API-agents.md §30): a delivery goes to it as one
+// message, not typed on a screen; its view says Chat.
+type ChatConsole interface {
+	Console
+	SendMessage(text string) error
+}
+
 // stateOf is c's view for the checks that do not read the screen.
 func stateOf(c Console) session.DeliveryView {
 	if sc, ok := c.(StateConsole); ok {
@@ -585,6 +592,10 @@ func (e *Engine) gate(it *item, c Console, now time.Time) {
 		c.Wake() // text for it: it starts with its conversation
 	}
 	final, code, msg, reason := blocked(v, it.hadAgent, st, now, false)
+	if v.Chat && final == "" && reason == "" {
+		e.sendChat(it, c, v, now) // no screen, no prompt to recognise, nobody typing on it
+		return
+	}
 	guard := time.Duration(st.HumanTypingGuardSec) * time.Second
 	if final == "" && reason == "" && (v.LastHuman.IsZero() || now.Sub(v.LastHuman) >= guard) {
 		// only the screen can hold it back now: take it, and look at all of it again
@@ -598,6 +609,8 @@ func (e *Engine) gate(it *item, c Console, now time.Time) {
 	var why string
 	switch {
 	case reason != "":
+	case v.Chat: // it went to sendChat above
+		return
 	case !v.LastHuman.IsZero() && now.Sub(v.LastHuman) < guard:
 		reason = WaitHumanTyping
 	default:
@@ -675,6 +688,36 @@ func (e *Engine) gate(it *item, c Console, now time.Time) {
 			return true
 		})
 	}
+}
+
+// sendChat sends a delivery to a NextCode console as a message: it is sent at once, and
+// confirmed as a typed one is, when the agent's turn starts.
+func (e *Engine) sendChat(it *item, c Console, v session.DeliveryView, now time.Time) {
+	cc, ok := c.(ChatConsole)
+	if !ok {
+		e.fail(it, Failed, "not_agent", ErrNotAgent.Error())
+		return
+	}
+	if !it.d.Submit {
+		e.fail(it, Failed, "chat_needs_submit", "a NextCode console takes whole messages; send it with submit")
+		return
+	}
+	if !e.update(it, func(it *item) bool {
+		it.d.State, it.d.WaitReason, it.typedAt = Typing, "", now
+		return true
+	}) {
+		return // cancelled meanwhile
+	}
+	if err := cc.SendMessage(it.text); err != nil {
+		e.fail(it, Failed, "write_failed", err.Error())
+		return
+	}
+	e.update(it, func(it *item) bool {
+		t := now.UTC()
+		it.d.State, it.d.SentAt = Sent, &t
+		it.sentState, it.sentSince = v.AgentState, v.StateSince
+		return true
+	})
 }
 
 // submit presses Return after submitDelayMs, but only if the console still

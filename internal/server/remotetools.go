@@ -73,6 +73,17 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		}
 		return nil, nil
 	}
+	if a.Engine != "" {
+		if a.CapBase() == "codex" {
+			// NextCode on Codex takes nothing of the hub's: no MCP server, instructions or memory
+			// (§30); its permission modes are its approval policy and sandbox
+			if s.orch != nil {
+				s.orch.MemoryForgotten(sp.ID)
+			}
+			return nil, nil
+		}
+		return s.nextcodeContext(sp)
+	}
 	if s.hookURL == "" {
 		return nil, errors.New("the hook listener is not running yet")
 	}
@@ -217,6 +228,89 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 	return c, nil
 }
 
+// nextcodeContext is the launch context of a NextCode console (docs/API-agents.md §30). NextCode
+// is independent of NextBoard's other agents (owner, 2026-11-20): its own login folder and its
+// own memory, and none of the hub's memory, launch prompt or MCP tools. It keeps what makes it
+// work safely in the project: its folders, the commands that need approval, the project's
+// sandbox, and the owner's rule on commit attribution.
+func (s *Server) nextcodeContext(sp session.Spec) (*agent.LaunchContext, error) {
+	if s.orch != nil {
+		s.orch.MemoryForgotten(sp.ID) // the project's memory does not go in
+	}
+	c := &agent.LaunchContext{}
+	if sp.MachineID == machine.LocalID {
+		// Must exist: Claude Code refuses a folder that does not.
+		c.AttachDir = s.st.Path("attachments")
+		if err := os.MkdirAll(c.AttachDir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	var prompt strings.Builder
+	if sp.RemoteMachineID != "" {
+		// on a server (or a read-only part): the CLI runs on This PC in an empty folder of the
+		// hub's and works there through the hub's tools; the server's ones only (handleRemoteMCP)
+		if s.hookURL == "" {
+			return nil, errors.New("the hook listener is not running yet")
+		}
+		host, ok := s.machines.Host(sp.RemoteMachineID)
+		if !ok {
+			return nil, machine.ErrNotFound
+		}
+		c.Remote, c.WorkDir = true, sp.Cwd
+		c.MCPURL = strings.TrimSuffix(s.hookURL, "/nb/hook") + "/nb/mcp/" + sp.ID
+		docs := []string{"CLAUDE.md", "AGENTS.md"}
+		extras := s.remoteExtras(host, sp.RemoteCwd, sp.Cwd, docs, "claude")
+		c.Commands = extras.commands
+		name := host.Info().Name
+		if sp.RemoteMachineID == machine.LocalID {
+			name = "" // a read-only part on This PC, reached the same way
+		}
+		prompt.WriteString(remotePrompt(name, sp.RemoteCwd, s.remoteProjectRules(host, sp.RemoteCwd, docs), false, extras))
+		prompt.WriteString("Your local Read, Write and Edit tools see only an empty folder on this computer. Never use them for project files.\n")
+	}
+	if sp.Root {
+		pr, ok := s.projects.Get(sp.ProjectID)
+		if !ok {
+			return nil, project.ErrNotFound
+		}
+		c.WorkDir, c.TrustDir, c.AddDirs = sp.Cwd, sp.Cwd, rootAddDirs(pr)
+	}
+	if s.orch != nil {
+		c.Blocked = s.blockedIn(sp.ProjectID, sp.PartID)
+		if sp.Root {
+			c.Blocked = s.rootBlocked(sp.ProjectID)
+		}
+	}
+	if sp.MachineID == machine.LocalID && !c.Remote {
+		if pr, ok := s.projects.Get(sp.ProjectID); ok && pr.Sandbox != "" {
+			c.Sandbox = &agent.Sandbox{Network: pr.Sandbox != project.SandboxOffline, Write: sandboxWrites()}
+			rule := sandboxRule(c.Sandbox.Network)
+			if sp.Root {
+				for _, d := range c.AddDirs {
+					if !slices.Contains(c.Sandbox.Write, d) {
+						c.Sandbox.Write = append(c.Sandbox.Write, d)
+					}
+				}
+				rule = rootSandboxRule(c.Sandbox.Network)
+			}
+			prompt.WriteString(rule + "\n")
+		}
+	}
+	if !s.settings.View().Agents.CoAuthor {
+		prompt.WriteString(agent.NoCoAuthorRule + "\n")
+	}
+	if c.Prompt = prompt.String(); c.Prompt != "" {
+		c.PromptFile = s.st.Path("agents", "prompts", sp.ID+".md")
+		if err := os.MkdirAll(filepath.Dir(c.PromptFile), 0o700); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(c.PromptFile, []byte(c.Prompt), 0o600); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
 // remoteProjectRules reads the first project instructions file on the server,
 // "" when there is none.
 func (s *Server) remoteProjectRules(host machine.Host, cwd string, names []string) string {
@@ -343,6 +437,10 @@ func (s *Server) handleRemoteMCP(w http.ResponseWriter, r *http.Request) {
 	sp := sess.Spec()
 	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true, sessionID: sp.ID, workspaceID: sp.WorkspaceID,
 		credentials: sp.ProjectID != "" && s.credVault != nil && s.credVault.HasAgentEntries(sp.ProjectID)}
+	if sess.IsNextCode() {
+		// independent of NextBoard's agents (docs/API-agents.md §30): the server's tools only
+		t.memory, t.credentials = false, false
+	}
 	s.withParts(&t, sp)
 	if len(t.tools()) == 0 {
 		http.Error(w, "this console does not use hub tools", http.StatusNotFound)
@@ -425,6 +523,9 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 		}
 		if json.Unmarshal(req.Params, &p) != nil {
 			return nil, map[string]any{"code": -32602, "message": "invalid params"}
+		}
+		if !t.memory && (strings.HasPrefix(p.Name, "memory_") || strings.HasPrefix(p.Name, "credential_") || missionTools[p.Name] || p.Name == "board_diagram") {
+			return remoteAnswer("this console does not have the tool "+p.Name, true), nil
 		}
 		if strings.HasPrefix(p.Name, "memory_") {
 			text, err := s.runMemoryTool(t, p.Name, p.Arguments)

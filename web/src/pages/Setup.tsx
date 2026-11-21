@@ -239,7 +239,9 @@ function StepAccount({ status, onNext }: { status: SetupStatus | null; onNext: (
   );
 }
 
-const AGENT_NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
+const AGENT_NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', nextcode: 'NextCode', 'nextcode-codex': 'NextCode · Codex' };
+/** The CLI whose own login a NextCode profile signs in with (it has no terminal). */
+const SIGN_IN_CLI: Record<string, string> = { nextcode: 'claude', 'nextcode-codex': 'codex' };
 const agentName = (id: string) => AGENT_NAMES[id] ?? id;
 
 function StepSignIn({ onNext }: { onNext: () => void }) {
@@ -359,7 +361,15 @@ function StepSignIn({ onNext }: { onNext: () => void }) {
         Continue
       </Button>
       <Suspense fallback={null}>
-        {signing && <ProfileSignInDialog profile={signing} agentName={agentName(signing.agent)} onClose={() => setSigning(null)} />}
+        {signing && (
+          <ProfileSignInDialog
+            profile={signing}
+            agentName={agentName(signing.agent)}
+            // NextCode signs in through its engine's own login (Claude Code's or Codex's)
+            cliName={SIGN_IN_CLI[signing.agent] ? agentName(SIGN_IN_CLI[signing.agent]) : undefined}
+            onClose={() => setSigning(null)}
+          />
+        )}
         {adding && <ProviderDialog provider={null} onSaved={setProvider} onClose={() => setAdding(false)} />}
       </Suspense>
     </div>

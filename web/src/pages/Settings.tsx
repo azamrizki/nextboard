@@ -14,6 +14,7 @@ import { AppearancePane } from '../settings/AppearancePane';
 import { AppPane } from '../settings/AppPane';
 import { GeneralPane } from '../settings/GeneralPane';
 import { McpPane } from '../settings/McpPane';
+import { NextCodePane } from '../settings/NextCodePane';
 import { NotificationsPane } from '../settings/NotificationsPane';
 import { ProfilesPane } from '../settings/ProfilesPane';
 import { ProvidersPane } from '../settings/ProvidersPane';
@@ -29,6 +30,7 @@ import { pageTitle } from '../lib/instance';
 const PANES: { id: string; label: string; icon: IconName; hint: string }[] = [
   { id: 'general', label: 'General', icon: 'sliders', hint: 'Where projects open' },
   { id: 'agents', label: 'Agents', icon: 'bot', hint: 'Catalog, defaults, your agents' },
+  { id: 'nextcode', label: 'NextCode', icon: 'message', hint: 'Its engines, own logins, models and permissions' },
   { id: 'lead', label: 'Lead agent', icon: 'orchestrator', hint: 'Its name, how it talks and leads' },
   { id: 'profiles', label: 'Login profiles', icon: 'user', hint: 'Several accounts per CLI' },
   { id: 'providers', label: 'API providers', icon: 'plug', hint: 'Other models through an API' },
@@ -110,6 +112,7 @@ export function SettingsPage({ pane }: { pane: string }) {
             )}
             {current.id === 'general' && <GeneralPane />}
             {current.id === 'agents' && <AgentsPane />}
+            {current.id === 'nextcode' && <NextCodePane />}
             {current.id === 'profiles' && <ProfilesPane />}
             {current.id === 'providers' && <ProvidersPane />}
             {current.id === 'mcp' && <McpPane />}

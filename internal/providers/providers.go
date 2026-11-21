@@ -1,6 +1,6 @@
 // Package providers keeps the API providers (docs/API-agents.md §10.2): an Anthropic- or
-// OpenAI-compatible endpoint, its key and its models, which a console of Claude Code, Codex or
-// OpenCode can run against instead of a subscription login. The key is sealed with the hub's
+// OpenAI-compatible endpoint, its key and its models, which a console of Claude Code, Codex,
+// OpenCode or NextCode can run against instead of a subscription login. The key is sealed with the hub's
 // master key, like an SSH credential; it never goes to a client, into the settings document, a
 // command line or a log, only into the environment of a process that uses it.
 package providers
@@ -417,14 +417,15 @@ func cmpOr(a, b string) string {
 }
 
 // Agents a provider can run, by the CLI they are built on: Claude Code speaks Anthropic's
-// Messages API, Codex only OpenAI's Responses API, OpenCode both styles of both.
+// Messages API, Codex only OpenAI's Responses API, OpenCode both styles of both, and NextCode's
+// own agent ("nextcode-api") every one of them.
 func Compatible(base string, p Provider) bool {
 	switch base {
 	case "claude":
 		return p.Kind == KindAnthropic
 	case "codex":
 		return p.Kind == KindOpenAI && p.API == APIResponses
-	case "opencode":
+	case "opencode", "nextcode-api":
 		return true
 	}
 	return false

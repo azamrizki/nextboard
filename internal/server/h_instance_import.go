@@ -351,7 +351,7 @@ func (s *Server) machineIDs() map[string]bool {
 //   - agents.profiles stays this instance's own: a login profile belongs to one instance;
 //   - previews.portRange stays this instance's own: each instance has its block of ports;
 //   - runner.provider, lead.runner and lead.providers follow the copied providers, or go back to
-//     the login when theirs was not copied;
+//     the login when theirs was not copied; nextcode.provider follows them too, or is none;
 //   - per-machine choices (agents.defaults, agents.paths) of a machine this instance does not
 //     have are dropped.
 func remapImportedSettings(src, dst settings.Settings, providers map[string]string, machines map[string]bool) (settings.Settings, []string) {
@@ -370,6 +370,12 @@ func remapImportedSettings(src, dst settings.Settings, providers map[string]stri
 		return ""
 	}
 	next.Runner.Provider = mapProv(src.Runner.Provider, "background runs (runner.provider)")
+	if id := src.NextCode.Provider; id != "" {
+		// NextCode's own engine has no login to go back to
+		if next.NextCode.Provider = providers[id]; next.NextCode.Provider == "" {
+			notes = append(notes, "NextCode's own engine (nextcode.provider) used an API provider that was not copied; pick one in Settings › NextCode")
+		}
+	}
 	if strings.HasPrefix(src.Lead.Runner, "ap_") {
 		next.Lead.Runner = mapProv(src.Lead.Runner, "the lead (lead.runner)")
 	}

@@ -805,6 +805,11 @@ export interface Agent {
   available?: boolean;
   /** Turned off in Settings › Agents (settings.agents.disabled). */
   disabled?: boolean;
+  /**
+   * A NextCode agent (docs/API-agents.md §30): the hub drives this engine's CLI headless
+   * ("claude"), and its console is a chat instead of a terminal. Unset for terminal agents.
+   */
+  engine?: string;
 }
 
 export interface MachineAgents {
@@ -1010,8 +1015,18 @@ export interface Settings {
   git?: { commitWithRunner: boolean };
   /** Choices of the web app every browser follows (docs/API-agents.md §11). */
   ui?: { openProjectsIn: OpenProjectsIn };
+  /**
+   * How NextCode consoles start (docs/API-agents.md §30). Its login is its own profile
+   * (agents.profiles.<machine>.nextcode) and its model and effort agents.models.nextcode.
+   * `provider`: the API provider (ap_…) a console of its API engine ("nextcode-api") runs on
+   * when none is picked; empty or absent = none.
+   */
+  nextcode?: { permissionMode: NextCodePermissionMode; idleExitMin: number; provider?: string };
   [key: string]: unknown;
 }
+
+/** The mode a NextCode console asks for permission in: default asks before edits and commands. */
+export type NextCodePermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions';
 
 /** Where opening a project goes: "" asks each time, else that view. */
 export type OpenProjectsIn = '' | 'board' | 'code';

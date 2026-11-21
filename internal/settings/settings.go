@@ -181,6 +181,25 @@ type UI struct {
 	OpenProjectsIn string `json:"openProjectsIn"`
 }
 
+// NextCode is NextCode's own section (docs/API-agents.md §30): how its consoles start. Its login
+// is its own profile (agents.profiles.<machine>.nextcode) and its model and effort the agent's
+// own defaults (agents.models.nextcode); none of it is shared with Claude Code's.
+type NextCode struct {
+	// PermissionMode is the mode a new NextCode console starts in (NextCodeModes).
+	PermissionMode string `json:"permissionMode"`
+	// IdleExitMin: an idle NextCode CLI ends after this many minutes (1–1440); the next message
+	// starts it again on the same conversation.
+	IdleExitMin int `json:"idleExitMin"`
+	// Provider is the API provider a new console of NextCode's own engine (agent nextcode-api)
+	// runs on when none is picked; that engine has no login (docs/API-agents.md §30). "" = none.
+	Provider string `json:"provider,omitempty"`
+}
+
+// NextCodeModes are the values nextcode.permissionMode may take: "default" asks before anything
+// not allowed, "acceptEdits" lets edits go ahead, "plan" plans first, "auto" lets Claude Code's
+// classifier decide, "bypassPermissions" asks nothing.
+var NextCodeModes = map[string]bool{"default": true, "acceptEdits": true, "plan": true, "auto": true, "bypassPermissions": true}
+
 // OpenProjectsIn are the values ui.openProjectsIn may take.
 var OpenProjectsIn = map[string]bool{"": true, "board": true, "code": true}
 
@@ -200,6 +219,7 @@ type Settings struct {
 	Usage         Usage         `json:"usage"`
 	Editor        Editor        `json:"editor"`
 	UI            UI            `json:"ui"`
+	NextCode      NextCode      `json:"nextcode"`
 }
 
 // Defaults returns the document with every default.
@@ -234,6 +254,7 @@ func Defaults() Settings {
 		Git:      defaultGit(),
 		Usage:    defaultUsage(),
 		Editor:   Editor{OnSave: []OnSaveRule{}},
+		NextCode: NextCode{PermissionMode: "default", IdleExitMin: 30},
 	}
 }
 
@@ -331,7 +352,7 @@ const maxOnSaveRules = 50
 
 var topLevel = map[string]bool{"schemaVersion": true, "lead": true, "agents": true, "notifications": true, "shortcuts": true, "runner": true,
 	"delivery": true, "commands": true, "memory": true, "previews": true, "git": true, "usage": true, "editor": true,
-	"ui": true}
+	"ui": true, "nextcode": true}
 
 // Patch applies a JSON Merge Patch and returns the full new document.
 func (s *Store) Patch(patch []byte) (Settings, error) {
@@ -407,6 +428,15 @@ var (
 var ErrBadShortcut = errors.New("invalid shortcut")
 
 func validate(s *Settings) error {
+	if !NextCodeModes[s.NextCode.PermissionMode] {
+		return badSetting("nextcode.permissionMode: default, acceptEdits, plan, auto or bypassPermissions")
+	}
+	if n := s.NextCode.IdleExitMin; n < 1 || n > 1440 {
+		return badSetting("nextcode.idleExitMin: 1 to 1440 minutes")
+	}
+	if s.NextCode.Provider != "" && !providerRe.MatchString(s.NextCode.Provider) {
+		return badSetting("nextcode.provider must be the id of an API provider")
+	}
 	s.Lead.Name = strings.TrimSpace(s.Lead.Name)
 	if n := len([]rune(s.Lead.Name)); n < 1 || n > 24 || strings.ContainsAny(s.Lead.Name, "\r\n") {
 		return badSetting("lead.name: 1 to 24 characters on one line")

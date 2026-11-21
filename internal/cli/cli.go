@@ -21,6 +21,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/config"
 	"github.com/azamrizki/nextboard/internal/connlog"
 	"github.com/azamrizki/nextboard/internal/instance"
+	"github.com/azamrizki/nextboard/internal/nextcode/native"
 	"github.com/azamrizki/nextboard/internal/nodedap"
 	"github.com/azamrizki/nextboard/internal/server"
 	"github.com/azamrizki/nextboard/internal/store"
@@ -68,6 +69,10 @@ func Main(args []string) int {
 	case "dap-node":
 		// started by the hub for a debug session (docs/API-studio.md §7.5)
 		err = nodedap.Serve(os.Stdin, os.Stdout)
+	case "nextcode-agent":
+		// started by the hub for a console of NextCode's own engine (docs/API-agents.md §30);
+		// not in the help, like dap-node
+		return native.Main(rest)
 	case "install":
 		err = cmdInstall(rest)
 	case "uninstall":

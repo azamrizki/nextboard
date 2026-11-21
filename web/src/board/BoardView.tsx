@@ -34,7 +34,7 @@ import {
 } from '@xyflow/react';
 import { AgentFlyout, AllAgentsDialog } from '../agents/AgentPicker';
 import { SpawnPanel } from './SpawnPanel';
-import { byPriority } from '../agents/catalog';
+import { byPriority, isChatAgent } from '../agents/catalog';
 import { setArmed } from '../agents/catalog';
 import { jumpToNextNeedsYou, registerBoardFocus } from '../agents/jump';
 import { currentShortcuts, useShortcuts } from '../agents/settings';
@@ -1511,7 +1511,9 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
               void spawnAt(
                 a.id === nt.agentId
                   ? onProvider({ ...nt.choice(), profileId: undefined, providerId: undefined, ...splitAccount(account) })
-                  : { ...nt.choice(), preset: a.id, yolo: undefined, profileId: undefined, model: undefined, effort: undefined },
+                  : // NextCode asks in its own permission mode, never in the hub's Yolo default; the armed
+                    // agent's account is not this one's (its API engine gets the provider the panel gives)
+                    { ...nt.choice(), preset: a.id, yolo: isChatAgent(a) ? false : undefined, profileId: undefined, providerId: undefined, ...splitAccount(account), model: undefined, effort: undefined },
                 at,
               );
             }}

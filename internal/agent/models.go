@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -20,11 +21,15 @@ var modelFlags = map[string]struct {
 	model  string
 	effort string // "" = no such thing; a value with = goes after it, as one word
 }{
-	"claude":   {model: "--model", effort: "--effort"},
-	"codex":    {model: "-m", effort: "-c model_reasoning_effort="},
-	"gemini":   {model: "-m"},
-	"opencode": {model: "-m"},
+	"claude":       {model: "--model", effort: "--effort"},
+	"codex":        {model: "-m", effort: "-c model_reasoning_effort="},
+	"gemini":       {model: "-m"},
+	"opencode":     {model: "-m"},
+	"nextcode-api": {model: "--model", effort: "--effort"},
 }
+
+// nextcodeEfforts are the efforts NextCode's own agent takes; each wire maps them to its own.
+var nextcodeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 var (
 	modelRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,127}$`)
@@ -36,6 +41,15 @@ func ValidModel(m string) bool { return m == "" || modelRe.MatchString(m) }
 
 // ValidEffort reports whether e can be passed to a CLI ("" = the CLI's own choice).
 func ValidEffort(e string) bool { return e == "" || effortRe.MatchString(e) }
+
+// ValidEffortFor reports whether a launch of a can be told effort e: NextCode's own agent takes
+// only its own efforts and refuses to start on another.
+func ValidEffortFor(a Agent, e string) bool {
+	if a.CapBase() == "nextcode-api" && e != "" {
+		return slices.Contains(nextcodeEfforts, e)
+	}
+	return ValidEffort(e)
+}
 
 // HasModels reports whether a launch of this agent can name a model.
 func (a Agent) HasModels() bool {
@@ -103,6 +117,10 @@ func ListModels(ctx context.Context, a Agent, command, configDir string) ModelLi
 		return claudeModels(configDir)
 	case "codex":
 		return codexModels(ctx, command, configDir)
+	case "nextcode-api":
+		// its models are its provider's (GET /api/providers), its efforts its own
+		out.Efforts = append(out.Efforts, nextcodeEfforts...)
+		return out
 	case "opencode":
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()

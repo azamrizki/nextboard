@@ -242,6 +242,7 @@ func (s *Server) routes() {
 
 	s.orchRoutes(authed)
 	s.chatRoutes(authed)
+	s.nextcodeRoutes(authed)
 	s.routesMCP(authed, admin)
 	s.routesGitPreview(authed)
 	s.routesReview(authed)

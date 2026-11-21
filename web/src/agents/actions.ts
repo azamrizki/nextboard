@@ -4,11 +4,23 @@
 import { api, ApiError, errorMessage, isCode, type RestartBody } from '../api';
 import { toast } from '../components/Toast';
 import type { LaunchMode, Session } from '../lib/types';
+import { NEEDS_PROVIDER } from '../nextcode/engines';
 import { machineNameOf, store } from '../store';
 
 export type LaunchResult = 'ok' | 'wrap_missing' | 'failed';
 
 const who = (s: Session) => (s.handle ? `@${s.handle}` : `“${s.name}”`);
+
+/** The hub's 409 nextcode_switch, readably (docs/API-agents.md §30). */
+export const NEXTCODE_SWITCH = 'A NextCode console and a terminal console cannot become one another. Start a new console for the other agent instead.';
+
+/** Why a restart or a launch was refused, for the codes the hub explains better than its text. */
+function reasonOf(err: unknown): string {
+  if (isCode(err, 'nextcode_switch')) return NEXTCODE_SWITCH;
+  if (isCode(err, 'nextcode_this_pc_only')) return 'NextCode runs on This PC only for now.';
+  if (isCode(err, 'nextcode_needs_provider')) return NEEDS_PROVIDER;
+  return errorMessage(err);
+}
 
 /** Exact resume needs an agent session id; otherwise fall back to "latest in folder". */
 export function resumeMode(s: Session): { mode: Exclude<LaunchMode, 'shell'>; agentSessionId?: string } {
@@ -42,7 +54,7 @@ export async function restartConsole(s: Session, body: RestartBody, label = 'Res
     store.upsertSession(await api.restartSession(s.id, body));
     return true;
   } catch (err) {
-    toast.error(`${label} failed for ${who(s)}: ${errorMessage(err)}`);
+    toast.error(`${label} failed for ${who(s)}: ${reasonOf(err)}`);
     return false;
   }
 }
@@ -60,5 +72,5 @@ export function launchError(s: Session, err: unknown): string {
         return `${machineNameOf(s)} is offline. Reconnect it from Machines, then try again.`;
     }
   }
-  return `Could not start the agent in ${who(s)}: ${errorMessage(err)}`;
+  return `Could not start the agent in ${who(s)}: ${reasonOf(err)}`;
 }

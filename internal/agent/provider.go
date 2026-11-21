@@ -148,8 +148,19 @@ func ProviderModel(a Agent, p *ProviderLaunch, chosen string) string {
 
 // providerArgs are the CLI's flags for a provider, on top of its own.
 func providerArgs(a Agent, p *ProviderLaunch) []string {
-	if a.CapBase() == "codex" {
+	switch a.CapBase() {
+	case "codex":
 		return append([]string{"-c", `model_provider="` + codexProviderID + `"`, "-c", "$NB_CODEX_PROVIDER"}, codexKeepKey...)
+	case "nextcode-api":
+		// NextCode's own agent calls the provider itself: where and how, the key stays in the env
+		args := []string{"--provider-kind", p.Kind, "--base-url", p.BaseURL}
+		if p.Kind == "openai" && p.API != "" {
+			args = append(args, "--api", p.API)
+		}
+		if p.Kind == "anthropic" && p.Auth != "" {
+			args = append(args, "--auth", p.Auth)
+		}
+		return args
 	}
 	return nil
 }
@@ -199,6 +210,9 @@ func providerEnv(a Agent, p *ProviderLaunch, model string) []string {
 		return []string{"NB_PROVIDER_KEY=" + key, "NB_CODEX_PROVIDER=" + table}
 	case "opencode":
 		return []string{"NB_PROVIDER_KEY=" + key}
+	case "nextcode-api":
+		// its own client sends no key when the provider has none, so no stand-in
+		return []string{"NB_PROVIDER_KEY=" + p.Key}
 	}
 	return nil
 }

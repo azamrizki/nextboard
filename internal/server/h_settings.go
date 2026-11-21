@@ -104,7 +104,7 @@ func (s *Server) handleProfileCreate(w http.ResponseWriter, r *http.Request, p *
 		return
 	}
 	a, ok := s.agents.Get(req.Agent)
-	if !ok || a.ProfileEnv == "" {
+	if !ok || !a.TakesProfiles() {
 		writeErrCode(w, http.StatusBadRequest, "profile_unsupported", "this agent does not support login profiles")
 		return
 	}
@@ -229,9 +229,16 @@ func (s *Server) handleProfileSignIn(w http.ResponseWriter, r *http.Request, p *
 		return
 	}
 	a, ok := s.agents.Get(pf.Agent)
-	if !ok || a.ProfileEnv == "" {
+	if !ok || !a.TakesProfiles() {
 		writeErrCode(w, http.StatusBadRequest, "profile_unsupported", "this agent does not support login profiles")
 		return
+	}
+	if a.Engine != "" {
+		// NextCode has no terminal: its profile signs in in Claude Code's own (§30)
+		if a, ok = s.agents.Get(a.Base); !ok {
+			writeErrCode(w, http.StatusBadRequest, "profile_unsupported", "this agent does not support login profiles")
+			return
+		}
 	}
 	dir := s.st.Path("agents", "signin")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

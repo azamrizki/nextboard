@@ -11,6 +11,7 @@ import { toast } from '../components/Toast';
 import { errorMessage } from '../api';
 import { copyText } from '../lib/clipboard';
 import { applyMods, keySequence, liveConsole, toggleMod, useMods, type KeyName } from './consoleKeys';
+import { useIsNextCode } from '../nextcode/detect';
 
 const keep = (e: SyntheticEvent) => e.preventDefault();
 
@@ -65,6 +66,13 @@ export function CopyText({ sessionId, name, onClose }: { sessionId: string; name
 }
 
 export function KeyBar({ sessionId, name }: { sessionId: string; name: string }) {
+  // a NextCode console has no terminal to send keys to: its chat has its own composer
+  const nextcode = useIsNextCode(sessionId);
+  if (nextcode) return null;
+  return <ConsoleKeyBar sessionId={sessionId} name={name} />;
+}
+
+function ConsoleKeyBar({ sessionId, name }: { sessionId: string; name: string }) {
   const mods = useMods();
   const [copying, setCopying] = useState(false);
   const file = useRef<HTMLInputElement>(null);

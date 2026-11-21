@@ -16,13 +16,16 @@ import { Icon } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { toast } from '../../components/Toast';
 import type { Agent, Project } from '../../lib/types';
+import { agentChoiceName, isApiEngine, NEEDS_PROVIDER, PROVIDERS_PATH } from '../../nextcode/engines';
+import { Link } from '../../lib/router';
+import { nextcodeProvider } from '../../settings/nextcodeSettings';
 import { ApiError } from '../../api';
 import { FOCUS_PARAM } from '../../board/focus';
 import { projectParts } from '../../lib/parts';
 import { defaultPlacement, focusedPlacement, isMultiPart, lastPlacement, machineOfPlace, placeFromValue, placeValue, ROOT_VALUE } from '../../lib/placement';
 import { store, useMachines, useProfiles } from '../../store';
 import { deployPlaces, initialPlaces, unplaced, type LayoutPlaces } from '../layoutPlace';
-import { AccountOptions, splitAccount } from '../../providers/AccountOptions';
+import { AccountOptions, accountFor, splitAccount } from '../../providers/AccountOptions';
 import { compatible, useProviders } from '../../providers/providers';
 import { orchApi } from '../api';
 import { is404, useOrch } from '../store';
@@ -497,7 +500,10 @@ function LaneInspector({
       return next;
     });
 
-  const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? ma.agents.find((a) => a.id === id)?.name ?? id;
+  const nameOf = (id: string) => {
+    const a = agents.find((x) => x.id === id) ?? ma.agents.find((x) => x.id === id);
+    return a ? agentChoiceName(a, ma.agents) : id;
+  };
   const defaultFor = (role?: string, laneAgent?: string) => {
     if (fill) return fill;
     if (laneAgent) return laneAgent;
@@ -506,6 +512,12 @@ function LaneInspector({
   };
   // another agent may not run on the provider picked for the old one
   const setLane = (key: string, patch: LaneOverride) => setOver((o) => ({ ...o, [key]: { ...o[key], ...(patch.agent !== undefined ? { providerId: undefined } : {}), ...patch } }));
+  const defaultProvider = nextcodeProvider(settings);
+  /** NextCode's API engine runs on an API provider only: the lane's, else Settings › NextCode's, else the first. */
+  const apiLaneProvider = (agentId: string, o: LaneOverride) => {
+    const a = ma.agents.find((x) => x.id === agentId);
+    return isApiEngine(a) ? accountFor(a, o.providerId ?? '', { profiles: [], providers }, defaultProvider) || null : undefined;
+  };
   /** Click cycles through the installed agents (right-click / select picks any). */
   const cycle = (key: string, current: string) => {
     const list = agents.filter((a) => a.kind === 'agent');
@@ -520,6 +532,14 @@ function LaneInspector({
       document.querySelector<HTMLElement>('.lane-insp [aria-invalid="true"]')?.focus();
       return;
     }
+    // a lane on the API engine needs a provider to run on
+    const apiLanes = lanes
+      .map((l) => ({ key: l.key, provider: apiLaneProvider((over[l.key] ?? {}).agent || defaultFor(l.role, l.agent), over[l.key] ?? {}) }))
+      .filter((l) => l.provider !== undefined);
+    if (apiLanes.some((l) => l.provider === null)) {
+      toast.error(NEEDS_PROVIDER);
+      return;
+    }
     onDeploying(true);
     try {
       const overrides: Record<string, LaneOverride> = {};
@@ -531,6 +551,7 @@ function LaneInspector({
         if (v.providerId) clean.providerId = v.providerId;
         if (Object.keys(clean).length) overrides[k] = clean;
       }
+      for (const l of apiLanes) if (l.provider) overrides[l.key] = { ...overrides[l.key], profileId: undefined, providerId: l.provider };
       // no "at": the hub lays the team out right of the board's content
       const r = await orchApi.deploy(ctl.workspaceId, {
         layoutId: layout.id,
@@ -579,7 +600,7 @@ function LaneInspector({
   const agentOptions = (a: Agent[]) =>
     a.map((x) => (
       <option key={x.id} value={x.id}>
-        {x.name}
+        {agentChoiceName(x, ma.agents)}
       </option>
     ));
 
@@ -735,6 +756,7 @@ function LaneInspector({
           const effAgent = ma.agents.find((a) => a.id === eff);
           const provs = providers.filter((p) => compatible(effAgent, p));
           const defaultId = defaultProfileOf(settings, mid, eff);
+          const apiProvider = apiLaneProvider(eff, o);
           return (
             <li key={l.key} className="lane-row">
               <div className="lane-label">
@@ -781,15 +803,25 @@ function LaneInspector({
                   ))}
                 </select>
               )}
-              {profs.length + provs.length > 0 && (
-                <select
-                  className="control control-sm lane-select"
-                  aria-label={`Login profile for lane ${l.key}`}
-                  value={o.providerId ?? o.profileId ?? ''}
-                  onChange={(e) => setLane(l.key, { profileId: undefined, providerId: undefined, ...splitAccount(e.target.value) })}
-                >
-                  <AccountOptions profiles={profs} defaultProfile={defaultId} providers={provs} />
+              {apiProvider === null ? (
+                <Link className="fs-xs lane-select" to={PROVIDERS_PATH} title={NEEDS_PROVIDER}>
+                  Add an API provider
+                </Link>
+              ) : apiProvider ? (
+                <select className="control control-sm lane-select" aria-label={`API provider for lane ${l.key}`} value={apiProvider} onChange={(e) => setLane(l.key, { profileId: undefined, providerId: e.target.value })}>
+                  <AccountOptions profiles={[]} defaultProfile="" providers={provs} providersOnly defaultProvider={defaultProvider} />
                 </select>
+              ) : (
+                profs.length + provs.length > 0 && (
+                  <select
+                    className="control control-sm lane-select"
+                    aria-label={`Login profile for lane ${l.key}`}
+                    value={o.providerId ?? o.profileId ?? ''}
+                    onChange={(e) => setLane(l.key, { profileId: undefined, providerId: undefined, ...splitAccount(e.target.value) })}
+                  >
+                    <AccountOptions profiles={profs} defaultProfile={defaultId} providers={provs} />
+                  </select>
+                )
               )}
             </li>
           );

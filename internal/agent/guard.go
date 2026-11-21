@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,6 +86,27 @@ func WriteCodexRules(codexHome string, patterns []string) error {
 		return err
 	}
 	return os.WriteFile(file, []byte(rules), 0o600)
+}
+
+// nextcodeGuard is NB_NEXTCODE_GUARD: what NextCode's own agent enforces itself, the commands
+// that ask the owner first and the project's sandbox. "" when there is neither.
+func nextcodeGuard(blocked []string, sb *Sandbox) string {
+	if len(blocked) == 0 && sb == nil {
+		return ""
+	}
+	type sandbox struct {
+		Network bool     `json:"network"`
+		Write   []string `json:"write"`
+	}
+	g := struct {
+		Blocked []string `json:"blocked"`
+		Sandbox *sandbox `json:"sandbox,omitempty"`
+	}{Blocked: append([]string{}, blocked...)}
+	if sb != nil {
+		g.Sandbox = &sandbox{Network: sb.Network, Write: append([]string{}, sb.Write...)}
+	}
+	b, _ := json.Marshal(g)
+	return string(b)
 }
 
 var (

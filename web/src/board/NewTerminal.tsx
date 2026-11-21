@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type RefObject } from 'react';
 import { errorMessage } from '../api';
-import { byPriority, hasYolo, setArmed, supportsProfiles, useArmed, useMachineAgents } from '../agents/catalog';
+import { agentProfiles, agentTagline, byPriority, hasYolo, isChatAgent, setArmed, useArmed, useMachineAgents } from '../agents/catalog';
 import { ModelPicker } from '../agents/ModelPicker';
 import { defaultChoice } from '../agents/models';
 import { useEffectiveSettings } from '../agents/settings';
@@ -22,8 +22,11 @@ import { isRoot, partNamesOn, partOn, type Placement } from '../lib/parts';
 import { defaultPlacement, isMultiPart, lastPlacement, machineOfPlace, partOfPlace, placeFromValue, placeShort, placeValue, rememberPlacement, ROOT_VALUE } from '../lib/placement';
 import type { Agent, Machine, Project, ModelChoice } from '../lib/types';
 import { useMediaQuery } from '../lib/useMediaQuery';
+import { agentChoiceName, foldEngines, isApiEngine } from '../nextcode/engines';
+import { EngineSwitch } from '../nextcode/EngineSwitch';
+import { nextcodeProvider } from '../settings/nextcodeSettings';
 import { useMachines, useProfiles } from '../store';
-import { AccountOptions, isProviderId } from '../providers/AccountOptions';
+import { AccountOptions, accountFor, isProviderId, NeedsProviderHint, needsProvider } from '../providers/AccountOptions';
 import { compatible, useProviders } from '../providers/providers';
 import { OTHER_VALUE, PlacePicker } from './PlacePicker';
 import { machineReady, machineStatus } from './sessionStatus';
@@ -54,15 +57,21 @@ export interface TerminalChoice {
   effort?: string;
 }
 
-/** Model and effort of the armed agent, in the forms. */
+/** Model and effort of the armed agent, in the forms (on an API provider: the provider's models). */
 function ModelField({ nt }: { nt: ReturnType<typeof useNewTerminal> }) {
-  if (!nt.agent?.models) return null;
+  if (!nt.agent || (!nt.agent.models && !nt.providerId)) return null;
   return (
     <div className="field">
       <span className="field-label">Model and effort</span>
       <ModelPicker agent={nt.agent} value={nt.modelChoice} onChange={nt.setModelChoice} profileId={nt.profileId} />
     </div>
   );
+}
+
+/** What the agent field says about the agent: NextCode's line, else the command it runs. */
+function agentHint(a: Agent | undefined): string | undefined {
+  if (!a) return undefined;
+  return agentTagline(a) || `Runs ${a.command}`;
 }
 
 /** Pick the agent to show: armed (if installed here), else the machine's default. */
@@ -121,12 +130,18 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
 
   const agent = resolveAgent(ma.agents, armed, ma.defaultAgent);
   const agentId = agent?.id ?? '';
+  // NextCode has permission modes (Settings › NextCode) instead of Yolo
   const yoloable = hasYolo(agent);
   const yolo = yoloable ? (yoloChoice ?? settings.agents.yoloDefault) : false;
-  const profileOptions = agent && supportsProfiles(agent) ? profiles.filter((p) => p.machineId === machineId && p.agent === agent.id) : [];
+  // its own logins only: NextCode never gets Claude Code's, nor Claude Code NextCode's
+  const profileOptions = agentProfiles(profiles, machineId, agent);
   // agents run on This PC, whatever machine they work on, so any provider that can run this one
   const providerOptions = agent ? providers.filter((p) => compatible(agent, p)) : [];
-  const account = profileOptions.some((p) => p.id === profileId) || providerOptions.some((p) => p.id === profileId) ? profileId : '';
+  // NextCode's API engine has no login: a provider always, Settings › NextCode's default first
+  const providersOnly = isApiEngine(agent);
+  const defaultProvider = nextcodeProvider(settings);
+  const account = accountFor(agent, profileId, { profiles: profileOptions, providers: providerOptions }, defaultProvider);
+  const noProvider = needsProvider(agent, providerOptions);
   const defaultProfile = settings.agents.profiles?.[machineId]?.[agentId] ?? '';
   const modelDefault = defaultChoice(settings, undefined, agentId);
   const modelChoice = modelChoices[agentId] ?? modelDefault;
@@ -158,7 +173,8 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     preset: agentId,
     name: name.trim(),
     cwd: place ? (isRoot(place) ? '' : cwd.trim()) : cwd.trim() || (partOn(project, machineId)?.path ?? ''),
-    yolo: yoloable && yoloChoice !== undefined ? yoloChoice : undefined,
+    // NextCode asks in the permission mode of its settings, never in the hub's Yolo default
+    yolo: isChatAgent(agent) ? false : yoloable && yoloChoice !== undefined ? yoloChoice : undefined,
     profileId: account && !isProviderId(account) ? account : undefined,
     providerId: isProviderId(account) ? account : undefined,
     model: modelChoices[agentId]?.model,
@@ -167,7 +183,7 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
 
   /** Returns true on success. */
   const create = async (): Promise<boolean> => {
-    if (!machineId || !agentId || creating) return false;
+    if (!machineId || !agentId || creating || noProvider) return false;
     setCreating(true);
     try {
       const ok = await spawn(choice());
@@ -217,6 +233,12 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     /** Whether there is any choice of account to show. */
     hasAccounts: profileOptions.length > 0 || providerOptions.length > 0,
     defaultProfile,
+    /** NextCode's API engine: the account is an API provider, never a login. */
+    providersOnly,
+    /** Settings › NextCode's provider for the API engine ('' = none). */
+    defaultProvider,
+    /** The API engine with no API provider at all: nothing can start it. */
+    noProvider,
     /** Another account: a model of the old one would not exist on it. */
     setProfileId: (v: string) => {
       if (isProviderId(v) !== isProviderId(account) || (isProviderId(v) && v !== account)) setModelChoices((m) => ({ ...m, [agentId]: {} }));
@@ -232,7 +254,7 @@ export function useNewTerminal(project: Project, spawn: (c: TerminalChoice) => P
     create,
     choice,
     project,
-    canCreate: !!machineId && !!agentId && !creating,
+    canCreate: !!machineId && !!agentId && !creating && !noProvider,
   };
 }
 
@@ -268,13 +290,14 @@ function serverHint(nt: NT): string | undefined {
     : 'Agents run on This PC. On a server you get a plain shell.';
 }
 
-/** Agent options grouped like the pickers: Detected · Your agents · Shell · Not installed. */
+/** Agent options grouped like the pickers: Detected · Your agents · Shell · Not installed. NextCode once (EngineField picks its engine). */
 function AgentOptions({ nt }: { nt: NT }) {
   if (nt.agents.length === 0) return <option value="">{nt.agentsError ? 'Agents unavailable' : 'Loading…'}</option>;
-  const detected = nt.agents.filter((a) => a.source !== 'custom' && a.kind === 'agent' && a.available !== false).sort(byPriority);
-  const mine = nt.agents.filter((a) => a.source === 'custom').sort((a, b) => a.name.localeCompare(b.name));
-  const shells = nt.agents.filter((a) => a.source !== 'custom' && a.kind === 'shell');
-  const missing = nt.agents.filter((a) => a.source !== 'custom' && a.kind === 'agent' && a.available === false).sort(byPriority);
+  const agents = foldEngines(nt.agents, nt.agentId);
+  const detected = agents.filter((a) => a.source !== 'custom' && a.kind === 'agent' && a.available !== false).sort(byPriority);
+  const mine = agents.filter((a) => a.source === 'custom').sort((a, b) => a.name.localeCompare(b.name));
+  const shells = agents.filter((a) => a.source !== 'custom' && a.kind === 'shell');
+  const missing = agents.filter((a) => a.source !== 'custom' && a.kind === 'agent' && a.available === false).sort(byPriority);
   const opt = (a: Agent) => (
     <option key={a.id} value={a.id} disabled={a.available === false}>
       {a.name}
@@ -288,6 +311,25 @@ function AgentOptions({ nt }: { nt: NT }) {
       {shells.map(opt)}
       {missing.length > 0 && <optgroup label="Not installed">{missing.map(opt)}</optgroup>}
     </>
+  );
+}
+
+/** NextCode's engine, under the agent field while NextCode is chosen. */
+function EngineField({ nt }: { nt: NT }) {
+  return <EngineSwitch agents={nt.agents} value={nt.agentId} onChange={nt.setAgentId} where={nt.machine?.name} field />;
+}
+
+/**
+ * The login profile or API provider of the forms. NextCode's API engine lists its API providers
+ * only, and says where to add one while there is none.
+ */
+function AccountField({ nt, className }: { nt: NT; className?: string }) {
+  if (nt.noProvider) return <NeedsProviderHint />;
+  if (!nt.hasAccounts) return null;
+  return (
+    <SelectField label={nt.providersOnly ? 'API provider' : 'Login profile'} value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)} className={className}>
+      <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} providersOnly={nt.providersOnly} defaultProvider={nt.defaultProvider} />
+    </SelectField>
   );
 }
 
@@ -440,7 +482,7 @@ function NewTerminalDock({ nt, onBrowse }: { nt: NT; onBrowse: () => void }) {
         </div>
       )}
 
-      <div className="input-group has-lead dock-preset" title={nt.agentsError || (nt.agent ? `Runs ${nt.agent.command}` : 'Agent')}>
+      <div className="input-group has-lead dock-preset" title={nt.agentsError || agentHint(nt.agent) || 'Agent'}>
         <span className="ig-lead">
           <span className="swatch" style={{ '--swatch': nt.agent?.color } as CSSProperties} aria-hidden="true" />
         </span>
@@ -448,14 +490,15 @@ function NewTerminalDock({ nt, onBrowse }: { nt: NT; onBrowse: () => void }) {
           <AgentOptions nt={nt} />
         </select>
       </div>
+      <EngineSwitch agents={nt.agents} value={nt.agentId} onChange={nt.setAgentId} where={nt.machine?.name} className="dock-engine" />
 
       {nt.hasAccounts && (
-        <div className="input-group has-lead dock-profile" title="Login profile or API provider">
+        <div className="input-group has-lead dock-profile" title={nt.providersOnly ? 'API provider' : 'Login profile or API provider'}>
           <span className="ig-lead">
             <Icon name="user" />
           </span>
-          <select className="control control-sm" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)} aria-label="Login profile">
-            <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
+          <select className="control control-sm" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)} aria-label={nt.providersOnly ? 'API provider' : 'Login profile'}>
+            <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} providersOnly={nt.providersOnly} defaultProvider={nt.defaultProvider} />
           </select>
         </div>
       )}
@@ -505,7 +548,7 @@ function NewTerminalDock({ nt, onBrowse }: { nt: NT; onBrowse: () => void }) {
 
       <span className="dock-sep" aria-hidden="true" />
 
-      <Button type="submit" variant="primary" size="sm" icon="plus" loading={nt.creating} disabled={!nt.canCreate && !nt.creating}>
+      <Button type="submit" variant="primary" size="sm" icon="plus" loading={nt.creating} disabled={!nt.canCreate && !nt.creating} title={nt.noProvider ? 'Add an API provider in Settings › API providers first' : undefined}>
         New terminal
       </Button>
       {yolo.dialog}
@@ -561,17 +604,14 @@ function NewTerminalSheet({ nt, onClose, onBrowse, resume }: { nt: NT; onClose: 
               label="Agent"
               value={nt.agentId}
               onChange={(e) => nt.setAgentId(e.target.value)}
-              hint={nt.agent ? `Runs ${nt.agent.command}` : undefined}
+              hint={agentHint(nt.agent)}
               error={nt.agentsError || undefined}
             >
               <AgentOptions nt={nt} />
             </SelectField>
+            <EngineField nt={nt} />
             <ModelField nt={nt} />
-            {nt.hasAccounts && (
-              <SelectField label="Login profile" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)}>
-                <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
-              </SelectField>
-            )}
+            <AccountField nt={nt} />
             {askCwd(nt) && (
               <Field label="Working directory" optional hint={nt.place ? 'Leave empty to start in the part’s folder.' : 'Leave empty to start in the project folder.'}>
                 {({ labelId: _l, ...a11y }) => (
@@ -617,7 +657,7 @@ export function AgentChip({ nt, anchor, resume }: { nt: NT; anchor?: RefObject<H
   const remote = nt.machine && nt.machine.id !== nt.project.machineId;
   // several parts: where the next console goes, always ("Claude Code · Root", "Claude Code · admin")
   const where = nt.place ? placeShort(nt.project, nt.place) : nt.multi ? (nt.machine?.name ?? '') : remote ? (nt.machine?.name ?? '') : '';
-  const label = nt.agent ? `${nt.agent.name}${where ? ` · ${where}` : ''}` : 'Pick an agent';
+  const label = nt.agent ? `${agentChoiceName(nt.agent, nt.agents)}${where ? ` · ${where}` : ''}` : 'Pick an agent';
   const folderBrowser = browsing && nt.machine && (
     <FolderBrowser
       machineId={nt.machine.id}
@@ -701,15 +741,12 @@ function NewTerminalPanel({ nt, onBrowse, onDone, head = true }: { nt: NT; onBro
           <MachineOptions nt={nt} />
         </SelectField>
       )}
-      <SelectField label="Agent" value={nt.agentId} onChange={(e) => nt.setAgentId(e.target.value)} className="control-sm" error={nt.agentsError || undefined}>
+      <SelectField label="Agent" value={nt.agentId} onChange={(e) => nt.setAgentId(e.target.value)} className="control-sm" error={nt.agentsError || undefined} hint={agentTagline(nt.agent) || undefined}>
         <AgentOptions nt={nt} />
       </SelectField>
+      <EngineField nt={nt} />
       <ModelField nt={nt} />
-      {nt.hasAccounts && (
-        <SelectField label="Login profile" value={nt.profileId} onChange={(e) => nt.setProfileId(e.target.value)} className="control-sm">
-          <AccountOptions profiles={nt.profileOptions} defaultProfile={nt.defaultProfile} providers={nt.providerOptions} />
-        </SelectField>
-      )}
+      <AccountField nt={nt} className="control-sm" />
       {askCwd(nt) && (
         <Field label="Working directory" optional>
           {({ labelId: _l, ...a11y }) => (

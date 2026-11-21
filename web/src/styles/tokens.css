@@ -216,6 +216,8 @@
   --w-content: 1200px;
   --w-popover: 380px;
   --w-menu: 200px;
+  --w-model-menu: 280px; /* NextCode's model and effort menu */
+  --h-model-list: 240px;
   --w-toast: 400px;
   --min-card: 320px;
   --w-home-search: 320px;
@@ -399,6 +401,8 @@
   /* one accent per CLI; amber and red still mean "running out" */
   --usage-claude: #f0793f;
   --usage-codex: #45c9b0;
+  /* NextCode's mark: its only colour, the dot on the monochrome "N›" (docs/API-agents.md §30) */
+  --nextcode: #a78bfa;
   /* charts (dataviz): categorical slots validated for this surface (--tile-bg #111111: lightness
      band, chroma, CVD ΔE ≥ 9.4, contrast ≥ 3:1). Colour follows the CLI: 1 Claude Code, 2 Codex,
      3 Gemini, 4 other. */
@@ -643,6 +647,7 @@
   --voice-wave: #c2410c;
   --usage-claude: #c2531f;
   --usage-codex: #0f8a75;
+  --nextcode: #7c3aed;
   /* charts: the same four jobs, stepped for this surface (--tile-bg #ffffff; validated: CVD ΔE ≥ 9.3,
      contrast ≥ 3:1). Selected for light, not flipped from dark. */
   --viz-1: #2a78d6;

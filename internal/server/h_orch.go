@@ -169,6 +169,8 @@ func (s *Server) orchErr(w http.ResponseWriter, err error) {
 		writeErrCode(w, http.StatusConflict, "handoff_running", err.Error())
 	case errors.Is(err, orch.ErrHandoffAgent):
 		writeErrCode(w, http.StatusBadRequest, "unknown_agent", err.Error())
+	case errors.Is(err, orch.ErrHandoffNextCode):
+		writeErrCode(w, http.StatusConflict, "nextcode_switch", err.Error())
 	case errors.Is(err, orch.ErrForwardCycle):
 		writeErrCode(w, http.StatusBadRequest, "forward_cycle", err.Error())
 	case errors.Is(err, orch.ErrBadLoop):

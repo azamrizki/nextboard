@@ -10,6 +10,7 @@ import { patchSettings, useEffectiveSettings } from '../agents/settings';
 import { SettingRow } from '../components/Switch';
 import { toast } from '../components/Toast';
 import type { Agent, ModelChoice } from '../lib/types';
+import { agentChoiceName } from '../nextcode/engines';
 import { ROLE_LABEL, ROLES } from '../orch/types';
 
 async function save(agents: Record<string, unknown>) {
@@ -21,7 +22,7 @@ async function save(agents: Record<string, unknown>) {
 }
 
 /** Merge patch: an empty choice removes the entry. */
-const patchOf = (c: ModelChoice) => (c.model || c.effort ? { model: c.model || null, effort: c.effort || null } : null);
+export const patchOf = (c: ModelChoice) => (c.model || c.effort ? { model: c.model || null, effort: c.effort || null } : null);
 
 export function ModelDefaults() {
   const settings = useEffectiveSettings();
@@ -38,7 +39,7 @@ export function ModelDefaults() {
         What a new console starts with. Spawn forms show these first, and you can still choose otherwise there. A console then keeps its model and effort when it restarts, also what you chose inside the CLI with /model.
       </p>
       {withModels.map((a) => (
-        <SettingRow key={a.id} title={a.name}>
+        <SettingRow key={a.id} title={agentChoiceName(a, installed)}>
           <ModelPicker agent={a} value={ag.models?.[a.id] ?? NO_CHOICE} onChange={(c) => void save({ models: { [a.id]: patchOf(c) } })} />
         </SettingRow>
       ))}
@@ -78,7 +79,7 @@ function RoleRow({ role, installed, agentId, value, own }: RoleRowProps) {
           <option value="">Machine default</option>
           {installed.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.name}
+              {agentChoiceName(a, installed)}
             </option>
           ))}
         </select>

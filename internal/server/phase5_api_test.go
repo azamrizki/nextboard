@@ -241,8 +241,8 @@ func TestProfilesAPILocal(t *testing.T) {
 	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o700 || filepath.Dir(dir) != h.srv.st.Path("profiles") {
 		t.Fatalf("dir %v %v", fi, err)
 	}
-	// Work, plus the NextBoard folders of Claude Code and Codex.
-	if l := h.list("/api/profiles?machineId=local"); len(l) != 3 || l[2].(map[string]any)["exists"] != true {
+	// Work, plus the NextBoard folders of Claude Code, Codex and NextCode's two engines (its own, §30).
+	if l := h.list("/api/profiles?machineId=local"); len(l) != 5 || l[4].(map[string]any)["exists"] != true {
 		t.Fatalf("list %v", l)
 	}
 	// Spawn with the profile: env CLAUDE_CONFIG_DIR reaches the wrapper.

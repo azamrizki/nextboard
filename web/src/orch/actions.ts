@@ -5,6 +5,7 @@ import { api, ApiError, errorMessage } from '../api';
 import { toast } from '../components/Toast';
 import { CLIENT_ID } from '../lib/ids';
 import type { Session } from '../lib/types';
+import { NEEDS_PROVIDER } from '../nextcode/engines';
 import { machineNameOf, store } from '../store';
 import { orchApi } from './api';
 import { is404, orchStore } from './store';
@@ -27,6 +28,9 @@ const CODE_TEXT: Record<string, string> = {
   expired: 'That question expired.',
   machine_offline: 'The machine is offline. Reconnect it from Machines, then try again.',
   handoff_running: 'A handoff from this console is already running.',
+  nextcode_switch: 'A NextCode console and a terminal console cannot become one another. Start a new console for the other agent instead.',
+  nextcode_this_pc_only: 'NextCode runs on This PC only for now.',
+  nextcode_needs_provider: NEEDS_PROVIDER,
   bad_loop: 'Check the loop: every 1 minute to 24 hours, a five-field cron line, output text of 2+ characters, 1–500 runs, a time limit of 15 minutes to 24 hours.',
   too_many_loops: 'This hub already runs 50 loops. Delete some first.',
   too_many: 'Too many consoles: up to 12 at once and 64 per board.',

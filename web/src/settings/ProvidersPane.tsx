@@ -1,9 +1,15 @@
 // Settings › API providers (docs/API-agents.md §10.2): Anthropic- or OpenAI-compatible endpoints
-// a console of Claude Code, Codex or OpenCode can run on instead of a subscription login, with
-// their prices and a monthly budget. The key is typed here once; the hub never shows it again.
+// a console of Claude Code, Codex or OpenCode can run on instead of a subscription login, and that
+// NextCode's API engine (§30) always runs on, with their prices and a monthly budget. The key is
+// typed here once; the hub never shows it again.
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, errorMessage } from '../api';
+import { useAgentCatalog } from '../agents/catalog';
+import { useEffectiveSettings } from '../agents/settings';
+import { Link } from '../lib/router';
+import { agentOfEngine } from '../nextcode/engines';
+import { nextcodeProvider } from './nextcodeSettings';
 import { Button } from '../components/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Field, SelectField, TextField } from '../components/form';
@@ -24,9 +30,10 @@ import {
   type TestResult,
 } from '../providers/providers';
 
-function runsWith(p: ApiProvider): string {
+/** The agents a provider can run; NextCode's API engine (when the hub has it) takes every one. */
+function runsWith(p: Pick<ApiProvider, 'kind' | 'api'>, nextcode = false): string {
   const clis = p.kind === 'anthropic' ? ['Claude Code', 'OpenCode'] : p.api === 'responses' ? ['Codex', 'OpenCode'] : ['OpenCode'];
-  return clis.join(', ');
+  return [...clis, ...(nextcode ? ['NextCode'] : [])].join(', ');
 }
 
 function kindLabel(p: Pick<ApiProvider, 'kind' | 'api'>): string {
@@ -39,6 +46,9 @@ export function ProvidersPane() {
   const [editing, setEditing] = useState<ApiProvider | 'new' | null>(null);
   const [removing, setRemoving] = useState<ApiProvider | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  // NextCode's API engine runs on any of them, the default of Settings › NextCode first
+  const nextcode = !!agentOfEngine(useAgentCatalog().agents, 'api');
+  const ncDefault = nextcodeProvider(useEffectiveSettings());
 
   return (
     <div className="settings-cards">
@@ -56,6 +66,11 @@ export function ProvidersPane() {
           endpoint, Codex an OpenAI one with the Responses API, and OpenCode takes either. Pick a provider where you pick a login profile when you start a console. The key is sealed on
           the hub and only goes into the environment of the consoles that use it, where those agents can read it.
         </p>
+        {nextcode && (
+          <p className="setting-hint">
+            NextCode’s API engine runs on any of them and needs one: it has no login. Its default is set in <Link to="/settings/nextcode">Settings › NextCode</Link>.
+          </p>
+        )}
         {list.length === 0 && <div className="list-msg">No providers yet. Consoles use each CLI’s login.</div>}
         <ul className="plain provider-list">
           {list.map((p) => (
@@ -66,13 +81,14 @@ export function ProvidersPane() {
                   <span className="cap-chip">{kindLabel(p)}</span>
                   {!p.hasKey && <span className="badge badge-warning">No key</span>}
                   {!!p.inUse && <span className="badge badge-info">{p.inUse} running</span>}
+                  {nextcode && p.id === ncDefault && <span className="badge badge-info" title="New consoles of NextCode’s API engine run on it unless another is picked">NextCode default</span>}
                 </div>
                 <div className="mono fs-xs text-3 truncate" title={p.baseUrl}>
                   {p.baseUrl}
                 </div>
                 <div className="fs-xs text-3">
                   {p.model}
-                  {p.fastModel ? ` · fast: ${p.fastModel}` : ''} · for {runsWith(p)}
+                  {p.fastModel ? ` · fast: ${p.fastModel}` : ''} · for {runsWith(p, nextcode)}
                 </div>
                 <BudgetLine p={p} />
               </div>

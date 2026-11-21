@@ -21,7 +21,8 @@ An addition to [API.md](API.md) and [API-board.md](API-board.md); the convention
   "id": "claude", "name": "Claude Code",
   "kind": "agent",                 // "agent" | "shell"
   "source": "builtin",             // "builtin" | "catalog" | "custom"
-  "base": "",                      // custom only: "claude" | "codex" | "" — inherits the base's capabilities
+  "base": "",                      // custom (and NextCode): "claude" | "codex" | "" — inherits the base's capabilities
+  "engine": "",                    // NextCode only (§30): "claude" — no terminal, a chat; absent on every other agent
   "command": "claude", "args": [], "env": [], "color": "#d97757",
   "detect": "claude",              // command name for `command -v` during the probe; "" = not detected
   "yoloArgs": ["--dangerously-skip-permissions"], "yoloEnv": [],
@@ -54,6 +55,9 @@ Built-in (`source:"builtin"`):
 | `shell` | `$SHELL -l` (kind shell) | — | none | none | none | — |
 | `claude` | `claude` | `--dangerously-skip-permissions` | session-id (as in the example above) | claude-hooks | claude | `CLAUDE_CONFIG_DIR` |
 | `codex` | `codex` | `--dangerously-bypass-approvals-and-sandbox` | session-id: launch `[]` (id discovered, §8.1), resume `resume {agentSessionId}`, continue `resume --last`, picker `resume` | codex-notify | codex | `CODEX_HOME` |
+| `nextcode` | `claude` (headless, §30) | — (permission modes instead, §30) | session-id as `claude`, no picker | none (the stream, §30) | claude | `CLAUDE_CONFIG_DIR` (its own profiles, never Claude Code's) |
+| `nextcode-codex` | `codex app-server` (§30) | — | the thread id from the CLI, resumed with `thread/resume` | none (the stream) | codex | `CODEX_HOME` (its own profiles, never Codex's) |
+| `nextcode-api` | the hub's own program, `nextboard nextcode-agent` (§30) | — (permission modes) | session-id as `nextcode`: launch `--session-id {agentSessionId}`, resume `--resume {agentSessionId}`, continue `--continue`, no picker | none (the stream) | none | `NEXTCODE_HOME` = its API provider's folder (no login profiles) |
 | `gemini` | `gemini` | `--yolo` | continue `--resume latest`† | screen | none | — |
 
 Catalog (`source:"catalog"`, all `kind:"agent"`, `liveStatus:"screen"`, `transcript:"none"`, detection = command name):
@@ -82,7 +86,7 @@ Catalog (`source:"catalog"`, all `kind:"agent"`, `liveStatus:"screen"`, `transcr
 
 ### 1.2 Detection and default agent
 
-- The probe (`machine.probeScript`) checks `detect` for every entry (built-in + catalog + custom). `available` = `probe.commands[detect] != ""` or there is a path override in `settings.agents.paths[machineId][agentId]`.
+- The probe (`machine.probeScript`) checks `detect` for every entry (built-in + catalog + custom). `available` = `probe.commands[detect] != ""` or there is a path override in `settings.agents.paths[machineId][agentId]`. `nextcode-api` has no `detect`: it is the hub's own program, so it is always `available` on This PC and never on a server (§30).
 - A path override replaces `command` at launch and during the probe (`command -v <path>`).
 - **Default agent per machine:** `settings.agents.defaults[machineId]`; when empty → the first `available` entry in the order `claude, codex, gemini`, then the catalog alphabetically, then custom; when there is none → `shell`. The derived field `defaultAgent` is in `GET /api/machines/{id}/agents`.
 - The agent "armed" for the Spawn tool (`T`) is per-client state (localStorage), not on the hub.
@@ -494,7 +498,7 @@ A session with a `profileId` gets the env `<profileEnv>=<dir>`. "Connect new acc
 
 ### 10.2 API providers (2026-11-11)
 
-A Claude Code, Codex or OpenCode console can run on an **Anthropic- or OpenAI-compatible endpoint** (GLM, Kimi, DeepSeek, OpenRouter, local Ollama, …) with its own key, instead of a subscription login. Package `internal/providers`, server `internal/server/providers.go`, launch `internal/agent/provider.go`.
+A Claude Code, Codex or OpenCode console can run on an **Anthropic- or OpenAI-compatible endpoint** (GLM, Kimi, DeepSeek, OpenRouter, local Ollama, …) with its own key, instead of a subscription login. NextCode's own engine (§30) runs on every one of them, and only on one. Package `internal/providers`, server `internal/server/providers.go`, launch `internal/agent/provider.go`.
 
 **Compatibility** (tried with the real CLIs against a fake API server on loopback, an empty home folder, no account):
 
@@ -521,7 +525,7 @@ A Claude Code, Codex or OpenCode console can run on an **Anthropic- or OpenAI-co
 | GET | `/api/providers` | — | `{"items":[Provider…]}` |
 | POST | `/api/providers` | `{name, kind, baseUrl, api?, auth?, model, fastModel?, models?, prices?, budget?, apiKey}` | `201 Provider`; `400 bad_provider` (the address is not http/https or holds quotes/spaces, the model is not a model name, a duplicate name, no key for a service that is not on this machine) |
 | PATCH | `/api/providers/{id}` | the changed fields; `apiKey:""` keeps the old key | `Provider` |
-| DELETE | `/api/providers/{id}[?purge=1]` | — | `{ok}`; `409 provider_in_use` while a console is running on it; clears `runner.provider`, `lead.runner` and `lead.providers` that point to it; `purge` deletes its config folder |
+| DELETE | `/api/providers/{id}[?purge=1]` | — | `{ok}`; `409 provider_in_use` while a console is running on it; clears `runner.provider`, `nextcode.provider`, `lead.runner` and `lead.providers` that point to it; `purge` deletes its config folder |
 | POST | `/api/providers/test` | a form draft, or `{id}` (the stored key is used when `apiKey` is empty) | `{ok, models?, checked: "models"\|"message", status?, error?}`: `GET …/models` first; without a list, one message with `max_tokens: 1`. The key is never in the answer. With `{id}`, the models found are saved |
 | GET | `/api/providers/{id}/spend?month=YYYY-MM` | — | `{month, cost, budget?, tokens, byModel:[{model, input, output, cacheRead, cacheWrite, cost, priced}], unpriced?}` |
 | GET | `/api/sessions/{id}/cost` | — | the same, for that console's whole conversation; `409 not_on_provider` |
@@ -534,6 +538,7 @@ Events `{"type":"provider","provider":…}` and `{"type":"providerRemoved","id"}
 - Claude Code: `CLAUDE_CONFIG_DIR=<data>/providers/<id>/claude` (the subscription login is neither used nor overwritten; `.claude.json` is filled with `hasCompletedOnboarding`, and for `x-api-key` the key is approved through its last 20 characters), `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` (or `ANTHROPIC_API_KEY`, the other one cleared), `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`/`ANTHROPIC_SMALL_FAST_MODEL` (the CLI aliases point to the provider's model), `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, `DISABLE_TELEMETRY=1`. `baseUrl` is stored without `/v1`.
 - Codex: `CODEX_HOME=<data>/providers/<id>/codex`, `-c model_provider="nextboard"` and `-c "$NB_CODEX_PROVIDER"` (`model_providers.nextboard={name, base_url, env_key="NB_PROVIDER_KEY", wire_api="responses"}`), the key in `NB_PROVIDER_KEY`.
 - OpenCode: a `provider.nextboard` block (+ `model`, `small_model`) merged into `OPENCODE_CONFIG_CONTENT`, the key through `{env:NB_PROVIDER_KEY}`; model `nextboard/<model>`.
+- NextCode's own engine: `--provider-kind`, `--base-url`, `--api`/`--auth` and `--model` on its command line, the key in `NB_PROVIDER_KEY`, `NEXTCODE_HOME=<data>/providers/<id>/nextcode` for its usage ledger (§30).
 - A server on this machine without a key (Ollama) gets the stand-in key `nextboard-local`, because its CLI asks for one.
 - **The key does not reach the agent's commands** (measured 2026-11-11 with a real router, Claude Code 2.1.322, Codex 0.165). Codex: its TUI writes the shell env to `shell_snapshots/*.sh`, key included, and its commands inherit the whole env; consoles and hidden runs get `-c features.shell_snapshot=false -c features.shell_snapshot_v2=false -c 'shell_environment_policy.exclude=["NB_PROVIDER_KEY","NB_CODEX_PROVIDER"]'`. Claude Code: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` when `bwrap` is on This PC (that feature needs bubblewrap); without bwrap, the agent's Bash commands still see `ANTHROPIC_AUTH_TOKEN`. Measured again 2026-11-15 with Claude Code 2.1.325 and a scripted model on loopback: with the variable, a command's `env`, `/proc/self/environ`, its parent's environ and every `/proc/*/environ` it can read hold no key (its commands run in bubblewrap's own PID namespace, `$PPID` is 1), while every request still reaches the provider with it; without the variable, the key is in `env` and in the parent's environ. OpenCode: its commands still see `NB_PROVIDER_KEY` (there is no way to exclude it yet).
 - **Claude Code permission mode.** The 2.1.322 default is auto mode, which checks each action on Anthropic's servers; through a gateway that check does not get there and every tool stops at "Auto mode can't check actions". So provider consoles let edits go straight through and ask before commands, the dialog's own suggestion. Without `bwrap` that is `--permission-mode acceptEdits`, and yolo consoles stay on `--dangerously-skip-permissions`.
@@ -550,7 +555,7 @@ Events `{"type":"provider","provider":…}` and `{"type":"providerRemoved","id"}
 
 **Hidden runs** (`settings.runner.provider`, Settings › Previews & studios › Run through): every runner job whose CLI matches runs through that provider: the lead/planner and thread summaries (Claude Code, so an Anthropic-compatible provider, unless `lead.runner` picks the lead's own runner, API-orchestration.md §3.9), documents, diagrams, memory, commit messages (the built-in CLI). `RunnerRequest.Provider` overrides the setting per job: `login` = the CLI login, `ap_…` = that provider, and a provider that cannot run its CLI becomes an error, not the login. Claude: the provider env; the aliases `haiku`/`sonnet`/`opus` are kept, other Anthropic model names are replaced by the provider's model. Codex: the provider `-c` on the command line (no secret) and the key in the env. A CLI that does not match stays on the login. A spent budget refuses the job.
 
-**Cost and budget.** Tokens are read in full (`usage.FileTurns`, the same parser as the token index) from the Claude Code and Codex transcripts in the provider folder, plus `ledger.jsonl` holding the usage of hidden runs (which do not keep a transcript; `Job.usage` from Claude's `result.usage`/`modelUsage` and Codex's `turn.completed`). Cost = tokens × model price (USD per 1 million; OpenCode names it `nextboard/<model>`, so the price is also looked up without the prefix). A model without a price has its tokens counted and is named in `unpriced`. Month = the calendar month in hub time. Once `cost ≥ budget`: new consoles, restarts and hidden runs on that provider are refused; running consoles carry on. Limit: OpenCode conversations are not counted (their records are in OpenCode's own database).
+**Cost and budget.** Tokens are read in full (`usage.FileTurns`, the same parser as the token index) from the Claude Code and Codex transcripts in the provider folder, NextCode's own agent's `nextcode/usage.jsonl`, plus `ledger.jsonl` holding the usage of hidden runs (which do not keep a transcript; `Job.usage` from Claude's `result.usage`/`modelUsage` and Codex's `turn.completed`). Cost = tokens × model price (USD per 1 million; OpenCode names it `nextboard/<model>`, so the price is also looked up without the prefix). A model without a price has its tokens counted and is named in `unpriced`. Month = the calendar month in hub time. Once `cost ≥ budget`: new consoles, restarts and hidden runs on that provider are refused; running consoles carry on. Limit: OpenCode conversations are not counted (their records are in OpenCode's own database).
 
 ## 11. Settings store
 
@@ -573,7 +578,8 @@ Events `{"type":"provider","provider":…}` and `{"type":"providerRemoved","id"}
   "notifications": { "needsYou": true, "finished": true, "error": true, "finishedMinSec": 30 },
   "shortcuts": { "select": "v", "hand": "h", "spawn": "t", "pen": "p", "eraser": "e", "git": "g", "memory": "m",
                  "skills": "s", "loops": "l", "markdown": "d", "needsYou": "n" },
-  "ui": { "openProjectsIn": "" }                 // where opening a project goes: "" asks, "board", "code"
+  "ui": { "openProjectsIn": "" },                // where opening a project goes: "" asks, "board", "code"
+  "nextcode": { "permissionMode": "default", "idleExitMin": 30, "provider": "ap_…" }   // NextCode's own section, §30
   // "delivery", "commands", "memory": Phase 6 (API-orchestration.md) · "previews", "usage", "runner", "git", "editor": Phase 7 (API-studio.md)
   // Voice settings are per client (localStorage), not on the hub
 }
@@ -1121,3 +1127,162 @@ A CLI keeps a conversation per **folder** (Claude Code: `<config>/projects/<slug
 **Settings.** `agents.resumeTellChanges` (boolean, default `true`; PATCH merges like the other `agents` keys). The web: Settings › Agents "Tell an agent what changed when its chat resumes".
 
 **Tested** (fakes only, never a real CLI): unit (`internal/chats`: record, turn counting, switch, release, reload, merge by `agentSessionId`, the orphan rules for part, root, server and read-only parts, swap rules, handle choice, the changes text, memory first-seen and documents not read, items cut and kept in their block, merge and split, a release waiting for a turn's count; `internal/transcript`: the backfill scan; `internal/gitsvc`: commits since), and the server with a fake Claude that keeps its transcript where Claude Code does and logs every launch: resume in its part with `--resume <id>` in the same folder under its old handle and the commits and facts told as context; the name taken (the dialog's details, `409 handle_taken`, resume under the next name and its thread note, `not_swappable` for another folder, a swap into the idle console of the same folder); resume at the root and as an editor pane; a server's part (a throwaway sshd) in the same work dir; the backfill of a conversation from before; an orphan's `409 chat_orphan` and continue elsewhere with a fake summary (no tool output in what is summarised) and with a failed one (nothing sent, a note); a console deleted right after its first turn ended; a console restarted as a shell; two resumes at once; a merge and a split.
+
+## 30. NextCode (2026-11-20)
+
+NextCode is NextBoard's own code agent, a built-in next to Claude Code and Codex, with three engines:
+- **Claude** (`id: "nextcode"`, `base: "claude"`, `engine: "claude"`): Claude Code headless, stream-json, below.
+- **Codex** (`id: "nextcode-codex"`, `base: "codex"`, `engine: "codex"`): `codex app-server` (JSON-RPC over stdio, Codex's interface for "a deep integration inside your own product").
+  - The same chat, requests, states and REST/WebSocket as the Claude engine.
+  - Its own home `<data>/agents/nextcode-codex` (`CODEX_HOME`, named "NextCode"), signed in through a Codex terminal (`codex login`).
+  - No context from the hub at all: no MCP server, instructions or memory.
+  - The permission modes map to Codex's approval policy and sandbox: `default`/`acceptEdits` → `on-request` + `workspace-write`, `plan` → `on-request` + `read-only`, `auto` → `on-request` with the auto reviewer, `bypassPermissions` → `never` + `danger-full-access`.
+  - Approvals answer `accept`, `acceptForSession` (Always), `decline`, `cancel` (Deny and stop).
+  - A message sent while a turn runs waits for its end.
+  - This PC only.
+- **API** (`id: "nextcode-api"`, no `base`, `engine: "api"`): NextCode's own agent, on one of the hub's API providers, with no vendor CLI (§ NextCode's own engine, below).
+
+The web shows NextCode once, with an Engine choice. Everything below is the Claude engine unless it says so. Its console has **no terminal**: the hub runs Claude Code's unmodified CLI headless and the console shows a chat drawn by NextBoard. The terminal agents (Claude Code, Codex and the rest) are not changed by it, and a console cannot switch between a terminal agent and NextCode (`POST …/restart {"agent"}` → `409 nextcode_switch`).
+
+**Independent of NextBoard's Claude Code** (owner, 2026-11-20). NextCode has its own login and its own memory, and the two never mix:
+- its own NextBoard home folder `<data>/agents/nextcode`, with its own login, settings and Claude memory;
+- only its own profiles (agent `"nextcode"`): a Claude Code profile is `400 profile_mismatch`, and there is no falling back to Claude Code's default;
+- none of the hub's memory, launch prompt or MCP tools: no project memory folder (`autoMemoryDirectory`), no memory hand-over from a login folder, no `nextboard` MCP server, and no MCP servers from Settings.
+
+What it keeps from the project is what makes it work safely there:
+- its folders (a root console's part folders, the attachments folder);
+- the commands that need approval (§ guard, as `permissions.ask` rules, so they come as permission requests);
+- the project's sandbox, with its rule in the prompt;
+- the owner's rule on commit attribution (§26).
+
+**The CLI.** `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio [--permission-mode <mode>]`, with its profile (`CLAUDE_CONFIG_DIR`) or API provider, model and effort, the context above, and the commit hooks. `agent.Headless` assembles these without the wrapper script. There are no hooks and no markers: the console's state comes from the stream. One JSON object per line each way, as Anthropic's Agent SDKs drive it:
+- `initialize`, `interrupt`, `set_model` and `set_permission_mode` go to the CLI as `control_request`;
+- permission requests come back as `control_request can_use_tool` and are answered with `control_response`.
+
+- **Logins.**
+  - The default is NextCode's own home profile (`agents.profiles.<machine>.nextcode`), or one of its other profiles, or an API provider (as for Claude Code).
+  - A NextCode profile signs in with `POST /api/profiles/{id}/signin`, which opens a **Claude Code terminal** console with that profile (`agent: "claude"`, `profileId` NextCode's): Claude Code's own `/login`, since NextCode has no terminal. The hub never reads or stores a token.
+  - The path set for Claude Code (`agents.paths.<machine>.claude`) is where its CLI is found too: the same program, nothing else shared.
+- **When the CLI runs.**
+  - A console's chat opens when it launches; the CLI starts with the first message (`--session-id <hub UUID>`, then `--resume <id>`).
+  - The CLI ends after the idle time (`settings.nextcode.idleExitMin`), and the next message starts it again on the same conversation. The console stays `running`/`ready`, and idle sleep (§28) never applies to it.
+  - Restart ends the CLI so the next message uses the console's launch as it is then (model, profile). Restart with `launch.mode: "fresh"` starts a new conversation and keeps the old chat file beside the new one.
+  - The hub's stop ends every NextCode CLI; their conversations resume on the next message.
+- **Servers and read-only parts** (the Claude engine), as the other agents work there (§21):
+  - The CLI runs on This PC in an empty folder of the hub's, with `--tools Read,Write,Edit,TodoWrite,Skill` and only the hub's MCP server.
+  - That server gives a NextCode console the **server's tools only** (read_file, write_file, edit_file, grep, glob, bash, …), never memory, missions, the board or credentials. Calling one of those answers "this console does not have the tool".
+  - Its launch prompt is the server's rules and folder; nothing of NextBoard's memory.
+  - The Codex engine is This PC only (`422 nextcode_this_pc_only`).
+- **State.** The console's `agentState` follows the turn the same way a terminal Claude Code's hooks would drive it:
+  - a message → `working` ("Thinking");
+  - a tool → `working` with the tool as `activity`;
+  - a permission request → `needsYou` ("Permission: Bash(npm test)");
+  - a question → `needsYou` "Question"; a plan → "Plan approval";
+  - the turn's end → `ready`.
+
+  Attention, notifications, the reply view (§8) and Chats (§29) work as for Claude Code, since the conversation file is Claude Code's.
+- **Orders.** A delivery to a NextCode console (the lead, loops, `@handle`, `POST …/deliveries`) waits for the same states as for a terminal (§ API-orchestration 2) and then goes in as one message, with no screen check. It is confirmed when the turn starts. One with `submit: false` fails `chat_needs_submit`. Keys (`POST …/input`, the terminal socket) are refused: `409`.
+
+**Settings › NextCode** (`settings.nextcode`, merge-PATCH like the others):
+- `permissionMode`: the mode a new console starts in: `default` (ask), `acceptEdits`, `plan`, `auto` or `bypassPermissions`. Default `default`.
+- `idleExitMin`: 1–1440, default 30.
+- `provider`: the API provider (`ap_…`) a console of NextCode's own engine runs on when none is picked; absent or `""` = none. Cleared when that provider is deleted, and mapped on an instance import like `runner.provider`.
+
+Its model and effort defaults are the agent's own (`agents.models.nextcode`, `agents.models.nextcode-api`), and its login is its profiles above. `400 bad_setting` otherwise.
+
+**NextCode's own engine** (`nextcode-api`, 2026-11-21). An agent of NextBoard's, not a vendor's CLI: the hub runs its own program, `nextboard nextcode-agent` (package `internal/nextcode/native`, a hidden subcommand), in the console's folder. It speaks the part of Claude Code's stream-json the Claude engine reads, so the chat, the requests, the states, Orders and the REST/WebSocket routes below are the same; `status.engine` is `"api"`.
+- **No CLI and no login.** Nothing has to be on PATH: it is always available on This PC (`agents.paths.<machine>.nextcode-api` can point it at another program) and never on a server. It has no login profiles, no home folder and no sign-in: a `profileId` is `400 profile_mismatch`, `POST /api/profiles` for it `400 profile_unsupported`.
+- **Only on an API provider** (§10.2), of every kind and API: an Anthropic-compatible Messages API (`auth` bearer or `x-api-key`), an OpenAI-compatible Chat Completions API or the Responses API. Every provider can run it (`providers.Compatible`), so the lead lists it under each one. A console runs on its `providerId`, else on `settings.nextcode.provider` while that provider exists; with neither, `POST /api/sessions`, `restart` and spawn answer `400 nextcode_needs_provider` ("NextCode's own engine runs on an API provider: pick one, or add one in Settings › API providers"). A restart never moves it to a login: `providerId: ""` or a removed provider takes the setting's, or is that error. A spent budget is `409 provider_budget`, as for the CLIs.
+- **Engine switch.** `restart {"agent"}` between `nextcode`, `nextcode-codex` and `nextcode-api` starts a new conversation on the other engine, the old chat kept beside it. To this engine: its provider as above. From it: the provider stays when the other engine can run on it, else that engine's own login.
+- **The command line** (the hub's contract with the agent):
+
+```
+nextboard nextcode-agent --provider-kind anthropic|openai --base-url URL [--api chat|responses] [--auth bearer|x-api-key]
+    --model M [--effort low|medium|high|xhigh|max] (--session-id ID | --resume ID | --continue)
+    [--permission-mode MODE] [--append-system-prompt-file PATH] [--add-dir DIR]… [--max-tokens N] [--context-window N]
+NB_PROVIDER_KEY    the key ("" when the provider has none: no stand-in key)
+NEXTCODE_STATE     <data>/nextcode/api, its conversations
+NEXTCODE_HOME      <data>/providers/<provider id>/nextcode, its usage ledger
+NB_NEXTCODE_GUARD  {"blocked":[patterns],"sandbox":{"network":bool,"write":[dirs]}}, when there is either
+```
+
+  - `--base-url` is the provider's as stored, `--api` only for an OpenAI provider that has one, `--auth` only for an Anthropic one. The hub picks the conversation id (a UUID), as for the Claude engine; the engine adds `--permission-mode` and none of Claude Code's flags.
+  - The model is the console's, else the provider's `model`. The efforts are its own five; another is `400` (`bad_model` from `PUT …/nextcode/model`). `GET /api/machines/{id}/agents/nextcode-api/models` gives those efforts and no models: they are the provider's (`GET /api/providers`).
+  - The key is in its environment only, not on its command line, which a test checks with the real agent. Every run on This PC gets its environment that way (`machine.Local`, since 2026-11-21): not exported in the `/bin/sh -c` script that `exec`s the program, where it was on that shell's command line until the `exec`.
+- **Context.** The same as the Claude engine's (above): its folders (`--add-dir` the attachments folder and a root's part folders), the commands that need approval and the project's sandbox (`NB_NEXTCODE_GUARD`, which the agent enforces itself), the sandbox's rule and the owner's rule on commit attribution (§26) in `--append-system-prompt-file`. No memory, no MCP server, and the hub's commit hooks as for the others.
+- **Permission modes** (the same five, applied by the agent): `default` asks before an edit or a command; `acceptEdits` lets edits in the project go ahead and asks before commands; `plan` reads and changes nothing until its plan is approved (`ExitPlanMode`); `auto` here = edits in the project go ahead, read-only commands run, other commands ask (no classifier, unlike Claude Code's); `bypassPermissions` asks nothing. A blocked command always asks.
+- **Where it keeps things.**
+  - The chat: `<data>/nextcode/<sessionId>.jsonl`, as for the other engines.
+  - Its conversation: `<data>/nextcode/api/<conversation id>.json`, with its own `<conversation id>.*.json` beside it. Deleting the console removes these files of its current conversation, and nothing else.
+  - What it spent: `<data>/providers/<id>/nextcode/usage.jsonl`, one line per call of the model in the ledger's format (`{"at","model","purpose":"nextcode","input","output","cacheRead","cacheWrite"}`). The hub makes that folder (0700) and puts nothing in it.
+- **Budgets.** That ledger counts in the provider's spend (`GET /api/providers/{id}/spend`, the list's `monthCost`) and so in its budget: the five-minute check warns at 80% and at 100%, and a spent budget refuses new consoles and restarts on it. `GET /api/sessions/{id}/cost` has no figure for one conversation yet: the ledger is the provider's.
+- **Limits.** This PC only: a server or a read-only part is `422 nextcode_this_pc_only`. No images in messages yet, no MCP servers yet. Each `Bash` call runs in a shell of its own and ends what it started in the background when it ends: no dev server outlives the call.
+- **Tested** (`internal/server`): with a fake agent (the Claude Code fake), its launch and environment exactly, the setting's provider, every refusal above, the ledger's spend and budget, the delete, the engine switch both ways, a spawn; end to end through the real agent (the test binary as the hub's program) on a fake Chat Completions API that streams: an answer, a `Bash` request allowed, its output and the answer after it, the console's states, the spend from its ledger, and its command line without the key. In the browser (`web/e2e/nextcode-api.spec.ts`): spawned from Spawn agent with the API engine on a stand-in Chat Completions API, a reply, a `Bash` request allowed on the card, the provider's spend.
+
+**Chat.** `Item`:
+
+```jsonc
+{
+  "id": "msg_01…/0",                 // the CLI's ids where it has them (tool calls: their tool_use id)
+  "kind": "user",                    // user | text | thinking | tool | prompt (a sub-agent's task) | error | notice
+  "at": "…", "text": "…",            // Markdown for text; thinking may be empty (the CLI hides it)
+  "tool": {"name": "Bash", "input": {…}, "output": "…", "status": "running", "clipped": false},
+                                     // status: running | done | error | denied | stopped; input ≤ 64 KB, output ≤ 32 KB (head and tail)
+  "parent": "toolu_…",               // the sub-agent's tool call, "" in the main conversation
+  "stream": "msg_01…/0"              // the id it had while streamed (frames block/delta)
+}
+```
+
+`Request` (the agent waits on the owner):
+
+```jsonc
+{
+  "id": "…", "kind": "permission",   // permission | question (AskUserQuestion) | plan (ExitPlanMode)
+  "tool": "Bash", "toolUseId": "toolu_…", "input": {…},
+  "title": "…", "displayName": "…", "description": "…", "blockedPath": "…", "reason": "…",  // as the CLI gives them
+  "canRemember": true,               // the CLI offers rules for next time: decision allowAlways applies them
+  "parent": "", "at": "…"
+}
+```
+
+`Status`: `engine`, `process` (`stopped` | `starting` | `running`), `working`, `turnSince`, `stopping`, `model`, `permissionMode`, `conversation`, `commands` (slash command names), `costUsd`, `usage` `{input, output, cacheRead, cacheWrite}`, `rateLimit` (as the CLI reports it), `note` ("Retrying (attempt 2 of 10)…"), `error` (why the last CLI ended by itself).
+
+The chat is kept in `<data>/nextcode/<sessionId>.jsonl` (JSON lines, `0600`). It comes back after a hub restart, where a tool still running becomes `stopped`. The file is removed with the console.
+
+**REST** (every route `409 not_nextcode` for a terminal console):
+- `GET /api/sessions/{id}/nextcode?before=<item id>&limit=1–1000` → `{"items", "more", "requests", "status"}`: the latest 300 items, or those before an item.
+- `POST /api/sessions/{id}/nextcode/messages {"text"}` → `202`. It starts the CLI when none runs; while the agent works, the CLI queues the message. Errors: `400 bad_request` (empty), `413 too_long` (> 100 000 characters), `502 cli_failed` (the CLI could not start).
+- `POST /api/sessions/{id}/nextcode/requests/{rid} {"decision", "message"?, "answers"?}` → `200`.
+  - `decision`: `allow`, `allowAlways` (with the CLI's suggested rules), `deny`, or `denyStop` (deny and stop the turn).
+  - `message` tells the agent why, or is a free reply to a question.
+  - `answers` (`{"<question>": ["<label>", …]}`) answers a question.
+  - Errors: `400 bad_decision`, `404 request_gone` (answered, or cancelled by the CLI).
+- `POST /api/sessions/{id}/nextcode/interrupt` → `200`: stops the turn (a notice "Stopped.", not an error). `409 not_working`.
+- `PUT /api/sessions/{id}/nextcode/mode {"mode"}` → `{"status"}`: `default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`. It applies now and to every CLI after this one.
+- `PUT /api/sessions/{id}/nextcode/model {"model"?, "effort"?}` → `{"status"}`. A field left out is unchanged; `""` is the CLI's own.
+  - Kept in the console (`model`, `effort`) for every CLI after this one.
+  - The model switches the running CLI at once (Claude: `set_model`; Codex: from its next turn). The effort applies from the CLI's next start: the hub ends the CLI as soon as it is idle.
+  - `400 bad_model` when a name is not a model or effort name.
+
+**WebSocket** `GET /api/sessions/{id}/nextcode/ws` (same auth and origin rules as the terminal socket). The view sends nothing. The hub sends JSON text frames:
+- `{"t":"snapshot","items":[…],"more","requests":[…],"status"}`, first;
+- `{"t":"item","item"}`: an item, new or changed (by `id`);
+- `{"t":"block","id","kind":"text|thinking|tool","name"?,"parent"?}` and `{"t":"delta","id","kind","text"}`: what is being streamed; the item that follows has `stream` = that id;
+- `{"t":"request","request"}` and `{"t":"resolved","id"}`;
+- `{"t":"status","status"}`.
+
+A view that falls behind is closed with `1013` and reconnects for a new snapshot.
+
+**Tested**:
+- unit (`internal/nextcode`, a fake CLI in the shapes of Claude Code 2.1.329): streamed text, history after a restart, allow, allow always, deny, a question, stop, a failed turn, a CLI that ends by itself, idle exit and resume, sub-agents, an unknown control request;
+- `internal/agent`: the headless launch has the terminal launch's arguments and environment, and the terminal agents are unchanged;
+- `internal/server` (with a shell fake):
+  - a NextCode console end to end through REST, WebSocket and a delivery;
+  - its independence: its own home profile and `CLAUDE_CONFIG_DIR`, a Claude Code profile refused, no memory or MCP in its launch in a project, sign-in through a Claude Code terminal, and a Claude Code console unchanged;
+  - the settings section.
+- e2e (`web/e2e/nextcode.spec.ts`, fake `fake-nextcode.sh`):
+  - the board card and a Code view tab of one console, live together;
+  - a message streamed, a permission allowed, a question answered from the tab;
+  - Settings › NextCode saving the permission mode.
+
+Checked by hand against the real Claude Code 2.1.329 through a hub.

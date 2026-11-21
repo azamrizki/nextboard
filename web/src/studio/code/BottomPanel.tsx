@@ -24,9 +24,18 @@ import { asFileKey, isRootKey, LOCAL_MACHINE, splitKey, type FileKey } from './p
 import { PortsPanel } from './PortsPanel';
 import { TasksPanel } from './TasksPanel';
 import { useMarkers, useWs } from './useWs';
+import { useIsNextCode } from '../../nextcode/detect';
+import { NextCodeChat } from '../../nextcode/NextCodeChat';
 import { dirOf, isTerminalPane, nameOf, type PanelView, type Workspace } from './workspace';
 
+/** A console's screen: its terminal, or the chat of a NextCode console (docs/API-agents.md §30), which has none. */
 export const TerminalView = memo(function TerminalView({ sessionId }: { sessionId: string }) {
+  const nextcode = useIsNextCode(sessionId);
+  if (nextcode) return <NextCodeChat sessionId={sessionId} variant="card" />;
+  return <XtermView sessionId={sessionId} />;
+});
+
+const XtermView = memo(function XtermView({ sessionId }: { sessionId: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const consoleTheme = useConsoleThemeAttr();
   useTerminal(sessionId, ref);

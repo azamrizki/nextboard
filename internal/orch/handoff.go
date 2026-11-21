@@ -39,6 +39,9 @@ var (
 	ErrHandoffRunning = errors.New("a handoff from this console is already running")
 	ErrNotAgentSrc    = errors.New("the source console is not an agent console")
 	ErrHandoffAgent   = errors.New("the target agent is unknown or not an agent")
+	// ErrHandoffNextCode: in place, a terminal console cannot become a NextCode one, nor back
+	// (docs/API-agents.md §30); a handoff to a new console can.
+	ErrHandoffNextCode = errors.New("a terminal console and a NextCode console cannot become one another; hand off to a new console instead")
 )
 
 // HandoffRequest is the body of POST /api/sessions/{id}/handoff.
@@ -271,6 +274,9 @@ func (s *Service) StartHandoff(sourceID string, req HandoffRequest) (*Handoff, e
 	if req.InPlace {
 		if !s.hub.AgentOnMachine(in.MachineID, a.ID) {
 			return nil, ErrHandoffAgent
+		}
+		if src, ok := agentByID(s.hub.Agents(), in.Agent); ok && (src.Engine != "") != (a.Engine != "") {
+			return nil, ErrHandoffNextCode
 		}
 		req.MachineID, req.WorkspaceID, req.Root, req.Part = "", "", false, ""
 	}

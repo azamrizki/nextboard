@@ -135,6 +135,12 @@ func (s *Store) Add(machineID, agent, name, dir string, createLocal bool) (Profi
 // EnsureHome returns the agent's state folder on This PC, creating folder and
 // profile when missing. created is true the first time.
 func (s *Store) EnsureHome(machineID, agent string) (p Profile, created bool, err error) {
+	return s.EnsureHomeNamed(machineID, agent, "NextBoard")
+}
+
+// EnsureHomeNamed is EnsureHome with the name a new home profile gets (NextCode's is "NextCode",
+// so that it is not taken for Claude Code's NextBoard account).
+func (s *Store) EnsureHomeNamed(machineID, agent, name string) (p Profile, created bool, err error) {
 	dir := s.st.Path("agents", agent)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return Profile{}, false, err
@@ -146,7 +152,7 @@ func (s *Store) EnsureHome(machineID, agent string) (p Profile, created bool, er
 			return x, false, nil
 		}
 	}
-	p = Profile{ID: auth.RandomID("pf_"), MachineID: machineID, Agent: agent, Name: "NextBoard", Dir: dir,
+	p = Profile{ID: auth.RandomID("pf_"), MachineID: machineID, Agent: agent, Name: name, Dir: dir,
 		CreatedByHub: true, CreatedAt: time.Now().UTC(), Home: true}
 	s.list = append(s.list, p)
 	return p, true, s.saveLocked()

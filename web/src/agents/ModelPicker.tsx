@@ -2,9 +2,12 @@
 // told nothing, and a typed name for a model it does not list.
 
 import { useState } from 'react';
-import type { Agent, AgentModel, ModelChoice, ModelList } from '../lib/types';
-import { isProviderId } from '../providers/AccountOptions';
-import { providerModels, useProvider } from '../providers/providers';
+import type { Agent, ModelChoice, ModelList } from '../lib/types';
+import { apiProviderChoice, isApiEngine } from '../nextcode/engines';
+import { isProviderId } from '../providers/accounts';
+import { providerModelList, useProviders } from '../providers/providers';
+import { nextcodeProvider } from '../settings/nextcodeSettings';
+import { useSettings } from '../store';
 import { modelLabel, useAgentModels } from './models';
 
 const OTHER = '\0other';
@@ -20,16 +23,27 @@ interface Props {
   disabled?: boolean;
 }
 
-export function ModelPicker({ agent, value, onChange, profileId, fallback, disabled }: Props) {
-  const provider = useProvider(isProviderId(profileId) ? profileId : undefined);
+/**
+ * What an agent can run on a login or an API provider (ap_…): the CLI's list, or the provider's
+ * models with the CLI's efforts. NextCode's API engine always runs on a provider: with none given,
+ * the one its console would start on (Settings › NextCode's default, else the first). `pickable` is
+ * false when it cannot be told a model at all.
+ */
+export function useModelList(agent: Agent | undefined, profileId?: string): { list: ModelList | null; onProvider: boolean; pickable: boolean } {
+  const providers = useProviders();
+  const settings = useSettings();
+  const providerId = isProviderId(profileId) ? profileId : isApiEngine(agent) ? apiProviderChoice('', providers, nextcodeProvider(settings)) : '';
+  const provider = providerId ? providers.find((p) => p.id === providerId) : undefined;
   const cliList = useAgentModels(agent, provider ? undefined : profileId);
-  const [typing, setTyping] = useState(false);
-  if (!agent?.models && !provider) return null;
-  if (!agent) return null;
   // on a provider: its models, its default
-  const list: ModelList | null | undefined = provider
-    ? { efforts: cliList?.efforts ?? [], source: 'provider', models: providerModels(provider).map((id): AgentModel => ({ id, name: id })), current: provider.model }
-    : cliList;
+  const list: ModelList | null = provider ? providerModelList(provider, cliList?.efforts, agent) : cliList;
+  return { list, onProvider: !!provider, pickable: !!agent && (!!agent.models || !!provider) };
+}
+
+export function ModelPicker({ agent, value, onChange, profileId, fallback, disabled }: Props) {
+  const { list, onProvider: provider, pickable } = useModelList(agent, profileId);
+  const [typing, setTyping] = useState(false);
+  if (!pickable || !agent) return null;
   const model = value.model ?? '';
   const effort = value.effort ?? '';
   const models = list?.models ?? [];

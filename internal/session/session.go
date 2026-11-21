@@ -13,6 +13,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/agentstate"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/marker"
+	"github.com/azamrizki/nextboard/internal/nextcode"
 	"github.com/azamrizki/nextboard/internal/screen"
 	"github.com/azamrizki/nextboard/internal/store"
 	"github.com/azamrizki/nextboard/internal/transcript"
@@ -342,6 +343,9 @@ type Session struct {
 	// modelScan is how far syncModel has read the transcript (modelMu).
 	modelMu   sync.Mutex
 	modelScan transcript.ModelScan
+
+	// nc drives a NextCode console's CLI (nextcode.go); nil for a terminal console.
+	nc *nextcode.Driver
 }
 
 func newSession(m *Manager, spec Spec) *Session {
@@ -757,6 +761,10 @@ func (s *Session) launch(mode string) {
 	gen := s.gen
 	s.killing = false
 	s.mu.Unlock()
+	if a := s.m.agentFor(spec); a.Engine != "" {
+		s.launchChat(spec, a, mode)
+		return
+	}
 
 	host, ok := s.m.machines.Host(spec.MachineID)
 	if !ok {
@@ -1006,6 +1014,10 @@ func (s *Session) Input(p []byte) error {
 	s.inMu.Lock()
 	defer s.inMu.Unlock()
 	s.mu.Lock()
+	if s.ag.Engine != "" {
+		s.mu.Unlock()
+		return ErrNextCodeInput
+	}
 	if s.spec.Asleep || s.sleeping || s.waking {
 		// it wakes, and gets the keys at its prompt (after what it had there)
 		typed := TypedInput(p)

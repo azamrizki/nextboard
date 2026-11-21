@@ -56,6 +56,15 @@ describe('signInPatch', () => {
   it('uses the CLI logins of the user, even for an agent without a home profile yet', () => {
     expect(signInPatch('own', [])).toEqual({ agents: { profiles: { local: { claude: '', codex: '' } } } });
   });
+  it('keeps NextCode on its own NextBoard login: it never takes Claude Code’s ~/.claude', () => {
+    const withNextCode = [...homes, { agent: 'nextcode', id: 'pf_home0003' }];
+    expect(signInPatch('own', withNextCode)).toEqual({ agents: { profiles: { local: { claude: '', codex: '', nextcode: 'pf_home0003' } } } });
+    expect(signInPatch('separate', withNextCode)).toEqual({ agents: { profiles: { local: { claude: 'pf_home0001', codex: 'pf_home0002', nextcode: 'pf_home0003' } } } });
+  });
+  it('keeps NextCode’s Codex engine on its own NextBoard login too: never Codex’s ~/.codex', () => {
+    const both = [...homes, { agent: 'nextcode', id: 'pf_home0003' }, { agent: 'nextcode-codex', id: 'pf_home0004' }];
+    expect(signInPatch('own', both)).toEqual({ agents: { profiles: { local: { claude: '', codex: '', nextcode: 'pf_home0003', 'nextcode-codex': 'pf_home0004' } } } });
+  });
   it('runs the hidden runs on a provider only when asked', () => {
     expect(signInPatch('provider', homes, 'ap_abcd1234')).toMatchObject({ runner: { provider: 'ap_abcd1234' } });
     expect(signInPatch('provider', [], undefined)).toBeNull();

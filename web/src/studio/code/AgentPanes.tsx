@@ -56,6 +56,11 @@ import { ResumeChatList } from '../../chats/ResumeChatList';
 import { ResumeDialog } from '../../chats/ResumeDialog';
 import { useLeadActive } from '../../chats/store';
 import type { ChatView } from '../../chats/types';
+import { useIsNextCode } from '../../nextcode/detect';
+import { agentChoiceName, apiProviderChoice, isApiEngine, NEEDS_PROVIDER } from '../../nextcode/engines';
+import { providersStore } from '../../providers/providers';
+import { nextcodeProvider } from '../../settings/nextcodeSettings';
+import { NextCodeChat } from '../../nextcode/NextCodeChat';
 
 /** What a pane needs from the board around the card; nodeId is the card's (the editor node). */
 export const PaneEnv = createContext<{ project: Project; ctl: BoardController; nodeId?: string } | null>(null);
@@ -105,7 +110,17 @@ function pickPlace(ws: Workspace, v: string) {
 export async function startAgentPane(ws: Workspace, workspaceId: string, agent: Agent, where: Where, place?: Placement, card?: string) {
   try {
     const at = place ?? agentPlace(ws);
-    const s = await api.createSession({ workspaceId, preset: agent.id, agent: agent.id, panel: true, ...(card ? { card } : {}), cols: 100, rows: 30, ...ws.placeOf(placeDir(ws.paths, at)) });
+    // NextCode's API engine runs on an API provider: Settings › NextCode's, else the first
+    let providerId: string | undefined;
+    if (isApiEngine(agent)) {
+      await providersStore.load();
+      providerId = apiProviderChoice('', providersStore.get(), nextcodeProvider(store.getState().settings));
+      if (!providerId) {
+        toast.error(NEEDS_PROVIDER);
+        return;
+      }
+    }
+    const s = await api.createSession({ workspaceId, preset: agent.id, agent: agent.id, ...(providerId ? { providerId } : {}), panel: true, ...(card ? { card } : {}), cols: 100, rows: 30, ...ws.placeOf(placeDir(ws.paths, at)) });
     store.upsertSession(s);
     ws.placePane(s.id, where);
   } catch (err) {
@@ -159,9 +174,9 @@ export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced
     // a Root card asks where the agent starts: the root (every part) or one part
     ...(ws.paths.multi && agents.length ? ([placeChoice(ws)] as MenuEntry[]) : []),
     ...agents.map<MenuEntry>((a) => ({
-      label: a.name,
+      label: agentChoiceName(a, agents),
       icon: 'bot',
-      title: ws.paths.multi ? `Start ${a.name} in ${placeName(ws, agentPlace(ws))}` : `Start ${a.name} in the project folder`,
+      title: ws.paths.multi ? `Start ${agentChoiceName(a, agents)} in ${placeName(ws, agentPlace(ws))}` : `Start ${agentChoiceName(a, agents)} in the project folder`,
       onSelect: () => void startAgentPane(ws, workspaceId, a, where, agentPlace(ws), card),
     })),
     ...(agents.length ? (['sep'] as MenuEntry[]) : []),
@@ -332,6 +347,9 @@ function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
   useWs(ws);
   const s = useSession(id);
   const host = useRef<HTMLDivElement>(null);
+  // a NextCode console is a chat (docs/API-agents.md §30): its composer takes the keyboard
+  const nextcode = useIsNextCode(id);
+  const phone = useLayout().layout === 'phone';
 
   // xterm appears a moment after the view does, so the keyboard waits for it
   const focus = ws.paneFocus;
@@ -339,12 +357,12 @@ function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
     if (focus.id !== id) return;
     let tries = 0;
     const t = window.setInterval(() => {
-      const box = host.current?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
+      const box = host.current?.querySelector<HTMLTextAreaElement>(nextcode ? '.nc-input' : '.xterm-helper-textarea');
       box?.focus();
       if (box || ++tries > 30) window.clearInterval(t);
     }, 100);
     return () => window.clearInterval(t);
-  }, [focus.tick, focus.id, id]);
+  }, [focus.tick, focus.id, id, nextcode]);
 
   return (
     <div className="wb-pane-console" ref={host}>
@@ -359,9 +377,15 @@ function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
           </Button>
         </div>
       )}
-      <div className="wb-pane-term">
-        <TerminalView key={id} sessionId={id} />
-      </div>
+      {nextcode ? (
+        <div className="nc-pane">
+          <NextCodeChat key={id} sessionId={id} variant={phone ? 'phone' : 'tab'} />
+        </div>
+      ) : (
+        <div className="wb-pane-term">
+          <TerminalView key={id} sessionId={id} />
+        </div>
+      )}
     </div>
   );
 }
@@ -990,7 +1014,7 @@ function CardSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: string }
             ))}
             {choices.agents.map((a) => (
               <Button key={a.id} variant="ghost" icon="bot" onClick={() => void startAgentPane(ws, workspaceId, a, 'side', undefined, choices.card)}>
-                {a.name}
+                {agentChoiceName(a, choices.agents)}
               </Button>
             ))}
             <Button variant="ghost" icon="resume" onClick={() => askResume(ws, 'side')}>

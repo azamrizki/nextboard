@@ -37,7 +37,8 @@ func (s *Server) available(h machine.Host, a agent.Agent) bool {
 }
 
 // installed reports whether an agent can run on machine h: shells always,
-// otherwise its detect command (or the settings path override) resolves.
+// otherwise its detect command (or the settings path override) resolves. NextCode's own engine is
+// the hub's own program: always there on This PC, never on a server.
 func (s *Server) installed(h machine.Host, a agent.Agent) bool {
 	if a.Kind == agent.KindShell || a.Command == "$SHELL" {
 		return true
@@ -48,6 +49,9 @@ func (s *Server) installed(h machine.Host, a agent.Agent) bool {
 			return false
 		}
 		h = s.machines.Local()
+	}
+	if a.ProviderOnly() {
+		return true
 	}
 	override := s.settings.View().Agents.Paths[h.ID()][a.ID]
 	if h.ID() == machine.LocalID {

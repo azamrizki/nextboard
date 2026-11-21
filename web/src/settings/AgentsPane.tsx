@@ -5,7 +5,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { api, errorMessage } from '../api';
 import { AgentCaps, AgentSwatch } from '../agents/AgentPicker';
-import { byPriority, refreshAgents, SOURCE_LABEL, useAgentCatalog, useMachinesAgents } from '../agents/catalog';
+import { agentTagline, byPriority, isChatAgent, refreshAgents, SOURCE_LABEL, useAgentCatalog, useMachinesAgents } from '../agents/catalog';
 import { patchSettings, useEffectiveSettings } from '../agents/settings';
 import { YoloConfirm } from '../agents/YoloConfirm';
 import { Button } from '../components/Button';
@@ -15,6 +15,7 @@ import { Icon } from '../components/Icon';
 import { SettingRow, SwitchRow } from '../components/Switch';
 import { toast } from '../components/Toast';
 import type { Agent, Machine } from '../lib/types';
+import { engineLabel } from '../nextcode/engines';
 import { machineReady } from '../board/sessionStatus';
 import { useMachines } from '../store';
 import { AgentDetailsDialog } from './AgentDetailsDialog';
@@ -366,7 +367,13 @@ function AgentRow({ agent, machines, perMachine, off, children }: AgentRowProps)
           <span className="agent-row-name">{agent.name}</span>
           <span className="cap-chip">{SOURCE_LABEL[agent.source] ?? agent.source}</span>
           {off && <span className="cap-chip">Turned off</span>}
-          {agent.base && <span className="cap-chip">Like {agent.base === 'claude' ? 'Claude Code' : 'Codex'}</span>}
+          {isChatAgent(agent) ? (
+            <span className="cap-chip" title={agentTagline(agent)}>
+              Chat · {engineLabel(agent.engine)} engine
+            </span>
+          ) : (
+            agent.base && <span className="cap-chip">Like {agent.base === 'claude' ? 'Claude Code' : 'Codex'}</span>
+          )}
         </div>
         <span className="agent-row-cmd mono truncate" title={[agent.command, ...(agent.args ?? [])].join(' ')}>
           {[agent.command, ...(agent.args ?? [])].join(' ')}

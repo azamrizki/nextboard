@@ -6,10 +6,10 @@
 
 import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
 import { api, errorMessage, isCode } from '../api';
-import { launchAgent, restartConsole, resumeMode } from '../agents/actions';
+import { launchAgent, NEXTCODE_SWITCH, restartConsole, resumeMode } from '../agents/actions';
 import { modelSummary } from '../agents/models';
 import { SwitchAgentDialog } from '../agents/AgentPicker';
-import { canContinue, canPickInCli, canResumeExact, hasTranscript, hasYolo, useAgent } from '../agents/catalog';
+import { agentById, canContinue, canPickInCli, canResumeExact, hasTranscript, hasYolo, isChatAgent, useAgent } from '../agents/catalog';
 import { OutputViewer } from '../agents/OutputViewer';
 import { ResumePicker } from '../agents/ResumePicker';
 import { agentPill, handleOf, handleProblem, hasOutput, isAgentConsole, profileChip, type Pill } from '../agents/state';
@@ -240,6 +240,8 @@ export function useConsoleActions(nodeId: string, session: Session, machine: Mac
               if (!ok) throw new Error('The console did not restart.');
             }}
             onSwitch={async (agentId, account, { brief, note, fresh, ...opts }) => {
+              // the dialog offers none, but the hub would refuse it (409 nextcode_switch)
+              if (isChatAgent(agentById(agentId)) !== isChatAgent(agent)) throw new Error(NEXTCODE_SWITCH);
               try {
                 const { profileId, providerId } = splitAccount(account);
                 orchStore.upsertHandoff(
@@ -344,8 +346,10 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
   const { agent, setDialog } = actions;
   const switching = useOrch((st) => Object.values(st.handoffs).find((h) => h.inPlace && h.sourceSessionId === session.id && !HANDOFF_OVER.includes(h.state)));
   const switchingTo = useAgent(switching?.agent ?? '');
-  const backTo = session.pastRuns?.find((r) => r.agent !== session.agent && r.agentSessionId);
-  const backToAgent = useAgent(backTo?.agent);
+  const backToRun = session.pastRuns?.find((r) => r.agent !== session.agent && r.agentSessionId);
+  const backToAgent = useAgent(backToRun?.agent);
+  // a terminal console never goes back to NextCode, nor a NextCode console to a terminal agent
+  const backTo = backToRun && isChatAgent(backToAgent) === isChatAgent(agent) ? backToRun : undefined;
   const statePill = agentPill(session, socket);
   // While it changes hands the tile says so: the agent's own state is not the story.
   const pill: Pill = switching
@@ -410,13 +414,16 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
   const dec = stepScale(textScale, -1);
   const inc = stepScale(textScale, 1);
 
+  // a NextCode console has a chat, no terminal (docs/API-agents.md §30): no terminal text, picker,
+  // pause, sleep, text size or kill; its CLI rests by itself when idle
+  const chat = isChatAgent(agent);
   const items: MenuEntry[] = [
     { label: session.handle ? 'Rename handle' : 'Rename', icon: 'pencil', onSelect: () => startRename('handle') },
   ];
   if (session.handle) items.push({ label: 'Rename title', icon: 'type', onSelect: () => startRename('name') });
   if (hasOutput(session) || session.reply) items.push({ label: 'See output', icon: 'fileText', onSelect: () => setDialog({ t: 'output' }) });
   // a finger cannot select in the terminal itself (tablets, phones): its text in a sheet instead
-  if (liveConsole(session.id)) items.push({ label: 'Copy text…', icon: 'copy', onSelect: () => setDialog({ t: 'copy' }) });
+  if (liveConsole(session.id) && !chat) items.push({ label: 'Copy text…', icon: 'copy', onSelect: () => setDialog({ t: 'copy' }) });
   if (agentConsole) {
     items.push('sep', { type: 'heading', label: agent?.name ?? 'Agent' });
     items.push({ label: atShell ? 'Start agent' : 'Restart agent', icon: 'restart', disabled: exited, onSelect: actions.restartAgent });
@@ -427,8 +434,9 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
         disabled: exited,
         onSelect: actions.resume,
       });
-    if (hasTranscript(agent) || canPickInCli(agent)) items.push({ label: 'Pick conversation…', icon: 'history', disabled: exited, onSelect: actions.pick });
-    if (yoloable)
+    if ((hasTranscript(agent) || canPickInCli(agent)) && !chat) items.push({ label: 'Pick conversation…', icon: 'history', disabled: exited, onSelect: actions.pick });
+    // NextCode has permission modes instead; one started with the hub's Yolo default can still leave it
+    if (yoloable || (session.yolo && isChatAgent(agent)))
       items.push(
         session.yolo
           ? { label: 'Turn off Yolo…', icon: 'shield', disabled: exited, onSelect: () => setDialog({ t: 'yoloOff' }) }
@@ -445,14 +453,15 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
   // Phase 6: pause / resume, hand off, forward, group membership
   if (agentConsole && isAgentSession(session)) {
     items.push('sep', { type: 'heading', label: 'Orchestration' });
-    items.push(
-      session.paused
-        ? { label: 'Resume', icon: 'play', onSelect: () => void resumeSessions([session]) }
-        : { label: 'Pause', icon: 'pause', disabled: exited || atShell, title: 'Stop the process until you resume it (state is kept)', onSelect: () => void pauseSessions([session]) },
-      { label: 'Hand off…', icon: 'handoff', disabled: exited || atShell, title: 'Continue this task in a new console of another agent', onSelect: () => ui.set({ handoff: session.id }) },
-    );
+    if (!chat)
+      items.push(
+        session.paused
+          ? { label: 'Resume', icon: 'play', onSelect: () => void resumeSessions([session]) }
+          : { label: 'Pause', icon: 'pause', disabled: exited || atShell, title: 'Stop the process until you resume it (state is kept)', onSelect: () => void pauseSessions([session]) },
+      );
+    items.push({ label: 'Hand off…', icon: 'handoff', disabled: exited || atShell, title: 'Continue this task in a new console of another agent', onSelect: () => ui.set({ handoff: session.id }) });
     // ROADMAP #50: an idle agent's process ends to free memory and resumes when needed
-    if (session.machineId === 'local') {
+    if (session.machineId === 'local' && !chat) {
       items.push(
         session.asleep
           ? { label: 'Wake now', icon: 'sun', title: 'Start it again with its conversation', onSelect: () => void wake(session) }
@@ -489,26 +498,26 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
       },
     });
   }
+  if (!chat)
+    items.push('sep', {
+      type: 'stepper',
+      label: 'Text',
+      value: textOverride === null ? `${textScale}%` : `${textScale}%*`,
+      decLabel: 'Smaller text',
+      incLabel: 'Larger text',
+      resetLabel: 'Global',
+      onDec: dec ? () => setText(dec) : undefined,
+      onInc: inc ? () => setText(inc) : undefined,
+      onReset: textOverride !== null ? () => setText(null) : undefined,
+    });
   items.push('sep', {
-    type: 'stepper',
-    label: 'Text',
-    value: textOverride === null ? `${textScale}%` : `${textScale}%*`,
-    decLabel: 'Smaller text',
-    incLabel: 'Larger text',
-    resetLabel: 'Global',
-    onDec: dec ? () => setText(dec) : undefined,
-    onInc: inc ? () => setText(inc) : undefined,
-    onReset: textOverride !== null ? () => setText(null) : undefined,
+    label: 'Restart console',
+    icon: 'restart',
+    title: chat ? 'Stop its CLI; the next message starts it again on the same conversation' : 'Kill the console and launch it again (scrollback stays)',
+    onSelect: () => void restartConsole(session, agentConsole ? resumeBody(session, agent) : {}),
   });
-  items.push(
-    'sep',
-    {
-      label: 'Restart console',
-      icon: 'restart',
-      title: 'Kill the console and launch it again (scrollback stays)',
-      onSelect: () => void restartConsole(session, agentConsole ? resumeBody(session, agent) : {}),
-    },
-    {
+  if (!chat)
+    items.push({
       label: 'Kill process',
       icon: 'power',
       disabled: exited,
@@ -517,10 +526,8 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
           .killSession(session.id)
           .then((s) => store.upsertSession(s))
           .catch((err) => toast.error(`Kill failed for ${who(session)}: ${errorMessage(err)}`)),
-    },
-    'sep',
-    { label: 'Close terminal…', icon: 'trash', danger: true, onSelect: () => setDialog({ t: 'close' }) },
-  );
+    });
+  items.push('sep', { label: chat ? 'Close console…' : 'Close terminal…', icon: 'trash', danger: true, onSelect: () => setDialog({ t: 'close' }) });
 
   const mstatus = machine ? machineStatus(machine) : null;
   const showHandle = !!session.handle;
