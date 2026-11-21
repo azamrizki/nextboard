@@ -93,7 +93,10 @@ type Server struct {
 	profiles            *profiles.Store
 	mcp                 *mcpreg.Store
 	// ncKit is NextCode's skills and memory (docs/API-agents.md §30, Clean NextCode).
-	ncKit     *kit.Kit
+	ncKit *kit.Kit
+	// subTokens are the tokens of NextCode's sub-agents at work: token → their console's id
+	// (nextcode_agents.go). A sub-agent reaches the hub's tools with one, with no sub-agents.
+	subTokens sync.Map
 	providers *providers.Store
 	spend     spendCache
 	jobs      *jobs.Manager

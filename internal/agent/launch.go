@@ -318,6 +318,7 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			p.env = append(p.env, "NB_NEXTCODE_GUARD="+g)
 		}
 		// the MCP servers Settings › NextCode gives it, their values in variables of their own
+		var mcpServers []map[string]any
 		if len(c.MCP) > 0 {
 			type v struct {
 				Name string `json:"name"`
@@ -334,7 +335,15 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			for i, m := range c.MCP {
 				servers[i] = map[string]any{"name": m.Name, "url": m.URL, "headers": vars(m.Headers), "command": m.Command, "args": m.Args, "env": vars(m.Env)}
 			}
-			b, _ := json.Marshal(servers)
+			mcpServers = servers
+		}
+		// the hub's: NextCode's agent tool (its sub-agents)
+		if c.MCPURL != "" {
+			mcpServers = append(mcpServers, map[string]any{"name": "nextboard", "url": c.MCPURL,
+				"headers": []map[string]string{{"name": "Authorization", "var": "NB_TOKEN", "prefix": "Bearer "}}})
+		}
+		if len(mcpServers) > 0 {
+			b, _ := json.Marshal(mcpServers)
 			p.env = append(p.env, "NB_NEXTCODE_MCP="+string(b))
 		}
 	}
@@ -846,12 +855,16 @@ func planNextCode(a Agent, c *LaunchContext) (contextPlan, bool) {
 			p.args = append(p.args, "--system-prompt-file", c.PromptFile)
 		}
 		var servers []MCPServer
-		hub := ""
+		hub := c.MCPURL // NextCode's agent tool, and a server's tools there
+		if hub != "" {
+			// spawning sub-agents asks nothing (what they do asks); a call lasts as long as they work
+			p.args = append(p.args, "--allowedTools", "mcp__nextboard__agent")
+			p.env = append(p.env, "MCP_TOOL_TIMEOUT=3600000")
+		}
 		if c.Remote {
 			// on a server: the local file tools see an empty folder; the work goes through the
 			// hub's tools of that server
 			p.args = append(p.args, "--tools", "Read,Write,Edit,TodoWrite,AskUserQuestion,ExitPlanMode")
-			hub = c.MCPURL
 			names := make([]string, len(RemoteToolNames))
 			for i, n := range RemoteToolNames {
 				names[i] = "mcp__nextboard__" + n
@@ -870,9 +883,13 @@ func planNextCode(a Agent, c *LaunchContext) (contextPlan, bool) {
 		// its own home already (CODEX_HOME); no instructions files of the project read by
 		// itself, no MCP servers of its config: NextCode's only
 		p.args = append(p.args, "-c", "project_doc_max_bytes=0", "-c", "mcp_servers={}")
-		if c.Remote && c.MCPURL != "" {
+		if c.MCPURL != "" {
+			// the hub's: NextCode's agent tool (a call lasts as long as its sub-agents work)
 			p.args = append(p.args, "-c", "mcp_servers.nextboard.url="+tomlString(c.MCPURL),
-				"-c", `mcp_servers.nextboard.bearer_token_env_var="NB_TOKEN"`)
+				"-c", `mcp_servers.nextboard.bearer_token_env_var="NB_TOKEN"`, "-c", "mcp_servers.nextboard.tool_timeout_sec=3600")
+			if !c.Remote {
+				p.args = append(p.args, "-c", `mcp_servers.nextboard.default_tools_approval_mode="approve"`)
+			}
 		}
 		if c.Prompt != "" {
 			instructions, _ := json.Marshal(c.Prompt) // a JSON string is a TOML string

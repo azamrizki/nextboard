@@ -103,8 +103,14 @@ export function reduceAll(state: ChatState, list: ChatAction[]): ChatState {
   return s;
 }
 
+/**
+ * NextCode's own multi-agent tool, the same on every engine (docs/API-agents.md §30): its call
+ * holds a card per sub-agent ("Agent"), and each card that sub-agent's work.
+ */
+export const NEXTCODE_AGENTS_TOOL = 'mcp__nextboard__agent';
+
 /** A sub-agent's tool call: its items have `parent` set to the call's id. */
-export const SUB_AGENT_TOOLS = ['Task', 'Agent'];
+export const SUB_AGENT_TOOLS = ['Task', 'Agent', NEXTCODE_AGENTS_TOOL];
 
 /**
  * The items of the main conversation, and each tool call's sub-agent items by the call's id. An

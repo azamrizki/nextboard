@@ -29,6 +29,8 @@ const ProtocolVersion = "2025-06-18"
 type Var struct {
 	Name string `json:"name"`
 	Var  string `json:"var"`
+	// Prefix goes before the value ("Bearer " for a token).
+	Prefix string `json:"prefix,omitempty"`
 }
 
 // Server is one server as the hub hands it (NB_NEXTCODE_MCP): a URL or a command.
@@ -84,13 +86,14 @@ func Connect(ctx context.Context, srv Server, environ []string, getenv func(stri
 	case srv.URL != "":
 		headers := map[string]string{}
 		for _, h := range srv.Headers {
-			headers[h.Name] = getenv(h.Var)
+			headers[h.Name] = h.Prefix + getenv(h.Var)
 		}
-		c.conn = &httpConn{url: srv.URL, headers: headers, client: &http.Client{Timeout: 5 * time.Minute}}
+		// no limit of its own: a call ends with the turn (a sub-agent may work for long)
+		c.conn = &httpConn{url: srv.URL, headers: headers, client: &http.Client{}}
 	case srv.Command != "":
 		env := append([]string{}, environ...)
 		for _, v := range srv.Env {
-			env = append(env, v.Name+"="+getenv(v.Var))
+			env = append(env, v.Name+"="+v.Prefix+getenv(v.Var))
 		}
 		c.conn, err = startStdio(srv.Command, srv.Args, env)
 		if err != nil {

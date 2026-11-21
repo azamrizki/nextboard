@@ -163,3 +163,12 @@ describe('a sign-in failure that is over', () => {
     expect(retryAfterSignIn([err()])).toBe('');
   });
 });
+
+describe('NextCode’s sub-agents', () => {
+  it('names its multi-agent call and says its tasks', () => {
+    expect(toolLabel('mcp__nextboard__agent')).toBe('Sub-agents');
+    expect(toolArg('mcp__nextboard__agent', { tasks: [{ description: 'API routes', prompt: 'x' }, { description: 'Web pages', prompt: 'y' }] })).toBe('2 tasks · API routes, Web pages');
+    expect(toolArg('Agent', { description: 'API routes', prompt: 'x' })).toBe('API routes');
+    expect(toolLabel('mcp__github__create_issue')).toBe('github · create_issue');
+  });
+});

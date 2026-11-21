@@ -272,7 +272,8 @@ func TestNextCodeIsIndependent(t *testing.T) {
 	args := string(b)
 	// nothing of the hub's memory, tools or MCP, and nothing of the CLI's own setup (Clean NextCode):
 	// NextCode's own skills and memory folders only, and its own prompt instead of Claude Code's
-	for _, not := range []string{"--mcp-config", "autoMemoryDirectory", "mcp__nextboard", "/memory/" + "p_", h.srv.st.Path("memory")} {
+	// the hub's MCP server is there for NextCode's agent tool only (its sub-agents)
+	for _, not := range []string{"autoMemoryDirectory", "mcp__nextboard__memory", "/memory/" + "p_", h.srv.st.Path("memory")} {
 		if strings.Contains(args, not) {
 			t.Fatalf("NextCode's launch has %q: %s", not, args)
 		}

@@ -296,6 +296,10 @@ func (s *Server) nextcodeContext(sp session.Spec, a agent.Agent) (*agent.LaunchC
 	if !s.settings.View().Agents.CoAuthor {
 		prompt.WriteString(agent.NoCoAuthorRule + "\n")
 	}
+	// the hub's MCP server: NextCode's agent tool (its sub-agents), and a server's tools there
+	if c.MCPURL == "" && s.hookURL != "" {
+		c.MCPURL = strings.TrimSuffix(s.hookURL, "/nb/hook") + "/nb/mcp/" + sp.ID
+	}
 	// NextCode's skills and memory: files it reads and keeps with its own tools, on every engine
 	prompt.WriteString("\n" + s.ncKit.Prompt(sp.ProjectID))
 	c.AddDirs = append(c.AddDirs, s.ncKit.SkillsDir(), s.ncKit.MemoryDir())
@@ -384,6 +388,8 @@ type rpcRequest struct {
 // remoteTarget is what one token may reach: a server's files, the project's
 // memory, or both.
 type remoteTarget struct {
+	// agents: NextCode's agent tool (a NextCode console, not one of its sub-agents)
+	agents         bool
 	machineID, cwd string
 	readOnly       bool
 	projectID      string
@@ -435,14 +441,25 @@ func (t remoteTarget) tools() []map[string]any {
 	if t.credentials && t.sessionID != "" && t.projectID != "" {
 		list = append(list, credentialToolList...)
 	}
+	if t.agents && t.sessionID != "" {
+		list = append(list, agentToolDef)
+	}
 	return list
 }
 
 // handleRemoteMCP serves MCP to a console. There is no event stream, so GET
 // answers 405 as the protocol allows.
 func (s *Server) handleRemoteMCP(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.sessions.Get(r.PathValue("sid"))
-	if !ok || !sess.HookTokenOK(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
+	sid := r.PathValue("sid")
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	sess, ok := s.sessions.Get(sid)
+	// a NextCode sub-agent comes with a token of its own: the console's tools, no sub-agents
+	sub := false
+	if ok && !sess.HookTokenOK(token) {
+		owner, found := s.subAgentSession(token)
+		ok, sub = found && owner == sid, true
+	}
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -450,11 +467,13 @@ func (s *Server) handleRemoteMCP(w http.ResponseWriter, r *http.Request) {
 	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true, sessionID: sp.ID, workspaceID: sp.WorkspaceID,
 		credentials: sp.ProjectID != "" && s.credVault != nil && s.credVault.HasAgentEntries(sp.ProjectID)}
 	if sess.IsNextCode() {
-		// independent of NextBoard's agents (docs/API-agents.md §30): the server's tools only
+		// independent of NextBoard's agents (docs/API-agents.md §30): the server's tools only,
+		// and NextCode's agent tool for its sub-agents (not for a sub-agent itself)
 		t.memory, t.credentials = false, false
+		t.agents = !sub
 	}
 	s.withParts(&t, sp)
-	if len(t.tools()) == 0 {
+	if len(t.tools()) == 0 && !sess.IsNextCode() {
 		http.Error(w, "this console does not use hub tools", http.StatusNotFound)
 		return
 	}
@@ -527,6 +546,9 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 		return map[string]any{}, nil
 	case "tools/list":
 		list := t.tools()
+		if list == nil {
+			list = []map[string]any{} // an array, also with none (a NextCode sub-agent on This PC)
+		}
 		return map[string]any{"tools": list}, nil
 	case "tools/call":
 		var p struct {
@@ -535,6 +557,12 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 		}
 		if json.Unmarshal(req.Params, &p) != nil {
 			return nil, map[string]any{"code": -32602, "message": "invalid params"}
+		}
+		if p.Name == "agent" {
+			if !t.agents {
+				return remoteAnswer("this console does not have the tool agent: a sub-agent starts no sub-agents of its own", true), nil
+			}
+			return remoteAnswer(s.runSubAgents(ctx, t.sessionID, p.Arguments)), nil
 		}
 		if !t.memory && (strings.HasPrefix(p.Name, "memory_") || strings.HasPrefix(p.Name, "credential_") || missionTools[p.Name] || p.Name == "board_diagram") {
 			return remoteAnswer("this console does not have the tool "+p.Name, true), nil

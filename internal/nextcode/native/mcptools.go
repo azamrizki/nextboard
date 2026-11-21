@@ -39,7 +39,14 @@ type mcpTool struct {
 }
 
 func (t *mcpTool) Def() llm.ToolDef { return t.def }
-func (t *mcpTool) Kind() string     { return KindMCP }
+
+// Kind: NextCode's own agent tool asks nothing (what its sub-agents do asks); others ask.
+func (t *mcpTool) Kind() string {
+	if t.def.Name == "mcp__nextboard__agent" {
+		return tools.KindMeta
+	}
+	return KindMCP
+}
 
 func (t *mcpTool) Run(ctx context.Context, _ *tools.Env, input json.RawMessage) tools.Result {
 	text, isErr, err := t.client.Call(ctx, t.name, input)

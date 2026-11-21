@@ -3,7 +3,7 @@
 // newer CLIs) fall back to their first short text argument.
 
 import type { IconName } from '../components/Icon';
-import { SUB_AGENT_TOOLS } from './reducer';
+import { NEXTCODE_AGENTS_TOOL, SUB_AGENT_TOOLS } from './reducer';
 import type { Tool } from './types';
 
 export type Input = Record<string, unknown>;
@@ -52,12 +52,14 @@ const ICONS: Record<string, IconName> = {
 };
 
 export function toolIcon(name: string): IconName {
+  if (name === NEXTCODE_AGENTS_TOOL) return 'users';
   if (name.startsWith('mcp__')) return 'plug';
   return ICONS[name] ?? 'bolt';
 }
 
 /** "mcp__github__create_issue" → "github · create_issue"; any other name as it is. */
 export function toolLabel(name: string): string {
+  if (name === NEXTCODE_AGENTS_TOOL) return 'Sub-agents';
   if (!name.startsWith('mcp__')) return name;
   const [, server = '', ...rest] = name.split('__');
   return rest.length ? `${server} · ${rest.join('__')}` : server;
@@ -107,6 +109,12 @@ export function toolArg(name: string, input: unknown, compact = false): string {
     case 'Task':
     case 'Agent':
       return str(o.description) || firstLine(str(o.prompt));
+    case NEXTCODE_AGENTS_TOOL: {
+      // "3 tasks · API routes, web pages, tests"
+      const tasks = Array.isArray(o.tasks) ? o.tasks.map((t) => str(inputOf(t).description)).filter(Boolean) : [];
+      const n = Array.isArray(o.tasks) ? o.tasks.length : 1;
+      return [`${n} ${n === 1 ? 'task' : 'tasks'}`, tasks.join(', ')].filter(Boolean).join(' · ');
+    }
     case 'TodoWrite': {
       const n = Array.isArray(o.todos) ? o.todos.length : 0;
       return `${n} ${n === 1 ? 'to-do' : 'to-dos'}`;

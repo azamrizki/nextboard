@@ -71,6 +71,7 @@ type Driver struct {
 	items     []Item
 	index     map[string]int
 	reqs      []*Request
+	routes    map[string]func(Answer) error // a sub-agent's requests shown here (subagent.go)
 	status    Status
 	proc      *Proc
 	gen       int
@@ -368,6 +369,9 @@ func (d *Driver) Warm() error {
 
 // Answer answers a request.
 func (d *Driver) Answer(id string, a Answer) error {
+	if handled, err := d.answerRouted(id, a); handled {
+		return err
+	}
 	d.mu.Lock()
 	idx := -1
 	for i, r := range d.reqs {

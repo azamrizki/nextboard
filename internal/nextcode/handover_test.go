@@ -124,3 +124,41 @@ func TestHandOverPrompt(t *testing.T) {
 		t.Fatal("a clipped prompt cut a character in half")
 	}
 }
+
+// A sub-agent's chat shows in the main one under its card, and what it asks is asked there and
+// answered back to it (NextCode's multi-agent).
+func TestAttachSubAgent(t *testing.T) {
+	parent := newRig(t, t.TempDir(), 0)
+	child := newRig(t, t.TempDir(), 0)
+	parent.d.PutItem(Item{ID: "card1", Kind: KindTool, Tool: &Tool{Name: "Agent", Status: ToolRunning}})
+	stop := parent.d.Attach(child.d, "card1", "card1/")
+	defer stop()
+	if err := child.d.Send("write"); err != nil {
+		t.Fatal(err)
+	}
+	prompt := parent.until("the task", func(f Frame) bool { return f.T == FrameItem && f.Item.Kind == KindPrompt })
+	if prompt.Item.Parent != "card1" || !strings.HasPrefix(prompt.Item.ID, "card1/") || prompt.Item.Text != "write" {
+		t.Fatalf("the task %+v", prompt.Item)
+	}
+	req := parent.until("its request", func(f Frame) bool { return f.T == FrameRequest }).Request
+	if !strings.HasPrefix(req.ID, "card1/") || req.Parent != "card1" || req.Tool != "Write" {
+		t.Fatalf("request %+v", req)
+	}
+	if p := parent.d.Pending(); len(p) != 1 || p[0].ID != req.ID {
+		t.Fatalf("pending in the main chat %+v", p)
+	}
+	if err := parent.d.Answer(req.ID, Answer{Decision: Allow}); err != nil {
+		t.Fatal(err)
+	}
+	parent.until("resolved", func(f Frame) bool { return f.T == FrameResolved && f.ID == req.ID })
+	done := parent.until("its tool done", func(f Frame) bool {
+		return f.T == FrameItem && f.Item.Tool != nil && f.Item.Tool.Name == "Write" && f.Item.Tool.Status == ToolDone
+	})
+	if done.Item.Parent != "card1" {
+		t.Fatalf("tool %+v", done.Item)
+	}
+	child.turnEnded()
+	if len(parent.d.Pending()) != 0 || child.d.Final() == "" {
+		t.Fatalf("pending %+v final %q", parent.d.Pending(), child.d.Final())
+	}
+}

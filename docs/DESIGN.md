@@ -448,6 +448,10 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
   - Its Effort row is NextCode's own on every account: Default, low, medium, high, xhigh, max
     (each titled that a model without it runs at its nearest); it stays when the model or the
     account changes.
+- **Sub-agents** (NextCode's multi-agent): the call of NextCode's agent tool is a card "Sub-agents"
+  (users icon) saying "2 tasks · API routes, web pages"; inside it one "Agent" card per task,
+  each a sub-agent group as for Claude Code's Task: its task, then its work as it streams, its
+  report as the card's result. A sub-agent's permission request is a request card of the chat.
 - **NextCode's commands:** the composer's "/" list starts with NextCode's own, `model`,
   `effort` and `mode`, then the CLI's. NextCode answers them in the chat itself: the command as a
   bubble and a notice row ("Effort: high, from the next message, on every model of this chat."),

@@ -154,9 +154,35 @@ func (s *Session) launchChat(spec Spec, a agent.Agent, mode string) {
 
 // chatStart starts the console's CLI headless (nextcode.Config.Start).
 func (s *Session) chatStart(resume bool, line func([]string) []string) (*nextcode.Proc, error) {
+	return s.startCLI(resume, line, "")
+}
+
+// SubAgent opens the driver of a sub-agent of this NextCode console (NextCode's multi-agent,
+// docs/API-agents.md §30): the console's CLI on its account, model, folder and context, in a
+// conversation of its own, in permission mode mode. token is what it reaches the hub's tools
+// with: the hub gives it none of its own sub-agents. Its chat is kept in memory only.
+func (s *Session) SubAgent(token, mode string) (*nextcode.Driver, error) {
+	s.mu.Lock()
+	a := s.ag
+	s.mu.Unlock()
+	if a.Engine == "" {
+		return nil, ErrNotNextCode
+	}
+	start := func(resume bool, line func([]string) []string) (*nextcode.Proc, error) {
+		return s.startCLI(resume, line, token)
+	}
+	return nextcode.New(nextcode.Config{Engine: a.Engine, Start: start, PermissionMode: mode})
+}
+
+// startCLI starts the console's CLI headless; with a sub-agent's token, a new conversation every
+// time that leaves the console's own as it is.
+func (s *Session) startCLI(resume bool, line func([]string) []string, subToken string) (*nextcode.Proc, error) {
 	s.mu.Lock()
 	sp, a := s.spec, s.ag
 	s.mu.Unlock()
+	if subToken != "" {
+		resume, sp.AgentSessionID = false, ""
+	}
 	mode := agent.ModeFresh
 	if resume && validSessionID(sp.AgentSessionID) {
 		mode = agent.ModeResume
@@ -198,7 +224,7 @@ func (s *Session) chatStart(resume bool, line func([]string) []string) (*nextcod
 	if err != nil {
 		return nil, err
 	}
-	if hp.Mode == agent.ModeFresh && hp.AgentSessionID != "" {
+	if hp.Mode == agent.ModeFresh && hp.AgentSessionID != "" && subToken == "" {
 		s.mu.Lock()
 		s.spec.AgentSessionID = hp.AgentSessionID
 		s.mu.Unlock()
@@ -209,6 +235,13 @@ func (s *Session) chatStart(resume bool, line func([]string) []string) (*nextcod
 		return nil, errors.New("machine not found")
 	}
 	env := append(append(append([]string{}, hp.Env...), extra...), "NEXTBOARD_SESSION_ID="+sp.ID)
+	if subToken != "" {
+		for i, kv := range env {
+			if strings.HasPrefix(kv, "NB_TOKEN=") {
+				env[i] = "NB_TOKEN=" + subToken
+			}
+		}
+	}
 	if sp.MachineID == machine.LocalID && s.m.CommitHooks != "" && !st.Agents.CoAuthor {
 		env = append(env, agent.CommitHookEnv(s.m.CommitHooks)...)
 	}
