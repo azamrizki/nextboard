@@ -1031,6 +1031,8 @@ export interface Settings {
     account?: string;
     model?: string;
     effort?: string;
+    /** The ids of the hub's MCP servers NextCode gets, on every account; none by default. */
+    mcp?: string[];
   };
   [key: string]: unknown;
 }

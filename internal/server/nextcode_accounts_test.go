@@ -183,7 +183,9 @@ func TestNextCodeOwnCommandsAndEffort(t *testing.T) {
 		if st, r := h.do("POST", "/api/sessions/"+id+"/nextcode/messages", map[string]any{"text": text}, nil); st != 202 {
 			t.Fatalf("%s: %d %v", text, st, r)
 		}
-		h.waitChat(id, want, func(it map[string]any) bool { return it["kind"] == "notice" && strings.Contains(fmt.Sprint(it["text"]), want) })
+		h.waitChat(id, want, func(it map[string]any) bool {
+			return it["kind"] == "notice" && strings.Contains(fmt.Sprint(it["text"]), want)
+		})
 	}
 	answer("/effort", "Effort: xhigh.")
 	answer("/effort max", "Effort: max, from the next message")
@@ -218,4 +220,74 @@ func TestNextCodeOwnCommandsAndEffort(t *testing.T) {
 		t.Fatalf("after the move %v", info)
 	}
 	h.do("DELETE", "/api/sessions/"+id, nil, nil)
+}
+
+// Clean NextCode: its skills and memory through the API, in the prompt its console starts with
+// (NextCode's own, instead of Claude Code's), and only the MCP servers Settings › NextCode gives it.
+func TestNextCodeKit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	h := newTestHub(t)
+	h.setup()
+	dir := t.TempDir()
+	t.Setenv("FAKE_DIR", dir)
+	fakeAPIAgent(t, dir)
+	h.do("PATCH", "/api/settings", map[string]any{"agents": map[string]any{"paths": map[string]any{"local": map[string]any{"claude": filepath.Join(dir, "claude")}}}}, nil)
+
+	if st, r := h.do("PUT", "/api/nextcode/skills/Bad Name", map[string]any{"description": "x", "body": "y"}, nil); st != 400 {
+		t.Fatalf("bad name %d %v", st, r)
+	}
+	st, sk := h.do("PUT", "/api/nextcode/skills/release-check", map[string]any{"description": "Before a release", "body": "Run make test-fast."}, nil)
+	if st != 200 || sk["path"] != h.srv.st.Path("nextcode", "skills", "release-check", "SKILL.md") {
+		t.Fatalf("skill %d %v", st, sk)
+	}
+	if _, list := h.do("GET", "/api/nextcode/skills", nil, nil); len(list["items"].([]any)) != 1 {
+		t.Fatalf("skills %v", list)
+	}
+	proj := filepath.Join(dir, "shop")
+	_ = os.MkdirAll(proj, 0o755)
+	_, p := h.do("POST", "/api/projects", map[string]any{"machineId": "local", "path": proj, "name": "Shop"}, nil)
+	pid, wid := p["id"].(string), p["workspaces"].([]any)[0].(map[string]any)["id"].(string)
+	h.do("PUT", "/api/nextcode/memory/global", map[string]any{"text": "- answers in Indonesian"}, nil)
+	if st, _ := h.do("PUT", "/api/nextcode/memory/"+pid, map[string]any{"text": "- tests: make test"}, nil); st != 200 {
+		t.Fatalf("project memory %d", st)
+	}
+	if st, _ := h.do("PUT", "/api/nextcode/memory/..", map[string]any{"text": "x"}, nil); st != 400 && st != 404 {
+		t.Fatalf("a bad scope %d", st)
+	}
+	if _, m := h.do("GET", "/api/nextcode/memory/"+pid, nil, nil); m["text"] != "- tests: make test\n" {
+		t.Fatalf("memory %v", m)
+	}
+
+	// two MCP servers in NextBoard; NextCode gets the one it is given
+	for _, id := range []string{"docs", "other"} {
+		if st, r := h.do("POST", "/api/mcp/servers", map[string]any{"id": id, "transport": "http", "url": "https://" + id + ".example/mcp", "enabled": true}, nil); st != 201 {
+			t.Fatalf("mcp %s %d %v", id, st, r)
+		}
+	}
+	h.do("PATCH", "/api/settings", map[string]any{"nextcode": map[string]any{"mcp": []string{"docs"}}}, nil)
+
+	st, in := h.do("POST", "/api/sessions", map[string]any{"agent": "nextcode", "workspaceId": wid}, nil)
+	if st != 201 {
+		t.Fatalf("console %d %v", st, in)
+	}
+	id := in["id"].(string)
+	h.waitInfo(id, "ready", func(in map[string]any) bool { return in["agentState"] == "ready" })
+	h.do("POST", "/api/sessions/"+id+"/nextcode/messages", map[string]any{"text": "hello"}, nil)
+	h.waitChat(id, "the reply", func(it map[string]any) bool { return it["text"] == "Done: hello" })
+	b, _ := os.ReadFile(h.srv.st.Path("agents", "prompts", id+".md"))
+	prompt := string(b)
+	for _, want := range []string{"You are NextCode, a coding agent", "- release-check: Before a release (", "- answers in Indonesian", "- tests: make test"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("the console's prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+	args, _ := os.ReadFile(filepath.Join(dir, "args"))
+	if !strings.Contains(string(args), "--system-prompt-file") || !strings.Contains(string(args), `"docs"`) || strings.Contains(string(args), `"other"`) {
+		t.Fatalf("the launch: %s", args)
+	}
+	h.do("DELETE", "/api/sessions/"+id, nil, nil)
+	if st, _ := h.do("DELETE", "/api/nextcode/skills/release-check", nil, nil); st != 200 {
+		t.Fatalf("delete skill %d", st)
+	}
+	_ = pid
 }

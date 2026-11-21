@@ -30,6 +30,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/machine"
 	"github.com/azamrizki/nextboard/internal/mcpreg"
+	"github.com/azamrizki/nextboard/internal/nextcode/kit"
 	"github.com/azamrizki/nextboard/internal/orch"
 	"github.com/azamrizki/nextboard/internal/preview"
 	"github.com/azamrizki/nextboard/internal/profiles"
@@ -91,17 +92,19 @@ type Server struct {
 	ide                 *idelink.Hub
 	profiles            *profiles.Store
 	mcp                 *mcpreg.Store
-	providers           *providers.Store
-	spend               spendCache
-	jobs                *jobs.Manager
-	hubUpdate           hubUpdater
-	deliver             *delivery.Engine
-	orch                *orch.Service
-	attn                *attentionRing
-	events              *Broker
-	conns               *connRegistry
-	dev                 bool
-	devWeb              int // Vite port accepted in dev mode
+	// ncKit is NextCode's skills and memory (docs/API-agents.md §30, Clean NextCode).
+	ncKit     *kit.Kit
+	providers *providers.Store
+	spend     spendCache
+	jobs      *jobs.Manager
+	hubUpdate hubUpdater
+	deliver   *delivery.Engine
+	orch      *orch.Service
+	attn      *attentionRing
+	events    *Broker
+	conns     *connRegistry
+	dev       bool
+	devWeb    int // Vite port accepted in dev mode
 
 	listen       string
 	statusListen string
@@ -229,7 +232,7 @@ func New(opts Options) (_ *Server, err error) {
 	s := &Server{
 		st: st, dataLock: lock, cfg: cfg, auth: as, machines: reg, sessions: mgr, connLog: connLog,
 		projects: projects, boards: board.NewManager(st),
-		mcp: mcpServers, providers: provs, agents: mgr.Agents, settings: sets, extensions: studio.NewExtensions(st.Path("extensions")), profiles: profs, jobs: jobs.NewManager(st, reg.Host), attn: newAttentionRing(),
+		mcp: mcpServers, ncKit: kit.New(st.Path("nextcode")), providers: provs, agents: mgr.Agents, settings: sets, extensions: studio.NewExtensions(st.Path("extensions")), profiles: profs, jobs: jobs.NewManager(st, reg.Host), attn: newAttentionRing(),
 		events: NewBroker(), conns: newConnRegistry(), dev: opts.Dev, devWeb: cmp.Or(opts.DevWebPort, 5173),
 		listen:       cfg.Listen,
 		statusListen: cfg.StatusListen,

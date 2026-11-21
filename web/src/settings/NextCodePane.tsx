@@ -25,6 +25,7 @@ import { useAccountSources } from '../nextcode/ModelMenu';
 import { providersStore } from '../providers/providers';
 import { useMachines } from '../store';
 import { API_AUTO, idleMinutes, IDLE_LIMITS, nextcodeIntro, nextcodeOf, PERMISSION_MODES } from './nextcodeSettings';
+import { McpCard, MemoryCard, SkillsCard } from './NextCodeKit';
 import { ProfileDialog } from './ProfilesPane';
 
 const ProfileSignInDialog = lazy(() => import('./ProfileSignIn').then((m) => ({ default: m.ProfileSignInDialog })));
@@ -71,6 +72,9 @@ export function NextCodePane() {
         </div>
       )}
       <AccountsCard agents={builtins} />
+      <SkillsCard />
+      <MemoryCard />
+      <McpCard />
 
       <section className="card settings-card" aria-labelledby="nc-defaults">
         <h3 id="nc-defaults" className="section-title">

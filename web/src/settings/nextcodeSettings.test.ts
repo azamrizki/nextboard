@@ -45,7 +45,7 @@ describe('the API engine’s default provider', () => {
 describe('nextcodeIntro', () => {
   it('says NextCode is one agent on the accounts added, apart from Claude Code and Codex', () => {
     expect(nextcodeIntro()).toMatch(/^NextCode is one agent: add the accounts it may run on/);
-    expect(nextcodeIntro()).toMatch(/apart from Claude Code and Codex\.$/);
+    expect(nextcodeIntro()).toMatch(/nothing of its CLI or the account comes along/);
   });
 });
 

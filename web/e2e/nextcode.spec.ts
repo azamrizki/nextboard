@@ -100,4 +100,23 @@ test('Settings › NextCode has its accounts and defaults', async ({ page, hub }
   await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.effort).toBe('xhigh');
   await page.getByRole('radiogroup', { name: 'Effort of new NextCode consoles' }).getByRole('radio', { name: 'Default', exact: true }).click();
   await expect.poll(async () => (await hub.call('GET', '/api/settings')).nextcode.effort ?? '').toBe('');
+
+  // NextCode's own skills and memory, on every account
+  await page.getByRole('button', { name: 'Add skill' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a skill' });
+  await dialog.getByLabel('Name').fill('release-check');
+  await dialog.getByLabel('When to use it').fill('Before a release');
+  await dialog.getByLabel('What to do (Markdown)').fill('1. Run the tests.');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('list', { name: 'NextCode’s skills' })).toContainText('release-check');
+  expect(((await hub.call('GET', '/api/nextcode/skills')).items as { name: string }[]).map((x) => x.name)).toContain('release-check');
+  await page.getByRole('button', { name: 'Remove the skill release-check' }).click();
+  await expect(page.getByRole('list', { name: 'NextCode’s skills' })).toHaveCount(0);
+
+  await page.getByRole('list', { name: 'NextCode’s memory' }).getByRole('button', { name: /Write|Open/ }).first().click();
+  const memory = page.getByRole('dialog', { name: /NextCode’s memory · Every project/ });
+  await memory.getByLabel('Notes').fill('- answers in Indonesian');
+  await memory.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(async () => (await hub.call('GET', '/api/nextcode/memory/global')).text).toBe('- answers in Indonesian\n');
+  await hub.call('PUT', '/api/nextcode/memory/global', { text: '' });
 });

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/azamrizki/nextboard/internal/agent"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -269,9 +270,17 @@ func TestNextCodeIsIndependent(t *testing.T) {
 	}
 	b, _ := os.ReadFile(filepath.Join(dir, "args"))
 	args := string(b)
-	for _, not := range []string{"--mcp-config", "autoMemoryDirectory", "mcp__nextboard", "memory"} {
+	// nothing of the hub's memory, tools or MCP, and nothing of the CLI's own setup (Clean NextCode):
+	// NextCode's own skills and memory folders only, and its own prompt instead of Claude Code's
+	for _, not := range []string{"--mcp-config", "autoMemoryDirectory", "mcp__nextboard", "/memory/" + "p_", h.srv.st.Path("memory")} {
 		if strings.Contains(args, not) {
 			t.Fatalf("NextCode's launch has %q: %s", not, args)
+		}
+	}
+	for _, want := range []string{"--setting-sources  --strict-mcp-config --disable-slash-commands --system-prompt-file ", "--tools " + agent.NextCodeTools,
+		h.srv.st.Path("nextcode", "skills"), h.srv.st.Path("nextcode", "memory")} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("NextCode's launch lacks %q: %s", want, args)
 		}
 	}
 	b, _ = os.ReadFile(filepath.Join(dir, "config"))
@@ -360,8 +369,8 @@ func TestNextCodeOnServerTools(t *testing.T) {
 	}
 	b, _ := os.ReadFile(filepath.Join(dir, "args"))
 	args := string(b)
-	for _, want := range []string{"--tools Read,Write,Edit,TodoWrite,Skill", "--strict-mcp-config", "/nb/mcp/" + id, "read only for you"} {
-		if !strings.Contains(args, want) && !(want == "read only for you" && strings.Contains(args, "--append-system-prompt-file")) {
+	for _, want := range []string{"--tools Read,Write,Edit,TodoWrite,AskUserQuestion,ExitPlanMode", "--strict-mcp-config", "/nb/mcp/" + id, "read only for you"} {
+		if !strings.Contains(args, want) && !(want == "read only for you" && strings.Contains(args, "--system-prompt-file")) {
 			t.Fatalf("no %q in the launch %s", want, args)
 		}
 	}

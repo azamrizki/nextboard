@@ -212,6 +212,7 @@ func TestNextCodeAPIEngine(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(dir, "args"))
 	want := strings.Join([]string{"nextcode-agent", "--session-id", aid,
 		"--append-system-prompt-file", h.srv.st.Path("agents", "prompts", id+".md"), "--add-dir", h.srv.st.Path("attachments"),
+		"--add-dir", h.srv.st.Path("nextcode", "skills"), "--add-dir", h.srv.st.Path("nextcode", "memory"),
 		"--provider-kind", "openai", "--base-url", api.URL + "/v1", "--api", "chat", "--model", "glm-4.6", "--permission-mode", "default"}, " ")
 	if got := strings.TrimSpace(string(b)); got != want {
 		t.Fatalf("the agent's arguments\n%s\nwant\n%s", got, want)

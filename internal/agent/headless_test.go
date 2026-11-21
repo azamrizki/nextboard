@@ -294,3 +294,35 @@ func TestHeadlessAPI(t *testing.T) {
 		t.Fatal("on a server")
 	}
 }
+
+// A NextCode console takes nothing of its CLI's own setup (Clean NextCode, docs/API-agents.md
+// §30): no settings, hooks, MCP servers, connectors, skills or commands of the login's on Claude
+// Code, which runs NextCode's whole prompt and tools; no instructions files or MCP servers of its
+// config on Codex. Only NextCode's MCP servers go in.
+func TestNextCodeCleanLaunch(t *testing.T) {
+	mcp := []MCPServer{{Name: "docs", URL: "https://docs.example/mcp", Headers: []MCPVar{{Name: "Authorization", Var: "NB_MCP_0_DOCS_0"}}}}
+	claude := Agent{ID: "nextcode", Kind: KindAgent, Base: "claude", Engine: "claude"}
+	c := &LaunchContext{NextCode: true, Prompt: "NextCode's prompt", PromptFile: "/p.md", AddDirs: []string{"/kit/skills"}}
+	p := planContext(claude, c)
+	got := strings.Join(p.args, " ")
+	want := "--setting-sources  --strict-mcp-config --disable-slash-commands --system-prompt-file /p.md --tools " + NextCodeTools
+	if got != want || !slices.Contains(p.env, "ENABLE_CLAUDEAI_MCP_SERVERS=false") {
+		t.Fatalf("claude, no MCP:\n got %q\nwant %q\nenv %v", got, want, p.env)
+	}
+	c.MCP = mcp
+	p = planContext(claude, c)
+	if got := strings.Join(p.args, " "); !strings.HasSuffix(got, "--mcp-config $NB_MCP") || !strings.Contains(strings.Join(p.env, " "), `"docs"`) {
+		t.Fatalf("claude, NextCode's MCP: %q %v", got, p.env)
+	}
+	codex := Agent{ID: "nextcode-codex", Kind: KindAgent, Base: "codex", Engine: "codex"}
+	p = planContext(codex, c)
+	got = strings.Join(p.args, " ")
+	if !strings.HasPrefix(got, "-c project_doc_max_bytes=0 -c mcp_servers={} -c $NB_CODEX_CFG") || strings.Contains(got, "nextboard") ||
+		!strings.Contains(got, "--add-dir /kit/skills") || !strings.Contains(strings.Join(p.env, " "), "developer_instructions=") {
+		t.Fatalf("codex: %q %v", got, p.env)
+	}
+	// a terminal agent is not touched
+	if p := planContext(Agent{ID: "claude", Kind: KindAgent}, &LaunchContext{Prompt: "x", PromptFile: "/p.md"}); slices.Contains(p.args, "--setting-sources") {
+		t.Fatalf("Claude Code's own launch %q", p.args)
+	}
+}

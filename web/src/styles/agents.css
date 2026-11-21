@@ -1396,3 +1396,12 @@ textarea.control.textarea-sm {
   font-size: 11px;
 }
 
+
+/* NextCode's skill and memory editors (settings/NextCodeKit.tsx) */
+.nc-kit-text {
+  width: 100%;
+  min-height: 12rem;
+  resize: vertical;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}

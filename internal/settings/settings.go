@@ -203,6 +203,9 @@ type NextCode struct {
 	Account string `json:"account,omitempty"`
 	Model   string `json:"model,omitempty"`
 	Effort  string `json:"effort,omitempty"`
+	// MCP are the ids of the hub's MCP servers (Settings › MCP servers) NextCode gets, on every
+	// engine; nil or empty = none. Nothing of a CLI's own or an account's connectors goes in.
+	MCP []string `json:"mcp,omitempty"`
 }
 
 // NextCodeEfforts are the values nextcode.effort may take: NextCode's own, the same on every
@@ -466,6 +469,7 @@ var (
 	machineRe  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	profileRe  = regexp.MustCompile(`^pf_[a-z0-9]{4,24}$`)
 	providerRe = regexp.MustCompile(`^ap_[a-z0-9]{4,24}$`)
+	mcpIDRe    = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	modelRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,127}$`)
 	effortRe   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,23}$`)
 	shortcutRe = regexp.MustCompile(`^[a-z0-9!-/:-@\[-` + "`" + `{-~]$`)
@@ -499,6 +503,14 @@ func validate(s *Settings) error {
 	}
 	if m := s.NextCode.Model; m != "" && !modelRe.MatchString(m) {
 		return badSetting("nextcode.model is not a model name")
+	}
+	if len(s.NextCode.MCP) > 32 {
+		return badSetting("nextcode.mcp: at most 32")
+	}
+	for _, id := range s.NextCode.MCP {
+		if !mcpIDRe.MatchString(id) {
+			return badSetting("nextcode.mcp: the ids of MCP servers")
+		}
 	}
 	if e := s.NextCode.Effort; e != "" && !NextCodeEfforts[e] {
 		return badSetting("nextcode.effort: low, medium, high, xhigh or max")

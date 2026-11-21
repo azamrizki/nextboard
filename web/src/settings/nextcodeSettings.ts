@@ -44,7 +44,7 @@ export function nextcodeProvider(s: Pick<Settings, 'nextcode'> | null | undefine
 
 /** The first lines of Settings › NextCode. */
 export function nextcodeIntro(): string {
-  return 'NextCode is one agent: add the accounts it may run on (your Claude or ChatGPT login, or an API provider), and pick a model of any of them in its chat. It keeps its own logins and memory, apart from Claude Code and Codex.';
+  return 'NextCode is one agent: add the accounts it may run on (your Claude or ChatGPT login, or an API provider), and pick a model of any of them in its chat. An account is only its way to the model: nothing of its CLI or the account comes along (settings, connectors, skills, plugins, instructions files). NextCode’s prompt, skills, memory and MCP servers are its own, below, the same on every account.';
 }
 
 /** The idle minutes typed, as the hub takes them: whole, 1–1440. null when it is not a number. */

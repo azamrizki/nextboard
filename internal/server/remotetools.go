@@ -25,6 +25,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/connlog"
 	"github.com/azamrizki/nextboard/internal/jobs"
 	"github.com/azamrizki/nextboard/internal/machine"
+	"github.com/azamrizki/nextboard/internal/nextcode/native"
 	"github.com/azamrizki/nextboard/internal/orch"
 	"github.com/azamrizki/nextboard/internal/profiles"
 	"github.com/azamrizki/nextboard/internal/project"
@@ -74,15 +75,7 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 		return nil, nil
 	}
 	if a.Engine != "" {
-		if a.CapBase() == "codex" {
-			// NextCode on Codex takes nothing of the hub's: no MCP server, instructions or memory
-			// (§30); its permission modes are its approval policy and sandbox
-			if s.orch != nil {
-				s.orch.MemoryForgotten(sp.ID)
-			}
-			return nil, nil
-		}
-		return s.nextcodeContext(sp)
+		return s.nextcodeContext(sp, a)
 	}
 	if s.hookURL == "" {
 		return nil, errors.New("the hook listener is not running yet")
@@ -233,11 +226,15 @@ func (s *Server) launchContext(sp session.Spec) (*agent.LaunchContext, error) {
 // own memory, and none of the hub's memory, launch prompt or MCP tools. It keeps what makes it
 // work safely in the project: its folders, the commands that need approval, the project's
 // sandbox, and the owner's rule on commit attribution.
-func (s *Server) nextcodeContext(sp session.Spec) (*agent.LaunchContext, error) {
+func (s *Server) nextcodeContext(sp session.Spec, a agent.Agent) (*agent.LaunchContext, error) {
 	if s.orch != nil {
-		s.orch.MemoryForgotten(sp.ID) // the project's memory does not go in
+		s.orch.MemoryForgotten(sp.ID) // the project's memory does not go in: NextCode has its own
 	}
-	c := &agent.LaunchContext{}
+	// Clean NextCode: nothing of the CLI's own setup or the account's goes in, only NextCode's
+	c := &agent.LaunchContext{NextCode: true}
+	if err := s.ncKit.Ensure(); err != nil {
+		return nil, err
+	}
 	if sp.MachineID == machine.LocalID {
 		// Must exist: Claude Code refuses a folder that does not.
 		c.AttachDir = s.st.Path("attachments")
@@ -299,7 +296,22 @@ func (s *Server) nextcodeContext(sp session.Spec) (*agent.LaunchContext, error) 
 	if !s.settings.View().Agents.CoAuthor {
 		prompt.WriteString(agent.NoCoAuthorRule + "\n")
 	}
-	if c.Prompt = prompt.String(); c.Prompt != "" {
+	// NextCode's skills and memory: files it reads and keeps with its own tools, on every engine
+	prompt.WriteString("\n" + s.ncKit.Prompt(sp.ProjectID))
+	c.AddDirs = append(c.AddDirs, s.ncKit.SkillsDir(), s.ncKit.MemoryDir())
+	// its MCP servers: those Settings › NextCode gives it, none of the CLI's or the account's
+	c.MCP, c.MCPEnv = s.nextcodeMCP(sp)
+	c.Prompt = prompt.String()
+	if a.CapBase() == "claude" {
+		// Claude Code runs with NextCode's whole system prompt instead of its own; the others
+		// add the context to theirs (NextCode's own agent has the same prompt already)
+		dirs := append([]string{}, c.AddDirs...)
+		if c.AttachDir != "" {
+			dirs = append(dirs, c.AttachDir)
+		}
+		c.Prompt = native.SystemPrompt(sp.Cwd, dirs, c.Prompt)
+	}
+	if c.Prompt != "" {
 		c.PromptFile = s.st.Path("agents", "prompts", sp.ID+".md")
 		if err := os.MkdirAll(filepath.Dir(c.PromptFile), 0o700); err != nil {
 			return nil, err
@@ -1274,4 +1286,32 @@ func (s *Server) handleConnLog(w http.ResponseWriter, r *http.Request, p *princi
 	q.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
 	items := s.connLog.Read(q)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "summary": connlog.Summarize(items)})
+}
+
+// nextcodeMCP are the MCP servers of a NextCode console: those of the hub's (Settings › MCP
+// servers) that Settings › NextCode gives NextCode, as they reach this console's project and
+// place; none by default.
+func (s *Server) nextcodeMCP(sp session.Spec) ([]agent.MCPServer, []string) {
+	want := s.settings.View().NextCode.MCP
+	if len(want) == 0 || s.mcp == nil {
+		return nil, nil
+	}
+	all, env := s.mcp.ForLaunch(sp.ProjectID, sp.RemoteMachineID != "")
+	var servers []agent.MCPServer
+	keep := map[string]bool{}
+	for _, m := range all {
+		if slices.Contains(want, m.Name) {
+			servers = append(servers, m)
+			for _, v := range append(append([]agent.MCPVar{}, m.Headers...), m.Env...) {
+				keep[v.Var] = true
+			}
+		}
+	}
+	var vars []string
+	for _, kv := range env {
+		if k, _, _ := strings.Cut(kv, "="); keep[k] {
+			vars = append(vars, kv)
+		}
+	}
+	return servers, vars
 }

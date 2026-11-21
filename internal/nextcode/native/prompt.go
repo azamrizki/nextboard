@@ -35,6 +35,13 @@ func systemPrompt(cwd string, addDirs []string, extra string) string {
 	return b.String()
 }
 
+// SystemPrompt is NextCode's system prompt for a conversation in cwd, with the hub's context
+// (extra) after it: the one NextCode's own agent uses, and the one a NextCode console on Claude
+// Code runs with instead of Claude Code's (docs/API-agents.md §30, Clean NextCode).
+func SystemPrompt(cwd string, addDirs []string, extra string) string {
+	return systemPrompt(cwd, addDirs, extra)
+}
+
 // gitRepo reports whether dir is inside a git repository (a .git folder or file above it).
 func gitRepo(dir string) bool {
 	for {
@@ -62,7 +69,7 @@ const promptBody = `# How to work
 - Search with Grep (file contents) and Glob (file names), not with grep, find or ls through Bash.
 - Bash commands must not wait for input: no editors, pagers or prompts (use flags like --yes, git --no-pager, CI=1). Quote paths that contain spaces or other special characters. Prefer absolute paths to cd.
 - When several tool calls do not depend on each other, make them in the same answer.
-- For work with several steps, keep a short task list with TodoWrite and keep it up to date.
+- For work with several steps, keep a short task list with TodoWrite, when you have it, and keep it up to date.
 - Use WebFetch for a URL the owner gave you or one the task clearly needs.
 - Use AskUserQuestion only when you are blocked on a real choice that only the owner can make, with two to four clear options. Never use it to ask leave for something you can just do.
 

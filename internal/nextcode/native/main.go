@@ -123,6 +123,12 @@ func start(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 	p.Key = key
 	cfg.client = newClient(p, nil)
 	cfg.tools = newTools()
+	// the MCP servers Settings › NextCode gives it: their tools join its own
+	if spec := os.Getenv(mcpEnv); spec != "" {
+		more, closeAll := connectMCP(ctx, spec, cfg.environ, stderr)
+		defer closeAll()
+		cfg.tools = append(cfg.tools, more...)
+	}
 	return run(ctx, cfg, stdin, stdout, stderr)
 }
 
@@ -287,7 +293,7 @@ func toolEnviron(environ []string, key string) []string {
 	for _, kv := range environ {
 		name, val, _ := strings.Cut(kv, "=")
 		switch {
-		case name == keyEnv, name == "NB_TOKEN", name == guardEnv,
+		case name == keyEnv, name == "NB_TOKEN", name == guardEnv, name == mcpEnv,
 			strings.HasPrefix(name, "NB_HOOK"), strings.HasPrefix(name, "NB_MCP"), strings.HasPrefix(name, "NEXTCODE_"):
 			continue
 		case key != "" && strings.Contains(val, key):

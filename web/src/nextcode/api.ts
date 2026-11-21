@@ -42,3 +42,34 @@ export const nextcodeApi = {
    */
   setModel: (id: string, c: ModelChange) => apiRequest<{ status: Status }>('PUT', `${base(id)}/model`, c),
 };
+
+// ---- NextCode's skills and memory (Clean NextCode): Settings › NextCode keeps them ----
+
+export interface NcSkill {
+  name: string;
+  description: string;
+  /** The SKILL.md on the hub, which the prompt points at. */
+  path: string;
+  body?: string;
+  updatedAt: string;
+}
+
+export interface NcMemoryScope {
+  /** "global" or a project's id. */
+  scope: string;
+  bytes: number;
+  updatedAt: string;
+}
+
+const skillPath = (name: string) => `/api/nextcode/skills/${encodeURIComponent(name)}`;
+const memoryPath = (scope: string) => `/api/nextcode/memory/${encodeURIComponent(scope)}`;
+
+export const kitApi = {
+  skills: () => apiRequest<{ items: NcSkill[]; dir: string }>('GET', '/api/nextcode/skills'),
+  skill: (name: string) => apiRequest<NcSkill>('GET', skillPath(name)),
+  putSkill: (name: string, description: string, body: string) => apiRequest<NcSkill>('PUT', skillPath(name), { description, body }),
+  deleteSkill: (name: string) => apiRequest<Ok>('DELETE', skillPath(name)),
+  memories: () => apiRequest<{ items: NcMemoryScope[]; dir: string }>('GET', '/api/nextcode/memory'),
+  memory: (scope: string) => apiRequest<{ scope: string; text: string; path: string }>('GET', memoryPath(scope)),
+  putMemory: (scope: string, text: string) => apiRequest<{ scope: string; text: string }>('PUT', memoryPath(scope), { text }),
+};

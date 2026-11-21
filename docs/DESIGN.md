@@ -476,6 +476,13 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
     login kind, the logins not added yet and "New Claude/ChatGPT login…" (the profile dialog;
     the new login joins the list), then the API providers not added yet. Until changed, the
     list is NextCode's defaults, and says so;
+  - **Skills**: NextCode's own (Clean NextCode), one row each (sparkle icon, name in mono, when
+    to use it) with Edit and a trash button; **Add skill** opens a dialog: Name (mono, fixed once
+    saved), When to use it, and What to do (a Markdown textarea);
+  - **Memory**: one row for every project ("Every project") and one per project that has notes,
+    with its size; Write or Open opens a textarea dialog, saved with Save;
+  - **MCP servers**: a checkbox per MCP server of NextBoard's (Settings › MCP servers), those
+    NextCode gets; with none, a link to add one;
   - **New consoles**: the start model as one select grouped by account ("Claude · Opus",
     "E2E Chat · Default (e2e-model)"; first "NextCode's default"), the effort as a segmented
     radio group (Default, low … max) that holds on every account and model, the start permission

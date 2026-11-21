@@ -83,7 +83,23 @@ type LaunchContext struct {
 	// TrustDir: WorkDir is a folder the hub made, which the CLI may trust without asking (Codex:
 	// a trusted project for this launch). "" = none.
 	TrustDir string
+	// NextCode: a NextCode console (docs/API-agents.md §30, Clean NextCode). The CLI is only the
+	// way to the model: nothing of its own setup goes in (its settings and hooks, its MCP servers
+	// and the account's connectors, its skills, commands, plugins and instructions files), and
+	// what it has is NextCode's: Prompt (for Claude Code NextCode's whole system prompt, which
+	// replaces Claude Code's; for Codex its developer instructions), MCP (the servers Settings ›
+	// NextCode gives it) and NextCodeTools.
+	NextCode bool
 }
+
+// NextCodeTools are the built-in tools a NextCode console has on Claude Code: the ones NextCode's
+// own agent has, by the same names, so a chat works the same on every account. A name the CLI
+// does not have is left out by it (TodoWrite is not in every build).
+const NextCodeTools = "Read,Write,Edit,Bash,Glob,Grep,WebFetch,WebSearch,TodoWrite,AskUserQuestion,ExitPlanMode"
+
+// NextCodeCleanEnv keeps the account's claude.ai connectors out of a NextCode launch, as
+// --strict-mcp-config does.
+var NextCodeCleanEnv = []string{"ENABLE_CLAUDEAI_MCP_SERVERS=false"}
 
 // Sandbox is a project's limit on an agent's commands (docs/API-agents.md §27): they write only
 // in the working folder, the temp folder and Write, and reach the network only with Network.
@@ -160,6 +176,11 @@ type contextPlan struct{ args, yolo, env []string }
 
 func planContext(a Agent, c *LaunchContext) contextPlan {
 	var p contextPlan
+	if c.NextCode {
+		if cp, ok := planNextCode(a, c); ok {
+			return cp
+		}
+	}
 	switch a.CapBase() {
 	case "claude":
 		if c.Prompt != "" {
@@ -295,6 +316,26 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		}
 		if g := nextcodeGuard(c.Blocked, c.Sandbox); g != "" {
 			p.env = append(p.env, "NB_NEXTCODE_GUARD="+g)
+		}
+		// the MCP servers Settings › NextCode gives it, their values in variables of their own
+		if len(c.MCP) > 0 {
+			type v struct {
+				Name string `json:"name"`
+				Var  string `json:"var"`
+			}
+			vars := func(list []MCPVar) []v {
+				out := make([]v, len(list))
+				for i, x := range list {
+					out[i] = v{x.Name, x.Var}
+				}
+				return out
+			}
+			servers := make([]map[string]any, len(c.MCP))
+			for i, m := range c.MCP {
+				servers[i] = map[string]any{"name": m.Name, "url": m.URL, "headers": vars(m.Headers), "command": m.Command, "args": m.Args, "env": vars(m.Env)}
+			}
+			b, _ := json.Marshal(servers)
+			p.env = append(p.env, "NB_NEXTCODE_MCP="+string(b))
 		}
 	}
 	return p
@@ -788,4 +829,74 @@ func buildFull(a Agent, o Options) (Plan, launchParts, error) {
 	parts := launchParts{command: command, args: wrapperArgs, yoloArgs: a.YoloArgs, yoloEnv: a.YoloEnv,
 		yolo: o.Yolo && a.HasYolo(), model: model, effort: effort}
 	return p, parts, nil
+}
+
+// planNextCode is a clean NextCode launch on Claude Code or Codex (LaunchContext.NextCode); ok
+// false for NextCode's own agent, which has its own case and nothing of a CLI's to keep out.
+func planNextCode(a Agent, c *LaunchContext) (contextPlan, bool) {
+	var p contextPlan
+	switch a.CapBase() {
+	case "claude":
+		// no settings, hooks or plugins of the login's, no MCP but NextCode's (also none of the
+		// account's connectors), no skills or slash commands; NextCode's prompt instead of
+		// Claude Code's (--bare would do the same, but it reads no subscription login)
+		p.args = append(p.args, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands")
+		p.env = append(p.env, NextCodeCleanEnv...)
+		if c.Prompt != "" {
+			p.args = append(p.args, "--system-prompt-file", c.PromptFile)
+		}
+		var servers []MCPServer
+		hub := ""
+		if c.Remote {
+			// on a server: the local file tools see an empty folder; the work goes through the
+			// hub's tools of that server
+			p.args = append(p.args, "--tools", "Read,Write,Edit,TodoWrite,AskUserQuestion,ExitPlanMode")
+			hub = c.MCPURL
+			names := make([]string, len(RemoteToolNames))
+			for i, n := range RemoteToolNames {
+				names[i] = "mcp__nextboard__" + n
+			}
+			p.yolo = []string{"--allowedTools", strings.Join(names, ",")}
+		} else {
+			p.args = append(p.args, "--tools", NextCodeTools)
+		}
+		servers = c.MCP
+		if hub != "" || len(servers) > 0 {
+			p.args = append(p.args, "--mcp-config", "$NB_MCP")
+			p.env = append(p.env, "NB_MCP="+ClaudeMCPConfig(hub, servers))
+		}
+		return p, true
+	case "codex":
+		// its own home already (CODEX_HOME); no instructions files of the project read by
+		// itself, no MCP servers of its config: NextCode's only
+		p.args = append(p.args, "-c", "project_doc_max_bytes=0", "-c", "mcp_servers={}")
+		if c.Remote && c.MCPURL != "" {
+			p.args = append(p.args, "-c", "mcp_servers.nextboard.url="+tomlString(c.MCPURL),
+				"-c", `mcp_servers.nextboard.bearer_token_env_var="NB_TOKEN"`)
+		}
+		if c.Prompt != "" {
+			instructions, _ := json.Marshal(c.Prompt) // a JSON string is a TOML string
+			p.args = append(p.args, "-c", "$NB_CODEX_CFG")
+			p.env = append(p.env, "NB_CODEX_CFG=developer_instructions="+string(instructions))
+		}
+		for i, kv := range codexMCPConfig(c.MCP) {
+			name := fmt.Sprintf("NB_CODEX_MCP_%d", i)
+			p.args = append(p.args, "-c", "$"+name)
+			p.env = append(p.env, name+"="+kv)
+		}
+		for _, d := range c.AddDirs {
+			p.args = append(p.args, "--add-dir", d)
+		}
+		if c.TrustDir != "" {
+			trusted, _ := json.Marshal(c.TrustDir)
+			p.args = append(p.args, "-c", "projects={"+string(trusted)+`={trust_level="trusted"}}`)
+		}
+		if sb := c.Sandbox; sb != nil {
+			roots, _ := json.Marshal(append([]string{}, sb.Write...))
+			p.args = append(p.args, "-c", fmt.Sprintf("sandbox_workspace_write.network_access=%t", sb.Network),
+				"-c", "sandbox_workspace_write.writable_roots="+string(roots))
+		}
+		return p, true
+	}
+	return p, false
 }
