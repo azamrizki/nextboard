@@ -375,3 +375,84 @@ export function directorsOf(nodes: BoardNode[], edges: BoardEdge[], editorId: st
   }
   return out;
 }
+
+// ---- membership without dragging (the Code view, DESIGN.md §3.19: Code view = Board view) ----
+
+/** Where the next member of a group goes: right of its last member, on the same row. */
+function besideGroup(nodes: BoardNode[], members: string[], w: number, h: number): NodeLayout | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const rs = members.map((id) => byId.get(id)).filter((n): n is BoardNode => !!n).map(rect);
+  if (!rs.length) return null;
+  const right = Math.max(...rs.map((r) => r.x + r.w));
+  const top = Math.min(...rs.map((r) => r.y));
+  return { x: right + GROUP_PAD, y: top, w, h };
+}
+
+/**
+ * Ops that put a console in a group from a list (no frame to drag it into): it moves beside the
+ * group's last member, leaves the group it was in, and both frames follow. null when it is in it
+ * already, or the group is full.
+ */
+export function addToGroupOps(nodes: BoardNode[], groupId: string, terminalId: string): Op[] | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const g = byId.get(groupId);
+  const t = byId.get(terminalId);
+  if (!g || g.kind !== 'group' || !t || t.kind !== 'terminal') return null;
+  const members = readGroup(g).members;
+  if (members.includes(terminalId) || members.length >= GROUP_MAX) return null;
+  const ops: Op[] = [];
+  const rects = new Map<string, NodeLayout>();
+  const to = besideGroup(nodes, members, t.w, t.h);
+  if (to) {
+    ops.push({ op: 'patch', id: t.id, set: { x: to.x, y: to.y } });
+    rects.set(t.id, to);
+  }
+  const after = new Map<string, string[]>([[groupId, [...members, terminalId]]]);
+  for (const other of groupNodes(nodes)) {
+    const om = readGroup(other).members;
+    if (other.id !== groupId && om.includes(terminalId)) {
+      const rest = om.filter((m) => m !== terminalId);
+      ops.push({ op: 'patch', id: other.id, set: { data: { members: rest } } });
+      after.set(other.id, rest);
+    }
+  }
+  ops.push({ op: 'patch', id: groupId, set: { data: { members: after.get(groupId)! } } });
+  ops.push(...frameOps(nodes, after.keys(), rects, after));
+  return ops;
+}
+
+/** Ops that take a console out of its group; the frame shrinks to the rest. */
+export function removeFromGroupOps(nodes: BoardNode[], terminalId: string): Op[] {
+  const ops: Op[] = [];
+  for (const g of groupNodes(nodes)) {
+    const m = readGroup(g).members;
+    if (!m.includes(terminalId)) continue;
+    const rest = m.filter((x) => x !== terminalId);
+    ops.push({ op: 'patch', id: g.id, set: { data: { members: rest } } });
+    ops.push(...frameOps(nodes, [g.id], undefined, new Map([[g.id, rest]])));
+  }
+  return ops;
+}
+
+/**
+ * Ops that make a group of consoles picked from a list: they line up in a row at `at` first, so
+ * the frame is the size of the team rather than of the board, then the group is made.
+ */
+export function newGroupOps(nodes: BoardNode[], terminalIds: string[], at: { x: number; y: number }, opts: { name?: string; role?: Role } = {}): { ops: Op[]; group: BoardNode } | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const picked = terminalIds.map((id) => byId.get(id)).filter((n): n is BoardNode => n?.kind === 'terminal').slice(0, GROUP_MAX);
+  if (!picked.length) return null;
+  const moved: Op[] = [];
+  let x = at.x;
+  const placed = nodes.map((n) => {
+    const i = picked.indexOf(n);
+    if (i < 0) return n;
+    const r = { x, y: at.y, w: n.w, h: n.h };
+    x += n.w + GROUP_PAD;
+    moved.push({ op: 'patch', id: n.id, set: { x: r.x, y: r.y } });
+    return { ...n, ...r };
+  });
+  const made = createGroupOps(placed, picked.map((n) => n.id), opts);
+  if (!made) return null;
+  return { ops: [...moved, ...made.ops], group: made.group };
+}

@@ -10,8 +10,9 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Icon } from '../../components/Icon';
 import { Menu, type MenuEntry } from '../../components/Menu';
 import { toast } from '../../components/Toast';
-import { killSessions, pauseSessions, resumeSessions } from '../../orch/actions';
-import { GROUP_COLORS, ROLE_COLOR, ROLE_LABEL, ROLES, type Role } from '../../orch/types';
+import { killSessions } from '../../orch/actions';
+import { ROLE_LABEL } from '../../orch/types';
+import { groupMenuItems } from '../groupMenu';
 import { useSessionsValue } from '../../orch/hooks';
 import type { FlowNode } from '../flow';
 import { groupNameProblem, groupSessions } from '../groups';
@@ -57,27 +58,7 @@ function GroupFrameImpl({ id, data, selected }: NodeProps<FlowNode>) {
     ctl.updateData(id, { name: v });
   };
 
-  const setRole = (role: Role) => ctl.updateData(id, { role, color: ROLE_COLOR[role] });
-
-  const items: MenuEntry[] = [
-    { label: 'Rename group', icon: 'pencil', onSelect: startRename },
-    { type: 'heading', label: 'Role' },
-    ...ROLES.map((r): MenuEntry => ({ label: ROLE_LABEL[r], checked: g.role === r, onSelect: () => setRole(r) })),
-    {
-      type: 'swatches',
-      label: 'Colour',
-      value: g.color,
-      options: GROUP_COLORS.map((c) => ({ value: c, label: c[0].toUpperCase() + c.slice(1), color: `var(--tag-${c})` })),
-      onSelect: (v) => ctl.updateData(id, { color: v }),
-    },
-    'sep',
-    { label: 'Add consoles…', icon: 'plus', disabled: g.members.length >= 12, onSelect: () => ui.set({ composer: { slots: Math.min(4, 12 - g.members.length), group: false, groupId: id } }) },
-    { label: 'Pause group', icon: 'pause', disabled: !sessions.some((s) => !s.paused && s.status === 'running'), onSelect: () => void pauseSessions(sessions) },
-    { label: 'Resume group', icon: 'play', disabled: !paused, onSelect: () => void resumeSessions(sessions.filter((s) => s.paused)) },
-    'sep',
-    { label: 'Ungroup', icon: 'ungroup', shortcut: 'Ctrl+Shift+G', onSelect: () => setConfirm('dissolve') },
-    { label: 'Kill group…', icon: 'power', danger: true, disabled: !sessions.some((s) => s.status !== 'exited'), onSelect: () => setConfirm('kill') },
-  ];
+  const items: MenuEntry[] = groupMenuItems(ctl, ui, data.node, sessions, { rename: startRename, confirm: setConfirm });
 
   const onHeadClick = (e: ReactMouseEvent) => {
     if ((e.target as HTMLElement).closest('button, input, .menu')) return;

@@ -5,6 +5,7 @@
 
 import type { IconName } from '../../components/Icon';
 import { externalUrl, localTarget, targetLabel } from '../../web/model';
+import { cardMeta } from './cardTabs';
 import type { ToolKind } from './toolKinds';
 
 export interface ToolItem {
@@ -81,6 +82,11 @@ export function toolMeta(kind: ToolKind, arg?: string): { title: string; icon: I
   if (kind === 'browser') {
     const title = browserTitle(arg);
     return { title, icon: 'globe', tip: parseBrowserArg(arg).url || 'Browser' };
+  }
+  if (kind === 'card') {
+    // a board card as a tab (Code view = Board view): its title as the card tab last saw it
+    const c = cardMeta(arg);
+    return { title: c.title, icon: c.icon, tip: `${c.title} · a card of this board` };
   }
   const item = TOOL_ITEMS.find((t) => t.kind === kind);
   return item ? { title: item.label, icon: item.icon, tip: item.label } : { title: 'Tool', icon: 'grid', tip: 'Tool' };

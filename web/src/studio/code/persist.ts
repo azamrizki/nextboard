@@ -18,7 +18,7 @@ export type SideView = 'files' | 'search' | 'scm' | 'review' | 'debug' | 'larave
 export type PanelView = 'terminal' | 'problems' | 'output' | 'debug' | 'tasks' | 'ports';
 export type MdView = 'reader' | 'split' | 'source';
 /** The code view's right side bar: the lead, the Agents list, or a pane put there. */
-export type RightTab = 'lead' | 'agents' | 'pane';
+export type RightTab = 'lead' | 'agents' | 'cards' | 'pane';
 
 export interface SearchState {
   query: string;

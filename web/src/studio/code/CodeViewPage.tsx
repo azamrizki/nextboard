@@ -13,13 +13,14 @@
 // Memory, Settings, theme, About this hub, Log out). A phone keeps the switcher, Board | Code and
 // ⋯; the bottom navigation is the workbench's (CodePhone.tsx).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import '../../styles/orch.css';
 import '../../styles/phase7.css';
 import '../../styles/tiles.css';
 import '../../styles/codeview.css';
 import { api, errorMessage } from '../../api';
+import { jumpToSession } from '../../agents/jump';
 import { BoardController, rectOf } from '../../board/controller';
 import { boundsOf } from '../../board/geometry';
 import { BoardEnvContext, UiStore, type BoardEnv } from '../../board/ui';
@@ -27,6 +28,7 @@ import { BrandMark, ConnStatus } from '../../components/AppHeader';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { LiveChip } from '../../components/LiveChip';
+import { Menu } from '../../components/Menu';
 import { MoreMenu } from '../../components/MoreMenu';
 import { NeedsYouChip } from '../../components/NeedsYouChip';
 import { EditorProjectSwitch } from '../../components/ProjectBar';
@@ -97,7 +99,7 @@ export default function CodeViewPage({ projectId }: { projectId: string }) {
 
   let body;
   if (project && board) {
-    body = <CodeViewBinding key={board.id} project={project} board={board} />;
+    body = <CodeViewBinding key={board.id} project={project} board={board} onBoard={setPinned} />;
   } else if ((ready && !project) || error) {
     body = (
       <div className="board-status card" role="alert">
@@ -129,7 +131,7 @@ function CodeViewLoading({ text }: { text: string }) {
 }
 
 /** The board the editor works in: a controller and a UI store, as a board page has, with no canvas. */
-function CodeViewBinding({ project, board }: { project: Project; board: Board }) {
+function CodeViewBinding({ project, board, onBoard }: { project: Project; board: Board; onBoard: (id: string) => void }) {
   const [ctl, setCtl] = useState<BoardController | null>(null);
   useEffect(() => {
     const c = new BoardController(board.id, project);
@@ -158,13 +160,15 @@ function CodeViewBinding({ project, board }: { project: Project; board: Board })
     () => (ctl ? { ctl, ui, project, viewCenter, frame: () => undefined, reveal: () => undefined, cardMenu: () => [] } : null),
     [ctl, ui, project, viewCenter],
   );
-  const topBar = useCallback((bar: PageBar) => <CodeViewBar project={project} bar={bar} />, [project]);
+  const topBar = useCallback((bar: PageBar) => <CodeViewBar project={project} bar={bar} board={board} onBoard={onBoard} />, [project, board, onBoard]);
 
   if (!ctl || !env) return <CodeViewLoading text="Loading the editor…" />;
   return (
     <ReactFlowProvider>
       <BoardEnvContext.Provider value={env}>
         <CodeStudio project={project} ctl={ctl} ui={ui} nodeId="" viewCenter={viewCenter} filled={false} mode="page" topBar={topBar} />
+        {/* the board's dialogs, as the Board view has them (Code view = Board view) */}
+        <CodeViewDialogs ctl={ctl} ui={ui} project={project} />
         {/* diagrams drawn from the Diagrams tab land on this board, the tab open or not (lane C) */}
         <DiagramLander ctl={ctl} viewCenter={viewCenter} />
       </BoardEnvContext.Provider>
@@ -226,7 +230,7 @@ function RunControls({ bar }: { bar: PageBar }) {
 }
 
 /** The Code view's top bar, over the workbench: on the page's backdrop, as in the islands design. */
-function CodeViewBar({ project, bar }: { project: Project; bar: PageBar }) {
+function CodeViewBar({ project, bar, board, onBoard }: { project: Project; bar: PageBar; board: Board; onBoard: (id: string) => void }) {
   const { ws, quickOpen, phone } = bar;
   useWs(ws);
   const dirty = [...ws.docs.values()].filter((d) => d.dirty).length;
@@ -238,6 +242,7 @@ function CodeViewBar({ project, bar }: { project: Project; bar: PageBar }) {
         </Link>
       )}
       <EditorProjectSwitch project={project} target="code" className="cv-switch" />
+      {!phone && <BoardPicker project={project} board={board} onBoard={onBoard} />}
       {!phone && <BranchChip ws={ws} onOpen={() => bar.view('scm')} />}
       <ViewSwitch project={project} />
       <span className="spacer" />
@@ -271,5 +276,60 @@ function CodeViewBar({ project, bar }: { project: Project; bar: PageBar }) {
       )}
       <MoreMenu project={project} avatar={!phone} />
     </header>
+  );
+}
+
+const TeamComposer = lazy(() => import('../../orch/panels/TeamComposer'));
+const LayoutsPanel = lazy(() => import('../../orch/panels/LayoutsPanel'));
+const HandoffDialog = lazy(() => import('../../orch/panels/HandoffDialog'));
+
+/**
+ * What the board's UI store opens as a dialog, shown here as on the Board view: Compose group
+ * (and a group's Add consoles), Layouts and Hand off. New consoles land on the board, and the
+ * first opens as a tab.
+ */
+function CodeViewDialogs({ ctl, ui, project }: { ctl: BoardController; ui: UiStore; project: Project }) {
+  const { panel, composer, handoff } = useSyncExternalStore(ui.subscribe, ui.get);
+  return (
+    <Suspense fallback={null}>
+      {composer && (
+        <TeamComposer
+          ctl={ctl}
+          project={project}
+          opts={composer}
+          onClose={() => ui.set({ composer: null })}
+          onSpawned={(ids) => {
+            if (ids[0]) window.setTimeout(() => jumpToSession(ids[0]), 300);
+          }}
+        />
+      )}
+      {panel === 'layouts' && <LayoutsPanel ctl={ctl} project={project} onClose={() => ui.set({ panel: null })} onDeployed={() => ui.set({ panel: null })} />}
+      {handoff && <HandoffDialog sessionId={handoff} workspaceId={ctl.workspaceId} projectId={project.id} onClose={() => ui.set({ handoff: null })} />}
+    </Suspense>
+  );
+}
+
+/**
+ * The board the Code view shows (Code view = Board view): its consoles, groups, links and cards are
+ * this board's. With several boards the menu picks another; the editor's tabs stay.
+ */
+function BoardPicker({ project, board, onBoard }: { project: Project; board: Board; onBoard: (id: string) => void }) {
+  const boards = project.workspaces ?? [];
+  const name = board.name || 'Board';
+  if (boards.length < 2)
+    return (
+      <span className="cv-chip cv-board" title={`This Code view shows the board ${name}: its agents, groups and cards`}>
+        <Icon name="grid" />
+        <span className="truncate">{name}</span>
+      </span>
+    );
+  return (
+    <Menu
+      label={`Board: ${name}. Show another board's agents and cards`}
+      triggerLabel={name}
+      icon="grid"
+      triggerClassName="cv-chip cv-board"
+      items={boards.map((b) => ({ label: b.name || 'Board', icon: 'grid' as const, checked: b.id === board.id, onSelect: () => onBoard(b.id) }))}
+    />
   );
 }

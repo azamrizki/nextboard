@@ -7,14 +7,17 @@
 // with the Quick actions in its composer (LeadPane), and Agents, the project's consoles on every
 // board with "Open as tab" (AgentsList): one console, one more view of it.
 
-import { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { BoardAgents, BoardConsoleBar, CardsList } from './BoardAgents';
+import { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { api, errorMessage } from '../../api';
 import { AgentBadge } from '../../agents/AgentBadge';
 import { useEffectiveSettings } from '../../agents/settings';
 import { restartConsole } from '../../agents/actions';
 import { agentById, byPriority, useMachineAgents } from '../../agents/catalog';
 import { agentPill } from '../../agents/state';
-import type { BoardController } from '../../board/controller';
+import { rectOf, type BoardController } from '../../board/controller';
+import { boundsOf } from '../../board/geometry';
+import { DEFAULT_H, DEFAULT_W, placeNear } from '../../board/layout';
 import { connectIntent, directedSessions, directorsOf, editorAgents } from '../../board/groups';
 import { Button } from '../../components/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -107,7 +110,7 @@ function pickPlace(ws: Workspace, v: string) {
  * the place picked in its agent menu, else the card's default (BottomPanel defaultPlaceOf). `card`
  * is the editor node it is opened in: an orchestrator card wired to that node directs it.
  */
-export async function startAgentPane(ws: Workspace, workspaceId: string, agent: Agent, where: Where, place?: Placement, card?: string) {
+export async function startAgentPane(ws: Workspace, workspaceId: string, agent: Agent, where: Where, place?: Placement, card?: string, board?: BoardController) {
   try {
     const at = place ?? agentPlace(ws);
     // a custom agent on NextCode's API engine runs on an API provider: Settings › NextCode's, else
@@ -120,6 +123,23 @@ export async function startAgentPane(ws: Workspace, workspaceId: string, agent: 
         toast.error(NEEDS_PROVIDER);
         return;
       }
+    }
+    if (board) {
+      // the Code view is the board (Code view = Board view): its agent is a console card of the
+      // board too, beside what is there, so groups, wires and task boards work the same in both
+      const dir = ws.placeOf(placeDir(ws.paths, at));
+      const rect = placeNear(board.nodes.map(rectOf), boardFreeSpot(board), DEFAULT_W, DEFAULT_H);
+      const s = await board.spawn({
+        ...(dir.root ? { root: true } : dir.partId ? { partId: dir.partId } : {}),
+        machineId: dir.machineId ?? '',
+        cwd: dir.cwd ?? '',
+        preset: agent.id,
+        name: '',
+        rect,
+        ...(providerId ? { providerId } : {}),
+      });
+      if (s) ws.placePane(s.id, where);
+      return;
     }
     const s = await api.createSession({ workspaceId, preset: agent.id, agent: agent.id, ...(providerId ? { providerId } : {}), panel: true, ...(card ? { card } : {}), cols: 100, rows: 30, ...ws.placeOf(placeDir(ws.paths, at)) });
     store.upsertSession(s);
@@ -138,6 +158,14 @@ export interface PaneChoices {
   serverOff: (() => void) | null;
   /** The editor card (node id) the menu is in: what a new agent records as its card. */
   card?: string;
+  /** The Code view's board: a new agent is a console card of it (Code view = Board view). */
+  board?: BoardController;
+}
+
+/** Where a card the Code view adds goes: right of what the board has (it draws no viewport). */
+export function boardFreeSpot(ctl: BoardController): { x: number; y: number } {
+  const box = boundsOf(ctl.nodes.filter((n) => n.kind !== 'ink').map(rectOf));
+  return box ? { x: box.x + box.w + 400, y: box.y + 240 } : { x: 400, y: 300 };
 }
 
 /** useSessions' order (store.ts): creation time, then id. */
@@ -159,11 +187,14 @@ export function usePaneChoices(ws: Workspace, workspaceId: string): PaneChoices 
   // a part on a server (a Root card: any) while agents on servers are off
   const onServer = ws.paths.multi ? ws.parts.some((p) => p.machineId !== LOCAL_MACHINE) : ws.parts[0].machineId !== LOCAL_MACHINE;
   const serverOff = onServer && !remote ? () => navigate('/settings/agents') : null;
-  const card = useContext(PaneEnv)?.nodeId;
-  return { agents: sorted, unplaced, serverOff, card };
+  const env = useContext(PaneEnv);
+  const card = env?.nodeId;
+  // the Code view (no card): its agents are cards of its board
+  const board = env && env.nodeId === '' ? env.ctl : undefined;
+  return { agents: sorted, unplaced, serverOff, card, board };
 }
 
-export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced, serverOff, card }: PaneChoices, where: Where): MenuEntry[] {
+export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced, serverOff, card, board }: PaneChoices, where: Where): MenuEntry[] {
   return [
     ...unplaced.map<MenuEntry>((s) => ({ label: `Show ${s.handle ? `@${s.handle}` : s.name}`, icon: 'terminal', title: 'Already running in this editor', onSelect: () => ws.placePane(s.id, where) })),
     ...(unplaced.length ? (['sep'] as MenuEntry[]) : []),
@@ -179,7 +210,7 @@ export function agentMenu(ws: Workspace, workspaceId: string, { agents, unplaced
       label: agentChoiceName(a, agents),
       icon: 'bot',
       title: ws.paths.multi ? `Start ${agentChoiceName(a, agents)} in ${placeName(ws, agentPlace(ws))}` : `Start ${agentChoiceName(a, agents)} in the project folder`,
-      onSelect: () => void startAgentPane(ws, workspaceId, a, where, agentPlace(ws), card),
+      onSelect: () => void startAgentPane(ws, workspaceId, a, where, agentPlace(ws), card, board),
     })),
     ...(agents.length ? (['sep'] as MenuEntry[]) : []),
     { label: 'Resume a chat…', icon: 'resume', title: 'A conversation an agent had in this editor’s place', onSelect: () => askResume(ws, where) },
@@ -358,7 +389,15 @@ function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
   useEffect(() => {
     if (focus.id !== id) return;
     let tries = 0;
+    // the focus the tab was opened from: once the user puts it elsewhere (a menu, a field), the
+    // console does not take it back when it appears
+    const from = document.activeElement;
     const t = window.setInterval(() => {
+      const now = document.activeElement;
+      if (now && now !== from && now !== document.body && !host.current?.contains(now)) {
+        window.clearInterval(t);
+        return;
+      }
       const box = host.current?.querySelector<HTMLTextAreaElement>(nextcode ? '.nc-input' : '.xterm-helper-textarea');
       box?.focus();
       if (box || ++tries > 30) window.clearInterval(t);
@@ -370,6 +409,8 @@ function ConsolePane({ ws, id }: { ws: Workspace; id: string }) {
     <div className="wb-pane-console" ref={host}>
       {/* a board's console takes orders as its tile does: no wire to this editor */}
       {s?.agentKind === 'agent' && s.panel && <PaneLink session={s} />}
+      {/* a console of the Code view's board: its group, links and the board tile's menu */}
+      {s?.agentKind === 'agent' && !s.panel && <BoardConsoleBar session={s} />}
       {s?.status === 'exited' && (
         <div className="wb-pane-ended">
           <span className="truncate">This console has ended.</span>
@@ -664,7 +705,7 @@ function LeadQuickActions({ ws }: { ws: Workspace }) {
   const boardIds = (project.workspaces ?? []).map((w) => w.id);
   const first = choices.agents[0];
   const actions: QuickAction[] = [
-    ...(first ? [{ id: 'new', label: 'New agent', title: `Start ${first.name} in a new editor tab`, onClick: () => void startAgentPane(ws, workspaceId, first, 'tab', undefined, choices.card) }] : []),
+    ...(first ? [{ id: 'new', label: 'New agent', title: `Start ${first.name} in a new editor tab`, onClick: () => void startAgentPane(ws, workspaceId, first, 'tab', undefined, choices.card, choices.board) }] : []),
     { id: 'chats', label: 'Chats', onClick: () => ws.openTool('chats') },
     { id: 'memory', label: 'Memory', onClick: () => ws.openTool('memory') },
     { id: 'loops', label: 'Loops', onClick: () => ws.openTool('loops') },
@@ -735,8 +776,8 @@ function openAsTab(ws: Workspace, s: Session) {
   ws.openPane(s.id);
 }
 
-/** One console of the Agents list: who, which agent and where, its state, and its tab. */
-function AgentRow({ ws, s, place, onOpen }: { ws: Workspace; s: Session; place: string; onOpen?: (id: string) => void }) {
+/** One console of the Agents list: who, which agent and where, its state, its tab, and (on the Code view's board) its menu. */
+export function AgentRow({ ws, s, place, onOpen, menu }: { ws: Workspace; s: Session; place: string; onOpen?: (id: string) => void; menu?: ReactNode }) {
   const pill = agentPill(s);
   const agent = agentById(s.agent || s.preset);
   const at = ws.paneTabAt(s.id);
@@ -767,6 +808,7 @@ function AgentRow({ ws, s, place, onOpen }: { ws: Workspace; s: Session; place: 
       >
         {showing ? 'Showing' : at || inSide ? 'Show' : 'Open as tab'}
       </Button>
+      {menu}
     </li>
   );
 }
@@ -795,18 +837,23 @@ export function AgentsList({ ws, onOpen }: { ws: Workspace; onOpen?: (id: string
   };
   const onBoards = sessions.filter((s) => s.projectId === project.id && !s.panel && s.agentKind === 'agent');
   const boards = project.workspaces ?? [];
+  // the Code view's own board: by group, with links and the group actions (Code view = Board view)
+  const own = env && env.nodeId === '' ? env.ctl : undefined;
   const sections = [
-    ...boards.map((b) => ({ id: b.id, title: boards.length > 1 || b.name ? `On the board · ${b.name}` : 'On the board', items: onBoards.filter((s) => s.workspaceId === b.id) })),
+    ...boards
+      .filter((b) => b.id !== own?.workspaceId)
+      .map((b) => ({ id: b.id, title: boards.length > 1 || b.name ? `On the board · ${b.name}` : 'On the board', items: onBoards.filter((s) => s.workspaceId === b.id) })),
     { id: '', title: 'On other boards', items: onBoards.filter((s) => !boards.some((b) => b.id === s.workspaceId)) },
   ].filter((x) => x.items.length);
   // this editor's own agents: with a pane here, or started here and not shown (another browser)
   const ownIds = [...new Set([...ws.paneConsoles, ...choices.unplaced.map((s) => s.id)])];
-  const own = ownIds.flatMap((id) => {
+  const panels = ownIds.flatMap((id) => {
     const s = sessions.find((x) => x.id === id);
     return s && s.panel && s.agentKind === 'agent' ? [s] : [];
   });
   return (
     <div className="wb-agents-list nowheel" aria-label="Agents">
+      {own && <BoardAgents ws={ws} ctl={own} project={project} placeOf={placeOf} onOpen={onOpen} />}
       {sections.map((sec) => (
         <section key={sec.id || '@other'} className="wb-agents-section">
           <h3 className="wb-section-title">{sec.title}</h3>
@@ -817,12 +864,12 @@ export function AgentsList({ ws, onOpen }: { ws: Workspace; onOpen?: (id: string
           </ul>
         </section>
       ))}
-      {!sections.length && <p className="wb-agents-empty text-3">No agent runs on this project’s boards yet.</p>}
-      {own.length > 0 && (
+      {!sections.length && !own && <p className="wb-agents-empty text-3">No agent runs on this project’s boards yet.</p>}
+      {panels.length > 0 && (
         <section className="wb-agents-section">
           <h3 className="wb-section-title">Opened in this editor</h3>
           <ul>
-            {own.map((s) => (
+            {panels.map((s) => (
               <AgentRow key={s.id} ws={ws} s={s} place={placeOf(s)} onOpen={onOpen} />
             ))}
           </ul>
@@ -835,7 +882,13 @@ export function AgentsList({ ws, onOpen }: { ws: Workspace; onOpen?: (id: string
   );
 }
 
-/** The code view's right side bar: Lead | Agents, then a pane put there (an agent's menu "in the side bar"). */
+/** The board's cards, each as a tab of the Code view (Code view = Board view). */
+export function PageCards({ ws, onOpen }: { ws: Workspace; onOpen?: () => void }) {
+  const env = useContext(PaneEnv);
+  return env && env.nodeId === '' ? <CardsList ws={ws} ctl={env.ctl} onOpen={onOpen} /> : null;
+}
+
+/** The code view's right side bar: Lead | Agents | Cards, then a pane put there (an agent's menu "in the side bar"). */
 function PageSideBar({ ws }: { ws: Workspace }) {
   const lead = useLeadName();
   // a count, not the sessions: they change on every console's event
@@ -877,6 +930,7 @@ function PageSideBar({ ws }: { ws: Workspace }) {
         <div className="segmented sm wb-side-tabs">
           {tabButton('lead', 'Lead')}
           {tabButton('agents', 'Agents', agents)}
+          {tabButton('cards', 'Cards')}
         </div>
         {ws.rightPanes.map((id) => (
           <div
@@ -937,7 +991,7 @@ function PageSideBar({ ws }: { ws: Workspace }) {
         </div>
       </div>
       <div className="wb-right-body" role="tabpanel" id={panelId} aria-labelledby={tabId(tab === 'pane' ? `pane-${pane}` : tab)}>
-        {tab === 'lead' ? <LeadPane ws={ws} /> : tab === 'agents' ? <AgentsList ws={ws} /> : pane ? <PaneBody key={pane} ws={ws} id={pane} /> : null}
+        {tab === 'lead' ? <LeadPane ws={ws} /> : tab === 'agents' ? <AgentsList ws={ws} /> : tab === 'cards' ? <PageCards ws={ws} /> : pane ? <PaneBody key={pane} ws={ws} id={pane} /> : null}
       </div>
     </aside>
   );
@@ -1015,7 +1069,7 @@ function CardSideBar({ ws, workspaceId }: { ws: Workspace; workspaceId: string }
               </Button>
             ))}
             {choices.agents.map((a) => (
-              <Button key={a.id} variant="ghost" icon="bot" onClick={() => void startAgentPane(ws, workspaceId, a, 'side', undefined, choices.card)}>
+              <Button key={a.id} variant="ghost" icon="bot" onClick={() => void startAgentPane(ws, workspaceId, a, 'side', undefined, choices.card, choices.board)}>
                 {agentChoiceName(a, choices.agents)}
               </Button>
             ))}

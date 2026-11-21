@@ -117,3 +117,83 @@
   width: 100%;
   justify-content: center;
 }
+
+/* ---- the Code view's board (Code view = Board view, DESIGN.md §3.19) ---- */
+.wb-board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+}
+/* a group of the board: its colour, name, role and menu over its consoles */
+.wb-bgroup {
+  margin: var(--s-2) var(--s-3);
+  border: var(--hairline) solid color-mix(in srgb, var(--group-c) 45%, transparent);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.wb-bgroup ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wb-bgroup .wb-agent-row {
+  padding-left: var(--s-2);
+}
+.wb-bgroup-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 36px;
+  padding: 0 var(--s-1) 0 var(--s-3);
+  background: color-mix(in srgb, var(--group-c) 14%, transparent);
+  border-bottom: var(--hairline) solid var(--border-subtle);
+}
+.wb-bgroup-name {
+  min-width: 0;
+  font-weight: var(--fw-semibold);
+}
+.wb-bgroup-role {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.wb-bgroup-empty,
+.wb-bgroup-link {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  font-size: var(--fs-xs);
+}
+.wb-bgroup-link {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-2);
+  border-top: var(--hairline) dashed var(--border-subtle);
+}
+.wb-wire {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 2px;
+  border-radius: var(--r-pill);
+  background: var(--wire, var(--text-3));
+}
+.wb-card-row > svg {
+  flex: 0 0 auto;
+  width: var(--size-icon);
+  height: var(--size-icon);
+  color: var(--text-3);
+}
+/* over a console of the Code view's board: its group, as its frame shows it on the board */
+.wb-console-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  height: 22px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--group-c) 16%, transparent);
+  color: var(--text-1);
+  font-weight: var(--fw-medium);
+}

@@ -218,8 +218,9 @@ test('in the code view a board’s agent opens as a tab, wakes, and keeps runnin
     await expect(page.locator('.wb-pane-tab .xterm')).toBeVisible({ timeout: 15_000 });
     await expect.poll(async () => (await state()).status, { timeout: 20_000 }).toBe('running');
     await expect(row.getByRole('button', { name: `@${s.handle} is showing` })).toBeVisible();
-    // no wire to this editor: it takes orders as its tile does
-    await expect(page.locator('.wb-pane-link')).toHaveCount(0);
+    // no wire to this editor: it takes orders as its tile does, and has its tile's menu
+    await expect(page.locator('.wb-pane-link:not(.wb-console-bar)')).toHaveCount(0);
+    await expect(page.locator('.wb-console-bar').getByRole('button', { name: `Console menu of @${s.handle}` })).toBeVisible();
 
     // closing the tab asks nothing and leaves it running on its board
     await tab.getByRole('button', { name: 'Close this tab' }).click();

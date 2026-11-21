@@ -4,6 +4,7 @@
 // input; Connect mode or a dragged wire adds consoles. The team is a row of chips so the
 // thread keeps the room; the full list with its row actions opens on demand.
 
+import { CanvasOnly } from './host';
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { agentById } from '../../agents/catalog';
@@ -269,8 +270,10 @@ function LeadCard({ id, data, selected }: NodeProps<FlowNode>) {
 
   return (
     <TileFrame id={id} kind="orchestrator" selected={!!selected} label={`Lead agent ${name}`} minW={320} minH={300} className={connecting ? 'is-connecting' : ''}>
-      <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
-      <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console, a group or an editor card to wire it" />
+      <CanvasOnly>
+        <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
+        <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console, a group or an editor card to wire it" />
+      </CanvasOnly>
       <TileHead
         id={id}
         icon={<LeadAvatar name={name} />}

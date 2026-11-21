@@ -6,7 +6,7 @@
 import { Icon, type IconName } from '../../components/Icon';
 import { Modal } from '../../components/Modal';
 import { useLeadName } from '../../orch/lead';
-import { AgentsList, LeadPane } from './AgentPanes';
+import { AgentsList, LeadPane, PageCards as PhoneCards } from './AgentPanes';
 import type { Workspace } from './workspace';
 
 export type PhoneTab = 'files' | 'editor' | 'terminal';
@@ -63,7 +63,17 @@ export function PhoneSheetView({ kind, ws, onClose }: { kind: PhoneSheet; ws: Wo
   return (
     <Modal title={kind === 'lead' ? leadName : 'Agents'} icon={kind === 'lead' ? 'orchestrator' : 'bot'} size="lg" className="cv-sheet" onClose={onClose}>
       {/* a console opened from the list shows in the Editor, so the sheet goes */}
-      <div className={`cv-sheet-body is-${kind}`}>{kind === 'lead' ? <LeadPane ws={ws} /> : <AgentsList ws={ws} onOpen={onClose} />}</div>
+      <div className={`cv-sheet-body is-${kind}`}>
+        {kind === 'lead' ? (
+          <LeadPane ws={ws} />
+        ) : (
+          <>
+            <AgentsList ws={ws} onOpen={onClose} />
+            {/* the board's cards, as the side bar's Cards tab has them (Code view = Board view) */}
+            <PhoneCards ws={ws} onOpen={onClose} />
+          </>
+        )}
+      </div>
     </Modal>
   );
 }

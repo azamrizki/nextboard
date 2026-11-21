@@ -234,3 +234,19 @@
 .page-code .drawing-cards {
   top: calc(var(--safe-t) + 44px + var(--s-2));
 }
+
+/* a board card as a tab (Code view = Board view): the same card, filling the tab */
+.card-tab {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  padding: var(--s-3);
+  overflow: auto;
+}
+.card-tab > .tile.tile-in-tab {
+  position: relative;
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+  flex: 1 1 auto;
+}

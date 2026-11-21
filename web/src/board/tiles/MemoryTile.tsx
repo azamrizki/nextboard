@@ -4,6 +4,7 @@
 // editor and every agent behind them works from the same stack: at launch, through the memory
 // tools, and typed once, only what each one does not have yet.
 
+import { CanvasOnly } from './host';
 import { memo, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Button } from '../../components/Button';
@@ -121,8 +122,10 @@ function MemoryTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
 
   return (
     <TileFrame id={id} kind="memory" selected={!!selected} label="Memory tile" minW={260} minH={220} className={connecting ? 'is-connecting' : ''}>
-      <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
-      <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console, group, orchestrator or the editor" />
+      <CanvasOnly>
+        <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
+        <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console, group, orchestrator or the editor" />
+      </CanvasOnly>
       <TileHead
         id={id}
         icon="brain"

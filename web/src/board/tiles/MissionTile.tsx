@@ -4,6 +4,7 @@
 // hand (goal, tasks per console, order, brief), follows the running one and its questions, and
 // finds the past ones to run again (docs/API-orchestration.md §22, DESIGN.md "Mission tile").
 
+import { CanvasOnly } from './host';
 import { memo, useEffect, useMemo, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Button } from '../../components/Button';
@@ -106,8 +107,10 @@ function MissionTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
 
   return (
     <TileFrame id={id} kind="orchestrator" selected={!!selected} label={`Mission tile led by ${lead}`} minW={360} minH={360} className={`mission-tile ${connecting ? 'is-connecting' : ''}`}>
-      <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
-      <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console or a group to add it to the team" />
+      <CanvasOnly>
+        <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
+        <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-wire" title="Drag to a console or a group to add it to the team" />
+      </CanvasOnly>
       <TileHead
         id={id}
         icon="flag"

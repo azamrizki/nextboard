@@ -19,6 +19,7 @@
 // nodeId is "": no card, so the Root placement, the editor state the project's Root cards show
 // too. On a phone, bottom navigation Files · Editor · Terminal · Lead · Agents (CodePhone.tsx).
 
+import { rememberCards } from './cardTabs';
 import { useReactFlow } from '@xyflow/react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -53,8 +54,9 @@ import { DebugDialogs, DebugToolbar, DebugView, registerDebugHover } from './Deb
 import { EditorArea } from './EditorArea';
 import { Explorer } from './Explorer';
 import { applyTheme, loadExtensions, useBuiltinTheme } from './extensions';
+import { currentShortcuts } from '../../agents/settings';
 import { store, useNeedsYou } from '../../store';
-import { jumpToNextNeedsYou, registerEditorFocus, takePendingPane } from '../../agents/jump';
+import { jumpToNextNeedsYou, registerBoardFocus, registerEditorFocus, takePendingPane } from '../../agents/jump';
 import { AgentSideBar, ClosePaneDialog, PaneEnv, ResumeChatsDialog, startAgentPane, usePaneChoices } from './AgentPanes';
 import { allowESLint, eslintFixAll, eslintStatus, type EslintState } from './eslintRun';
 import { ExtensionsPanel } from './ExtensionsPanel';
@@ -760,8 +762,8 @@ function Workbench({
       { id: 'agents.toggle', label: 'View: Toggle Agents Side Bar', keys: 'Ctrl+Alt+B', icon: 'bot', run: () => ((ws.rightOpen = !ws.rightOpen), ws.changed()) },
       ...choices.agents.flatMap<Command>((a) => [
         // a phone's Code view has no side bar: a tab there (pageSide.ts)
-        { id: `agents.side.${a.id}`, label: `Agents: Open ${a.name} in the Side Bar`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, noSideBar(ws) ? 'tab' : 'side', undefined, nodeId) },
-        { id: `agents.tab.${a.id}`, label: `Agents: Open ${a.name} in a New Tab`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, 'tab', undefined, nodeId) },
+        { id: `agents.side.${a.id}`, label: `Agents: Open ${a.name} in the Side Bar`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, noSideBar(ws) ? 'tab' : 'side', undefined, nodeId, nodeId ? undefined : ctl) },
+        { id: `agents.tab.${a.id}`, label: `Agents: Open ${a.name} in a New Tab`, icon: 'bot', run: () => void startAgentPane(ws, ctl.workspaceId, a, 'tab', undefined, nodeId, nodeId ? undefined : ctl) },
       ]),
       { id: 'agents.orch.side', label: 'Agents: Open Orchestrator in the Side Bar', icon: 'orchestrator', run: () => placePaneSide(ws, ORCHESTRATOR_PANE) },
       { id: 'agents.orch.tab', label: 'Agents: Open Orchestrator in a New Tab', icon: 'orchestrator', run: () => ws.placePane(ORCHESTRATOR_PANE, 'tab') },
@@ -1423,6 +1425,40 @@ function CodeStudioView({ project, ctl, ui, nodeId, viewCenter, filled, placemen
     // once per card
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws]);
+
+  // the board's cards open as tabs here: their tabs keep the titles the board gives them
+  useEffect(() => {
+    if (mode !== 'page') return;
+    const sync = () => {
+      if (rememberCards(ctl.sync.getState().nodes)) ws.changed();
+    };
+    sync();
+    return ctl.sync.subscribe(sync);
+  }, [mode, ctl, ws]);
+
+  // the Code view shows its board's consoles (Code view = Board view): the needs-you chip, N and a
+  // notification open one of them as a tab here instead of going to the board, and N works here too
+  useEffect(() => {
+    if (mode !== 'page') return;
+    const off = registerBoardFocus(ctl.workspaceId, (sessionId) => {
+      const s = store.getState().sessions[sessionId];
+      if (!s || s.workspaceId !== ctl.workspaceId || s.agentKind !== 'agent') return false;
+      ws.openPane(sessionId);
+      return true;
+    });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== currentShortcuts().needsYou.toLowerCase()) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('input, textarea, select, [contenteditable="true"], .monaco-editor, .xterm, .cm-editor, .nc-chat')) return;
+      e.preventDefault();
+      jumpToNextNeedsYou();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      off();
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [mode, ctl, ws]);
 
   // "open this file" from elsewhere on the board (a file card, the lead, a commit): the board picks
   // the card by placement, and the file is (machine, path)

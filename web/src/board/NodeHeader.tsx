@@ -40,7 +40,7 @@ import { QueueBadge } from '../orch/DeliveryQueue';
 import { isAgentSession, orchError, pauseSessions, resumeSessions } from '../orch/actions';
 import { orchApi } from '../orch/api';
 import { orchStore, useOrch } from '../orch/store';
-import { groupOf, frameOps } from './groups';
+import { groupOf, removeFromGroupOps } from './groups';
 import { readGroup } from './kinds';
 
 /** Remote badge tint follows the machine's connection state. */
@@ -327,101 +327,37 @@ function PartLabel({ session }: { session: Session }) {
   );
 }
 
-export function NodeHeader({ nodeId, session, machine, socket, actions, textOverride, textScale }: NodeHeaderProps) {
-  const { ctl, ui } = useBoardEnv();
-  const profile = useProfile(session.profileId || undefined);
-  const settings = useSettings();
-  // none for the default login: nearly every console has it
-  const chip = profileChip(session, profile, settings ? (settings.agents.profiles ?? {}) : null);
-  const linked = useSyncExternalStore(ctl.sync.subscribe, () => {
-    const g = groupOf(ctl.nodes, nodeId);
-    return g ? readGroup(g).syncInput : false;
-  });
-  const [renaming, setRenaming] = useState<'handle' | 'name' | null>(null);
-  // renamed in another tab while the field is open: it shows that name until typed in
-  const draft = useRenameDraft(renaming === 'handle' ? (session.handle ?? '') : session.name);
-  const [draftError, setDraftError] = useState('');
-  // Guards against Enter + blur both committing the same rename.
-  const renamingRef = useRef(false);
+export interface ConsoleMenuOpts {
+  startRename: (what: 'handle' | 'name') => void;
+  /** Forward results to another console or group: on the board a click on it, in the Code view a list. */
+  forward: MenuEntry[];
+  /** The tile's text size (the board's; none in a tab). */
+  text?: MenuEntry;
+}
 
+/**
+ * A console's menu: the same on its board tile and in the Code view (Code view = Board view,
+ * DESIGN.md §3.19). The dialogs it opens are actions.dialogs, which the caller renders.
+ */
+export function useConsoleMenu(nodeId: string, session: Session, actions: ReturnType<typeof useConsoleActions>, opts: ConsoleMenuOpts): MenuEntry[] {
+  const { ctl, ui } = useBoardEnv();
   const { agent, setDialog } = actions;
   const switching = useOrch((st) => Object.values(st.handoffs).find((h) => h.inPlace && h.sourceSessionId === session.id && !HANDOFF_OVER.includes(h.state)));
-  const switchingTo = useAgent(switching?.agent ?? '');
   const backToRun = session.pastRuns?.find((r) => r.agent !== session.agent && r.agentSessionId);
   const backToAgent = useAgent(backToRun?.agent);
   // a terminal console never goes back to NextCode, nor a NextCode console to a terminal agent
   const backTo = backToRun && isChatAgent(backToAgent) === isChatAgent(agent) ? backToRun : undefined;
-  const statePill = agentPill(session, socket);
-  // While it changes hands the tile says so: the agent's own state is not the story.
-  const pill: Pill = switching
-    ? { ...statePill, state: 'working', label: 'Switching', dot: 'busy', tone: 'info', activity: switchStep(switching.state, switchingTo?.name ?? switching.agent) }
-    : statePill;
   const exited = session.status === 'exited';
-  const isRemote = machine?.kind === 'ssh';
   const agentConsole = isAgentConsole(session) && session.agentState !== undefined;
   const yoloable = hasYolo(agent);
   const atShell = session.agentState === 'shell';
-
-  const startRename = (what: 'handle' | 'name') => {
-    if (what === 'handle' && !session.handle) what = 'name';
-    draft.reset();
-    setDraftError('');
-    renamingRef.current = true;
-    setRenaming(what);
-  };
-
-  const commitRename = () => {
-    if (!renamingRef.current || !renaming) return;
-    const what = renaming;
-    // null: not typed in (a rename elsewhere stays), empty, or the name it has
-    const value = renameTo(draft.typed(), what === 'handle' ? (session.handle ?? '') : session.name);
-    if (what === 'handle' && value) {
-      const problem = handleProblem(value);
-      if (problem) {
-        setDraftError(problem);
-        return;
-      }
-    }
-    renamingRef.current = false;
-    setRenaming(null);
-    draft.reset();
-    if (!value) return;
-    if (what === 'handle') {
-      api
-        .setHandle(session.id, value)
-        .then((s) => store.upsertSession(s))
-        .catch((err) =>
-          toast.error(isCode(err, 'handle_taken') ? `@${value} is already used by another console. Pick another name.` : `Could not rename ${who(session)}: ${errorMessage(err)}`),
-        );
-    } else {
-      api
-        .renameSession(session.id, value)
-        .then((s) => store.upsertSession(s))
-        .catch((err) => toast.error(`Rename failed for ${who(session)}: ${errorMessage(err)}`));
-    }
-  };
-
-  const onRenameKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') commitRename();
-    else if (e.key === 'Escape') {
-      e.stopPropagation();
-      renamingRef.current = false;
-      draft.reset();
-      setRenaming(null);
-    }
-  };
-
-  const setText = (v: number | null) => ctl.updateData(nodeId, { textScale: v });
-  const dec = stepScale(textScale, -1);
-  const inc = stepScale(textScale, 1);
-
   // a NextCode console has a chat, no terminal (docs/API-agents.md §30): no terminal text, picker,
   // pause, sleep, text size or kill; its CLI rests by itself when idle
   const chat = isChatAgent(agent);
   const items: MenuEntry[] = [
-    { label: session.handle ? 'Rename handle' : 'Rename', icon: 'pencil', onSelect: () => startRename('handle') },
+    { label: session.handle ? 'Rename handle' : 'Rename', icon: 'pencil', onSelect: () => opts.startRename('handle') },
   ];
-  if (session.handle) items.push({ label: 'Rename title', icon: 'type', onSelect: () => startRename('name') });
+  if (session.handle) items.push({ label: 'Rename title', icon: 'type', onSelect: () => opts.startRename('name') });
   if (hasOutput(session) || session.reply) items.push({ label: 'See output', icon: 'fileText', onSelect: () => setDialog({ t: 'output' }) });
   // a finger cannot select in the terminal itself (tablets, phones): its text in a sheet instead
   if (liveConsole(session.id) && !chat) items.push({ label: 'Copy text…', icon: 'copy', onSelect: () => setDialog({ t: 'copy' }) });
@@ -489,30 +425,16 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
       );
     }
   }
-  items.push({ label: 'Forward results to…', icon: 'forward', title: 'Then click the console or group that should receive them', onSelect: () => ui.set({ connectFrom: nodeId }) });
+  items.push(...opts.forward);
   const group = groupOf(ctl.nodes, nodeId);
   if (group) {
     items.push({
       label: `Remove from ${readGroup(group).name}`,
       icon: 'ungroup',
-      onSelect: () => {
-        const rest = readGroup(group).members.filter((m) => m !== nodeId);
-        ctl.apply([{ op: 'patch', id: group.id, set: { data: { members: rest } } }, ...frameOps(ctl.nodes, [group.id], undefined, new Map([[group.id, rest]]))]);
-      },
+      onSelect: () => ctl.apply(removeFromGroupOps(ctl.nodes, nodeId)),
     });
   }
-  if (!chat)
-    items.push('sep', {
-      type: 'stepper',
-      label: 'Text',
-      value: textOverride === null ? `${textScale}%` : `${textScale}%*`,
-      decLabel: 'Smaller text',
-      incLabel: 'Larger text',
-      resetLabel: 'Global',
-      onDec: dec ? () => setText(dec) : undefined,
-      onInc: inc ? () => setText(inc) : undefined,
-      onReset: textOverride !== null ? () => setText(null) : undefined,
-    });
+  if (opts.text && !chat) items.push('sep', opts.text);
   items.push('sep', {
     label: 'Restart console',
     icon: 'restart',
@@ -531,6 +453,104 @@ export function NodeHeader({ nodeId, session, machine, socket, actions, textOver
           .catch((err) => toast.error(`Kill failed for ${who(session)}: ${errorMessage(err)}`)),
     });
   items.push('sep', { label: chat ? 'Close console…' : 'Close terminal…', icon: 'trash', danger: true, onSelect: () => setDialog({ t: 'close' }) });
+  return items;
+}
+
+export function NodeHeader({ nodeId, session, machine, socket, actions, textOverride, textScale }: NodeHeaderProps) {
+  const { ctl, ui } = useBoardEnv();
+  const profile = useProfile(session.profileId || undefined);
+  const settings = useSettings();
+  // none for the default login: nearly every console has it
+  const chip = profileChip(session, profile, settings ? (settings.agents.profiles ?? {}) : null);
+  const linked = useSyncExternalStore(ctl.sync.subscribe, () => {
+    const g = groupOf(ctl.nodes, nodeId);
+    return g ? readGroup(g).syncInput : false;
+  });
+  const [renaming, setRenaming] = useState<'handle' | 'name' | null>(null);
+  // renamed in another tab while the field is open: it shows that name until typed in
+  const draft = useRenameDraft(renaming === 'handle' ? (session.handle ?? '') : session.name);
+  const [draftError, setDraftError] = useState('');
+  // Guards against Enter + blur both committing the same rename.
+  const renamingRef = useRef(false);
+
+  const { agent, setDialog } = actions;
+  const switching = useOrch((st) => Object.values(st.handoffs).find((h) => h.inPlace && h.sourceSessionId === session.id && !HANDOFF_OVER.includes(h.state)));
+  const switchingTo = useAgent(switching?.agent ?? '');
+  const statePill = agentPill(session, socket);
+  // While it changes hands the tile says so: the agent's own state is not the story.
+  const pill: Pill = switching
+    ? { ...statePill, state: 'working', label: 'Switching', dot: 'busy', tone: 'info', activity: switchStep(switching.state, switchingTo?.name ?? switching.agent) }
+    : statePill;
+  const isRemote = machine?.kind === 'ssh';
+
+  const startRename = (what: 'handle' | 'name') => {
+    if (what === 'handle' && !session.handle) what = 'name';
+    draft.reset();
+    setDraftError('');
+    renamingRef.current = true;
+    setRenaming(what);
+  };
+
+  const commitRename = () => {
+    if (!renamingRef.current || !renaming) return;
+    const what = renaming;
+    // null: not typed in (a rename elsewhere stays), empty, or the name it has
+    const value = renameTo(draft.typed(), what === 'handle' ? (session.handle ?? '') : session.name);
+    if (what === 'handle' && value) {
+      const problem = handleProblem(value);
+      if (problem) {
+        setDraftError(problem);
+        return;
+      }
+    }
+    renamingRef.current = false;
+    setRenaming(null);
+    draft.reset();
+    if (!value) return;
+    if (what === 'handle') {
+      api
+        .setHandle(session.id, value)
+        .then((s) => store.upsertSession(s))
+        .catch((err) =>
+          toast.error(isCode(err, 'handle_taken') ? `@${value} is already used by another console. Pick another name.` : `Could not rename ${who(session)}: ${errorMessage(err)}`),
+        );
+    } else {
+      api
+        .renameSession(session.id, value)
+        .then((s) => store.upsertSession(s))
+        .catch((err) => toast.error(`Rename failed for ${who(session)}: ${errorMessage(err)}`));
+    }
+  };
+
+  const onRenameKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') commitRename();
+    else if (e.key === 'Escape') {
+      e.stopPropagation();
+      renamingRef.current = false;
+      draft.reset();
+      setRenaming(null);
+    }
+  };
+
+  const setText = (v: number | null) => ctl.updateData(nodeId, { textScale: v });
+  const dec = stepScale(textScale, -1);
+  const inc = stepScale(textScale, 1);
+  const items = useConsoleMenu(nodeId, session, actions, {
+    startRename,
+    forward: [{ label: 'Forward results to…', icon: 'forward', title: 'Then click the console or group that should receive them', onSelect: () => ui.set({ connectFrom: nodeId }) }],
+    text: {
+      type: 'stepper',
+      label: 'Text',
+      value: textOverride === null ? `${textScale}%` : `${textScale}%*`,
+      decLabel: 'Smaller text',
+      incLabel: 'Larger text',
+      resetLabel: 'Global',
+      onDec: dec ? () => setText(dec) : undefined,
+      onInc: inc ? () => setText(inc) : undefined,
+      onReset: textOverride !== null ? () => setText(null) : undefined,
+    },
+  });
+
 
   const mstatus = machine ? machineStatus(machine) : null;
   const showHandle = !!session.handle;

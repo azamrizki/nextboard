@@ -1,6 +1,7 @@
 // Shared tile pieces: the frame (selection ring + resize handles with undo), editable
 // text drafts, inline title editing and auto-fitting text.
 
+import { useTileHost } from './host';
 import {
   createContext,
   useCallback,
@@ -75,9 +76,11 @@ export function TileFrame({
   style,
 }: TileFrameProps) {
   const resize = useResizeHistory(id);
+  // in a tab of the Code view the card fills it, with nothing of the canvas
+  const inTab = useTileHost() === 'tab';
   return (
     <>
-      {resizable && (
+      {resizable && !inTab && (
         <NodeResizer
           isVisible={selected}
           minWidth={minW}
@@ -90,7 +93,7 @@ export function TileFrame({
         />
       )}
       <div
-        className={`tile tile-${kind} ${selected ? 'selected' : ''} ${className ?? ''}`}
+        className={`tile tile-${kind} ${selected ? 'selected' : ''} ${inTab ? 'tile-in-tab' : ''} ${className ?? ''}`}
         role="group"
         aria-label={label}
         style={style}
@@ -98,7 +101,7 @@ export function TileFrame({
         {children}
       </div>
       {/* after the tile, so that the knob lies on top of it and a tile that clips its content keeps it */}
-      {CONTENT_SOURCES.has(kind) && (
+      {CONTENT_SOURCES.has(kind) && !inTab && (
         <>
           <Handle type="target" position={Position.Left} id="in" className="nb-handle nb-handle-in" isConnectable={false} />
           <Handle type="source" position={Position.Right} id="out" className="nb-handle nb-handle-out nb-handle-tile" title="Drag to a console or group: its content goes there once" />

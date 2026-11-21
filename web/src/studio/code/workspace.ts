@@ -485,7 +485,7 @@ export class Workspace implements ViewApi, PartView {
     this.rightPanes = saved.rightPanes ?? [];
     this.rightActive = saved.rightActive ?? '';
     this.hadTerminal = saved.hadTerminal === true || (saved.terminals?.length ?? 0) > 0;
-    this.rightTab = saved.rightTab === 'agents' || (saved.rightTab === 'pane' && this.rightPanes.length) ? saved.rightTab : 'lead';
+    this.rightTab = saved.rightTab === 'agents' || saved.rightTab === 'cards' || (saved.rightTab === 'pane' && this.rightPanes.length) ? saved.rightTab : 'lead';
     this.showExcluded = saved.showExcluded ?? true;
     this.search = { ...DEFAULT_SEARCH, ...saved.search };
     this.recent = saved.recent ?? [];

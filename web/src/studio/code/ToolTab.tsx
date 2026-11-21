@@ -34,6 +34,7 @@ const BODIES: Record<ToolKind, ComponentType<ToolBodyProps>> = {
   browser: lazy(() => import('./tools/BrowserTool')),
   loops: lazy(() => boardTools().then((m) => ({ default: m.LoopsTool }))),
   mission: lazy(() => boardTools().then((m) => ({ default: m.MissionTool }))),
+  card: lazy(() => import('./tools/CardTool')),
 };
 
 /** Tools whose effects only poll or tick: paused while out of sight, their state kept. */
