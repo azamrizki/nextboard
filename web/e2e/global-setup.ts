@@ -43,6 +43,22 @@ export function hubEnv(root: string): NodeJS.ProcessEnv {
   return env;
 }
 
+/**
+ * Ends what the run's hub started outside itself and left running: the web tiles' browsers and
+ * their displays (sway, wayvnc, Chrome), which live in scopes of their own and outlive the hub.
+ * Every one names the run's folder on its command line; nothing else does once the hub is gone.
+ */
+async function stopLeftovers(root: string) {
+  for (const sig of ['-TERM', '-KILL']) {
+    try {
+      execFileSync('pkill', [sig, '-f', root], { stdio: 'ignore' });
+    } catch {
+      return; // none left (pkill exits 1)
+    }
+    await new Promise((done) => setTimeout(done, 1500));
+  }
+}
+
 /** Ends what the fake systemctl started in this scratch home: the instances a test created. */
 export async function stopFakeUnits(home: string) {
   const state = join(home, '.fake-systemd');
@@ -107,6 +123,7 @@ export default async function globalSetup() {
     hub.kill('SIGTERM');
     await Promise.race([gone, new Promise((done) => setTimeout(done, 8000))]);
     await stopFakeUnits(home);
+    await stopLeftovers(root);
     // the hub's log outlives the run: a hub that died halfway leaves only refused connections
     try {
       copyFileSync(join(root, 'hub.log'), join(tmpdir(), `nextboard-e2e-hub-${PORT}.log`));
