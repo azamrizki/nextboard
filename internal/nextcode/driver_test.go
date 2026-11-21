@@ -69,6 +69,24 @@ func (r *rig) called() []string {
 	return append([]string{}, r.calls...)
 }
 
+// calledUntil waits for the listener's calls, joined with "|", to satisfy ok and returns them.
+// The listener runs after the status frame it goes with (Driver.later), so a test that read it
+// at once after turnEnded raced it on a busy machine.
+func (r *rig) calledUntil(ok func(calls string) bool) string {
+	r.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		calls := strings.Join(r.called(), "|")
+		if ok(calls) || time.Now().After(deadline) {
+			return calls
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// endsWith reports whether the listener's last call is the end of a turn without an error.
+func endsWith(calls, last string) bool { return strings.HasSuffix(calls, "|"+last) || calls == last }
+
 // rigOpts chooses the rig's engine: its fake CLI (NEXTCODE_FAKE=<engine>), the agent's own
 // launch the engine's argv starts from, the permission mode, more environment for the fake.
 type rigOpts struct {
@@ -216,7 +234,7 @@ func TestStreamedTurnAndHistory(t *testing.T) {
 		len(st.Commands) != 2 || st.Commands[0] != "review" || !strings.Contains(string(st.RateLimit), "allowed") {
 		t.Fatalf("status %+v", st)
 	}
-	if got := strings.Join(r.called(), "|"); got != "start|conv conv-1|end " {
+	if got := r.calledUntil(func(c string) bool { return c == "start|conv conv-1|end " }); got != "start|conv conv-1|end " {
 		t.Fatalf("listener %q", got)
 	}
 	// the chat comes back after a restart, and the next CLI resumes the conversation
@@ -311,7 +329,7 @@ func TestInterrupt(t *testing.T) {
 			t.Fatalf("a stopped turn is not an error: %+v", f.Item)
 		}
 	}
-	if calls := r.called(); calls[len(calls)-1] != "end " {
+	if calls := r.calledUntil(func(c string) bool { return endsWith(c, "end ") }); !endsWith(calls, "end ") {
 		t.Fatalf("listener %q", calls)
 	}
 }

@@ -473,7 +473,7 @@ func TestCodexStreamedTurnAndHistory(t *testing.T) {
 		st.Usage == nil || *st.Usage != (Usage{Input: 60, Output: 5, CacheRead: 40}) || !strings.Contains(string(st.RateLimit), `"usedPercent":12`) {
 		t.Fatalf("status %+v", st)
 	}
-	if got := strings.Join(r.called(), "|"); got != "start|conv "+st.Conversation+"|end " {
+	if got := r.calledUntil(func(c string) bool { return c == "start|conv "+st.Conversation+"|end " }); got != "start|conv "+st.Conversation+"|end " {
 		t.Fatalf("listener %q", got)
 	}
 	// the launch's config, as app-server's
@@ -657,7 +657,7 @@ func TestCodexInterrupt(t *testing.T) {
 	}
 	r.turnEnded()
 	noErrors(t, r)
-	if calls := r.called(); calls[len(calls)-1] != "end " {
+	if calls := r.calledUntil(func(c string) bool { return endsWith(c, "end ") }); !endsWith(calls, "end ") {
 		t.Fatalf("listener %q", calls)
 	}
 	in := r.sent("turn/interrupt")
@@ -673,7 +673,7 @@ func TestCodexFailedTurn(t *testing.T) {
 		t.Fatalf("error %+v", e)
 	}
 	r.turnEnded()
-	if calls := strings.Join(r.called(), "|"); !strings.Contains(calls, "end The model failed: boom") {
+	if calls := r.calledUntil(func(c string) bool { return strings.Contains(c, "end The model failed: boom") }); !strings.Contains(calls, "end The model failed: boom") {
 		t.Fatalf("listener %q", calls)
 	}
 	if st := r.d.Status(); st.Note != "" || st.Working {
@@ -711,7 +711,7 @@ func TestCodexQueuedMessages(t *testing.T) {
 	if len(said) != 2 || !strings.Contains(said[0], `"first"`) || !strings.Contains(said[1], `"second"`) {
 		t.Fatalf("turn/start %q", said)
 	}
-	if calls := strings.Join(r.called(), "|"); strings.Count(calls, "end ") != 2 {
+	if calls := r.calledUntil(func(c string) bool { return strings.Count(c, "end ") == 2 }); strings.Count(calls, "end ") != 2 {
 		t.Fatalf("listener %q", calls)
 	}
 }
