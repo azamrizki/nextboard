@@ -81,6 +81,17 @@ type Notifications struct {
 	Finished       bool `json:"finished"`
 	Error          bool `json:"error"`
 	FinishedMinSec int  `json:"finishedMinSec"`
+	// Host: This PC runs hot or out of memory (host.hotTempC, host.hotMemPct)
+	Host bool `json:"host"`
+}
+
+// Host is where This PC's readings turn amber (warn) and red (hot) in the header, the
+// Machines page and the This PC card (docs/API.md, Host resources).
+type Host struct {
+	WarnTempC  int `json:"warnTempC"`
+	HotTempC   int `json:"hotTempC"`
+	WarnMemPct int `json:"warnMemPct"`
+	HotMemPct  int `json:"hotMemPct"`
 }
 
 // Shortcuts are the one-key board actions.
@@ -270,6 +281,7 @@ type Settings struct {
 	Editor        Editor        `json:"editor"`
 	UI            UI            `json:"ui"`
 	NextCode      NextCode      `json:"nextcode"`
+	Host          Host          `json:"host"`
 }
 
 // Defaults returns the document with every default.
@@ -292,7 +304,8 @@ func Defaults() Settings {
 			// out of preview on 2026-11-08 (ROADMAP #44): a hub that saved false keeps it
 			RemoteTools: true,
 		},
-		Notifications: Notifications{NeedsYou: true, Finished: true, Error: true, FinishedMinSec: 30},
+		Notifications: Notifications{NeedsYou: true, Finished: true, Error: true, FinishedMinSec: 30, Host: true},
+		Host:          Host{WarnTempC: 80, HotTempC: 90, WarnMemPct: 85, HotMemPct: 95},
 		Shortcuts: Shortcuts{Select: "v", Hand: "h", Spawn: "t", Pen: "p", Eraser: "e", Git: "g", Memory: "m",
 			Skills: "s", Loops: "l", Markdown: "d", NeedsYou: "n"},
 		Runner: Runner{DefaultAgent: "claude"},
@@ -402,7 +415,7 @@ const maxOnSaveRules = 50
 
 var topLevel = map[string]bool{"schemaVersion": true, "lead": true, "agents": true, "notifications": true, "shortcuts": true, "runner": true,
 	"delivery": true, "commands": true, "memory": true, "previews": true, "git": true, "usage": true, "editor": true,
-	"ui": true, "nextcode": true}
+	"ui": true, "nextcode": true, "host": true}
 
 // Patch applies a JSON Merge Patch and returns the full new document.
 func (s *Store) Patch(patch []byte) (Settings, error) {
@@ -643,6 +656,12 @@ func validate(s *Settings) error {
 	}
 	if n := s.Notifications.FinishedMinSec; n < 0 || n > 86400 {
 		return badSetting("notifications.finishedMinSec must be 0–86400")
+	}
+	if h := s.Host; h.WarnTempC < 40 || h.HotTempC > 120 || h.WarnTempC >= h.HotTempC {
+		return badSetting("host: 40 ≤ warnTempC < hotTempC ≤ 120")
+	}
+	if h := s.Host; h.WarnMemPct < 50 || h.HotMemPct > 100 || h.WarnMemPct >= h.HotMemPct {
+		return badSetting("host: 50 ≤ warnMemPct < hotMemPct ≤ 100")
 	}
 	if s.Runner.DefaultAgent != "claude" && s.Runner.DefaultAgent != "codex" {
 		return badSetting(`runner.defaultAgent must be "claude" or "codex"`)

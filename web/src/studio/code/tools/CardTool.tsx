@@ -18,6 +18,7 @@ import { MemoryTile } from '../../../board/tiles/MemoryTile';
 import { NoteTile } from '../../../board/tiles/NoteTile';
 import { OrchestratorTile } from '../../../board/tiles/OrchestratorTile';
 import { UptimeTile } from '../../../board/tiles/UptimeTile';
+import { ResourcesTile } from '../../../board/tiles/ResourcesTile';
 import { AppTile } from '../../../gui/AppTile';
 import { DocumentTile } from '../../documents/DocumentTile';
 import { LinkTile } from '../../../web/LinkTile';
@@ -35,6 +36,7 @@ const TILES: Record<string, ComponentType<any>> = {
   orchestrator: OrchestratorTile,
   memory: MemoryTile,
   uptime: UptimeTile,
+  resources: ResourcesTile,
   note: NoteTile,
   credentials: CredentialsTile,
   branches: BranchesTile,

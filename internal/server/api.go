@@ -78,6 +78,8 @@ func (s *Server) routes() {
 	pub("POST /api/auth/challenge", s.handleChallenge)
 	pub("POST /api/auth/device", s.handleDeviceAuth)
 	authed("GET /api/hub", s.handleHub)
+	// This PC's CPU, memory, GPUs and temperatures (host.go)
+	authed("GET /api/host/resources", s.handleHostResources)
 	// the setup wizard's copy from another instance of this machine (h_instance_import.go)
 	admin("GET /api/instances/import", s.handleImportSources)
 	admin("POST /api/instances/import", s.handleInstanceImport)

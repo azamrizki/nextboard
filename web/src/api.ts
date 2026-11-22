@@ -12,6 +12,8 @@ import type { Job } from './orch/types';
 import type {
   AddMachine,
   Agent,
+  HostPoint,
+  HostSnapshot,
   AgentInput,
   AttentionList,
   CloseAllPreview,
@@ -238,6 +240,8 @@ export const api = {
   setup: (code: string, password: string, hubName: string) =>
     post<Ok>('/api/setup', { code, password, hubName }, { noRedirect: true }),
   hub: () => get<Hub>('/api/hub'),
+  /** This PC's reading with the consoles using the most; history: the last hour too. */
+  hostResources: (history = false) => get<{ host: HostSnapshot; history?: HostPoint[] }>(`/api/host/resources${history ? '?history=1' : ''}`),
   /** The instances of This PC and the ports a new one would get (admin). */
   instances: () => get<InstancesList>('/api/instances'),
   /** New instance… (admin, this instance's password again): its single-use setup link. */

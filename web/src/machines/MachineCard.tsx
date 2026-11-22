@@ -2,6 +2,7 @@
 // select mode (§3.18) it has a box to pick it, unless it is in use: then it says by what.
 
 import { useRef, useState, type MouseEvent as ReactMouseEvent, type SyntheticEvent } from 'react';
+import { HostGauges } from '../host/HostSection';
 import { useAgentCatalog } from '../agents/catalog';
 import { useEffectiveSettings } from '../agents/settings';
 import { api, errorMessage } from '../api';
@@ -227,6 +228,7 @@ export function MachineCard({ machine: m, onVerifyHostKey, onEnterAuth, select, 
             </dd>
           </div>
         </dl>
+        {!isSsh && <HostGauges />}
 
         {probe ? (
           <>

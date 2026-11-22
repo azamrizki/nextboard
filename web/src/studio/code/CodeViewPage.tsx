@@ -37,6 +37,7 @@ import { pageTitle } from '../../lib/instance';
 import { boardOf, codePath, lastWorkspace, Link, navigate } from '../../lib/router';
 import type { Project, Workspace as Board } from '../../lib/types';
 import { store, useProject, useProjects, useProjectsReady } from '../../store';
+import { HostPill } from '../../host/HostPill';
 import { UsagePill } from '../../usage/UsagePill';
 import CodeStudio, { type PageBar } from './CodeStudio';
 import DiagramLander from './tools/DiagramLander';
@@ -262,6 +263,7 @@ function CodeViewBar({ project, bar, board, onBoard }: { project: Project; bar: 
       )}
       {!phone && (
         <span className="cv-pills">
+          <HostPill />
           <UsagePill machineId={USAGE_MACHINE} />
           <NeedsYouChip />
           <LiveChip />

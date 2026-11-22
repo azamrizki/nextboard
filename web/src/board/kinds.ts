@@ -35,6 +35,8 @@ export const KNOWN_KINDS = [
   'app',
   // docs/API-uptime.md
   'uptime',
+  // docs/API.md, Host resources: This PC's CPU, memory, GPUs and temperatures
+  'resources',
   // docs/API-vault.md
   'credentials',
 ] as const;
@@ -208,6 +210,11 @@ export function monthOf(d: Date): string {
 }
 export function readUptime(n: BoardNode): { title: string } {
   return { title: str(n.data.title, 'Uptime') };
+}
+
+/** Only a title: what the card shows is the hub's computer, the same on every such card. */
+export function readResources(n: BoardNode): { title: string } {
+  return { title: str(n.data.title, 'This PC') };
 }
 
 /** Only a title: what the card shows is in the vault, never on the board. */
@@ -444,6 +451,7 @@ export const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   document: { w: 560, h: 640 },
   app: { w: 1200, h: 800 },
   uptime: { w: 1000, h: 640 },
+  resources: { w: 520, h: 640 },
   credentials: { w: 960, h: 640 },
 };
 
@@ -504,6 +512,8 @@ export function nodeLabel(n: BoardNode, project?: Project): string {
       return str(n.data.title, 'Calendar');
     case 'uptime':
       return str(n.data.title, 'Uptime');
+    case 'resources':
+      return str(n.data.title, 'This PC');
     case 'credentials':
       return str(n.data.title, 'Credentials');
     case 'shape':

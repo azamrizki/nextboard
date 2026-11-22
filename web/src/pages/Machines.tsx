@@ -7,6 +7,7 @@ import { AppHeader } from '../components/AppHeader';
 import { Button } from '../components/Button';
 import { SegmentedControl } from '../components/form';
 import { Icon } from '../components/Icon';
+import { HostSection } from '../host/HostSection';
 import { SelectBar, SelectToggle, useSelectMode } from '../components/SelectBar';
 import { toast } from '../components/Toast';
 import type { Machine } from '../lib/types';
@@ -163,6 +164,8 @@ export function MachinesPage() {
         )}
 
         {tab === 'archived' && <ArchivedMachines machines={archived} select={select} onDelete={(list) => setDeleting(list.map((m) => m.id))} />}
+
+        {tab === 'active' && !select.on && <HostSection />}
 
         {tab === 'active' && (
           <div className="bento machine-grid">

@@ -316,6 +316,56 @@ Ways to read it, easiest first:
 - **CLI:** `nextboard connlog [--machine <name|id>] [-n 50] [--json] [--data-dir <dir>]`. It reads the file directly, so it still works when the hub is down.
 - **File:** `jq` on `<data>/logs/connections.jsonl`.
 
+## Host resources
+
+The CPU, memory, GPUs, temperatures and disks of This PC, the computer that runs the hub, and which consoles use the most of it. The hub reads what the system offers and needs nothing installed (`internal/hostres`).
+
+- **Where the readings come from:** on Linux, from `/proc` and `/sys`.
+  - **CPU:** `/proc/stat`, the share busy since the last reading, of the whole and of each thread.
+  - **Memory:** `/proc/meminfo`. `used` is total less available.
+  - **Temperatures:** `/sys/class/hwmon`, one sensor per device: a CPU's `Tctl`, `Tdie` or `Package id 0`; a GPU's `edge`; a disk's `Composite`; else its hottest. A board gives its hottest. An ACPI zone is used only when no board sensor reads.
+  - **GPUs:** `/sys/class/drm` and their names from `pci.ids`.
+    - amdgpu: `gpu_busy_percent`, VRAM and power.
+    - Intel (i915, xe): busy as the time out of RC6 or idle, and power from the energy counter.
+    - NVIDIA: `nvidia-smi`, at most every 5 s.
+  - **Disks:** the filesystems of the data folder and of `/`.
+  - Other systems answer `supported: false`.
+- **Slow and stuck sensors:**
+  - A sensor whose read takes 0.3 ms or more (a disk's SMART command, a board's WMI) is read again only every 20 s.
+  - A read that takes over 5 s waits on a driver that does not answer (an i915 fan sensor did, for good). That file is not read again, and a new reader carries on.
+- **Pace:** every 2 s while a view of the details asks (for 6 s after each ask); every 5 s while a page is connected to `/api/events`; every 30 s otherwise. The hub keeps the last hour, one point every 15 s.
+- **Consoles:** every process of a console has `NEXTBOARD_SESSION_ID` in its environment, and so do its children. Their CPU and resident memory are added up per console. The hub's own process is `hub`. Consoles of another NextBoard on This PC are left out.
+- **Level:**
+  - `hot` when the hottest sensor (CPU, GPU or disk) or memory passes the red line.
+  - `warn` past the amber line, or for 90 % CPU held for a minute.
+  - `why` says which readings.
+  - The lines are `settings.host`: `warnTempC` 80, `hotTempC` 90, `warnMemPct` 85, `hotMemPct` 95. Each pair must satisfy 40 ≤ warn < hot ≤ 120 for °C and 50 ≤ warn < hot ≤ 100 for %.
+- **Alert:** This PC `hot` for 30 s is told once as an attention item `hostHot` (title `<hostname> runs hot`, body `why`). It is told again only after 5 minutes out of `hot`. Turned off with `settings.notifications.host`.
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/host/resources` | `{ "host": Host }`. Asking keeps the 2 s pace for 6 s, and the first ask in a while waits up to 0.5 s for a reading with the consoles |
+| GET | `/api/host/resources?history=1` | `{ "host": Host, "history": [Point] }`: the last hour, oldest first |
+
+```jsonc
+// Host
+{
+  "at": "…", "supported": true, "os": "linux", "hostname": "devbox", "uptimeSec": 1223924,
+  "cpu": { "model": "AMD Ryzen 5 3600XT 6-Core Processor", "threads": 12, "percent": 7.6, "cores": [5.9, …], "load": [1.3, 0.97, 1.15] },
+  "memory": { "total": 16678514688, "used": 7264038912, "available": 9414475776, "cached": 6156271616, "swapTotal": 21474828288, "swapUsed": 6607634432 },
+  "gpus": [{ "name": "Intel Arc A380", "vendor": "intel", "driver": "i915", "busy": 65.1, "tempC": 55, "powerW": 17.6, "vramUsed": null, "vramTotal": null }],
+  "temps": [{ "kind": "cpu", "label": "CPU", "c": 68.5, "sensor": "k10temp" }, …], // kind: cpu | gpu | disk | board | other
+  "disks": [{ "path": "/", "used": 430009896960, "total": 501809635328 }],
+  "hottest": { "kind": "cpu", "label": "CPU", "c": 68.5, "sensor": "k10temp" }, // null without sensors
+  "level": "ok", "why": "",                                                      // ok | warn | hot
+  "consoles": [{ "sessionId": "s_…", "cpu": 18.2, "rss": 1288490188, "procs": 7, "handle": "Raka", "name": "Claude Code",
+                 "agent": "claude", "projectId": "p_…", "projectName": "Shop API", "workspaceId": "w_…" }] // at most 6, heaviest first
+}
+// Point: { "at": 1800000000, "cpu": 23.1, "mem": 43.5, "gpu": 8, "temp": 62 } (gpu and temp null without them)
+```
+
+`/api/events` sends `{ "type": "host", "host": Host }` without `consoles` with each reading while a page is connected.
+
 ## Sessions
 
 ```jsonc
@@ -369,6 +419,7 @@ Server → client, JSON text frames:
 { "type": "machines" }                         // after a bulk action: refetch the list
 { "type": "device",   "device": Device }
 { "type": "deviceRemoved",  "id": "d_…" }
+{ "type": "host",     "host": Host }         // This PC's reading, without consoles (Host resources)
 // + project/board v2 events: see API-board.md §3 (project, projectRemoved, boardOps)
 ```
 

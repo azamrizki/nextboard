@@ -69,6 +69,7 @@ const KIND_ICON: Record<string, IconName> = {
   kanban: 'kanban',
   calendar: 'calendar',
   uptime: 'activity',
+  resources: 'monitor',
   credentials: 'key',
   orchestrator: 'orchestrator',
   memory: 'memoryCard',

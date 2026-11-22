@@ -174,6 +174,18 @@ Layout rules:
 - **Tablet:** stays one row, with the build label before `…`. Settings, theme, About, and Log out (inside a project also Projects, Memory, Machines, Devices) move into the `…` menu; the hub name disappears; below 1024 px the NextBoard name disappears outside a project, and below 900 px the navigation labels become icons only.
 - **Phone:** the bar sticks to the top edge (56 px + safe area, no rounded corners) with the mark, then the usage chip, needs-you, live, the vault lock, and `…`; the connection dot only shows when not live. Inside a project, one button for the project and its workspace (project name on top, workspace below); its menu holds the workspaces (switch, New workspace, Rename, Close) and then the project list. Outside a project there is a **tab bar** at the bottom edge: Projects, Memory, Machines, Devices, Settings, with the icon in a `--surface-active` pill for the active one.
 - **Workspace tabs:** right-click (long-press on a touch screen) opens Rename, Move left, Move right, Close, so nothing is reachable only by double-click or a shortcut.
+- **This PC** (`host/HostPill.tsx`, docs/API.md Host resources): the CPU, memory, GPUs and temperatures of the computer that runs the hub.
+  - **The pill:** first on the right of the header, before the usage pill. A ring of the CPU load, the CPU % and the hottest sensor's °C, in Geist Mono `--fs-xs`.
+    - It turns amber and then red by the owner's thresholds in Settings › Notifications: 80/90 °C, 85/95 % memory, and amber also for 90 % CPU held for a minute.
+    - Inside a project below 1200 px it shows the CPU only. On a tablet held upright it is the ring alone.
+  - **The details:** a click opens the popover (480 wide).
+    - Its tiles: CPU with a sparkline and one bar per thread, memory with its cache and swap, each GPU, the temperatures.
+    - Below them: the disks of the data folder and of /, the six consoles using the most (a click shows that console), and the thresholds.
+    - On a tablet held upright and on a phone it is a sheet instead, with fewer details.
+  - **Code view:** the same pill sits in its top bar. Its status bar has a quiet line `CPU 8% · RAM 7.2/16 G · GPU 67% · 72°`, whose popover opens upward.
+  - **Phone:** the pill is not in the header, which is full. "…" has **This PC** with the hottest °C. While This PC runs warm or hot, that entry comes first and a dot in amber or red sits on "…".
+  - **Machines:** This PC's card has four gauges (CPU, memory, GPU, hottest). Above the machines, the details sit beside the **Last hour** chart (CPU, memory, GPU or temperatures, one point every 15 s).
+  - **Board:** a **This PC** card (`resources`, Insert › This PC resources) shows the details live, for a big screen. It opens as a tab in the Code view too.
 
 ### 3.5 Board
 

@@ -988,7 +988,10 @@ export interface Settings {
     /** A resumed chat is told what changed in its place since its last message (default on). */
     resumeTellChanges?: boolean;
   };
-  notifications: { needsYou: boolean; finished: boolean; error: boolean; finishedMinSec: number };
+  /** host: This PC runs hot or out of memory (by settings.host). */
+  notifications: { needsYou: boolean; finished: boolean; error: boolean; finishedMinSec: number; host?: boolean };
+  /** Where This PC's readings turn amber (warn) and red (hot) (docs/API.md, Host resources). */
+  host?: { warnTempC: number; hotTempC: number; warnMemPct: number; hotMemPct: number };
   shortcuts: ShortcutMap;
   /** Phase 7 (docs/API-studio.md §12). */
   previews?: { auto: boolean; portRange: [number, number] };
@@ -1103,6 +1106,8 @@ export type HubEvent =
   /** A project's uptime settings changed: fetch them again (they hold the webhook, so the event does not). */
   | { type: 'uptimeSettings'; projectId: string }
   | { type: 'vaultChanged'; rev: number; vaultId: string }
+  /** This PC's reading, every 5 s while a page is open (docs/API.md, Host resources). */
+  | { type: 'host'; host: HostSnapshot }
   | { type: 'credentialRequest'; id: string; state: string }
   | { type: 'passkeyRequest'; id?: string }
   | { type: 'settings'; settings: Settings }
@@ -1127,4 +1132,69 @@ export interface SessionStatusFrame {
   foreground?: 'agent' | 'shell' | 'unknown';
   job?: string;
   active?: boolean;
+}
+
+// ---- This PC's resources (docs/API.md, Host resources) ----
+
+export type HostLevel = 'ok' | 'warn' | 'hot';
+
+export interface HostTemp {
+  kind: 'cpu' | 'gpu' | 'disk' | 'board' | 'other';
+  label: string;
+  c: number;
+  sensor: string;
+}
+
+/** A graphics card; what its driver does not tell is null. */
+export interface HostGPU {
+  name: string;
+  vendor: 'intel' | 'amd' | 'nvidia' | 'other';
+  driver: string;
+  busy: number | null;
+  tempC: number | null;
+  powerW: number | null;
+  vramUsed: number | null;
+  vramTotal: number | null;
+}
+
+/** What one console's processes use together; "hub" is NextBoard itself. */
+export interface HostConsole {
+  sessionId: string;
+  cpu: number;
+  rss: number;
+  procs: number;
+  handle: string;
+  name: string;
+  agent: string;
+  projectId: string;
+  projectName: string;
+  workspaceId: string;
+}
+
+export interface HostSnapshot {
+  at: string;
+  /** false: the hub cannot read this system (only Linux yet). */
+  supported: boolean;
+  os: string;
+  hostname: string;
+  uptimeSec: number;
+  cpu: { model: string; threads: number; percent: number; cores: number[] | null; load: [number, number, number] };
+  memory: { total: number; used: number; available: number; cached: number; swapTotal: number; swapUsed: number };
+  gpus: HostGPU[] | null;
+  temps: HostTemp[] | null;
+  disks: { path: string; used: number; total: number }[] | null;
+  hottest: HostTemp | null;
+  level: HostLevel | '';
+  why: string;
+  /** Only in the details (GET /api/host/resources). */
+  consoles?: HostConsole[] | null;
+}
+
+/** One point of the last hour, every 15 s. */
+export interface HostPoint {
+  at: number;
+  cpu: number;
+  mem: number;
+  gpu: number | null;
+  temp: number | null;
 }

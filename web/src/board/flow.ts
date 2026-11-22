@@ -16,6 +16,7 @@ const HEADER_DRAG: Record<string, string> = {
   kanban: '.tile-head',
   calendar: '.tile-head',
   uptime: '.tile-head',
+  resources: '.tile-head',
   credentials: '.tile-head',
   file: '.tile-head',
   group: '.group-head',

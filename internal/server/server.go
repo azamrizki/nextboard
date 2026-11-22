@@ -25,6 +25,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/connlog"
 	"github.com/azamrizki/nextboard/internal/delivery"
 	"github.com/azamrizki/nextboard/internal/gui"
+	"github.com/azamrizki/nextboard/internal/hostres"
 	"github.com/azamrizki/nextboard/internal/idelink"
 	"github.com/azamrizki/nextboard/internal/instance"
 	"github.com/azamrizki/nextboard/internal/jobs"
@@ -136,6 +137,10 @@ type Server struct {
 	// hookLn is the loopback HTTP fallback of the hook channel on This PC.
 	hookLn  net.Listener
 	hookURL string
+
+	// host reads This PC (host.go); hostAlerts says whether it was told it runs hot.
+	host       *hostres.Sampler
+	hostAlerts hostAlertState
 
 	// gitPrev is the Phase 7 git service and preview proxy (gitpreview.go).
 	gitPrev *gitPreview
@@ -264,6 +269,7 @@ func New(opts Options) (_ *Server, err error) {
 	s.roots.Prune()
 	s.setupVault()
 	s.passkeysAtStart()
+	s.setupHost(opts.DataDir)
 	if err := s.setupUptime(); err != nil {
 		return nil, err
 	}
@@ -449,6 +455,7 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 	defer stopStatus()
 	go s.watchBudgets(ctx)
 	go s.returnMemory(ctx)
+	go s.runHost(ctx)
 
 	b := version.Info()
 	log.Printf("NextBoard %s (%s, commit %s, built %s) running at http://%s", b.Version, b.Channel, b.Commit, orUnknown(b.BuiltAt), s.listen)

@@ -476,6 +476,7 @@
 .tile-kanban,
 .tile-calendar,
 .tile-uptime,
+.tile-resources,
 .tile-credentials,
 .tile-file,
 .tile-unsupported {
@@ -492,6 +493,7 @@
 .tile-kanban.selected,
 .tile-calendar.selected,
 .tile-uptime.selected,
+.tile-resources.selected,
 .tile-credentials.selected,
 .tile-file.selected,
 .tile-unsupported.selected,

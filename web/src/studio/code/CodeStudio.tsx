@@ -37,6 +37,7 @@ import { useLayout } from '../../lib/layout';
 import { EditorKeyBar } from './EditorKeyBar';
 import { Button } from '../../components/Button';
 import { Icon, type IconName } from '../../components/Icon';
+import { HostPill } from '../../host/HostPill';
 import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
 import { useUi, type OpenFileRequest, type UiStore } from '../../board/ui';
@@ -233,6 +234,7 @@ function StatusBar({ ws, onPick, onView, onPanel }: { ws: Workspace; onPick: (ki
         </span>
       )}
       <span className="spacer" />
+      <HostPill where="status" />
       {ws.ide.consoles.length > 0 && (
         <span className="wb-status-item" title={`Linked to this editor: ${ws.ide.consoles.map((c) => c.name).join(', ')}`}>
           <Icon name="link" /> {ws.ide.consoles.length === 1 ? ws.ide.consoles[0].name : `${ws.ide.consoles.length} Claude consoles`}

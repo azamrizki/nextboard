@@ -7,7 +7,7 @@ import { DEFAULT_SIZE, defaultKanban, defaultShape, lineStyleDefaults, monthOf, 
 import { INK_COLORS, NOTE_COLORS } from './palette';
 import type { UiStore } from './ui';
 
-export type InsertKind = 'note' | 'text' | 'checklist' | 'kanban' | 'calendar' | 'uptime' | 'credentials' | ShapeName | 'line' | 'arrow' | 'orchestrator' | 'mission' | 'memory';
+export type InsertKind = 'note' | 'text' | 'checklist' | 'kanban' | 'calendar' | 'uptime' | 'resources' | 'credentials' | ShapeName | 'line' | 'arrow' | 'orchestrator' | 'mission' | 'memory';
 
 type At = { x: number; y: number };
 
@@ -53,6 +53,11 @@ export function createTile(ctl: BoardController, ui: UiStore, kind: InsertKind, 
     case 'uptime': {
       const s = DEFAULT_SIZE.uptime;
       node = ctl.make('uptime', rect ?? centred(at, s.w, s.h), { title: 'Uptime' });
+      break;
+    }
+    case 'resources': {
+      const s = DEFAULT_SIZE.resources;
+      node = ctl.make('resources', rect ?? centred(at, s.w, s.h), { title: 'This PC' });
       break;
     }
     case 'credentials': {

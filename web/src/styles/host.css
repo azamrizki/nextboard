@@ -1,0 +1,551 @@
+/*
+ * This PC's resources (docs/API.md, Host resources): the header pill, the Code view's status
+ * line, the details (popover, sheet, This PC card, Machines page) and the last hour's chart.
+ * Series in --viz-1; amber and red are the status colours, by the owner's thresholds.
+ */
+
+.host-pill,
+.host-panel,
+.host-status {
+  --host-accent: var(--viz-1);
+}
+.lvl-warn {
+  --host-level: var(--c-warning);
+}
+.lvl-hot {
+  --host-level: var(--c-danger-300);
+}
+
+/* ---- the pill ---- */
+.host-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: var(--h-control-sm);
+  padding: 0 var(--s-3) 0 var(--s-2);
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-pill);
+  background: var(--surface-hover);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.host-pill:hover,
+.host-pill.is-open {
+  background: var(--surface-active);
+  border-color: var(--glass-border-strong);
+}
+.host-pill:focus-visible,
+.host-status:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.host-pill.lvl-warn,
+.host-pill.lvl-hot {
+  color: var(--host-level);
+  border-color: color-mix(in srgb, var(--host-level) 50%, transparent);
+  background: color-mix(in srgb, var(--host-level) 10%, transparent);
+}
+.host-pill-sep {
+  width: var(--hairline);
+  height: 13px;
+  background: var(--glass-border-strong);
+}
+.host-pill-temp {
+  color: var(--text-2);
+}
+.host-pill.lvl-warn .host-pill-temp,
+.host-pill.lvl-hot .host-pill-temp {
+  color: inherit;
+}
+.host-ring {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke-width: 2.6;
+}
+.host-ring-track {
+  stroke: var(--glass-border-strong);
+}
+.host-ring-value {
+  stroke: var(--host-level, var(--host-accent));
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--t-fast) var(--ease);
+}
+/* a finger needs the whole square, also when the pill is the ring alone */
+:root[data-input='touch'] .app-header .host-pill {
+  min-width: var(--h-control-sm);
+  justify-content: center;
+}
+/* a tablet held upright: the ring alone (the header has no room for more) */
+@media (orientation: portrait) {
+  :root[data-layout='tablet'] .app-header .host-pill {
+    padding: 0 var(--s-2);
+  }
+  :root[data-layout='tablet'] .app-header .host-pill-num {
+    display: none;
+  }
+}
+/* inside a project on a narrow desktop: the CPU only */
+@media (max-width: 1199px) {
+  .app-header.in-project .host-pill .host-pill-sep,
+  .app-header.in-project .host-pill .host-pill-temp {
+    display: none;
+  }
+}
+
+/* ---- the Code view's status line ---- */
+.host-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.host-status b {
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+.host-status:hover,
+.host-status.is-open {
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+.host-status.lvl-warn,
+.host-status.lvl-hot,
+.host-status.lvl-warn b,
+.host-status.lvl-hot b {
+  color: var(--host-level);
+}
+
+/* ---- the details ---- */
+.host-popover {
+  width: min(480px, calc(100vw - var(--s-8)));
+}
+.host-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.host-panel.is-loading {
+  flex-direction: row;
+  align-items: center;
+  color: var(--text-3);
+  padding: var(--s-4);
+}
+.host-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+}
+.host-head-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: var(--h-control-sm);
+}
+.host-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+.host-host {
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.host-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.host-why {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  color: var(--host-level);
+  background: color-mix(in srgb, var(--host-level) 12%, transparent);
+}
+.host-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.host-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  padding: var(--s-3);
+  border-radius: var(--r-lg);
+  border: var(--hairline) solid var(--glass-border);
+  background: var(--surface-input);
+}
+.host-k {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.host-k-sub {
+  margin-top: var(--s-1);
+}
+.host-v {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-heading);
+}
+.host-v small {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
+  min-width: 0;
+}
+.host-v.lvl-warn,
+.host-v.lvl-hot {
+  color: var(--host-level);
+}
+.host-d {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  min-width: 0;
+}
+.host-bar {
+  display: flex;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+.host-bar i {
+  display: block;
+  height: 100%;
+}
+.host-bar .tone-info {
+  background: var(--host-accent);
+}
+.host-bar .tone-dim {
+  background: color-mix(in srgb, var(--host-accent) 35%, transparent);
+}
+.host-bar .tone-ok {
+  background: var(--c-success);
+}
+.host-bar .tone-warn {
+  background: var(--c-warning);
+}
+.host-bar .tone-hot {
+  background: var(--c-danger-300);
+}
+.host-spark {
+  display: block;
+  width: 100%;
+  height: 28px;
+}
+.host-spark.is-empty {
+  height: 28px;
+}
+.host-spark-fill {
+  fill: color-mix(in srgb, var(--host-accent) 16%, transparent);
+}
+.host-spark-line {
+  fill: none;
+  stroke: var(--host-accent);
+  stroke-width: 1.6;
+}
+.host-cores {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  height: 18px;
+  align-items: end;
+}
+.host-cores i {
+  display: block;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--host-accent) 75%, transparent);
+}
+.host-temps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.host-temp {
+  display: grid;
+  grid-template-columns: minmax(3em, auto) 1fr auto;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-xs);
+}
+.host-temp-n {
+  color: var(--text-2);
+}
+.host-temp-c {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-medium);
+}
+.host-temp-c.lvl-warn,
+.host-temp-c.lvl-hot {
+  color: var(--host-level);
+}
+.host-disk {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.host-disk .tabular {
+  font-family: var(--font-mono);
+}
+.host-consoles {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.host-consoles-head {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 var(--s-2) var(--s-1);
+}
+.host-console {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 3.5em 5em;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: var(--s-1) var(--s-2);
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+button.host-console {
+  cursor: pointer;
+}
+button.host-console:hover,
+button.host-console:focus-visible {
+  background: var(--surface-hover);
+}
+.host-who-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  background: var(--surface-active);
+  color: var(--text-2);
+}
+.host-who-mark svg {
+  width: 13px;
+  height: 13px;
+}
+.host-title svg,
+.host-why svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  flex: 0 0 auto;
+}
+.host-who b {
+  font-weight: var(--fw-semibold);
+}
+.host-who span {
+  color: var(--text-3);
+}
+.host-n {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.host-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.host-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding-top: var(--s-2);
+  border-top: var(--hairline) solid var(--glass-border);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.host-panel.is-compact .host-v {
+  font-size: var(--fs-lg);
+}
+
+/* ---- the last hour ---- */
+.host-chart {
+  margin: 0;
+}
+.host-chart svg {
+  display: block;
+  width: 100%;
+  height: 160px;
+}
+.host-chart-grid {
+  stroke: var(--viz-grid);
+}
+.host-chart-fill {
+  fill: color-mix(in srgb, var(--viz-1) 14%, transparent);
+}
+.host-chart-line {
+  fill: none;
+  stroke: var(--viz-1);
+  stroke-width: 1.8;
+}
+.host-chart-cap {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-top: var(--s-2);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+/* ---- the Machines page ---- */
+.host-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s-4);
+  margin-bottom: var(--s-6);
+}
+@media (max-width: 1099px) {
+  .host-section {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.host-section > .card {
+  min-width: 0;
+}
+.host-history-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-2);
+}
+.host-history-head h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+}
+
+/* ---- the phone's "…" when This PC runs hot ---- */
+.more-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.host-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--host-level);
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+}
+
+/* ---- the This PC card ---- */
+.resources-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--s-3) var(--s-3);
+}
+
+/* ---- the This PC card's gauges ---- */
+.host-gauges {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.host-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-align: center;
+}
+.host-gauge span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.host-gauge svg {
+  width: 58px;
+  height: 58px;
+}
+.host-gauge-track,
+.host-gauge-value {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.host-gauge-track {
+  stroke: var(--surface-hover);
+}
+.host-gauge-value {
+  stroke: var(--host-level, var(--viz-1));
+}
+.host-gauge-text {
+  fill: var(--text);
+  font-size: 14px;
+  font-weight: var(--fw-semibold);
+  font-family: var(--font-ui);
+}
+
+/* ---- Settings › Notifications: This PC's thresholds ---- */
+.host-thresholds {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.host-card-meta.lvl-warn,
+.host-card-meta.lvl-hot {
+  color: var(--host-level);
+}

@@ -26,6 +26,7 @@ import { NeedsYouChip } from './NeedsYouChip';
 import { PhoneSwitcher, ProjectSwitcher, WorkspaceTabs } from './ProjectBar';
 import { TabBar } from './TabBar';
 import { memoryLinkIntent } from '../memory/preload';
+import { HostPill } from '../host/HostPill';
 import { UsagePill } from '../usage/UsagePill';
 import { useVaultStatus } from '../vault/store';
 
@@ -193,6 +194,7 @@ export function AppHeader({ project, workspaceId }: AppHeaderProps) {
       )}
 
       <div className="header-right">
+        <HostPill />
         <UsagePill machineId={USAGE_MACHINE} />
         <NeedsYouChip />
         <LiveChip />

@@ -95,6 +95,7 @@ import { SnapshotsPanel } from './SnapshotsPanel';
 import { TerminalNode } from './TerminalNode';
 import { CalendarTile } from './tiles/CalendarTile';
 import { UptimeTile } from './tiles/UptimeTile';
+import { ResourcesTile } from './tiles/ResourcesTile';
 import { CredentialsTile } from './tiles/CredentialsTile';
 import { ChecklistTile } from './tiles/ChecklistTile';
 import { FileTile } from './tiles/FileTile';
@@ -155,6 +156,7 @@ const NODE_TYPES: NodeTypes = {
   kanban: KanbanTile,
   calendar: CalendarTile,
   uptime: UptimeTile,
+  resources: ResourcesTile,
   credentials: CredentialsTile,
   shape: ShapeTile,
   line: LineTile,
@@ -1342,6 +1344,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'kanban', label: 'Kanban', onClick: () => insertAt('kanban') },
     { icon: 'calendar', label: 'Calendar', onClick: () => insertAt('calendar') },
     { icon: 'activity', label: 'Uptime monitor', onClick: () => insertAt('uptime') },
+    { icon: 'monitor', label: 'This PC resources', onClick: () => insertAt('resources') },
     { icon: 'key', label: 'Credentials', onClick: () => insertAt('credentials') },
     { icon: 'fileCode', label: 'File from project', onClick: () => ui.set({ filePicker: viewCenter() }) },
     { icon: 'orchestrator', label: 'Orchestrator card', onClick: () => insertAt('orchestrator') },
@@ -1585,6 +1588,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'kanban', label: 'Kanban', onSelect: () => insertAt('kanban', at) },
     { icon: 'calendar', label: 'Calendar', onSelect: () => insertAt('calendar', at) },
     { icon: 'activity', label: 'Uptime monitor', onSelect: () => insertAt('uptime', at) },
+    { icon: 'monitor', label: 'This PC resources', onSelect: () => insertAt('resources', at) },
     { icon: 'key', label: 'Credentials', onSelect: () => insertAt('credentials', at) },
     { icon: 'fileCode', label: 'File from project', onSelect: () => ui.set({ filePicker: at }) },
     { icon: 'branch', label: 'Branches card', onSelect: () => insertNode('branches', at) },

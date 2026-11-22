@@ -76,17 +76,20 @@ const KIND_TOAST = {
   certExpiring: 'warning',
   providerBudget: 'warning',
   providerSpent: 'error',
+  hostHot: 'error',
 } as const;
 
 /** Show what the attention is about. */
 const showTarget = (a: Attention) =>
   a.kind === 'credential'
     ? openCredentialRequest()
-    : a.kind.startsWith('provider')
-      ? navigate('/settings/providers')
-      : a.monitorId
-        ? revealMonitor(a.projectId, a.monitorId)
-        : void jumpToSession(a.sessionId);
+    : a.kind === 'hostHot'
+      ? navigate('/machines') // This PC's resources
+      : a.kind.startsWith('provider')
+        ? navigate('/settings/providers')
+        : a.monitorId
+          ? revealMonitor(a.projectId, a.monitorId)
+          : void jumpToSession(a.sessionId);
 const open = new Map<string, Notification>();
 
 function showBrowser(a: Attention) {
