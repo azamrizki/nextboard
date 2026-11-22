@@ -897,6 +897,8 @@ export interface SessionAgentFields {
   asleepAt?: string | null;
   keepAwake?: boolean;
   unsentDraft?: string;
+  /** The order the hub read its records in: of two of one console, the higher is the newer (docs/API.md, Sessions). */
+  rev?: number;
 }
 
 export interface Reply {

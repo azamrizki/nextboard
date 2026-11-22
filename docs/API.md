@@ -331,9 +331,12 @@ Ways to read it, easiest first:
   "startedAt": "…", "lastOutputAt": "…",
   "error": "",
   "color": "#d97757",           // the preset's accent
-  "machineName": "This PC"
+  "machineName": "This PC",
+  "rev": 1795412845123456       // see below
 }
 ```
+
+`rev` numbers the records of every console in the order the hub read them: of two records of one console, the one with the higher `rev` is the newer. A client that gets a console both from a reply and from `/api/events` keeps the newer one, because a reply can arrive after an event about a later change. For example, a NextCode console is ready before the reply that made it goes out. `rev` keeps rising when the hub starts again: it counts from the clock's microseconds.
 
 | Method | Path | Request | Response |
 |---|---|---|---|

@@ -53,10 +53,10 @@ const EMPTY: LiveState = {
 
 
 
-/** Whether two records from the hub hold the same values (nested ones compared as JSON). */
-export function sameRecord(a: object, b: object): boolean {
-  const ka = Object.keys(a);
-  if (ka.length !== Object.keys(b).length) return false;
+/** Whether two records from the hub hold the same values (nested ones compared as JSON), but for the key skip. */
+export function sameRecord(a: object, b: object, skip?: string): boolean {
+  const ka = Object.keys(a).filter((k) => k !== skip);
+  if (ka.length !== Object.keys(b).filter((k) => k !== skip).length) return false;
   for (const k of ka) {
     const x = (a as Record<string, unknown>)[k];
     const y = (b as Record<string, unknown>)[k];
@@ -65,6 +65,12 @@ export function sameRecord(a: object, b: object): boolean {
     if (JSON.stringify(x) !== JSON.stringify(y)) return false;
   }
   return true;
+}
+
+function revsOf(list: Session[] | null | undefined): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const s of list ?? []) if (s.rev !== undefined) out.set(s.id, s.rev);
+  return out;
 }
 
 function byId<T extends { id: string }>(list: T[] | null | undefined): Record<string, T> {
@@ -93,6 +99,8 @@ class LiveStore {
   private listeners = new Set<Listener>();
   private eventListeners = new Set<EventListener>();
   private socket: ReconnectingSocket | null = null;
+  /** The newest Session.rev the hub gave of each console. */
+  private revs = new Map<string, number>();
 
   getState = (): LiveState => this.state;
 
@@ -143,6 +151,7 @@ class LiveStore {
   apply(ev: HubEvent) {
     switch (ev.type) {
       case 'snapshot':
+        this.revs = revsOf(ev.sessions);
         this.set({
           sessions: byId(ev.sessions),
           machines: activeById(ev.machines),
@@ -214,6 +223,7 @@ class LiveStore {
   /** Seed from REST before the first snapshot arrives. */
   seedSessions(list: Session[]) {
     if (this.state.ready) return;
+    this.revs = revsOf(list);
     this.set({ sessions: byId(list), ready: true });
   }
   setSettings(settings: Settings) {
@@ -240,10 +250,16 @@ class LiveStore {
   }
 
   upsertSession(s: Session) {
+    if (s.rev !== undefined) {
+      // a reply can come after an event about a later change (a NextCode console is ready
+      // before the reply that made it goes out): the older record would undo it
+      if (s.rev < (this.revs.get(s.id) ?? 0)) return;
+      this.revs.set(s.id, s.rev);
+    }
     // A change comes twice, as the console socket's status frame and as the hub's session event:
     // the second one changes nothing and re-renders nothing.
     const cur = this.state.sessions[s.id];
-    if (cur && sameRecord(cur, s)) return;
+    if (cur && sameRecord(cur, s, 'rev')) return;
     this.set({ sessions: { ...this.state.sessions, [s.id]: s } });
   }
   /** Apply a status frame from a session socket; no-op if nothing changed. */
@@ -270,7 +286,8 @@ class LiveStore {
       cur.active === next.active
     )
       return;
-    this.upsertSession(next);
+    // live, so newer than any record: not held to Session.rev as a reply is
+    this.set({ sessions: { ...this.state.sessions, [id]: next } });
   }
   removeSession(id: string) {
     const next = without(this.state.sessions, id);

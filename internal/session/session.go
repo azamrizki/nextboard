@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"sync"
+	"sync/atomic"
 
 	"github.com/azamrizki/nextboard/internal/agent"
 	"github.com/azamrizki/nextboard/internal/agentstate"
@@ -180,6 +181,25 @@ type Info struct {
 	Active bool   `json:"active"`
 	// UnsentDraft is what was typed before the console slept and could not be typed back.
 	UnsentDraft string `json:"unsentDraft,omitempty"`
+	// Rev numbers the records of every console in the order they were read: of two records
+	// of one console, the one with the higher Rev is the newer (docs/API.md, Sessions). A reply to
+	// a request can reach a view after an event about a later change, as when a NextCode
+	// console is ready before the reply that made it goes out.
+	Rev int64 `json:"rev"`
+}
+
+// lastRev is the Rev of the last record read. The clock's microseconds, or one more than the
+// last when two come in the same one: a hub started again goes on above what it gave before.
+var lastRev atomic.Int64
+
+func nextRev() int64 {
+	for {
+		last := lastRev.Load()
+		n := max(time.Now().UnixMicro(), last+1)
+		if lastRev.CompareAndSwap(last, n) {
+			return n
+		}
+	}
 }
 
 // StatusMsg is pushed to terminal subscribers when status changes.
@@ -396,7 +416,7 @@ func (s *Session) infoLocked() Info {
 		Spec: s.spec, Status: s.status, ExitCode: s.exitCode, Busy: s.busy,
 		StartedAt: s.startedAt, LastOutputAt: s.lastOutput, Error: s.errMsg,
 		Snapshot: s.eng.Snapshot(), ResumeOffer: s.resumeOffer, Subagents: s.subagents,
-		Job: s.jobLocked(), Active: s.activeLocked(),
+		Job: s.jobLocked(), Active: s.activeLocked(), Rev: nextRev(),
 	}
 	if s.reply != nil {
 		in.Reply = &ReplyInfo{At: s.reply.At, Chars: s.reply.Chars, Paragraphs: s.reply.Paragraphs}

@@ -159,3 +159,25 @@ func TestEarlyInputLimits(t *testing.T) {
 		t.Fatalf("an exited console took input: %v, kept %q", err, s.early)
 	}
 }
+
+// A record read later has a higher rev, also within one microsecond: a client keeps the newer
+// of a reply and an event (docs/API.md, Sessions).
+func TestInfoRevRises(t *testing.T) {
+	s := startingShell(t)
+	last := s.m.SessionInfo(s).Rev
+	if last < time.Now().Add(-time.Minute).UnixMicro() {
+		t.Fatalf("rev %d does not count from the clock", last)
+	}
+	for range 1000 {
+		r := s.m.SessionInfo(s).Rev
+		if r <= last {
+			t.Fatalf("rev %d after %d", r, last)
+		}
+		last = r
+	}
+	ahead := time.Now().Add(time.Hour).UnixMicro() // as after the clock was set back
+	lastRev.Store(ahead)
+	if r := s.m.SessionInfo(s).Rev; r <= ahead {
+		t.Fatalf("rev %d went back from %d", r, ahead)
+	}
+}

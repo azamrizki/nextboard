@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Machine, Project } from './lib/types';
+import type { Machine, Project, Session } from './lib/types';
 import { machineNameOf, store } from './store';
 
 const project = (id: string, archivedAt?: string): Project => ({ id, name: id, machineId: 'local', path: `/srv/${id}`, workspaces: [], sessionCount: 0, runningCount: 0, createdAt: '', lastOpenedAt: '', archivedAt }) as Project;
@@ -86,5 +86,48 @@ describe('live values over copies taken earlier', () => {
     expect(store.getState().projects.p_same.workspaces?.[0].name).toBe('API');
     expect(notified).toBe(1);
     off();
+  });
+});
+
+describe('the newer record of a console stays', () => {
+  const session = (rev: number | undefined, agentState: Session['agentState']): Session => ({ id: 's_rev', name: 'NextCode', agentState, ...(rev === undefined ? {} : { rev }) }) as Session;
+
+  it('a reply read before an event that came first does not undo it', () => {
+    // a NextCode console is ready before the reply that made it goes out
+    store.apply({ type: 'session', session: session(20, 'ready') });
+    store.upsertSession(session(10, 'starting'));
+    expect(store.getState().sessions.s_rev.agentState).toBe('ready');
+    store.upsertSession(session(30, 'working'));
+    expect(store.getState().sessions.s_rev.agentState).toBe('working');
+  });
+
+  it('a record that differs only in rev notifies no one', () => {
+    store.upsertSession(session(40, 'ready'));
+    const before = store.getState().sessions.s_rev;
+    let calls = 0;
+    const off = store.subscribe(() => calls++);
+    store.upsertSession(session(41, 'ready'));
+    off();
+    expect(calls).toBe(0);
+    expect(store.getState().sessions.s_rev).toBe(before);
+    // and the rev was taken: a reply of 40 is older than what came since
+    store.upsertSession(session(40, 'starting'));
+    expect(store.getState().sessions.s_rev.agentState).toBe('ready');
+  });
+
+  it("a console socket's status frame applies after a record that changed only rev", () => {
+    store.upsertSession(session(50, 'ready'));
+    store.upsertSession(session(51, 'ready'));
+    store.patchSessionStatus('s_rev', { t: 'status', status: 'running', exitCode: 0, busy: true, agentState: 'working' });
+    expect(store.getState().sessions.s_rev.agentState).toBe('working');
+  });
+
+  it('a snapshot is what the hub has now, and records without rev (an older hub) always apply', () => {
+    store.apply({ type: 'snapshot', sessions: [session(5, 'needsYou')], devices: [], machines: [] });
+    expect(store.getState().sessions.s_rev.agentState).toBe('needsYou');
+    store.upsertSession(session(4, 'ready'));
+    expect(store.getState().sessions.s_rev.agentState).toBe('needsYou');
+    store.upsertSession(session(undefined, 'ready'));
+    expect(store.getState().sessions.s_rev.agentState).toBe('ready');
   });
 });

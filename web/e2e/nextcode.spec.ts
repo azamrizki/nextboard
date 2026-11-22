@@ -120,3 +120,23 @@ test('Settings › NextCode has its accounts and defaults', async ({ page, hub }
   await expect.poll(async () => (await hub.call('GET', '/api/nextcode/memory/global')).text).toBe('- answers in Indonesian\n');
   await hub.call('PUT', '/api/nextcode/memory/global', { text: '' });
 });
+
+test('a NextCode console started in the Code view is Ready at once', async ({ page, hub }, info) => {
+  test.skip(info.project.name !== 'light' && info.project.name !== 'dark', 'desktop');
+  // it is ready before the reply that made it reaches the page: that older reply said
+  // "starting" and stayed, since a NextCode console says nothing more until a message
+  await hub.call('PATCH', '/api/settings', { agents: { paths: { local: { claude: FAKE } } } });
+  const p = await hub.project('NextCode ready');
+  try {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.goto(`/p/${p.id}/code`);
+    await page.getByRole('tab', { name: /^Agents/ }).click();
+    await page.getByRole('button', { name: 'New agent' }).click();
+    await page.getByRole('menuitem', { name: /^NextCode/ }).first().click();
+    const chat = page.locator('.nc-chat').first();
+    await expect(chat.locator('.nc-live-text')).toHaveText(/^Ready/, { timeout: 5_000 });
+  } finally {
+    for (const s of await hub.call<{ id: string; workspaceId: string }[]>('GET', '/api/sessions')) if (s.workspaceId === p.wid) await hub.call('DELETE', `/api/sessions/${s.id}`);
+    await hub.call('PATCH', '/api/settings', { agents: { paths: { local: { claude: null } } } });
+  }
+});
