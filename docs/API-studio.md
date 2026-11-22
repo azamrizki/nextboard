@@ -685,6 +685,9 @@ Applies to consoles (tiles and the workbench's terminal panel), order inputs (or
   - A TIFF (what Safari gets from a Mac's clipboard), BMP or HEIC becomes a PNG.
   - A picture over 20 MB becomes a JPEG: a browser turns a copied photo into a PNG many times its size (a 1.6 MB JPEG into a 9.7 MB PNG).
   - What the browser cannot draw goes up as it is. Files pasted into the Code view's Explorer are never changed.
+- **Behind a reverse proxy:** an upload goes as one request of up to 20 MB, so the proxy must allow it.
+  - nginx allows 1 MB unless `client_max_body_size` says more; `deploy/nginx.conf.example` sets 25m.
+  - A proxy that refuses answers 413 at once and cuts the upload off, which the browser reports as a network error. The web then names the limit and the line to add, not "Cannot reach the hub": `upload_cut` for a cut-off upload over 1 MB, `upload_too_large` for a 413 without the hub's JSON.
 
 **Explorer (Code workbench):** Ctrl+C, Ctrl+X, Ctrl+V and a context menu for files and folders, like VS Code. What is copied is kept per browser tab, so it can move between projects on the same machine (between machines is refused with a message); its path also goes onto the clipboard, so Ctrl+V in a console or an order gives the path. A paste goes into the selected folder or the folder of the selected file; a folder pasted into itself lands next to it; a cut into itself is refused; Esc cancels a cut. Ctrl+V also accepts files from the computer (`fs/write` raw bytes, `unique`; text gzipped by the browser when that makes it clearly smaller, images/video/archives as they are). Pasting a file while typing in the editor puts it next to that file and inserts its name; in Markdown it becomes `![name](name)` or `[name](name)`. A single click on a file (preview) no longer moves focus to the editor, so Ctrl+C after a click means the file, like VS Code; a double click and Enter still move.
 

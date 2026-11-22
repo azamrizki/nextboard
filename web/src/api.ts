@@ -175,6 +175,9 @@ async function send<T>(method: Method, path: string, body?: unknown, opts: Reque
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    // a proxy that refuses a body this big answers 413 at once and cuts the upload off, which
+    // the browser reports as a network error
+    if (isBigUpload(body, opts)) throw new ApiError(0, proxyLimit(body as Blob, false), 'upload_cut');
     throw new ApiError(0, 'Cannot reach the hub (network error)');
   }
 
@@ -190,6 +193,8 @@ async function send<T>(method: Method, path: string, body?: unknown, opts: Reque
 
   if (!res.ok) {
     const obj = data && typeof data === 'object' ? (data as { error?: unknown; code?: unknown }) : {};
+    // a 413 without the hub's JSON is a proxy's, in front of it
+    if (res.status === 413 && typeof obj.error !== 'string' && opts.rawType && body instanceof Blob) throw new ApiError(413, proxyLimit(body, true), 'upload_too_large');
     const msg = typeof obj.error === 'string' ? obj.error : res.statusText || `HTTP ${res.status}`;
     if (res.status === 401 && !opts.noRedirect && !onAuthPage()) {
       unauthorizedHandler();
@@ -197,6 +202,19 @@ async function send<T>(method: Method, path: string, body?: unknown, opts: Reque
     throw new ApiError(res.status, msg, typeof obj.code === 'string' ? obj.code : '', obj as Record<string, unknown>);
   }
   return data as T;
+}
+
+/** nginx's default client_max_body_size: a bigger upload that fails may have met a proxy's limit. */
+const PROXY_DEFAULT_LIMIT = 1024 * 1024;
+
+function isBigUpload(body: unknown, opts: RequestOptions): boolean {
+  return !!opts.rawType && body instanceof Blob && body.size > PROXY_DEFAULT_LIMIT;
+}
+
+/** What to say when a proxy in front of the hub refused an upload (or cut it off). */
+function proxyLimit(body: Blob, refused: boolean): string {
+  const mb = (body.size / 1024 / 1024).toFixed(1);
+  return `${refused ? 'A proxy in front of the hub refused' : 'The connection broke during'} this ${mb} MB upload${refused ? '' : ', which is what a proxy in front of the hub does when it allows less'}. nginx takes 1 MB unless told more: add client_max_body_size 25m; to the hub's server block.`;
 }
 
 const get = <T>(path: string, opts?: RequestOptions) => request<T>('GET', path, undefined, opts);
