@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -181,8 +182,17 @@ func TestLinuxReader(t *testing.T) {
 		t.Fatalf("intel %+v busy %v power %v", intel, deref(intel.Busy), deref(intel.PowerW))
 	}
 
-	if len(s.Disks) != 2 || s.Disks[0].Path != h.dataDir || s.Disks[1].Path != "/" || s.Disks[0].Total == 0 {
-		t.Fatalf("disks %+v", s.Disks)
+	// the data folder's disk, then /'s when it is another (a CI runner has /tmp on /)
+	var data, root syscall.Stat_t
+	if syscall.Stat(h.dataDir, &data) != nil || syscall.Stat("/", &root) != nil {
+		t.Fatal("stat")
+	}
+	want := 2
+	if data.Dev == root.Dev {
+		want = 1
+	}
+	if len(s.Disks) != want || s.Disks[0].Path != h.dataDir || s.Disks[0].Total == 0 || want == 2 && s.Disks[1].Path != "/" {
+		t.Fatalf("disks %+v, want %d", s.Disks, want)
 	}
 
 	// s_web: (60+20) ticks / 100 per s / 2 s / 2 threads = 20%; the hub's own process is "hub"
