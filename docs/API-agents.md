@@ -778,7 +778,17 @@ Yolo on a server never uses the CLI's own skip-everything flag, so it does not o
   The board tool `board_diagram{diagram?,ask?,subject?,style?,x?,y?}` is there too, wherever the team tools are (API-studio §6): when the owner or the lead asks an agent for a diagram of what it knows, it writes the `nb.diagram/v1` object itself (the tool's description gives the schema and its limits) and the hub checks it with the studio's validation, keeps it as a diagram of the project (agent = the console's handle) and lands it next to the console's tile (an agent in the Code workbench: next to its editor card; else right of the board's content). A mistake comes back as text (`invalid diagram: edge web→db points at a node that does not exist. Fix it and call board_diagram again.`). Without `diagram`, `ask` or `subject` makes the hub draw it in a hidden run, as the lead's step does, reading the console's part (a root console: every part); it lands the same way when the run is done, and a failure goes to the project's thread. Those runs are limited (one per console at a time; per project two at a time and ten an hour, with the lead's): a refusal says so and suggests writing the diagram instead. It changes the board, so it is not approved without asking.
 - `POST /nb/mcp-job`: jobs, a random token per job that is revoked when the job finishes, read tools only.
 
-**Tools:** `read_file{path,offset?,limit?}`, `write_file{path,content}`, `edit_file{path,old_string,new_string,replace_all?}` (over SFTP, an edit fails when the file changes midway), `grep{pattern,path?,include?,ignore_case?}` and `glob{pattern,path?}` (`rg` when present, otherwise `grep`/`find`; glob ≤ 500), `bash{command,timeout_ms?}` (a new login shell in `remoteCwd`, 2 minutes, max 10 minutes; `cd` does not carry over between calls). Paths are relative to `remoteCwd`. Answers ≤ 30,000 characters (start + end). Permissions follow the CLI's mode: a normal prompt per tool.
+**Tools:** `read_file{path,offset?,limit?}`, `write_file{path,content}`, `edit_file{path,old_string,new_string,replace_all?}` (over SFTP, an edit fails when the file changes midway), `grep{pattern,path?,include?,ignore_case?}` and `glob{pattern,path?}` (glob ≤ 500), `bash{command,timeout_ms?}` (a new login shell in `remoteCwd`, 2 minutes, max 10 minutes; `cd` does not carry over between calls). Paths are relative to `remoteCwd`. Answers ≤ 30,000 characters (start + end). Permissions follow the CLI's mode: a normal prompt per tool.
+
+- **How grep searches:**
+  - It uses `rg` when the server has it.
+  - Otherwise, in a git work tree, it uses `git grep --untracked`, which leaves out what `.gitignore` leaves out, as `rg` does.
+  - Otherwise it uses `grep -rIs`, without `.git`, `node_modules` and `*.log`. A plain grep through a folder of logs takes minutes.
+  - Files it may not read never cost what it found: "Permission denied" is no error.
+  - `glob` uses `rg --files` or `find`.
+- **Speed:**
+  - `read_file`, `grep`, `glob` and `bash_output` carry `readOnlyHint`, and Claude Code runs the calls marked so side by side.
+  - A file is read in one SFTP read of its size: about three round trips to the server in all, 80 ms on a link of 25 ms. In `io.ReadAll`'s small steps it was 9 to 18 round trips.
 
 **Test results (Claude Code 2.1.316, Haiku, a temporary sshd on the same host, 2026-11-03):** an order through the command bar arrives; edits, `pwd` and `uname` happen on the server; the server's `CLAUDE.md` is followed; memory is written locally without a prompt; hub status (`working` with the tool name, `needsYou` per permission) and thread reports work; the memory scan reads server files through the read tools.
 

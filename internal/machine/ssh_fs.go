@@ -279,12 +279,29 @@ func (m *SSH) ReadFile(ctx context.Context, p string, max int64) (*FileContent, 
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	data, err := readSized(f, st.Size, max)
+	go f.Close() // what the server answers changes nothing here: a round trip less
 	if err != nil {
 		return nil, err
 	}
 	return makeContent(st, data, max), nil
+}
+
+// readSized reads at most max+1 bytes of r, a file of size bytes by its stat, with one read.
+// Over SFTP every read is a round trip to the server (a large one is split into requests sent
+// together), and io.ReadAll's small first steps take a dozen of them for a file of a few
+// kilobytes. A file that grew since its stat is read as far as the stat said, one that
+// shrank as far as it goes; one without a size (as in /proc) the long way.
+func readSized(r io.Reader, size, max int64) ([]byte, error) {
+	if size <= 0 {
+		return io.ReadAll(io.LimitReader(r, max+1))
+	}
+	buf := make([]byte, min(size, max+1))
+	n, err := io.ReadFull(r, buf)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		err = nil
+	}
+	return buf[:n], err
 }
 
 // ReadAt reads up to n bytes of a remote file starting at off (SFTP, or

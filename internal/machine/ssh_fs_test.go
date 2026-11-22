@@ -234,3 +234,39 @@ func TestSSHFileAPI(t *testing.T) {
 		}
 	})
 }
+
+// readsCounted counts the reads asked of it: over SFTP each one is a round trip to the server.
+type readsCounted struct {
+	r     io.Reader
+	reads int
+}
+
+func (c *readsCounted) Read(p []byte) (int, error) {
+	c.reads++
+	return c.r.Read(p)
+}
+
+// A file is read with one read of the size its stat gave, not in io.ReadAll's small steps (a
+// dozen round trips for a few kilobytes, half a second on a link of 25 ms).
+func TestReadSizedReadsOnce(t *testing.T) {
+	t.Parallel()
+	body := strings.Repeat("x", 30<<10)
+	for _, c := range []struct {
+		name            string
+		size, max       int64
+		want            int
+		reads, readsMax int
+	}{
+		{"as big as its stat", int64(len(body)), DefaultReadMax, len(body), 1, 1},
+		{"over the limit: one byte more says so", int64(len(body)), 1000, 1001, 1, 1},
+		{"grown since its stat", 100, DefaultReadMax, 100, 1, 1},
+		{"shrunk since its stat", int64(len(body)) + 50, DefaultReadMax, len(body), 1, 2},
+		{"no size, as in /proc", 0, DefaultReadMax, len(body), 1, 100},
+	} {
+		r := &readsCounted{r: strings.NewReader(body)}
+		got, err := readSized(r, c.size, c.max)
+		if err != nil || len(got) != c.want || r.reads < c.reads || r.reads > c.readsMax {
+			t.Errorf("%s: %d bytes in %d reads, %v", c.name, len(got), r.reads, err)
+		}
+	}
+}

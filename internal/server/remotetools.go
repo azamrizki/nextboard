@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -815,7 +816,9 @@ func toolSchema(required []string, props map[string]any) map[string]any {
 }
 
 var remoteToolList = []map[string]any{
+	// readOnlyHint: Claude Code runs the tools that only read side by side, not one after another
 	{"name": "read_file", "description": "Read a text file on the server. Lines come numbered as `number<TAB>text`; the number is not part of the file.",
+		"annotations": map[string]any{"readOnlyHint": true},
 		"inputSchema": toolSchema([]string{"path"}, map[string]any{
 			"path":   map[string]any{"type": "string", "description": "Absolute, or relative to the project folder."},
 			"offset": map[string]any{"type": "integer", "description": "First line to return, from 1."},
@@ -831,12 +834,14 @@ var remoteToolList = []map[string]any{
 			"new_string":  map[string]any{"type": "string"},
 			"replace_all": map[string]any{"type": "boolean"}})},
 	{"name": "grep", "description": "Search file contents on the server with a regular expression. Answers `file:line:text`.",
+		"annotations": map[string]any{"readOnlyHint": true},
 		"inputSchema": toolSchema([]string{"pattern"}, map[string]any{
 			"pattern":     map[string]any{"type": "string"},
 			"path":        map[string]any{"type": "string", "description": "Folder or file, the project folder by default."},
 			"include":     map[string]any{"type": "string", "description": "Only files matching this glob, e.g. *.go."},
 			"ignore_case": map[string]any{"type": "boolean"}})},
 	{"name": "glob", "description": "List files on the server whose path matches a glob, e.g. **/*.go. At most 500.",
+		"annotations": map[string]any{"readOnlyHint": true},
 		"inputSchema": toolSchema([]string{"pattern"}, map[string]any{
 			"pattern": map[string]any{"type": "string"},
 			"path":    map[string]any{"type": "string", "description": "Folder to look in, the project folder by default."}})},
@@ -846,6 +851,7 @@ var remoteToolList = []map[string]any{
 			"timeout_ms":        map[string]any{"type": "integer", "description": "2 minutes by default, 10 at most. Not for run_in_background."},
 			"run_in_background": map[string]any{"type": "boolean", "description": "Start it and answer at once with an id; it may run up to an hour. Read its output as it comes with bash_output."}})},
 	{"name": "bash_output", "description": "What a background command started with bash run_in_background has printed since the last call (stdout and stderr together), and whether it still runs or how it ended.",
+		"annotations": map[string]any{"readOnlyHint": true},
 		"inputSchema": toolSchema([]string{"id"}, map[string]any{
 			"id":      map[string]any{"type": "string", "description": "The id bash gave, e.g. bg_1a2b3c4d."},
 			"wait_ms": map[string]any{"type": "integer", "description": "Wait up to this long for new output or the end, 30000 at most. 0 answers at once."}})},
@@ -1202,12 +1208,23 @@ func editRemoteFile(ctx context.Context, host machine.Host, p, oldText, newText 
 	return fmt.Sprintf("Edited %s (%d replacement%s)", p, n, map[bool]string{true: "", false: "s"}[n == 1]), nil
 }
 
-// remoteSearch runs ripgrep when the server has it, else the POSIX fallback.
-func remoteSearch(ctx context.Context, host machine.Host, cwd, rg, fallback string) (*machine.ExecResult, error) {
-	script := `if command -v rg >/dev/null 2>&1; then ` + rg + `; else ` + fallback + `; fi`
+// remoteSearch runs ripgrep when the server has it. Else, in a git work tree, git (when not
+// ""), which leaves out what .gitignore does as ripgrep does: the logs, builds and
+// dependencies a plain grep searches for minutes. Else the POSIX fallback.
+func remoteSearch(ctx context.Context, host machine.Host, cwd, rg, git, fallback string) (*machine.ExecResult, error) {
+	script := `if command -v rg >/dev/null 2>&1; then ` + rg + `; else `
+	if git != "" {
+		// 0: found, 1: nothing found; anything else (a path outside the work tree): the fallback
+		script += `if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then ` + git + `; s=$?; [ $s -le 1 ] && exit $s; fi; `
+	}
+	script += fallback + `; fi`
 	return machine.Exec(ctx, host, machine.ExecSpec{Cwd: cwd, Script: `exec "${SHELL:-/bin/sh}" -lc ` + machine.Quote(script),
 		Timeout: remoteBashDefault, IdleTimeout: remoteBashDefault})
 }
+
+// grepSkips are what the POSIX grep leaves out, as ripgrep would through .gitignore: git's
+// own folder, dependencies and logs (a search in a folder of logs takes minutes).
+var grepSkips = []string{"--exclude-dir=.git", "--exclude-dir=node_modules", "--exclude=*.log"}
 
 func runRemoteGrep(ctx context.Context, host machine.Host, cwd, pattern, dir, include string, ignoreCase bool) (string, error) {
 	if pattern == "" {
@@ -1217,15 +1234,23 @@ func runRemoteGrep(ctx context.Context, host machine.Host, cwd, pattern, dir, in
 		dir = "."
 	}
 	rg := []string{"rg", "-n", "--no-heading", "--color", "never"}
-	grep := []string{"grep", "-rnE"}
+	// tracked files and new ones .gitignore does not leave out, without binary ones
+	git := []string{"git", "-c", "core.quotePath=false", "grep", "-n", "-I", "-E", "--untracked", "--color=never"}
+	// -s: a file it may not read is no failure of the search (ripgrep goes on past it too)
+	grep := append([]string{"grep", "-rnEIs"}, grepSkips...)
 	if ignoreCase {
-		rg, grep = append(rg, "-i"), append(grep, "-i")
+		rg, git, grep = append(rg, "-i"), append(git, "-i"), append(grep, "-i")
 	}
+	spec := dir // git's pathspec: one, since several are or-ed; its * also matches a /
 	if include != "" {
 		rg, grep = append(rg, "-g", include), append(grep, "--include="+include)
+		spec = include
+		if dir != "." {
+			spec = strings.TrimSuffix(dir, "/") + "/" + include
+		}
 	}
-	rg, grep = append(rg, "-e", pattern, "--", dir), append(grep, "-e", pattern, "--", dir)
-	res, err := remoteSearch(ctx, host, cwd, machine.Join(rg...), machine.Join(grep...))
+	rg, git, grep = append(rg, "-e", pattern, "--", dir), append(git, "-e", pattern, "--", spec), append(grep, "-e", pattern, "--", dir)
+	res, err := remoteSearch(ctx, host, cwd, machine.Join(rg...), machine.Join(git...), machine.Join(grep...))
 	if err != nil {
 		return "", err
 	}
@@ -1234,6 +1259,11 @@ func runRemoteGrep(ctx context.Context, host machine.Host, cwd, pattern, dir, in
 		return "", fmt.Errorf("the search was stopped after %s", remoteBashDefault)
 	case res.ExitCode == 1 && len(res.Stdout) == 0:
 		return "No matches.", nil
+	case res.ExitCode > 1 && len(res.Stdout) > 0:
+		// what it found, though some files could not be read
+		return string(res.Stdout), nil
+	case res.ExitCode > 1 && len(bytes.TrimSpace(res.Stderr)) == 0:
+		return "No matches.", nil // only files it may not read, which -s keeps quiet
 	case res.ExitCode > 1:
 		return "", fmt.Errorf("exit code %d\n%s", res.ExitCode, res.Stderr)
 	}
@@ -1250,7 +1280,7 @@ func runRemoteGlob(ctx context.Context, host machine.Host, cwd, pattern, dir str
 	limit := " | head -n 500"
 	rg := machine.Join("rg", "--files", "-g", pattern, "--", dir) + limit
 	find := machine.Join("find", dir, "-type", "f", "-name", path.Base(pattern), "-not", "-path", "*/.git/*") + limit
-	res, err := remoteSearch(ctx, host, cwd, rg, find)
+	res, err := remoteSearch(ctx, host, cwd, rg, "", find)
 	if err != nil {
 		return "", err
 	}
