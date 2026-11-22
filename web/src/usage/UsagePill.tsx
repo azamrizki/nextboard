@@ -1,5 +1,5 @@
-// Usage pill in the header (F2, docs/API-studio.md §10.1): the busiest window of the
-// default CLI on This PC, where agent CLIs run. Clicking it opens the popover and asks for a
+// Usage pill in the header (F2, docs/API-studio.md §10.1): the current session's window of
+// the default CLI on This PC, where agent CLIs run. Clicking it opens the popover and asks for a
 // report (a cached one under 30 s old is reused). Nothing runs by itself unless this
 // browser turned automatic checks on in Settings › Usage.
 
@@ -8,7 +8,7 @@ import { useEffectiveSettings } from '../agents/settings';
 import { studioStore, usageKey, useStudio } from '../studio/store';
 import { AgentMark } from './AgentMark';
 import { checkUsage } from './check';
-import { resetsShort } from './format';
+import { resetsShort, sessionWindow } from './format';
 import { usageAgentOn, usageLevel, usageUi, useUsageOpen, useUsagePrefs, USAGE_AGENTS } from './prefs';
 
 const UsagePopover = lazy(() => import('./UsagePopover'));
@@ -36,7 +36,8 @@ export function UsagePill({ machineId }: { machineId: string }) {
     for (const a of on.split(',')) void checkUsage({ machineId, agent: a, maxAgeSec: 180, trigger: 'background' }).catch(() => undefined);
   }, [machineId, prefs.auto, on]);
 
-  const top = rep?.state === 'ok' ? [...(rep.windows ?? [])].sort((a, b) => b.usedPct - a.usedPct)[0] : undefined;
+  // the current session's window, as the CLI's own /usage leads with it
+  const top = rep?.state === 'ok' ? sessionWindow(rep.windows) : undefined;
   const name = USAGE_AGENTS.find((a) => a.id === agent)?.short ?? agent;
   const level = top ? usageLevel(top.usedPct) : 'ok';
   const label = top ? `${name} ${top.label}: ${top.usedPct}% used${top.resetsText ? `, ${top.resetsText.toLowerCase()}` : ''}` : `${name} usage`;

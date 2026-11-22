@@ -907,6 +907,8 @@ For SSH machines, every write/delete that touches `<cfg>` must carry `"confirm":
   "raw": ["…screen lines…"], "parsed": true, "error": "" }
 ```
 
+The pill shows the **current session's** window: `session` for Claude, `5h` for Codex, else a window labelled session or 5 hours, else the first that is not a week's. It shows that window's percentage and reset. It is not the busiest window: a week's window, or a 24 h line of 96 %, took the pill over that way. The popover lists every window.
+
 Check procedure (job `usage`):
 
 1. Exec on the machine: `d=/tmp/nb-usage-$(id -u)-<hubId>` — **one fixed path per machine user and hub** (without the hubId for a hub that has none) (lead decision, replacing `mktemp`, so that Claude Code records only one folder trust entry). `$d` a symlink or not a folder owned by the user → fail (not used, not deleted); a leftover folder owned by the user (hub crash) is deleted first; then `mkdir -m 700 -- "$d"` (fails when one appears again in between); recorded in `usage/pending-cleanup.json` before the CLI runs. Because the path is fixed, only one check per machine and hub at a time; two instances of one user check side by side without deleting each other's folder.

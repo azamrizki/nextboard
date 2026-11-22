@@ -38,3 +38,17 @@ export function niceMax(v: number): number {
   for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
   return 10 * p;
 }
+
+/**
+ * The window the pill shows: the current session (Claude's "Current session", Codex's "5h
+ * limit"), not the busiest of them all, which mixed in the week's and other windows.
+ */
+export function sessionWindow<W extends { id: string; label: string }>(windows: readonly W[] | null | undefined): W | undefined {
+  const l = windows ?? [];
+  return (
+    l.find((w) => w.id === 'session' || w.id === '5h') ??
+    l.find((w) => /\bsession\b|\b5\s*h(ours?)?\b/i.test(w.label)) ??
+    l.find((w) => !/week/i.test(w.label)) ??
+    l[0]
+  );
+}
