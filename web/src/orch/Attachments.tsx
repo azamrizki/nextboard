@@ -83,7 +83,7 @@ export function useAttachments(projectId: string) {
     setItems((list) => [...list, ...fresh.map((f) => f.item)]);
     void (async () => {
       for (const { key, file } of fresh) {
-        const [st] = await sendPasted([file], (f) => api.attachToProject(projectId, f));
+        const [st] = await sendPasted([file], (f) => api.attachToProject(projectId, f), { forAgent: true });
         if (st) patch(key, { path: st.path, name: st.name, size: st.size });
         else remove(key);
       }

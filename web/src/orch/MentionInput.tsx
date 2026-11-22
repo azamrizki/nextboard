@@ -7,7 +7,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react';
 import { agentById } from '../agents/catalog';
 import { agentPill } from '../agents/state';
-import { clipboardFiles } from '../board/files';
+import { clipboardFiles, noteEmptyPaste } from '../board/files';
 import { Icon, type IconName } from '../components/Icon';
 import { prefs } from '../lib/format';
 import { store } from '../store';
@@ -161,7 +161,7 @@ export function MentionInput({
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = clipboardFiles(e.clipboardData);
-    if (!files.length) return;
+    if (!files.length) return noteEmptyPaste(e.clipboardData);
     e.preventDefault();
     attachments.add(files);
   };

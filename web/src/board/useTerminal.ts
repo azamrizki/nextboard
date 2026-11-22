@@ -328,7 +328,7 @@ export function useTerminal(sessionId: string, containerRef: RefObject<HTMLDivEl
       });
 
       const attachFiles = async (files: File[]) => {
-        const sent = await sendPasted(files, (f) => api.attachToSession(sessionId, f));
+        const sent = await sendPasted(files, (f) => api.attachToSession(sessionId, f), { forAgent: true });
         const s = store.getState().sessions[sessionId];
         for (const st of sent) {
           if (disposed) return;

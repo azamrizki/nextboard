@@ -5,7 +5,7 @@
 // console, so they survive a move between the board, a Code view tab and a phone.
 
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { clipboardFiles } from '../board/files';
+import { clipboardFiles, noteEmptyPaste } from '../board/files';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Menu } from '../components/Menu';
@@ -257,7 +257,7 @@ export function Composer({ sessionId, who, variant, working, stopping, disabled,
         onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
         onPaste={(e) => {
           const pasted = clipboardFiles(e.clipboardData);
-          if (!pasted.length) return;
+          if (!pasted.length) return noteEmptyPaste(e.clipboardData);
           e.preventDefault();
           att.add(pasted);
         }}

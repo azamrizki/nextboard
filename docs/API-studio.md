@@ -674,7 +674,17 @@ Applies to consoles (tiles and the workbench's terminal panel), order inputs (or
 - **Ctrl+V in a console** (not macOS) is now a browser paste, because only the paste event shows the clipboard's content: a file → as above; text in an agent CLI → text (the CLI itself only sees This PC's clipboard, so until now it failed: "no image over SSH"); text in a shell, or an empty clipboard → still `^V`, because vim and readline use it. Pasting text in a shell is still Ctrl+Shift+V.
 - **Claude Code** on This PC runs with `<data>/attachments` in `permissions.additionalDirectories` of its `--settings`, so pasted files (and paths in orders) can be read without a permission dialog. Not with `--add-dir`: since 2.1.32x Claude Code asks "Adding a new directory … Yes, add it" for it in every new session, a second dialog after the folder trust one (measured with 2.1.327; a folder from settings joins the workspace without asking). Other CLIs do not get this flag; when their CLI asks, the permission goes through the console as usual.
 - **Order input:** the path goes into the text at the caret position when the upload finishes, so it can be read and edited; Enter and Send wait for the upload to finish. The agent receives that path in the order and reads it itself.
-- **Which clipboard is a file:** text plus an image from a spreadsheet counts as text; a file plus its name from a file manager counts as a file; folders are refused with a message.
+- **Which clipboard is a file:**
+  - Text plus an image counts as text only when it is a document's text with a picture of it: cells (text with tabs, HTML with a table) or an office suite's HTML (Microsoft Office, LibreOffice).
+  - A picture with any other text beside it is the picture: a caption or a link, as Telegram for Mac copies a photo.
+  - A file plus its name from a file manager counts as a file.
+  - Files are read from the paste's items first and then from its files, because WebKit fills only one.
+  - Folders are refused with a message.
+  - In a message or order field, a paste that brings no text and no file says so, with the clipboard types the browser was given, instead of nothing happening.
+- **A picture for an agent** (a console, a NextCode message, an order) goes up as one the agents read (PNG, JPEG, GIF, WebP).
+  - A TIFF (what Safari gets from a Mac's clipboard), BMP or HEIC becomes a PNG.
+  - A picture over 20 MB becomes a JPEG: a browser turns a copied photo into a PNG many times its size (a 1.6 MB JPEG into a 9.7 MB PNG).
+  - What the browser cannot draw goes up as it is. Files pasted into the Code view's Explorer are never changed.
 
 **Explorer (Code workbench):** Ctrl+C, Ctrl+X, Ctrl+V and a context menu for files and folders, like VS Code. What is copied is kept per browser tab, so it can move between projects on the same machine (between machines is refused with a message); its path also goes onto the clipboard, so Ctrl+V in a console or an order gives the path. A paste goes into the selected folder or the folder of the selected file; a folder pasted into itself lands next to it; a cut into itself is refused; Esc cancels a cut. Ctrl+V also accepts files from the computer (`fs/write` raw bytes, `unique`; text gzipped by the browser when that makes it clearly smaller, images/video/archives as they are). Pasting a file while typing in the editor puts it next to that file and inserts its name; in Markdown it becomes `![name](name)` or `[name](name)`. A single click on a file (preview) no longer moves focus to the editor, so Ctrl+C after a click means the file, like VS Code; a double click and Enter still move.
 

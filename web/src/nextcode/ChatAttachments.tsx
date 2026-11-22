@@ -81,7 +81,7 @@ function add(sessionId: string, files: File[]) {
   void (async () => {
     // one at a time, in order; what fails is said (sendPasted) and its chip goes
     for (const { key, file } of fresh) {
-      const [st] = await sendPasted([file], (f) => api.attachToSession(sessionId, f));
+      const [st] = await sendPasted([file], (f) => api.attachToSession(sessionId, f), { forAgent: true });
       if (!(lists.get(sessionId) ?? NONE).some((a) => a.key === key)) continue; // removed meanwhile
       if (st) patch(sessionId, key, { path: st.path, name: st.name, size: st.size });
       else remove(sessionId, key);
