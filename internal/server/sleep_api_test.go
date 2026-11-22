@@ -191,8 +191,19 @@ func TestLazyStart(t *testing.T) {
 	waitTrue(t, "first hub's agent gone", 5*time.Second, func() bool { return !fakeRunning(dir) })
 	// the restart sees it as it was before the kill: running, with its conversation
 	data := t.TempDir()
-	if out, err := exec.Command("cp", "-a", h.srv.st.Path()+"/.", data).CombinedOutput(); err != nil {
-		t.Fatalf("%v %s", err, out)
+	ents, err := os.ReadDir(h.srv.st.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		// not review's shadow repositories: a snapshot still writes them, and a file that cp
+		// saw go away fails it ("cannot stat …/packed-refs.lock"); the restart needs none
+		if e.Name() == "review" {
+			continue
+		}
+		if out, err := exec.Command("cp", "-a", filepath.Join(h.srv.st.Path(), e.Name()), data).CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
 	}
 	raw, err := os.ReadFile(filepath.Join(data, "sessions.json"))
 	if err != nil {
