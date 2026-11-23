@@ -28,6 +28,22 @@ describe('an upload a proxy refuses', () => {
     expect(own.message).toBe('the file is larger than 20 MB');
   });
 
+  it('a file the browser may not read says so, not network or proxy', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    const unread = (fail: string, bytes: number) => {
+      const f = file(bytes);
+      f.slice = () => ({ arrayBuffer: () => Promise.reject(new DOMException('The requested file could not be read', fail)) }) as unknown as Blob;
+      return f;
+    };
+    for (const bytes of [120_000, 1_600_000]) {
+      const err = (await api.attachToSession('s_1', unread('NotReadableError', bytes)).catch((e: unknown) => e)) as ApiError;
+      expect(err.code).toBe('upload_unreadable');
+      expect(err.message).toMatch(/not able to read this file \(NotReadableError\).*Save it from that app first/);
+    }
+    const gone = (await api.attachToSession('s_1', unread('NotFoundError', 120_000)).catch((e: unknown) => e)) as ApiError;
+    expect(gone.message).toMatch(/no longer there \(NotFoundError\)/);
+  });
+
   it('a small upload, or no upload, is still a network error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     expect(((await api.attachToSession('s_1', file(900_000)).catch((e: unknown) => e)) as ApiError).message).toBe('Cannot reach the hub (network error)');

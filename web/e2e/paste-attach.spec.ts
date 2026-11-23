@@ -1,3 +1,4 @@
+import { chmodSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './hub';
@@ -5,7 +6,8 @@ import { expect, test } from './hub';
 // What a paste into a NextCode message attaches (board/files.ts clipboardFiles, forAgent): a
 // picture with a caption beside it, as Telegram on a Mac copies it, is the picture; a picture
 // agents cannot read (a Mac's TIFF, a BMP) goes up as a PNG; a spreadsheet's cells with a
-// picture of them stay text; a paste with nothing usable says so.
+// picture of them stay text; a paste with nothing usable says so; a pasted file the browser may
+// not read (another app's, as Telegram on a Mac copies a photo) says that, not "network error".
 
 const FAKE = fileURLToPath(new URL('./fake-nextcode.sh', import.meta.url));
 
@@ -89,6 +91,46 @@ test('pasted pictures attach, as an agent can read them; cells stay text', async
     await expect(page.locator('.toast', { hasText: 'Nothing to paste' })).toBeVisible();
     await expect(chips).toHaveCount(2);
   } finally {
+    await hub.call('DELETE', `/api/sessions/${s.id}`);
+    await hub.call('PATCH', '/api/settings', { agents: { paths: { local: { claude: null } } } });
+  }
+});
+
+test('a pasted file the browser cannot read says so', async ({ page, hub }, info) => {
+  test.skip(info.project.name !== 'light' && info.project.name !== 'dark', 'desktop');
+  test.setTimeout(90_000);
+  const { card, input, s } = await chat(page, hub);
+  await page.evaluate(() => {
+    const el = document.createElement('input');
+    el.type = 'file';
+    el.id = 'clip-file';
+    el.hidden = true;
+    document.body.append(el);
+  });
+  /** Pastes a file on disk, as an app puts one on the clipboard, after spoil makes it unreadable. */
+  async function pasteUnreadable(name: string, spoil: (path: string) => void) {
+    const path = info.outputPath(name);
+    writeFileSync(path, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]));
+    await page.setInputFiles('#clip-file', path);
+    spoil(path);
+    await input.evaluate((el) => {
+      const dt = new DataTransfer();
+      dt.items.add((document.getElementById('clip-file') as HTMLInputElement).files![0]);
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    return page.locator('.toast', { hasText: `Could not paste ${name}` });
+  }
+  try {
+    // kept from the browser (a Mac keeps an app's own folder from others)
+    const denied = await pasteUnreadable('telegram-cloud-photo-size-5-1-x.jpg', (p) => chmodSync(p, 0));
+    await expect(denied).toContainText('not able to read this file (NotReadableError)', { timeout: 15_000 });
+    // gone since it was copied
+    const gone = await pasteUnreadable('telegram-cloud-photo-size-5-2-x.jpg', (p) => rmSync(p));
+    await expect(gone).toContainText('no longer there (NotFoundError)', { timeout: 15_000 });
+    await expect(page.locator('.toast', { hasText: 'network error' })).toHaveCount(0);
+    await expect(card.locator('.attach-chip')).toHaveCount(0);
+  } finally {
+    rmSync(info.outputPath('telegram-cloud-photo-size-5-1-x.jpg'), { force: true });
     await hub.call('DELETE', `/api/sessions/${s.id}`);
     await hub.call('PATCH', '/api/settings', { agents: { paths: { local: { claude: null } } } });
   }

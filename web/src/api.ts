@@ -175,6 +175,11 @@ async function send<T>(method: Method, path: string, body?: unknown, opts: Reque
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    // a file the browser may not read breaks the upload off the same way as a lost connection
+    if (opts.rawType && body instanceof Blob) {
+      const why = await unreadable(body);
+      if (why) throw new ApiError(0, why, 'upload_unreadable');
+    }
     // a proxy that refuses a body this big answers 413 at once and cuts the upload off, which
     // the browser reports as a network error
     if (isBigUpload(body, opts)) throw new ApiError(0, proxyLimit(body as Blob, false), 'upload_cut');
@@ -202,6 +207,25 @@ async function send<T>(method: Method, path: string, body?: unknown, opts: Reque
     throw new ApiError(res.status, msg, typeof obj.code === 'string' ? obj.code : '', obj as Record<string, unknown>);
   }
   return data as T;
+}
+
+/**
+ * Why the browser cannot read a file it was to upload, or '' when it can. A file pasted or
+ * dropped from another app is a file on disk that the browser opens only while it uploads:
+ * one in the app's own folder, which the system may keep the browser out of (Telegram on a
+ * Mac copies a photo as such a file), or one gone since, fails there.
+ */
+async function unreadable(body: Blob): Promise<string> {
+  try {
+    // a byte is enough; a file gone before its size was known says it is empty, and reading
+    // all of it fails there
+    await (body.size ? body.slice(0, 1) : body).arrayBuffer();
+    return '';
+  } catch (err) {
+    const name = err instanceof DOMException ? err.name : 'Error';
+    if (name === 'NotFoundError') return `the file is no longer there (${name}), so it was not uploaded. Copy it again, or save it first and paste or drop the saved file.`;
+    return `the browser was not able to read this file (${name}), so it was not uploaded. A file copied in another app, such as a photo in Telegram, can stay in that app's own folder, where the system may not let the browser read it. Save it from that app first, then paste or drop the saved file.`;
+  }
 }
 
 /** nginx's default client_max_body_size: a bigger upload that fails may have met a proxy's limit. */

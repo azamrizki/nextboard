@@ -685,6 +685,7 @@ Applies to consoles (tiles and the workbench's terminal panel), order inputs (or
   - A TIFF (what Safari gets from a Mac's clipboard), BMP or HEIC becomes a PNG.
   - A picture over 20 MB becomes a JPEG: a browser turns a copied photo into a PNG many times its size (a 1.6 MB JPEG into a 9.7 MB PNG).
   - What the browser cannot draw goes up as it is. Files pasted into the Code view's Explorer are never changed.
+- **A file the browser may not read:** a file pasted or dropped from another app is a file on disk, which the browser opens only while it uploads it. Telegram for Mac, for one, copies a photo as a file in its own folder, and the system may keep the browser out of that folder. When such an upload breaks off, the web reads a byte of the file. If that read fails, it says the browser could not read the file (`upload_unreadable`, with the browser's reason: `NotReadableError`, or `NotFoundError` for a file gone since), not "Cannot reach the hub". Saving the file first and pasting or dropping the saved one works.
 - **Behind a reverse proxy:** an upload goes as one request of up to 20 MB, so the proxy must allow it.
   - nginx allows 1 MB unless `client_max_body_size` says more; `deploy/nginx.conf.example` sets 25m.
   - A proxy that refuses answers 413 at once and cuts the upload off, which the browser reports as a network error. The web then names the limit and the line to add, not "Cannot reach the hub": `upload_cut` for a cut-off upload over 1 MB, `upload_too_large` for a 413 without the hub's JSON.
