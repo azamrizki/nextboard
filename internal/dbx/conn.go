@@ -302,6 +302,14 @@ func normalize(c *Connection) error {
 	return nil
 }
 
+// hopName is how the form names a hop: the last one is the SSH server, those before it jump servers.
+func hopName(i, n int) string {
+	if i == n-1 {
+		return "the SSH server"
+	}
+	return fmt.Sprintf("jump server %d", i+1)
+}
+
 func normalizeReach(r *Reach) error {
 	switch r.Kind {
 	case "":
@@ -313,8 +321,13 @@ func normalizeReach(r *Reach) error {
 		}
 	case ReachSSH:
 		r.ConfigHost = strings.TrimSpace(r.ConfigHost)
+		if r.ConfigHost != "" {
+			// the Host brings its own chain (HostName, User, ProxyJump): servers a form kept
+			// from before it was chosen are not the way
+			r.Hops = nil
+		}
 		if r.ConfigHost == "" && len(r.Hops) == 0 {
-			return invalid("reach: an SSH server or a Host of ~/.ssh/config")
+			return invalid("SSH tunnel: fill in the SSH server, or choose a Host of ~/.ssh/config")
 		}
 		if len(r.Hops) > 8 {
 			return invalid("reach.hops: at most 8")
@@ -324,13 +337,13 @@ func normalizeReach(r *Reach) error {
 			h.Host = strings.TrimSpace(h.Host)
 			h.User = strings.TrimSpace(h.User)
 			if h.Host == "" || h.User == "" {
-				return invalid("reach.hops[%d]: host and user", i)
+				return invalid("SSH tunnel: fill in the host and user name of %s", hopName(i, len(r.Hops)))
 			}
 			if h.Port == 0 {
 				h.Port = 22
 			}
 			if h.Port < 1 || h.Port > 65535 {
-				return invalid("reach.hops[%d].port: 1 to 65535", i)
+				return invalid("SSH tunnel: the port of %s is 1 to 65535", hopName(i, len(r.Hops)))
 			}
 			switch h.Auth {
 			case "":

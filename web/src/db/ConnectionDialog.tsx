@@ -55,6 +55,34 @@ function secretsOf(f: Form): Secrets {
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
+/**
+ * What goes to the hub: the SSH servers only when they are the way (a Host of ~/.ssh/config
+ * brings its own, a machine of the project needs none), so a form switched to another way does
+ * not send its empty server along.
+ */
+export function outgoing(f: Pick<Form, 'c' | 'password' | 'hopSecrets' | 'hopKeys'>): { c: Connection; s: Secrets } {
+  const r = f.c.reach;
+  if (r.kind === 'ssh' && !r.configHost?.trim()) return { c: f.c, s: secretsOf(f as Form) };
+  const c = { ...f.c, reach: { ...r, hops: [] } };
+  return { c, s: secretsOf({ ...(f as Form), hopSecrets: [], hopKeys: [] }) };
+}
+
+/** What the tunnel still needs, in words, before it can be tried or kept; "" when nothing. */
+export function tunnelProblem(c: Connection): string {
+  const r = c.reach;
+  if (r.kind === 'machine') return r.machineId ? '' : 'SSH tunnel: choose the machine it goes through.';
+  if (r.kind !== 'ssh' || r.configHost?.trim()) return '';
+  const hops = r.hops ?? [];
+  if (hops.length === 0) return 'SSH tunnel: fill in the SSH server, or untick Use SSH tunnel.';
+  const last = hops.length - 1;
+  for (let i = 0; i < hops.length; i++) {
+    if (!hops[i].host.trim() || !hops[i].user.trim()) {
+      return `SSH tunnel: fill in the host and user name of ${i === last ? 'the SSH server' : `jump server ${i + 1}`}, or untick Use SSH tunnel.`;
+    }
+  }
+  return '';
+}
+
 // ---- the wizard --------------------------------------------------------------------------------
 
 export function NewConnection({ projectId, onClose, onDone }: { projectId: string; onClose: () => void; onDone?: (c: Connection) => void }) {
@@ -79,11 +107,24 @@ export function NewConnection({ projectId, onClose, onDone }: { projectId: strin
     setTab('main');
   };
 
+  // what the tunnel misses shows on its tab
+  const toTunnel = () => {
+    setStep(2);
+    setTab('ssh');
+  };
+
   const runTest = async () => {
+    const problem = tunnelProblem(f.c);
+    if (problem) {
+      setTest({ ok: false, ms: 0, tables: 0, keys: 0, error: problem });
+      toTunnel();
+      return;
+    }
     setTesting(true);
     setTest(null);
     try {
-      const r = await dbApi.test(f.c, secretsOf(f), undefined, f.detectRef);
+      const out = outgoing(f);
+      const r = await dbApi.test(out.c, out.s, undefined, f.detectRef);
       setTest(r);
       if (r.hostKey && !r.hostKey.changed) setTrust(r.hostKey);
     } catch (e) {
@@ -94,9 +135,16 @@ export function NewConnection({ projectId, onClose, onDone }: { projectId: strin
   };
 
   const finish = async () => {
+    const problem = tunnelProblem(f.c);
+    if (problem) {
+      toast.error(problem);
+      toTunnel();
+      return;
+    }
     setSaving(true);
     try {
-      const c = await dbApi.create(projectId, f.c, secretsOf(f), f.detectRef);
+      const out = outgoing(f);
+      const c = await dbApi.create(projectId, out.c, out.s, f.detectRef);
       rememberConnection(c);
       toast.success(`${c.name} added`);
       onDone?.(c);
@@ -169,9 +217,16 @@ export function EditConnection({ conn, onClose, initialPage }: { conn: Connectio
   const [removing, setRemoving] = useState(false);
 
   const runTest = async () => {
+    const problem = tunnelProblem(f.c);
+    if (problem) {
+      setTest({ ok: false, ms: 0, tables: 0, keys: 0, error: problem });
+      setPage('ssh');
+      return;
+    }
     setTesting(true);
     try {
-      const r = await dbApi.test(f.c, secretsOf(f), conn.id);
+      const out = outgoing(f);
+      const r = await dbApi.test(out.c, out.s, conn.id);
       setTest(r);
       if (r.hostKey && !r.hostKey.changed) setTrust(r.hostKey);
     } catch (e) {
@@ -182,9 +237,16 @@ export function EditConnection({ conn, onClose, initialPage }: { conn: Connectio
   };
 
   const save = async (close: boolean) => {
+    const problem = tunnelProblem(f.c);
+    if (problem) {
+      toast.error(problem);
+      setPage('ssh');
+      return;
+    }
     setSaving(true);
     try {
-      const c = await dbApi.replace(conn.id, f.c, secretsOf(f));
+      const out = outgoing(f);
+      const c = await dbApi.replace(conn.id, out.c, out.s);
       rememberConnection(c);
       setF({ ...f, c: clone(c), password: undefined, hopSecrets: (c.reach.hops ?? []).map(() => null), hopKeys: (c.reach.hops ?? []).map(() => null) });
       toast.success('Saved');

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { outgoing, tunnelProblem } from './ConnectionDialog';
 import { cellText } from './DataGrid';
 import { ttlText } from './RedisView';
 import { sqlBlocks } from './SmartPanel';
@@ -66,5 +67,31 @@ describe('connections', () => {
     expect(c.port).toBe(driverOf('postgres').port);
     expect(c.reach.kind).toBe('direct');
     expect(isSQL('postgres') && isKV('valkey') && !isKV('mysql')).toBe(true);
+  });
+});
+
+describe('the tunnel a connection dialog sends', () => {
+  const base = () => blankConnection('p1', 'mysql');
+  const form = (c: ReturnType<typeof blankConnection>) => ({ c, hopSecrets: [null], hopKeys: [null] });
+
+  it('sends no SSH server when a Host of ~/.ssh/config or a machine is the way', () => {
+    const c = base();
+    c.reach = { ...c.reach, kind: 'ssh', configHost: 'db-bastion', hops: [{ host: '', port: 22, user: '', auth: 'key' }] };
+    expect(outgoing(form(c)).c.reach.hops).toEqual([]);
+    expect(tunnelProblem(c)).toBe('');
+    const m = base();
+    m.reach = { ...m.reach, kind: 'machine', machineId: 'm1', hops: [{ host: '', port: 22, user: '', auth: 'key' }] };
+    expect(outgoing(form(m)).c.reach.hops).toEqual([]);
+  });
+
+  it('says which server is missing its host or user, before anything is sent', () => {
+    const c = base();
+    c.reach = { ...c.reach, kind: 'ssh', hops: [{ host: '', port: 22, user: 'deploy', auth: 'agent' }, { host: 'db-1', port: 22, user: '', auth: 'key' }] };
+    expect(tunnelProblem(c)).toBe('SSH tunnel: fill in the host and user name of jump server 1, or untick Use SSH tunnel.');
+    c.reach.hops![0].host = 'bastion';
+    expect(tunnelProblem(c)).toBe('SSH tunnel: fill in the host and user name of the SSH server, or untick Use SSH tunnel.');
+    c.reach.hops![1].user = 'deploy';
+    expect(tunnelProblem(c)).toBe('');
+    expect(outgoing(form(c)).c.reach.hops).toHaveLength(2);
   });
 });

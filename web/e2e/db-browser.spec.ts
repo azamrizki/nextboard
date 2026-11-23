@@ -282,6 +282,9 @@ test('a new connection in the DBeaver flow: Production is read-only', async ({ p
   await main.getByRole('tab', { name: 'SSH' }).click();
   await main.getByLabel('Use SSH tunnel').check();
   await expect(main.locator('.db-route')).toContainText('The way:');
+  // an SSH server left empty is said in words, before the hub is asked
+  await main.getByRole('button', { name: 'Test tunnel configuration' }).click();
+  await expect(main.locator('.db-test-err')).toHaveText(/SSH tunnel: fill in the host and user name of the SSH server/);
   await shot(page, 'wizard-ssh');
   await main.getByLabel('Use SSH tunnel').uncheck();
   await main.getByRole('button', { name: 'Next ›' }).click();

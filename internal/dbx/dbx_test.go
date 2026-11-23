@@ -239,3 +239,29 @@ func TestAProductionConnectionMadeWithoutSafetyIsReadOnly(t *testing.T) {
 		t.Error("an explicit full access was made read-only")
 	}
 }
+
+func TestTunnelFormsTheHubReadsAsTheOwnerMeantThem(t *testing.T) {
+	// a Host of ~/.ssh/config chosen after the form had made an empty SSH server: the Host is the way
+	r := Reach{Kind: ReachSSH, ConfigHost: " db-bastion ", Hops: []Hop{{Host: "", User: ""}}}
+	if err := normalizeReach(&r); err != nil {
+		t.Fatalf("a config Host with a leftover empty server: %v", err)
+	}
+	if r.ConfigHost != "db-bastion" || len(r.Hops) != 0 {
+		t.Fatalf("reach %+v", r)
+	}
+	// a server left empty says which, in the form's words
+	for _, c := range []struct {
+		hops []Hop
+		want string
+	}{
+		{[]Hop{{Host: "db-1", User: ""}}, "SSH tunnel: fill in the host and user name of the SSH server"},
+		{[]Hop{{Host: "", User: "deploy"}, {Host: "db-1", User: "deploy"}}, "SSH tunnel: fill in the host and user name of jump server 1"},
+		{nil, "SSH tunnel: fill in the SSH server, or choose a Host of ~/.ssh/config"},
+	} {
+		r := Reach{Kind: ReachSSH, Hops: c.hops}
+		err := normalizeReach(&r)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%+v: %v, want %q", c.hops, err, c.want)
+		}
+	}
+}
