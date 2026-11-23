@@ -653,7 +653,8 @@ func TestProjectMemoryAcrossCLIs(t *testing.T) {
 	}
 	// Its folder holds the memory, the pages it looks up through the hub, like
 	// every other CLI, and looking something up needs no approval.
-	for _, want := range []string{"--mcp-config\n", "--allowedTools\nmcp__nextboard__memory_search,mcp__nextboard__memory_read,mcp__nextboard__mission_read,mcp__nextboard__credential_list,mcp__nextboard__credential_run,mcp__nextboard__credential_result\n"} {
+	for _, want := range []string{"--mcp-config\n", "--allowedTools\nmcp__nextboard__memory_search,mcp__nextboard__memory_read,mcp__nextboard__mission_read,mcp__nextboard__credential_list,mcp__nextboard__credential_run,mcp__nextboard__credential_result," +
+		"mcp__nextboard__db_connections,mcp__nextboard__db_schema,mcp__nextboard__db_table,mcp__nextboard__db_query,mcp__nextboard__db_explain,mcp__nextboard__db_execute,mcp__nextboard__db_result,mcp__nextboard__redis_scan,mcp__nextboard__redis_get,mcp__nextboard__redis_command\n"} {
 		if !strings.Contains(argv, want) {
 			t.Fatalf("no %q in:\n%s", want, argv)
 		}

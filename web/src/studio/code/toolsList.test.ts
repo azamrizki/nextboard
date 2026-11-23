@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ToolKind } from './toolKinds';
 import { browserArg, browserTitle, CODE_VIEW_TOOLS, parseBrowserArg, STUDIO_TOOLS, TOOL_ITEMS, toolMeta } from './toolsList';
 
-const ALL: ToolKind[] = ['chats', 'memory', 'documents', 'diagrams', 'markdown', 'skills', 'vault', 'browser', 'loops', 'mission'];
+const ALL: ToolKind[] = ['chats', 'memory', 'documents', 'diagrams', 'markdown', 'skills', 'vault', 'browser', 'loops', 'mission', 'db'];
 
 describe('CODE_VIEW_TOOLS', () => {
   it('lists the tools in the activity bar order, Studios as one item', () => {
-    expect(CODE_VIEW_TOOLS.map((t) => t.label)).toEqual(['Chats', 'Memory', 'Studios', 'Vault', 'Browser', 'Loops', 'Mission Map']);
-    expect(CODE_VIEW_TOOLS.map((t) => t.kind)).toEqual(['chats', 'memory', 'documents', 'vault', 'browser', 'loops', 'mission']);
+    expect(CODE_VIEW_TOOLS.map((t) => t.label)).toEqual(['Chats', 'Memory', 'Studios', 'Vault', 'Browser', 'Loops', 'Mission Map', 'Databases']);
+    expect(CODE_VIEW_TOOLS.map((t) => t.kind)).toEqual(['chats', 'memory', 'documents', 'vault', 'browser', 'loops', 'mission', 'db']);
   });
 
   it('gives only Studios a menu, of its four studios', () => {
@@ -30,7 +30,7 @@ describe('CODE_VIEW_TOOLS', () => {
 
 describe('toolMeta', () => {
   it('names each tool and gives its icon', () => {
-    expect(ALL.map((k) => toolMeta(k).title)).toEqual(['Chats', 'Memory', 'Documents', 'Diagrams', 'Markdown', 'Skills', 'Vault', 'Browser', 'Loops', 'Mission Map']);
+    expect(ALL.map((k) => toolMeta(k).title)).toEqual(['Chats', 'Memory', 'Documents', 'Diagrams', 'Markdown', 'Skills', 'Vault', 'Browser', 'Loops', 'Mission Map', 'Databases']);
     expect(toolMeta('vault')).toEqual({ title: 'Vault', icon: 'key', tip: 'Vault' });
     expect(toolMeta('mission').icon).toBe('map');
     expect(toolMeta('chats').icon).toBe('message');

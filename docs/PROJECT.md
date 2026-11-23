@@ -274,6 +274,7 @@ Since decision 10, agent CLIs stay on This PC; on a server they work through hub
 | `checklist`, `kanban`, `calendar` | A list with checkboxes; columns and cards (due, priority); monthly events |
 | `uptime` | Uptime monitoring like Uptime Kuma: heartbeats, response chart, certificates, alerts; the hub does the checking ([API-uptime.md](API-uptime.md)) |
 | `credentials` | A password manager like Bitwarden, encrypted in the browser; the node stores only the title ([API-vault.md](API-vault.md)) |
+| `database` | The project's database browser (MySQL, MariaDB, PostgreSQL, Redis, Valkey), or one connection of it (`data.connectionId`); the connections are the hub's ([API-db.md](API-db.md)) |
 | `shape`, `line`, `ink` | rough.js-style shapes, lines and arrows, pen strokes |
 | `image` | From a hub asset or a machine file, with a markup editor |
 | `file` | `code` (snapshot), `markdown` (live), `file`, `folder` (≤ 40 files) |
@@ -344,7 +345,7 @@ The CLI keeps running on This PC, while its file and shell tools act on the serv
 | Codex | `--disable shell_tool --disable unified_exec --sandbox read-only` | Real console without yolo |
 | OpenCode | `permission` of every local tool `deny` except `skill` | MCP connected; full turn only against a fake model |
 
-- **Hub tools:** `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`, plus `memory_search`, `memory_read`, `memory_save`, `memory_move`, and for a project with marked credentials `credential_list`, `credential_run`, `credential_result` (API-vault.md).
+- **Hub tools:** `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`, plus `memory_search`, `memory_read`, `memory_save`, `memory_move`, for a project with marked credentials `credential_list`, `credential_run`, `credential_result` (API-vault.md), and for a project with database connections agents may use `db_connections`, `db_schema`, `db_table`, `db_query`, `db_explain`, `db_execute`, `db_result`, `redis_scan`, `redis_get`, `redis_command` (API-db.md).
 - **If the tools cannot be set up, the launch fails** rather than falling back to local tools, because the agent would then work on This PC's files.
 - **Yolo on a server** does not use the CLI's skip-everything flag, so it opens no access to This PC.
 
@@ -581,6 +582,17 @@ A password manager on the board, modeled on Bitwarden; its contract and security
 - **Works on plain HTTP too,** with AES from `@noble/ciphers` because `crypto.subtle` is not available there, and the password screen names the risk. One vault can be opened over both HTTP and HTTPS.
 - **Agents using a credential** (decision #40): an item marked for a project can be requested by that project's agents through `credential_run`. The owner approves each command in the browser, the hub runs it and censors the output, and the agent never receives the value.
 
+### 5.20 Database browser
+
+A database client of the hub's own, like DBeaver or TablePlus; the contract is in [API-db.md](API-db.md). A project's connections show in the Code view's Databases tab and on every `database` card; the hub connects (directly, over a machine of the project, or through an SSH tunnel with jump servers), the browser never does.
+
+- **Connections** are made in DBeaver's flow (Select your database › Connection settings with Main, SSH, SSL, Driver properties › Details), or filled from the project's `.env` files. Passwords and SSH keys are sealed on the hub and never sent back.
+- **Tables:** filter chips, a raw WHERE, sort, pages, edits in the grid committed in one transaction after Review SQL, the row's detail with its foreign keys followed both ways, structure, indexes, relations, export to CSV, JSON or INSERTs.
+- **SQL editor:** the dialect and the schema's names completed, the statement under the cursor or all of them, Stop, a transaction the owner opens with Commit and Roll back, results as a table, a chart or JSON, saved queries and history.
+- **Redis and Valkey:** keys by pattern (SCAN) grouped by prefix, each type's value paged and edited, TTL, a console.
+- **Safety:** a connection type (Local, Development, Staging, Production) sets read-only and confirmations; DROP, TRUNCATE and DELETE or UPDATE without WHERE always ask for the connection's name and run in a transaction that waits for Commit.
+- **Agents and SmartDB:** agents of the project read, ask to write or write per connection, with masked columns and an activity log; SmartDB turns words into filters and SQL and answers questions about the data with the owner's own agent CLI.
+
 ## 6. Security
 
 **Threat model.** One owner. Anyone who can log in to the hub effectively has a shell on the machine. That is why the most important layer is not exposing the hub to the public.
@@ -733,6 +745,7 @@ Needs Go 1.26+ and Node 22+. Go module: `github.com/azamrizki/nextboard`. `go in
 | `make test-e2e` | Browser tests (Playwright) against a temporary hub with fake agents; needs `cd web && npx playwright install chromium` once. Not part of the release workflow |
 | `make test-e2e-fast` | The same suite over several temporary hubs side by side (`scripts/e2e-shards.sh`, `--shard=i/n`, each hub on its own port and folder); `E2E_SHARDS=n`, default a third of the CPUs (at most 6). The whole suite took 9.5 min in 4 shards against ~30 min on one hub. A failed shard's summary is printed at the end, its log is `$TMPDIR/nextboard-e2e-shard-<i>.log` |
 | `make test-ssh` | SSH tests against a temporary sshd |
+| `make test-db` | The database browser's tests against real MySQL 8.4 and PostgreSQL 18 in throwaway Docker containers it starts and removes (`scripts/db-test.sh`) |
 | `make build` | Web + `bin/nextboard` |
 | `make snapshot` | Local goreleaser |
 
@@ -944,3 +957,4 @@ The test names are in `internal/cli`, `internal/server`, and `internal/machine`.
 | [API-gui.md](API-gui.md) | Desktop apps, real browsers, video, sound |
 | [API-uptime.md](API-uptime.md) | Uptime monitors |
 | [API-vault.md](API-vault.md) | Credentials: encryption format, API, behavior, what is not protected |
+| [API-db.md](API-db.md) | Database browser: connections, SSH tunnels, tables, SQL, Redis, safety, agents, SmartDB |

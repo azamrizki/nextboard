@@ -39,6 +39,8 @@ export const KNOWN_KINDS = [
   'resources',
   // docs/API-vault.md
   'credentials',
+  // docs/API-db.md: the project's database browser, or one connection of it
+  'database',
 ] as const;
 export type Kind = (typeof KNOWN_KINDS)[number];
 
@@ -220,6 +222,11 @@ export function readResources(n: BoardNode): { title: string } {
 /** Only a title: what the card shows is in the vault, never on the board. */
 export function readCredentials(n: BoardNode): { title: string } {
   return { title: str(n.data.title, 'Credentials') };
+}
+
+/** A title and, for a card kept to one connection, its id: the hub's, never its credentials. */
+export function readDatabase(n: BoardNode): { title: string; connectionId: string } {
+  return { title: str(n.data.title, 'Database'), connectionId: str(n.data.connectionId) };
 }
 
 export function readCalendar(n: BoardNode): CalendarData {
@@ -453,6 +460,7 @@ export const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   uptime: { w: 1000, h: 640 },
   resources: { w: 520, h: 640 },
   credentials: { w: 960, h: 640 },
+  database: { w: 1180, h: 720 },
 };
 
 export function randomSeed(): number {
@@ -516,6 +524,8 @@ export function nodeLabel(n: BoardNode, project?: Project): string {
       return str(n.data.title, 'This PC');
     case 'credentials':
       return str(n.data.title, 'Credentials');
+    case 'database':
+      return str(n.data.title, 'Database');
     case 'shape':
       return ({ rect: 'Rectangle', ellipse: 'Ellipse', diamond: 'Diamond' } as Record<string, string>)[str(n.data.shape)] ?? 'Shape';
     case 'line':

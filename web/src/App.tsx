@@ -52,6 +52,7 @@ const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ defaul
 const PrintPage = lazy(() => import('./studio/print/PrintPage'));
 const CredentialRequests = lazy(() => import('./vault/Requests').then((m) => ({ default: m.CredentialRequests })));
 const PasskeyRequests = lazy(() => import('./vault/PasskeyRequests').then((m) => ({ default: m.PasskeyRequests })));
+const DbRequests = lazy(() => import('./db/Requests').then((m) => ({ default: m.DbRequests })));
 
 const isAppPath = (p: string) => parseRoute(p).page !== 'unknown';
 
@@ -267,6 +268,7 @@ export function App() {
               <Suspense fallback={null}>
                 <CredentialRequests />
                 <PasskeyRequests />
+                <DbRequests />
               </Suspense>
             )}
           </AuthProvider>

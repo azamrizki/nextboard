@@ -409,6 +409,10 @@ type remoteTarget struct {
 	// root: a console at the project root (roots.go), which names the part of every file call;
 	// own: the call's part is one it changes with its own tools (partTarget.own)
 	root, own bool
+	// databases: the project has connections agents may use (h_db_agents.go). A SmartDB run
+	// reaches only dbConn, its calls shown live under dbRun, recorded as dbWho.
+	databases            bool
+	dbConn, dbRun, dbWho string
 }
 
 func (t remoteTarget) tools() []map[string]any {
@@ -442,6 +446,9 @@ func (t remoteTarget) tools() []map[string]any {
 	if t.credentials && t.sessionID != "" && t.projectID != "" {
 		list = append(list, credentialToolList...)
 	}
+	if t.databases && t.projectID != "" {
+		list = append(list, dbToolList...)
+	}
 	if t.agents && t.sessionID != "" {
 		list = append(list, agentToolDef)
 	}
@@ -466,11 +473,12 @@ func (s *Server) handleRemoteMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	sp := sess.Spec()
 	t := remoteTarget{machineID: sp.RemoteMachineID, cwd: sp.RemoteCwd, projectID: sp.ProjectID, memory: true, sessionID: sp.ID, workspaceID: sp.WorkspaceID,
-		credentials: sp.ProjectID != "" && s.credVault != nil && s.credVault.HasAgentEntries(sp.ProjectID)}
+		credentials: sp.ProjectID != "" && s.credVault != nil && s.credVault.HasAgentEntries(sp.ProjectID),
+		databases:   sp.ProjectID != "" && s.dbAgentsMay(sp.ProjectID)}
 	if sess.IsNextCode() {
 		// independent of NextBoard's agents (docs/API-agents.md §30): the server's tools only,
 		// and NextCode's agent tool for its sub-agents (not for a sub-agent itself)
-		t.memory, t.credentials = false, false
+		t.memory, t.credentials, t.databases = false, false, false
 		t.agents = !sub
 	}
 	s.withParts(&t, sp)
@@ -577,6 +585,12 @@ func (s *Server) remoteRPC(ctx context.Context, t remoteTarget, req rpcRequest) 
 		}
 		if strings.HasPrefix(p.Name, "credential_") {
 			return remoteAnswer(s.credentialTool(ctx, t, p.Name, p.Arguments)), nil
+		}
+		if strings.HasPrefix(p.Name, "db_") || strings.HasPrefix(p.Name, "redis_") {
+			if !t.databases {
+				return remoteAnswer("this console does not have the tool "+p.Name, true), nil
+			}
+			return remoteAnswer(s.dbTool(ctx, t, p.Name, p.Arguments)), nil
 		}
 		if missionTools[p.Name] {
 			text, err := s.runMissionTool(t, p.Name, p.Arguments)

@@ -19,6 +19,7 @@ import './styles/usage.css';
 import './styles/host.css';
 import './styles/net.css';
 import './styles/uptime.css';
+import './styles/db.css';
 import './styles/vault.css';
 import { App } from './App';
 

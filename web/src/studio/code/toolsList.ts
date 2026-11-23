@@ -36,6 +36,7 @@ export const CODE_VIEW_TOOLS: CodeViewTool[] = [
   { kind: 'browser', icon: 'globe', label: 'Browser' },
   { kind: 'loops', icon: 'loop', label: 'Loops' },
   { kind: 'mission', icon: 'map', label: 'Mission Map' },
+  { kind: 'db', icon: 'database', label: 'Databases' },
 ];
 
 /** Every tool on its own, the studios opened up: a phone's ⋯ Tools menu, the command palette. */

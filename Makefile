@@ -65,6 +65,10 @@ demo:
 test-ssh:
 	NEXTBOARD_SSHD_TEST=1 go test -race -run SSH -v ./internal/machine/
 
+# The database browser against real MySQL and PostgreSQL in throwaway containers (needs docker)
+test-db:
+	scripts/db-test.sh -v
+
 # Hub + Vite in one terminal; Ctrl-C stops both. Go changes restart the hub through air
 # (.air.toml); RELOAD=0 runs it without air.
 dev:

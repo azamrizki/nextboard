@@ -1109,6 +1109,26 @@ export type HubEvent =
   /** This PC's reading, every 5 s while a page is open (docs/API.md, Host resources). */
   | { type: 'host'; host: HostSnapshot }
   | { type: 'credentialRequest'; id: string; state: string }
+  // the database browser (docs/API-db.md)
+  | { type: 'db'; connection: import('../db/types').Connection; status: import('../db/types').Status }
+  | { type: 'dbRemoved'; id: string; projectId: string }
+  | { type: 'dbStatus'; id: string; status: import('../db/types').Status }
+  | { type: 'dbSchema'; id: string }
+  | { type: 'dbQueries'; projectId: string }
+  | { type: 'dbRequest'; id: string; state: string; connectionId: string }
+  | {
+      type: 'dbAgentCall';
+      run: string;
+      connectionId: string;
+      sql: string;
+      ms: number;
+      error?: string;
+      columns?: import('../db/types').ResultColumn[];
+      rows?: import('../db/types').Cell[][];
+      total?: number;
+      affected?: number;
+    }
+  | { type: 'dbChat'; run: string; connectionId: string; text?: string; error?: string }
   | { type: 'passkeyRequest'; id?: string }
   | { type: 'settings'; settings: Settings }
   | { type: 'agents' }

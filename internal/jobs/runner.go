@@ -58,6 +58,9 @@ var purposes = map[string]purposePolicy{
 	"code-edit":       {readOnly: true, timeout: 3 * time.Minute},
 	"code-complete":   {timeout: 30 * time.Second},
 	"code-ask":        {readOnly: true, partial: true, timeout: 5 * time.Minute},
+	// the database browser's SmartDB (docs/API-db.md): words to filters or SQL, and its assistant
+	"db-ask":  {timeout: 2 * time.Minute},
+	"db-chat": {partial: true, timeout: 6 * time.Minute},
 }
 
 var effortRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,23}$`)

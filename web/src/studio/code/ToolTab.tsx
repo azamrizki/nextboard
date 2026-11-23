@@ -34,6 +34,7 @@ const BODIES: Record<ToolKind, ComponentType<ToolBodyProps>> = {
   browser: lazy(() => import('./tools/BrowserTool')),
   loops: lazy(() => boardTools().then((m) => ({ default: m.LoopsTool }))),
   mission: lazy(() => boardTools().then((m) => ({ default: m.MissionTool }))),
+  db: lazy(() => import('./tools/DbTool')),
   card: lazy(() => import('./tools/CardTool')),
 };
 

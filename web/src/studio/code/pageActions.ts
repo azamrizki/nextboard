@@ -26,6 +26,8 @@ const PANEL_TOOLS: Record<string, ToolKind> = {
   vault: 'vault',
   credentials: 'vault',
   browser: 'browser',
+  databases: 'db',
+  database: 'db',
 };
 
 export interface PageActionEnv {

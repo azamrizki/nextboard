@@ -10,6 +10,7 @@ import type { FlowNode } from '../../../board/flow';
 import { CalendarTile } from '../../../board/tiles/CalendarTile';
 import { ChecklistTile } from '../../../board/tiles/ChecklistTile';
 import { CredentialsTile } from '../../../board/tiles/CredentialsTile';
+import { DatabaseTile } from '../../../board/tiles/DatabaseTile';
 import { FileTile } from '../../../board/tiles/FileTile';
 import { TileHost } from '../../../board/tiles/host';
 import { ImageTile } from '../../../board/tiles/ImageTile';
@@ -39,6 +40,7 @@ const TILES: Record<string, ComponentType<any>> = {
   resources: ResourcesTile,
   note: NoteTile,
   credentials: CredentialsTile,
+  database: DatabaseTile,
   branches: BranchesTile,
   document: DocumentTile,
   file: FileTile,

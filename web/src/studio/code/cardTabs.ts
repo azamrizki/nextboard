@@ -16,6 +16,7 @@ export const CARD_KINDS: Record<string, { label: string; icon: IconName }> = {
   resources: { label: 'This PC', icon: 'monitor' },
   note: { label: 'Note', icon: 'note' },
   credentials: { label: 'Credentials', icon: 'key' },
+  database: { label: 'Database', icon: 'database' },
   branches: { label: 'Branches', icon: 'branch' },
   document: { label: 'Document', icon: 'book' },
   file: { label: 'File', icon: 'file' },
@@ -27,7 +28,7 @@ export const CARD_KINDS: Record<string, { label: string; icon: IconName }> = {
 };
 
 /** The cards the Code view's Cards list offers to make, as the board's Insert does. */
-export const NEW_CARD_KINDS = ['kanban', 'checklist', 'calendar', 'note', 'orchestrator', 'uptime', 'resources', 'memory'] as const;
+export const NEW_CARD_KINDS = ['kanban', 'checklist', 'calendar', 'note', 'orchestrator', 'uptime', 'resources', 'memory', 'database'] as const;
 export type NewCardKind = (typeof NEW_CARD_KINDS)[number];
 
 export const opensAsTab = (kind: string) => kind in CARD_KINDS;

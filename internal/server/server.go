@@ -23,6 +23,7 @@ import (
 	"github.com/azamrizki/nextboard/internal/board"
 	"github.com/azamrizki/nextboard/internal/config"
 	"github.com/azamrizki/nextboard/internal/connlog"
+	"github.com/azamrizki/nextboard/internal/dbx"
 	"github.com/azamrizki/nextboard/internal/delivery"
 	"github.com/azamrizki/nextboard/internal/gui"
 	"github.com/azamrizki/nextboard/internal/hostres"
@@ -99,6 +100,10 @@ type Server struct {
 	// (nextcode_agents.go). A sub-agent reaches the hub's tools with one, with no sub-agents.
 	subTokens sync.Map
 	providers *providers.Store
+	// dbs is the database browser (h_db.go, docs/API-db.md); dbReqs the agents' writes waiting
+	// for the owner's approval
+	dbs       *dbx.Service
+	dbReqs    *dbRequests
 	spend     spendCache
 	jobs      *jobs.Manager
 	hubUpdate hubUpdater
@@ -217,6 +222,10 @@ func New(opts Options) (_ *Server, err error) {
 	if err != nil {
 		return nil, err
 	}
+	dbStore, err := dbx.Open(st, box)
+	if err != nil {
+		return nil, err
+	}
 	connLog, err := connlog.Open(st.Path("logs"))
 	if err != nil {
 		log.Printf("connection log not available: %v", err)
@@ -240,7 +249,7 @@ func New(opts Options) (_ *Server, err error) {
 	s := &Server{
 		st: st, dataLock: lock, cfg: cfg, auth: as, machines: reg, sessions: mgr, connLog: connLog,
 		projects: projects, boards: board.NewManager(st),
-		mcp: mcpServers, ncKit: kit.New(st.Path("nextcode")), providers: provs, agents: mgr.Agents, settings: sets, extensions: studio.NewExtensions(st.Path("extensions")), profiles: profs, jobs: jobs.NewManager(st, reg.Host), attn: newAttentionRing(),
+		mcp: mcpServers, ncKit: kit.New(st.Path("nextcode")), providers: provs, dbs: dbx.NewService(dbStore), dbReqs: newDBRequests(), agents: mgr.Agents, settings: sets, extensions: studio.NewExtensions(st.Path("extensions")), profiles: profs, jobs: jobs.NewManager(st, reg.Host), attn: newAttentionRing(),
 		events: NewBroker(), conns: newConnRegistry(), dev: opts.Dev, devWeb: cmp.Or(opts.DevWebPort, 5173),
 		listen:       cfg.Listen,
 		statusListen: cfg.StatusListen,
@@ -273,6 +282,7 @@ func New(opts Options) (_ *Server, err error) {
 	if err := s.setupUptime(); err != nil {
 		return nil, err
 	}
+	s.dbs.Machine = s.machines.Host
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrating projects: %w", err)
 	}
@@ -448,6 +458,7 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 	s.startOrchestration()
 	s.startStudio()
 	s.uptime.Start()
+	s.dbs.Start()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
@@ -485,6 +496,7 @@ func (s *Server) Run(ctx context.Context, opts Options) error {
 
 func (s *Server) shutdown() {
 	s.uptime.Close()
+	s.dbs.Close()
 	s.stopOrchestration()
 	s.closeGitPreview()
 	s.closeStudio()
@@ -721,6 +733,8 @@ func bodyLimit(p string) int64 {
 		return 2 << 20 // skill content ≤ 512 KB as JSON
 	case p == "/api/vault/batch":
 		return 16 << 20 // an import, in chunks of at most this
+	case strings.HasPrefix(p, "/api/dbs/") || strings.HasSuffix(p, "/db-queries") || strings.HasSuffix(p, "/dbs"):
+		return 1 << 20 // SQL of up to 256 KB, an uploaded SSH key, as JSON
 	case p == "/api/net/upload":
 		return netUpMax // the speed test's upload, thrown away as it comes
 	case strings.HasPrefix(p, "/api/vault/items/"):

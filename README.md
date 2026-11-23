@@ -485,6 +485,7 @@ make test-web   # web unit tests; needs web/node_modules
 make test-e2e   # browser tests with fake agents; needs `cd web && npx playwright install chromium` once
 make test-e2e-fast  # the same over several hubs side by side (E2E_SHARDS=n): ~10 min instead of ~30
 make test-ssh   # SSH tests against a throwaway local sshd
+make test-db    # database browser tests against throwaway MySQL and PostgreSQL containers (Docker)
 make demo       # the screenshots and the video in docs/media, from a hub of made-up data; needs ffmpeg
 make build      # web + bin/nextboard
 make snapshot   # goreleaser build for linux/darwin, amd64/arm64

@@ -144,6 +144,11 @@ var MissionReadTools = []string{"mission_read"}
 // console would only be a click more.
 var CredentialTools = []string{"credential_list", "credential_run", "credential_result"}
 
+// DatabaseTools are approved without the CLI asking too: reads are within the connection's agent
+// access, and a write that needs the owner waits for the owner's approval in the browser
+// (docs/API-db.md, Agents).
+var DatabaseTools = []string{"db_connections", "db_schema", "db_table", "db_query", "db_explain", "db_execute", "db_result", "redis_scan", "redis_get", "redis_command"}
+
 // TakesContext reports whether the hub can hand this CLI instructions, memory
 // and tools per launch, without writing to its config. NextCode's own agent takes the context of
 // a NextCode console (its folders, the commands that ask, the sandbox, the prompt).
@@ -215,7 +220,7 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 			p.env = append(p.env, "NB_MCP="+ClaudeMCPConfig(hub, c.MCP))
 		}
 		if c.MemoryDir != "" {
-			p.args = append(p.args, "--allowedTools", mcpTool(slices.Concat(MemoryReadTools, MissionReadTools, CredentialTools)))
+			p.args = append(p.args, "--allowedTools", mcpTool(slices.Concat(MemoryReadTools, MissionReadTools, CredentialTools, DatabaseTools)))
 		}
 	case "codex":
 		p.args = append(p.args, "-c", "mcp_servers.nextboard.url="+tomlString(c.MCPURL),
@@ -259,7 +264,7 @@ func planContext(a Agent, c *LaunchContext) contextPlan {
 		if len(c.Blocked) > 0 && !c.Remote {
 			perm["bash"] = OpenCodeBash(c.Blocked)
 		}
-		for _, tool := range slices.Concat(MemoryReadTools, MissionReadTools, CredentialTools) {
+		for _, tool := range slices.Concat(MemoryReadTools, MissionReadTools, CredentialTools, DatabaseTools) {
 			perm["nextboard_"+tool] = "allow"
 		}
 		if len(c.AddDirs) > 0 && !c.Remote {

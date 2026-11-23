@@ -12,7 +12,7 @@ import { tags as t } from '@lezer/highlight';
 
 export const HIGHLIGHT_LIMIT = 120_000;
 
-const highlight = HighlightStyle.define([
+export const highlight = HighlightStyle.define([
   { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: 'var(--syn-comment)', fontStyle: 'italic' },
   { tag: [t.keyword, t.modifier, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword], color: 'var(--syn-keyword)' },
   { tag: [t.string, t.special(t.string), t.regexp, t.character], color: 'var(--syn-string)' },
@@ -32,7 +32,7 @@ const highlight = HighlightStyle.define([
   { tag: t.invalid, color: 'var(--c-danger-300)' },
 ]);
 
-const theme = EditorView.theme(
+export const theme = EditorView.theme(
   {
     '&': { height: '100%', color: 'var(--syn-text)', backgroundColor: 'var(--code-bg)', fontSize: 'var(--fs-sm)' },
     '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.55' },

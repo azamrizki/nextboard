@@ -24,6 +24,34 @@ base=${NEXTBOARD_E2E_PORT:-12398}
 tmp=${TMPDIR:-/tmp}
 cd "$(dirname "$0")/../web"
 
+# The database browser's spec needs a PostgreSQL and a Redis (web/e2e/db-browser.spec.ts):
+# throwaway containers started here, before any shard's browser runs (a container started while
+# a page loads fails it with ERR_NETWORK_CHANGED), and removed at the end. Only these two.
+db_pg_image=postgres:18.6-alpine
+db_redis_image=redis:8.4.8-alpine
+db_name="nb-dbtest-e2e-shards-$$"
+db_started=
+db_stop() { [ -n "$db_started" ] && docker rm -f "$db_name-pg" "$db_name-rd" >/dev/null 2>&1; }
+trap db_stop EXIT
+if command -v docker >/dev/null 2>&1 && docker image inspect "$db_pg_image" "$db_redis_image" >/dev/null 2>&1; then
+	db_pw="e2e-only-$RANDOM$RANDOM"
+	if docker run -d --rm --name "$db_name-pg" -e POSTGRES_PASSWORD="$db_pw" -p 127.0.0.1::5432 "$db_pg_image" >/dev/null &&
+		docker run -d --rm --name "$db_name-rd" -p 127.0.0.1::6379 "$db_redis_image" >/dev/null; then
+		db_started=1
+		db_pg_port=$(docker port "$db_name-pg" 5432/tcp | head -1 | sed 's/.*://')
+		db_redis_port=$(docker port "$db_name-rd" 6379/tcp | head -1 | sed 's/.*://')
+		for _ in $(seq 1 120); do
+			[ "$(docker exec "$db_name-pg" psql -h 127.0.0.1 -U postgres -tAc 'SELECT 1' 2>/dev/null)" = 1 ] && break
+			sleep 0.5
+		done
+		export NB_E2E_DB="{\"pg\":\"$db_name-pg\",\"pgPort\":$db_pg_port,\"redis\":\"$db_name-rd\",\"redisPort\":$db_redis_port,\"pw\":\"$db_pw\"}"
+		sleep 3
+		echo "e2e: PostgreSQL and Redis for the database browser in containers $db_name-*"
+	fi
+else
+	echo "e2e: no Docker with $db_pg_image and $db_redis_image: the database browser's spec is skipped"
+fi
+
 echo "e2e: $shards shards side by side"
 start=$(date +%s)
 pids=()

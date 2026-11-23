@@ -113,6 +113,7 @@ func (s *Server) deleteProjectForever(id string) error {
 	}
 	s.boards.DeleteArchives(pr.ID, wids)
 	s.uptime.RemoveProject(pr.ID)
+	s.dbRemoveProject(pr.ID)
 	for _, pt := range pr.Parts {
 		s.review.Forget(reviewKey(pr, pt.ID))
 	}

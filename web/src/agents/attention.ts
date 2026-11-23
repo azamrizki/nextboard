@@ -69,6 +69,7 @@ export async function requestBrowserPermission(): Promise<Permission> {
 const KIND_TOAST = {
   needsYou: 'warning',
   credential: 'warning',
+  database: 'warning',
   finished: 'success',
   error: 'error',
   uptimeDown: 'error',
@@ -83,13 +84,15 @@ const KIND_TOAST = {
 const showTarget = (a: Attention) =>
   a.kind === 'credential'
     ? openCredentialRequest()
-    : a.kind === 'hostHot'
-      ? navigate('/machines') // This PC's resources
-      : a.kind.startsWith('provider')
-        ? navigate('/settings/providers')
-        : a.monitorId
-          ? revealMonitor(a.projectId, a.monitorId)
-          : void jumpToSession(a.sessionId);
+    : a.kind === 'database'
+      ? void import('../db/Requests').then((m) => m.openDbRequest())
+      : a.kind === 'hostHot'
+        ? navigate('/machines') // This PC's resources
+        : a.kind.startsWith('provider')
+          ? navigate('/settings/providers')
+          : a.monitorId
+            ? revealMonitor(a.projectId, a.monitorId)
+            : void jumpToSession(a.sessionId);
 const open = new Map<string, Notification>();
 
 function showBrowser(a: Attention) {

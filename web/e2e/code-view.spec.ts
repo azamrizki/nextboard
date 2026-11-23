@@ -309,7 +309,7 @@ test.describe('on a phone', () => {
     const side = (await page.locator('.wb-side').boundingBox())!;
     expect(side.width).toBeGreaterThan(300);
     await page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Tools' }).click();
-    for (const name of ['Chats', 'Memory', 'Documents', 'Diagrams', 'Markdown', 'Skills', 'Vault', 'Browser', 'Loops', 'Mission Map']) await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
+    for (const name of ['Chats', 'Memory', 'Documents', 'Diagrams', 'Markdown', 'Skills', 'Vault', 'Browser', 'Loops', 'Mission Map', 'Databases']) await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
     // a file opened there shows the Editor
     await page.locator('.wb-side').getByRole('treeitem', { name: 'app.ts' }).click({ timeout: 20_000 });

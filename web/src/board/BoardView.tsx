@@ -97,6 +97,7 @@ import { CalendarTile } from './tiles/CalendarTile';
 import { UptimeTile } from './tiles/UptimeTile';
 import { ResourcesTile } from './tiles/ResourcesTile';
 import { CredentialsTile } from './tiles/CredentialsTile';
+import { DatabaseTile } from './tiles/DatabaseTile';
 import { ChecklistTile } from './tiles/ChecklistTile';
 import { FileTile } from './tiles/FileTile';
 import { ImageTile } from './tiles/ImageTile';
@@ -158,6 +159,7 @@ const NODE_TYPES: NodeTypes = {
   uptime: UptimeTile,
   resources: ResourcesTile,
   credentials: CredentialsTile,
+  database: DatabaseTile,
   shape: ShapeTile,
   line: LineTile,
   ink: InkTile,
@@ -1346,6 +1348,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'activity', label: 'Uptime monitor', onClick: () => insertAt('uptime') },
     { icon: 'monitor', label: 'This PC resources', onClick: () => insertAt('resources') },
     { icon: 'key', label: 'Credentials', onClick: () => insertAt('credentials') },
+    { icon: 'database', label: 'Database', onClick: () => insertAt('database') },
     { icon: 'fileCode', label: 'File from project', onClick: () => ui.set({ filePicker: viewCenter() }) },
     { icon: 'orchestrator', label: 'Orchestrator card', onClick: () => insertAt('orchestrator') },
     { icon: 'flag', label: 'Mission tile', onClick: () => insertAt('mission') },
@@ -1590,6 +1593,7 @@ function BoardCanvas({ ctl, project, focusSession }: { ctl: BoardController; pro
     { icon: 'activity', label: 'Uptime monitor', onSelect: () => insertAt('uptime', at) },
     { icon: 'monitor', label: 'This PC resources', onSelect: () => insertAt('resources', at) },
     { icon: 'key', label: 'Credentials', onSelect: () => insertAt('credentials', at) },
+    { icon: 'database', label: 'Database', onSelect: () => insertAt('database', at) },
     { icon: 'fileCode', label: 'File from project', onSelect: () => ui.set({ filePicker: at }) },
     { icon: 'branch', label: 'Branches card', onSelect: () => insertNode('branches', at) },
     { icon: 'memoryCard', label: 'Memory tile', onSelect: () => insertAt('memory', at) },

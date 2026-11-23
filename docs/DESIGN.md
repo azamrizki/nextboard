@@ -375,6 +375,16 @@ The contract is in [API-vault.md](API-vault.md). Three columns: sections, list, 
 - **Window from the header:** a 960 px modal, up to 760 high, with the same content as the card (`vault/Panel.tsx`). New, Lock, and `…` are in the modal head before the close button; the item count disappears below 560 px. Closing the window does not lock the vault. Esc in the `…` menu closes only the menu.
 - **Lock and create-vault screens** have no extra frame, sit in the center of the card, and scroll when taller than the card. The "cannot be recovered" warning uses `.alert.warning` and a required checkbox. On plain HTTP there is one small note line below the password field, which does not block anything.
 
+### 3.16b Database browser
+
+The contract is in [API-db.md](API-db.md). One workspace (`db/Workspace.tsx`) for the Code view's Databases tab and the board's Database card: connections with their schema on the left, tables, SQL editors and Redis keys in tabs, SmartDB on the right.
+
+- **Width:** under 1000 px the connections column narrows to 220 px; under 640 px it goes behind a database button as an overlay, and SmartDB covers the tab instead of sitting beside it. Redis keys sit above the value under 560 px of tab (container queries).
+- **Colour is the connection type:** a tag on every connection (Local green, Development blue `--viz-1`, Staging amber, Production red), a stripe on Staging and Production tabs. Drivers are two-letter marks on their own colour (My, Ma, Pg, Rd, Vk), no logos.
+- **Grid:** rows windowed at 30 px, mono cells, numbers right-aligned, NULL in italics, a foreign key underlined and followed by a click. A cell edits on double-click or Enter; edited cells amber, new rows green, deleted rows red and struck through, until Commit. The row's detail opens from its number (or Space) only, so a click never moves the grid.
+- **Asking before harm:** a write the connection asks about shows its SQL; a dangerous one is a red dialog that counts the rows, says whether it can be rolled back, and runs only with the connection's name typed. A transaction left open is an amber bar with Commit and Roll back.
+- **Dialogs** follow DBeaver's (the owner knows it): a three-step wizard, then Edit connection with the same pages in a left navigation; 960 px wide, stacked under 720 px.
+
 ### 3.17 Install as an app (PWA)
 
 NextBoard can be installed to the home screen and run in its own window, without the browser bar. The hub is still required: nothing runs offline.

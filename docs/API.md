@@ -400,7 +400,7 @@ The CPU, memory, GPUs, temperatures and disks of This PC, the computer that runs
 | POST | `/api/sessions/{id}/kill` | — | `Session` (the process is stopped, the node stays, status `exited`) |
 | POST | `/api/sessions/{id}/input` | `{"data":"ls -la\r"}` | `{"ok":true}` (a quick action for mobile) |
 
-Desktop apps on the board: see [API-gui.md](API-gui.md). Uptime monitoring: see [API-uptime.md](API-uptime.md). Credentials: see [API-vault.md](API-vault.md).
+Desktop apps on the board: see [API-gui.md](API-gui.md). Uptime monitoring: see [API-uptime.md](API-uptime.md). Credentials: see [API-vault.md](API-vault.md). Databases: see [API-db.md](API-db.md).
 
 Boards, projects, workspaces, machine files and assets: see [API-board.md](API-board.md) (board v2 per workspace; the old `GET/PUT /api/board` has been removed). `Session` also has `projectId` and `workspaceId`.
 
