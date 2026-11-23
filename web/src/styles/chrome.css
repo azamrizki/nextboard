@@ -2431,3 +2431,78 @@ textarea.control.prose {
   min-width: 40px;
   min-height: 40px;
 }
+
+/* ---- the header's chips (DESIGN.md §3.4), as the agreed mockup: This PC, usage, agents and the
+   connection one size, the number bold, what follows it quieter. A finger keeps its 40 px. ---- */
+.app-header :is(.host-pill, .usage-pill, .live-chip, .conn-chip) {
+  height: var(--h-header-chip);
+  padding: 0 10px;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-header-chip);
+  font-weight: var(--fw-regular);
+}
+.app-header :is(.host-pill, .live-chip, .conn-chip) {
+  border: var(--hairline) solid var(--glass-border);
+  border-radius: var(--r-pill);
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+.app-header :is(.host-pill, .live-chip, .conn-chip):hover,
+.app-header :is(.host-pill, .conn-chip).is-open {
+  background: var(--surface-active);
+  border-color: var(--glass-border-strong);
+}
+.app-header .host-pill-num:not(.host-pill-temp),
+.app-header .live-chip-count .tabular {
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+.app-header .live-chip-count {
+  gap: 0.3em;
+}
+.app-header .live-chip-sub {
+  color: var(--text-3);
+}
+/* an agent at work is the blue dot, not a green chip */
+.app-header .live-chip.has-active {
+  border-color: var(--glass-border);
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+/* usage: all in the CLI's colour, "45% 2h" */
+.app-header .usage-pill {
+  color: var(--usage-accent);
+}
+.app-header .usage-pill-pct {
+  color: var(--usage-accent);
+  font-weight: var(--fw-semibold);
+}
+.app-header .usage-pill .agent-mark {
+  width: 14px;
+  height: 14px;
+}
+/* the connection: bars, then the milliseconds in mono */
+.app-header .conn-chip .conn-text.tabular {
+  font-family: var(--font-mono);
+  font-size: var(--fs-header-chip);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+.app-header .conn-chip.lvl-fair .conn-text,
+.app-header .conn-chip.lvl-poor .conn-text {
+  color: var(--net-level);
+}
+/* a phone, as its mockup: tight chips, the usage as its number alone */
+:root[data-layout='phone'] .app-header :is(.host-pill, .usage-pill, .live-chip, .conn-chip) {
+  padding: 0 var(--s-2);
+  gap: var(--s-1);
+}
+:root[data-layout='phone'] .app-header .usage-pill .agent-mark {
+  display: none;
+}
+/* a finger needs the whole square, also for a chip that is one digit */
+:root[data-input='touch'] .app-header :is(.host-pill, .usage-pill, .live-chip, .conn-chip) {
+  min-width: var(--h-header-chip);
+  justify-content: center;
+}

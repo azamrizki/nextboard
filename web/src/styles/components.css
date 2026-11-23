@@ -693,6 +693,10 @@ textarea.control {
 .dot-busy {
   background: var(--c-success);
 }
+/* an agent at work, as the tab's icon shows it (DESIGN.md §3.4) */
+.dot-working {
+  background: var(--viz-1);
+}
 /* The ring grows by scale and fades by opacity, which the compositor runs on its own: a growing
    box-shadow was a repaint of each busy dot on every frame, for as long as an agent worked. */
 .dot-busy::after {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sessionWindow } from './format';
+import { sessionWindow, untilShort } from './format';
 
 const w = (id: string, label: string, usedPct: number) => ({ id, label, usedPct });
 
@@ -16,5 +16,21 @@ describe("the usage pill's window", () => {
     expect(sessionWindow([w('week', 'Current week', 40), w('day', 'Daily', 7)])?.id).toBe('day');
     expect(sessionWindow([w('week', 'Current week', 40)])?.id).toBe('week');
     expect(sessionWindow(null)).toBeUndefined();
+  });
+});
+
+describe('untilShort', () => {
+  const now = Date.parse('2026-11-23T12:00:00Z');
+  const at = (min: number) => new Date(now + min * 60_000).toISOString();
+  it('says the time left as the header does: minutes, hours, days', () => {
+    expect(untilShort(at(45), now)).toBe('45m');
+    expect(untilShort(at(125), now)).toBe('2h');
+    expect(untilShort(at(47 * 60 + 59), now)).toBe('47h');
+    expect(untilShort(at(3 * 24 * 60 + 10), now)).toBe('3d');
+  });
+  it('says nothing when the time is unknown or past', () => {
+    expect(untilShort(null, now)).toBe('');
+    expect(untilShort('not a date', now)).toBe('');
+    expect(untilShort(at(-5), now)).toBe('');
   });
 });

@@ -3,11 +3,11 @@
 // report (a cached one under 30 s old is reused). Nothing runs by itself unless this
 // browser turned automatic checks on in Settings › Usage.
 
-import { lazy, Suspense, useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useEffectiveSettings } from '../agents/settings';
 import { AgentMark } from './AgentMark';
 import { checkUsage } from './check';
-import { resetsShort } from './format';
+import { untilShort } from './format';
 import { useHeadlineUsage } from './headline';
 import { usageAgentOn, usageLevel, usageUi, useUsageOpen, useUsagePrefs } from './prefs';
 
@@ -31,7 +31,14 @@ export function UsagePill({ machineId }: { machineId: string }) {
   const level = top ? usageLevel(top.usedPct) : 'ok';
   const label = top ? `${name} ${top.label}: ${top.usedPct}% used${top.resetsText ? `, ${top.resetsText.toLowerCase()}` : ''}` : `${name} usage`;
 
-  const reset = top?.resetsText ? resetsShort(top.resetsText) : '';
+  // the time left in the window ("2h"), as the agreed header has it; the clock time is in the tip
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!top?.resetsAt) return;
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, [top?.resetsAt]);
+  const left = untilShort(top?.resetsAt, now);
 
   const toggle = () => {
     if (open) {
@@ -63,7 +70,7 @@ export function UsagePill({ machineId }: { machineId: string }) {
         {top ? (
           <>
             <span className="tabular usage-pill-pct">{top.usedPct}%</span>
-            {reset && <span className="usage-pill-reset">{reset}</span>}
+            {left && <span className="usage-pill-reset tabular">{left}</span>}
           </>
         ) : (
           <span className="usage-pill-name">{name}</span>

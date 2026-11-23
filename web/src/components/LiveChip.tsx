@@ -78,17 +78,12 @@ export function LiveChip() {
         title={summary.length ? summary.join(' · ') : 'No consoles open'}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className={`dot ${active ? 'dot-busy' : 'dot-grey'}`} aria-hidden="true" />
+        <span className={`dot ${active ? 'dot-working' : 'dot-grey'}`} aria-hidden="true" />
         <span className="live-chip-count">
           <span className="tabular">{active}</span>
           <span className="live-chip-label">active</span>
         </span>
         {idle > 0 && <span className="live-chip-sub tabular">· {idle} idle</span>}
-        {asleep > 0 && (
-          <span className="live-chip-sub tabular" title="Stopped to free memory; they resume when opened or sent work">
-            · {asleep} asleep
-          </span>
-        )}
       </button>
       {open &&
         createPortal(

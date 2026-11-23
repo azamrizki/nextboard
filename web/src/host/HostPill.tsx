@@ -108,7 +108,6 @@ export function HostPill({ where = 'header' }: { where?: 'header' | 'status' }) 
         <span className="host-pill-num tabular">{cpu}%</span>
         {hottest != null && (
           <>
-            <span className="host-pill-sep host-pill-num" aria-hidden="true" />
             <span className="host-pill-temp host-pill-num tabular">{hottest}°</span>
           </>
         )}

@@ -29,7 +29,8 @@ test('an agent sleeps, says so, and wakes when typed into', async ({ page, hub }
   await page.getByRole('menuitem', { name: 'Sleep now' }).click();
   await expect(tile.getByLabel('Status: Asleep')).toBeVisible();
   await expect.poll(async () => (await info()).status).toBe('asleep');
-  await expect(page.getByRole('button', { name: /active console/ }).first()).toContainText('asleep');
+  // the chip stays "0 active · 1 idle" short (DESIGN.md §3.4); the asleep ones are in its name and tip
+  await expect(page.getByRole('button', { name: /active console.*asleep/ }).first()).toBeVisible();
 
   // typing wakes it: the keys reach its prompt once it is back
   await tile.locator('.nb-term').click();

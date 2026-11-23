@@ -24,6 +24,16 @@ export function durationShort(sec: number): string {
 }
 
 /** "Resets 4:09am (America/Cordoba)" → "resets 4:09am": for the pill, where the zone is noise. */
+/** How long until a window resets, as short as it goes: "45m", "2h", "3d"; "" when unknown or past. */
+export function untilShort(resetsAt: string | null | undefined, now = Date.now()): string {
+  const at = resetsAt ? Date.parse(resetsAt) : NaN;
+  if (!Number.isFinite(at) || at <= now) return '';
+  const min = Math.ceil((at - now) / 60_000);
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  return h < 48 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
 export function resetsShort(text: string): string {
   const t = text.replace(/\s*\([^)]*\)\s*$/, '').trim();
   return t ? t[0].toLowerCase() + t.slice(1) : '';

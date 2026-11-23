@@ -53,21 +53,16 @@
   border-color: color-mix(in srgb, var(--host-level) 50%, transparent);
   background: color-mix(in srgb, var(--host-level) 10%, transparent);
 }
-.host-pill-sep {
-  width: var(--hairline);
-  height: 13px;
-  background: var(--glass-border-strong);
-}
 .host-pill-temp {
-  color: var(--text-2);
+  color: var(--text-3);
 }
 .host-pill.lvl-warn .host-pill-temp,
 .host-pill.lvl-hot .host-pill-temp {
   color: inherit;
 }
 .host-ring {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
   fill: none;
   stroke-width: 2.6;
@@ -96,7 +91,6 @@
 }
 /* inside a project on a narrow desktop: the CPU only */
 @media (max-width: 1199px) {
-  .app-header.in-project .host-pill .host-pill-sep,
   .app-header.in-project .host-pill .host-pill-temp {
     display: none;
   }

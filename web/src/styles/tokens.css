@@ -175,6 +175,9 @@
   /* ---- component dimensions ---- */
   --h-control: 40px;
   --h-control-sm: 32px;
+  /* the header's chips: This PC, usage, agents, connection (DESIGN.md §3.4) */
+  --h-header-chip: 28px;
+  --fs-header-chip: 12.5px;
   --h-control-lg: 44px;
   --h-icon-btn: 36px;
   --h-icon-btn-sm: 32px;
@@ -811,6 +814,7 @@
 :root[data-input='touch'] {
   --h-control: 44px;
   --h-control-sm: 40px;
+  --h-header-chip: 40px;
   --h-control-lg: 48px;
   --h-icon-btn: 44px;
   --h-icon-btn-sm: 40px;
