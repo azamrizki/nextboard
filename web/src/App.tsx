@@ -14,7 +14,9 @@ import { Button } from './components/Button';
 import { Icon } from './components/Icon';
 import { Toaster } from './components/Toast';
 import { UpdateReminder } from './components/UpdateReminder';
+import { TabStatus } from './tab/TabStatus';
 import { guardHubStorage, pageTitle, setInstance } from './lib/instance';
+import { setPageTitle } from './lib/title';
 import { isEntryLink, navigate, parseRoute, useEntryTaken, usePath } from './lib/router';
 import type { Me } from './lib/types';
 import { DevicesPage } from './pages/Devices';
@@ -83,7 +85,7 @@ export function App() {
     try {
       const st = await api.setupStatus();
       setInstance(st.instance, st.defaultInstance, st.hubName);
-      document.title = pageTitle();
+      setPageTitle(pageTitle());
       // this origin was another hub's before (a removed instance's port): its storage goes
       if (await guardHubStorage(st.hubId)) {
         window.location.reload();
@@ -228,6 +230,7 @@ export function App() {
         return (
           <AuthProvider me={boot.me} onLogout={logout}>
             {route.page !== 'print' && <UpdateReminder />}
+            {route.page !== 'print' && <TabStatus projectId={'projectId' in route ? route.projectId : undefined} />}
             {route.page === 'print' ? (
               <Suspense fallback={<PageLoading />}>
                 <PrintPage kind={route.kind} docId={route.docId} versionId={route.versionId} />

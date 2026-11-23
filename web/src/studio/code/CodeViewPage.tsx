@@ -34,6 +34,7 @@ import { NeedsYouChip } from '../../components/NeedsYouChip';
 import { EditorProjectSwitch } from '../../components/ProjectBar';
 import { openBoard } from '../../home/OpenChoice';
 import { pageTitle } from '../../lib/instance';
+import { setPageTitle } from '../../lib/title';
 import { boardOf, codePath, lastWorkspace, Link, navigate } from '../../lib/router';
 import type { Project, Workspace as Board } from '../../lib/types';
 import { store, useProject, useProjects, useProjectsReady } from '../../store';
@@ -84,9 +85,9 @@ export default function CodeViewPage({ projectId }: { projectId: string }) {
   }, [project, ready, projects, projectId]);
 
   useEffect(() => {
-    document.title = pageTitle(project ? `Code · ${project.name}` : undefined);
+    setPageTitle(pageTitle(project ? `Code · ${project.name}` : undefined));
     return () => {
-      document.title = pageTitle();
+      setPageTitle(pageTitle());
     };
   }, [project]);
 

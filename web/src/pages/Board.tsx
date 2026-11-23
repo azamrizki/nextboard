@@ -18,6 +18,7 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { prefs } from '../lib/format';
 import { pageTitle } from '../lib/instance';
+import { setPageTitle } from '../lib/title';
 import { boardPath, lastWorkspace, navigate, takeSearchParam } from '../lib/router';
 import { store, useProject, useProjects, useProjectsReady } from '../store';
 
@@ -85,9 +86,9 @@ export function BoardPage({ projectId, workspaceId }: { projectId: string; works
   }, [projectId, ws]);
 
   useEffect(() => {
-    document.title = pageTitle(project ? `${ws ? `${ws.name} · ` : ''}${project.name}` : undefined);
+    setPageTitle(pageTitle(project ? `${ws ? `${ws.name} · ` : ''}${project.name}` : undefined));
     return () => {
-      document.title = pageTitle();
+      setPageTitle(pageTitle());
     };
   }, [project, ws]);
 

@@ -5,11 +5,11 @@
 
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { useEffectiveSettings } from '../agents/settings';
-import { studioStore, usageKey, useStudio } from '../studio/store';
 import { AgentMark } from './AgentMark';
 import { checkUsage } from './check';
-import { resetsShort, sessionWindow } from './format';
-import { usageAgentOn, usageLevel, usageUi, useUsageOpen, useUsagePrefs, USAGE_AGENTS } from './prefs';
+import { resetsShort } from './format';
+import { useHeadlineUsage } from './headline';
+import { usageAgentOn, usageLevel, usageUi, useUsageOpen, useUsagePrefs } from './prefs';
 
 const UsagePopover = lazy(() => import('./UsagePopover'));
 
@@ -18,17 +18,8 @@ export function UsagePill({ machineId }: { machineId: string }) {
   const prefs = useUsagePrefs();
   const settings = useEffectiveSettings();
   const ref = useRef<HTMLButtonElement>(null);
-  const reports = useStudio((s) => s.usage);
-  const loaded = useStudio((s) => s.usageLoaded);
-  const enabled = USAGE_AGENTS.filter((a) => usageAgentOn(settings, a.id)).map((a) => a.id as string);
+  const { agent, name, enabled, top, none } = useHeadlineUsage(machineId);
   const on = enabled.join();
-  const def = (settings.runner as { defaultAgent?: string } | undefined)?.defaultAgent ?? 'claude';
-  const agent = enabled.find((a) => a === def) ?? enabled[0] ?? USAGE_AGENTS[0].id;
-  const rep = reports[usageKey({ machineId, agent, profileId: '' })];
-
-  useEffect(() => {
-    if (!loaded) void studioStore.loadUsage();
-  }, [loaded]);
 
   // automatic checks (opt-in): when a board opens, if the last check is older than 3 min
   useEffect(() => {
@@ -37,8 +28,6 @@ export function UsagePill({ machineId }: { machineId: string }) {
   }, [machineId, prefs.auto, on]);
 
   // the current session's window, as the CLI's own /usage leads with it
-  const top = rep?.state === 'ok' ? sessionWindow(rep.windows) : undefined;
-  const name = USAGE_AGENTS.find((a) => a.id === agent)?.short ?? agent;
   const level = top ? usageLevel(top.usedPct) : 'ok';
   const label = top ? `${name} ${top.label}: ${top.usedPct}% used${top.resetsText ? `, ${top.resetsText.toLowerCase()}` : ''}` : `${name} usage`;
 
@@ -55,7 +44,7 @@ export function UsagePill({ machineId }: { machineId: string }) {
   };
 
   // nothing to show usage of: both CLIs are turned off in Settings › Agents
-  if (USAGE_AGENTS.every((a) => settings.agents.disabled?.[a.id])) return null;
+  if (none) return null;
 
   return (
     <>

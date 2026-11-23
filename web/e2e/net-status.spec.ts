@@ -43,6 +43,32 @@ test('Settings › Appearance turns the number off: the chip says Live as before
   await expect(chip.locator('.conn-text')).toHaveText(/^\d+ ms$/, { timeout: 20_000 });
 });
 
+test('the tab says an agent is idle, in its title and its icon', async ({ page, hub }, info) => {
+  test.skip(info.project.name !== 'light' && info.project.name !== 'dark', 'the tab is the same on every layout');
+  test.setTimeout(60_000);
+  const p = await hub.project('Tab');
+  const s = await hub.call('POST', '/api/sessions', { agent: 'fakeclaude', workspaceId: p.wid });
+  try {
+    await expect.poll(async () => (await hub.call('GET', `/api/sessions/${s.id}`)).agentState, { timeout: 20_000 }).toBe('ready');
+
+    // every test shares the hub: count this project's agents only
+    await page.addInitScript(() => localStorage.setItem('nb.tabStatus', JSON.stringify({ scope: 'project' })));
+    await page.goto(`/p/${p.id}/w/${p.wid}`);
+    await expect(page).toHaveTitle(new RegExp(`^1 idle · .*${p.name}`), { timeout: 15_000 });
+    const icon = page.locator('link[rel="icon"]');
+    await expect(icon).toHaveAttribute('href', /%234ade80/);
+
+    // off in Settings, the tab is the page's again
+    await page.goto('/settings/appearance');
+    await page.getByRole('switch', { name: 'Show status in the tab' }).click();
+    await expect(page).toHaveTitle(/^Appearance · Settings/);
+    await expect(icon).not.toHaveAttribute('href', /%234ade80/);
+    await page.getByRole('switch', { name: 'Show status in the tab' }).click();
+  } finally {
+    await hub.call('DELETE', `/api/sessions/${s.id}`);
+  }
+});
+
 test('a swipe at the top of the page does not reload it', async ({ page }) => {
   await page.goto('/');
   for (const el of ['documentElement', 'body'] as const) {

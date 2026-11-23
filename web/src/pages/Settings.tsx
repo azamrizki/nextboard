@@ -26,6 +26,7 @@ import { UsagePane } from '../settings/UsagePane';
 import { VoicePane } from '../settings/VoicePane';
 import { useSettings } from '../store';
 import { pageTitle } from '../lib/instance';
+import { setPageTitle } from '../lib/title';
 
 const PANES: { id: string; label: string; icon: IconName; hint: string }[] = [
   { id: 'general', label: 'General', icon: 'sliders', hint: 'Where projects open' },
@@ -60,9 +61,9 @@ export function SettingsPage({ pane }: { pane: string }) {
   }, [settings]);
 
   useEffect(() => {
-    document.title = pageTitle(listOnly ? 'Settings' : `${current.label} · Settings`);
+    setPageTitle(pageTitle(listOnly ? 'Settings' : `${current.label} · Settings`));
     return () => {
-      document.title = pageTitle();
+      setPageTitle(pageTitle());
     };
   }, [current.label, listOnly]);
 
