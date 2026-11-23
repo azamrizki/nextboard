@@ -17,6 +17,13 @@ html {
   background: var(--bg);
 }
 
+/* A swipe that reaches the top of a console, a list or the page must not reload the app (the
+   pull-to-refresh of a phone's or a tablet's browser) nor bounce it: the scroll stops there. */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
 body {
   min-height: 100%;
   background: var(--bg-ambient);

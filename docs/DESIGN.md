@@ -186,6 +186,7 @@ Layout rules:
   - **Phone:** the pill is not in the header, which is full. "…" has **This PC** with the hottest °C. While This PC runs warm or hot, that entry comes first and a dot in amber or red sits on "…".
   - **Machines:** This PC's card has four gauges (CPU, memory, GPU, hottest). Above the machines, the details sit beside the **Last hour** chart (CPU, memory, GPU or temperatures, one point every 15 s).
   - **Board:** a **This PC** card (`resources`, Insert › This PC resources) shows the details live, for a big screen. It opens as a tab in the Code view too.
+- **Pull-to-refresh:** `html` and `body` have `overscroll-behavior-y: none`, so a swipe that reaches the top of a console, a list or the page does not reload the app on a phone or a tablet, nor bounce it.
 
 ### 3.5 Board
 
