@@ -17,6 +17,7 @@ import './styles/chrome.css';
 import './styles/agents.css';
 import './styles/usage.css';
 import './styles/host.css';
+import './styles/net.css';
 import './styles/uptime.css';
 import './styles/vault.css';
 import { App } from './App';

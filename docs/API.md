@@ -404,6 +404,14 @@ Desktop apps on the board: see [API-gui.md](API-gui.md). Uptime monitoring: see 
 
 Boards, projects, workspaces, machine files and assets: see [API-board.md](API-board.md) (board v2 per workspace; the old `GET/PUT /api/board` has been removed). `Session` also has `projectId` and `workspaceId`.
 
+## Connection to the hub
+
+How fast a browser reaches the hub, for the header's connection chip. The round trip is timed over `/api/events` (ping and pong, below) every 15 s while the page is shown. The speed test runs only when the user asks, because a phone pays for the data.
+
+- `GET /api/net` → `{ "proxied": true }`: whether the request came through a reverse proxy (it set `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Real-IP`, `Forwarded` or `Via`).
+- `GET /api/net/download?bytes=N` → `N` bytes (default 10 MB, 1 to 64 MB, else `400`) that do not compress, `Content-Type: application/octet-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no` (nginx passes them on as they come). The browser times them from the first bytes on.
+- `POST /api/net/upload` (any body up to 32 MB, else `413`) → `{ "bytes": N, "ms": M }`: the body is read and thrown away. The browser times the upload itself; a proxy that holds the whole body first would make `ms` its own time. A proxy with a lower limit answers `413` before the hub sees anything (nginx: `client_max_body_size`, 1 MB unless set).
+
 ## WebSocket
 
 ### `/api/events`
@@ -424,6 +432,8 @@ Server → client, JSON text frames:
 ```
 
 The client does not need to send anything. The server pings every 30 seconds.
+
+Client → server, to time the round trip (Connection to the hub): `{ "type": "ping", "id": 7 }`. The hub answers that socket only with `{ "type": "pong", "id": 7 }`, in order with its other frames. Any other frame is ignored.
 
 ### `/api/sessions/{id}/ws`
 

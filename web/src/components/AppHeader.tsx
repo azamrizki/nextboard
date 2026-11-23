@@ -15,7 +15,7 @@ import { useAuth } from '../auth';
 import { useLayout } from '../lib/layout';
 import { Link, parseRoute, usePath } from '../lib/router';
 import type { Project } from '../lib/types';
-import { useEventsConnected, useStoreReady } from '../store';
+import { ConnChip } from '../net/ConnChip';
 import { Button } from './Button';
 import { HubInfoButton } from './HubInfo';
 import { openCode } from '../home/OpenChoice';
@@ -57,22 +57,10 @@ interface AppHeaderProps {
   workspaceId?: string;
 }
 
-/** The events connection: "Live", or reconnecting (also the Code view's top bar). */
+/** The events connection: signal bars and the round trip to the hub, or reconnecting; a click
+ *  opens the details (net/ConnChip.tsx). Also the Code view's top bar. */
 export function ConnStatus() {
-  const connected = useEventsConnected();
-  const ready = useStoreReady();
-  const connLabel = connected ? 'Live' : ready ? 'Reconnecting…' : 'Connecting…';
-  return (
-    <span
-      className={`status conn ${connected ? 'is-live' : ''}`}
-      role="status"
-      aria-live="polite"
-      title={connected ? 'Live updates connected' : 'Live updates disconnected — reconnecting'}
-    >
-      <span className={`dot ${connected ? 'dot-success' : 'dot-warning'}`} aria-hidden="true" />
-      <span className={`conn-text ${connected ? 'conn-label-live' : 'text-warning'}`}>{connLabel}</span>
-    </span>
-  );
+  return <ConnChip />;
 }
 
 function VaultButton() {

@@ -265,8 +265,24 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request, p *princ
 	unregister := s.conns.add(p.connKey(), conn.revoke)
 	defer unregister()
 
+	// a page times its round trip to the hub with {"type":"ping","id":n}: the answer is
+	// {"type":"pong","id":n}, written by this loop as every other frame (one writer)
+	pongs := make(chan []byte, 4)
 	readerDone := make(chan struct{})
-	go conn.readLoop(4<<10, nil, readerDone)
+	go conn.readLoop(4<<10, func(b []byte) {
+		var m struct {
+			Type string `json:"type"`
+			ID   int64  `json:"id"`
+		}
+		if json.Unmarshal(b, &m) != nil || m.Type != "ping" {
+			return
+		}
+		out, _ := json.Marshal(map[string]any{"type": "pong", "id": m.ID})
+		select {
+		case pongs <- out:
+		default: // pings faster than the hub writes: the late ones go unanswered
+		}
+	}, readerDone)
 
 	full := map[string]any{
 		"type": "snapshot", "sessions": s.sessions.List(), "machines": s.machines.List(), "devices": s.deviceList(),
@@ -297,6 +313,10 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request, p *princ
 				conn.closeWith(websocket.CloseTryAgainLater, "resubscribe")
 				return
 			}
+			if conn.write(websocket.TextMessage, msg) != nil {
+				return
+			}
+		case msg := <-pongs:
 			if conn.write(websocket.TextMessage, msg) != nil {
 				return
 			}

@@ -721,6 +721,8 @@ func bodyLimit(p string) int64 {
 		return 2 << 20 // skill content ≤ 512 KB as JSON
 	case p == "/api/vault/batch":
 		return 16 << 20 // an import, in chunks of at most this
+	case p == "/api/net/upload":
+		return netUpMax // the speed test's upload, thrown away as it comes
 	case strings.HasPrefix(p, "/api/vault/items/"):
 		return 128 << 10 // one item, at most 64 KB as base64
 	case strings.HasPrefix(p, "/api/projects/") && (strings.HasSuffix(p, "/eslint") || strings.HasSuffix(p, "/git/blame")):

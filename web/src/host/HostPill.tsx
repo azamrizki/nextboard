@@ -33,7 +33,7 @@ export function hostSummary(s: HostSnapshot): string {
 
 // a tablet held upright: the pill is a ring and the details a sheet (as the project switcher)
 const portrait = typeof window !== 'undefined' ? window.matchMedia('(orientation: portrait)') : null;
-function usePortrait(): boolean {
+export function usePortrait(): boolean {
   return useSyncExternalStore(
     (fn) => {
       portrait?.addEventListener('change', fn);

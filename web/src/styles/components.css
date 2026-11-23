@@ -1625,7 +1625,8 @@ textarea.control {
 :root[data-layout='phone'] .header-right {
   gap: var(--s-1);
 }
-:root[data-layout='phone'] .conn.is-live {
+/* a plain "Live" takes no room on a phone; the signal bars do (net/ConnChip.tsx) */
+:root[data-layout='phone'] .conn.is-live:not(:has(.net-bars)) {
   display: none;
 }
 :root[data-layout='phone'] .page {

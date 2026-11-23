@@ -1,10 +1,13 @@
-// Appearance (per browser): light or dark, the layout, glass or solid surfaces, and the terminal text size.
+// Appearance (per browser): light or dark, the layout, glass or solid surfaces, what the
+// connection chip shows, and the terminal text size.
 
 import { setGlobalTextScale, TEXT_STEPS, useGlobalTextScale } from '../agents/textSize';
 import { SegmentedControl } from '../components/form';
-import { SettingRow } from '../components/Switch';
+import { SettingRow, SwitchRow } from '../components/Switch';
 import { setLayoutPref, useLayout, type LayoutPref } from '../lib/layout';
 import { setConsolePref, setGlassPref, setThemePref, useTheme, type ConsolePref, type GlassPref, type ThemePref } from '../lib/theme';
+import { setLatencyShown, useLatencyShown } from '../net/latency';
+import { DOWN_BYTES, runSpeedTest, stopSpeedTest, UP_BYTES, useSpeedTest } from '../net/speedTest';
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -31,10 +34,39 @@ const CONSOLES: { value: ConsolePref; label: string }[] = [
   { value: 'dark', label: 'Always dark' },
 ];
 
+/** Runs the speed test and says its last result; the details are in the header chip's popover. */
+function SpeedTestButton() {
+  const s = useSpeedTest();
+  const running = s.phase === 'down' || s.phase === 'up';
+  return (
+    <span className="speed-test-row">
+      <span className="speed-test-result tabular" role="status">
+        {running
+          ? `${s.phase === 'down' ? 'Download' : 'Upload'} ${s.progress?.mbps ?? 0} Mbps…`
+          : s.phase === 'error'
+            ? s.error
+            : s.down && s.up
+              ? `↓ ${s.down.mbps} · ↑ ${s.up.mbps} Mbps`
+              : ''}
+      </span>
+      {running ? (
+        <button type="button" className="btn btn-secondary btn-sm" onClick={stopSpeedTest}>
+          Stop
+        </button>
+      ) : (
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void runSpeedTest()}>
+          {s.down ? 'Test again' : 'Test speed'}
+        </button>
+      )}
+    </span>
+  );
+}
+
 export function AppearancePane() {
   const scale = useGlobalTextScale();
   const { pref, consolePref, glass } = useTheme();
   const shown = useLayout();
+  const latency = useLatencyShown();
   return (
     <div className="settings-cards">
       <section className="card settings-card" aria-labelledby="appearance-theme">
@@ -52,6 +84,20 @@ export function AppearancePane() {
         </SettingRow>
         <SettingRow title="Surfaces" hint="Glass lets the backdrop show softly through panels and cards. Solid draws them opaque, which is faster on an older device. A system setting to reduce transparency always gives Solid.">
           <SegmentedControl<GlassPref> label="Surfaces" size="sm" value={glass} onChange={setGlassPref} options={GLASS} />
+        </SettingRow>
+      </section>
+      <section className="card settings-card" aria-labelledby="appearance-net">
+        <h3 id="appearance-net" className="section-title">
+          Connection to the hub
+        </h3>
+        <SwitchRow
+          title="Show the round trip in the header"
+          hint="Signal bars and the milliseconds to the hub, measured every 15 seconds over the live connection with a few bytes. Off, the chip says Live as before. Click it for the details and the speed test."
+          checked={latency}
+          onChange={setLatencyShown}
+        />
+        <SettingRow title="Speed test" hint={`Download and upload speed between this browser and the hub. It runs only when asked: about ${DOWN_BYTES >> 20} MB down and ${UP_BYTES >> 20} MB up, mind a phone's data.`}>
+          <SpeedTestButton />
         </SettingRow>
       </section>
       <section className="card settings-card" aria-labelledby="appearance-text">

@@ -180,6 +180,9 @@ func (s *Server) routes() {
 	authed("GET /api/sessions/{id}/cost", s.handleSessionCost)
 	authed("GET /api/sessions/{id}/ws", s.handleTerminalWS)
 	authed("GET /api/events", s.handleEventsWS)
+	authed("GET /api/net", s.handleNet)
+	authed("GET /api/net/download", s.handleNetDownload)
+	authed("POST /api/net/upload", s.handleNetUpload)
 
 	authed("GET /api/projects", s.handleProjects)
 	authed("POST /api/projects", s.handleProjectCreate)

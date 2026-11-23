@@ -1,0 +1,203 @@
+/*
+ * The connection to the hub (net/ConnChip.tsx, DESIGN.md §3.4): the header's chip with signal
+ * bars and the round trip, and its details (popover, sheet). Green, amber and red are the
+ * status colours: under 100 ms, to 300 ms, above or pings lost.
+ */
+
+.conn-chip {
+  --net-level: var(--c-success);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.conn-chip.lvl-fair {
+  --net-level: var(--c-warning);
+}
+.conn-chip.lvl-poor {
+  --net-level: var(--c-danger-300);
+}
+.conn-chip:hover,
+.conn-chip.is-open {
+  background: var(--surface-hover);
+}
+.conn-chip:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.conn-chip .tabular {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.conn-chip.lvl-fair .conn-text,
+.conn-chip.lvl-poor .conn-text {
+  color: var(--net-level);
+}
+/* a finger needs the whole square, also when the chip is the bars alone */
+:root[data-input='touch'] .conn-chip {
+  min-width: var(--h-control-sm);
+  justify-content: center;
+}
+
+.net-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  color: var(--net-level);
+}
+.net-bars i {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+  background: color-mix(in srgb, currentColor 28%, transparent);
+}
+.net-bars i.on {
+  background: currentColor;
+}
+.net-bars i:nth-child(1) {
+  height: 4px;
+}
+.net-bars i:nth-child(2) {
+  height: 7px;
+}
+.net-bars i:nth-child(3) {
+  height: 10px;
+}
+.net-bars i:nth-child(4) {
+  height: 12px;
+}
+
+/* ---- the details ---- */
+.net-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.net-head h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+.net-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.net-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.net-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  padding: var(--s-3);
+  border-radius: var(--r-lg);
+  border: var(--hairline) solid var(--glass-border);
+  background: var(--surface-input);
+}
+.net-k {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.net-v {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-1);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-heading);
+  white-space: nowrap;
+}
+.net-v small {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
+}
+.net-v.net-none {
+  color: var(--text-3);
+}
+.net-d {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.net-spark {
+  display: block;
+  width: 100%;
+  height: 28px;
+}
+.net-spark polyline {
+  fill: none;
+  stroke: var(--c-success);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+.net-prog {
+  display: block;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+.net-prog i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--c-info);
+  transition: width var(--t-fast) var(--ease);
+}
+.net-kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s-1) var(--s-4);
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+.net-kv dt {
+  color: var(--text-3);
+}
+.net-kv dd {
+  margin: 0;
+  color: var(--text-2);
+}
+.net-error {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--c-danger-300);
+}
+.net-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: var(--hairline) solid var(--glass-border);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* Settings › Appearance: the speed test's button and its last result */
+.speed-test-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.speed-test-result {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}

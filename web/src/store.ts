@@ -5,6 +5,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { api, openEventsSocket, type ReconnectingSocket } from './api';
 import type { Device, HubEvent, Machine, Profile, Project, ProjectBadge, ProjectGroup, Session, SessionStatusFrame, Settings } from './lib/types';
+import { netClosed, netOpened, netPong } from './net/latency';
 
 export interface LiveState {
   sessions: Record<string, Session>;
@@ -126,13 +127,22 @@ class LiveStore {
   connect() {
     if (this.socket) return;
     this.socket = openEventsSocket({
-      onStateChange: (s) => this.set({ connected: s === 'open' }),
+      onStateChange: (s) => {
+        this.set({ connected: s === 'open' });
+        // the round trip to the hub (net/latency.ts) is timed over this socket
+        if (s === 'open' && this.socket) netOpened(this.socket);
+        else netClosed();
+      },
       onMessage: (ev) => {
         if (typeof ev.data !== 'string') return;
-        let msg: HubEvent;
+        let msg: HubEvent | { type: 'pong'; id: number };
         try {
-          msg = JSON.parse(ev.data) as HubEvent;
+          msg = JSON.parse(ev.data) as HubEvent | { type: 'pong'; id: number };
         } catch {
+          return;
+        }
+        if (msg.type === 'pong') {
+          netPong(Number(msg.id));
           return;
         }
         this.apply(msg);
@@ -144,6 +154,7 @@ class LiveStore {
   reset() {
     this.socket?.close();
     this.socket = null;
+    netClosed();
     this.state = EMPTY;
     this.listeners.forEach((l) => l());
   }
