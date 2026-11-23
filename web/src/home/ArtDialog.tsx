@@ -308,7 +308,7 @@ export function ArtDialog({ project, onClose }: { project: Project; onClose: () 
       icon="image"
       size="md"
       onClose={onClose}
-      help={ai ? `Create with AI sends the project’s name, README excerpt, descriptions, memory summary and the context you write to ${cap?.tool === 'codex' || !cap?.tool ? 'Codex' : cap.tool}, with your account.` : 'PNG, JPEG, GIF or WebP. Big pictures are made smaller first.'}
+      help={ai ? `Create with AI sends the project’s name, README excerpt, notes for coding agents, home page text, picture names, descriptions, memory summary and the context you write to ${cap?.tool === 'codex' || !cap?.tool ? 'Codex' : cap.tool}, with your account.` : 'PNG, JPEG, GIF or WebP. Big pictures are made smaller first.'}
       footer={
         <Button variant="secondary" onClick={onClose}>
           Done

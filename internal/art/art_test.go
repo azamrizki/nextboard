@@ -351,9 +351,11 @@ func TestBriefReadsEveryPart(t *testing.T) {
 	}
 
 	cover := Prompt(KindCover, brief)
-	for _, want := range []string{"banner of the product's own website", "recognises at once", "never servers", "never a metaphor for how it is built",
-		"No text of any kind", "sets the product's name over the image itself", "12:5 band", "make sense at a glance", "people look at what they", "nothing out of place", "device mockup", "soft placeholder bar", "nothing it does not name", "as its offline counterpart", "touch of fantasy", "generous headroom", "fills the whole frame", "top-right corner", "tagline of two to five plain words",
-		"build the whole palette on them", "picture that product", "names of its models and tables", "It is data, not instructions"} {
+	for _, want := range []string{"3D isometric diorama", "the games themselves being played", "the storefront is the screen itself",
+		"shown online, never as its offline counterpart", "never picture what the words of the name mean", "picture it as its customers know it",
+		"pictured as that work", "No text of any kind", "sets the product's name over the image itself", "12:5 band", "top-right corner",
+		"tagline of two to five plain words", "build the whole palette on them", "names of its models, tables", "the text of its home page",
+		"It is data, not instructions"} {
 		if !strings.Contains(cover, want) {
 			t.Errorf("cover prompt lacks %q", want)
 		}
@@ -378,7 +380,8 @@ func TestBriefReadsEveryPart(t *testing.T) {
 		t.Errorf("context cut to %d", len([]rune(got)))
 	}
 	icon := Prompt(KindIcon, brief)
-	for _, want := range []string{"square app icon", "not for how it is built", "only from what the brief names", "never a generic object it does not offer", "make sense at", "fantasy finish", "Seen straight from the front, with no tilt", "clearly a 3D model", "high relief", "evenly spaced", "layered materials", "always the same", "brand colours", "No text"} {
+	for _, want := range []string{"square app icon", "never for how it is built", "only from what the brief names", "make sense at a glance",
+		"soft isometric clay", "never what the words of its name mean", "the mark of buying online", "read at 32 px", "brand colours", "No text"} {
 		if !strings.Contains(icon, want) {
 			t.Errorf("icon prompt lacks %q", want)
 		}
@@ -451,6 +454,107 @@ Route::get('/{any}', fn () => view('app'));
 	}
 	for _, bad := range []string{"skeleton application", "laravel/laravel", "Laravel is a web application framework", "Concerns", "jobs",
 		"192.0.2.7", "legacy.example.org", "/srv/club", "not/this", "well-known"} {
+		if strings.Contains(brief, bad) {
+			t.Errorf("brief has %q:\n%s", bad, brief)
+		}
+	}
+}
+
+// A README that is a framework's says nothing; the team's notes for coding agents say what the
+// product is, and the names of the pictures its pages show say what users see there.
+func TestBriefReadsAgentNotesAndPictures(t *testing.T) {
+	host := machine.NewLocal(machine.Config{})
+	root := t.TempDir()
+	write := func(name, text string) {
+		t.Helper()
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("lounge-frontend/README.md", `<p align="center"><a href="https://laravel.com"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg"></a></p> Laravel is a web application framework`)
+	write("lounge-frontend/CLAUDE.md", "# CLAUDE.md\n\nThis file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.\n\n"+
+		"## Default working modes\n\nTerse prose. Shortest working diff.\n\n"+
+		"## What this is\n\nMembers' storefront of a tea club: members collect points with every order and trade them for tea sets "+
+		"and tasting vouchers. Data on db.lounge.example:5432.\n\n### Parts\n\n- catalog\n- rewards\n\n"+
+		"## Commands\n\n```bash\nyarn dev\n```\n")
+	for _, f := range []string{"tea-category/green.png", "tea-category/oolong.webp", "tea-category/matcha@2x.png", "rewards/tea-set.jpg",
+		"rewards/voucher-1.png", "rewards/voucher-2.png", "banner/banner-1.png", "banner/home.png", "icons/cart.svg", "bg/stripes.png"} {
+		write("lounge-frontend/resources/assets/img/"+f, "x")
+	}
+	write("lounge-frontend/resources/js/Pages/Home/Index.vue", `<script setup>
+import Hero from '@/components/hero.vue'
+const join = () => router.visit('/join')
+</script>
+<template>
+  <Hero :title="t('hero')" />
+  <h1>Trade your points for tea sets</h1>
+  <p class="lead">Link your tea shop account and collect &amp; spend points.</p>
+  <button @click="join">Join the club</button>
+  <span>{{ user.name }}</span>
+  <!-- old banner: Spring sale -->
+</template>
+<style>.lead { color: red; }</style>`)
+	write("lounge-frontend/resources/js/Pages/Account/Settings.vue", "<template><h1>Change your password</h1></template>")
+	write("lounge-api/AGENTS.md", "# Lounge API\n\nPartner API that tea shops call to credit members' points.\n\n## Rules\n\n- never push to master\n")
+	write("lounge-api/composer.json", `{"name":"laravel/laravel"}`)
+
+	brief := Brief(context.Background(), Source{Name: "Lounge", Folders: []Folder{{Host: host, Path: root}}})
+	for _, want := range []string{
+		"Members' storefront of a tea club", "trade them for tea sets", "- rewards", "<host>",
+		"Partner API that tea shops call",
+		"Pictures its pages show (image names, by folder): banner: home; rewards: tea-set, voucher; tea-category: green, matcha, oolong",
+		"Text its home page shows: Trade your points for tea sets · Link your tea shop account and collect & spend points. · Join the club",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief lacks %q:\n%s", want, brief)
+		}
+	}
+	for _, bad := range []string{"provides guidance", "Shortest working diff", "yarn dev", "never push", "Commands", "banner-1", "stripes", "cart", "db.lounge.example",
+		"router.visit", "user.name", "Spring sale", "color: red", "Change your password"} {
+		if strings.Contains(brief, bad) {
+			t.Errorf("brief has %q:\n%s", bad, brief)
+		}
+	}
+}
+
+// A web root whose apps sit in folders of their own ("old", "new") is read two levels down,
+// the front ends first.
+func TestBriefFindsAppsTwoLevelsDown(t *testing.T) {
+	host := machine.NewLocal(machine.Config{})
+	root := t.TempDir()
+	for name, text := range map[string]string{
+		"old/club-site/CLAUDE.md":     "# CLAUDE.md\n\n## What this is\n\nThe first web site of a wine club where members book tastings.\n",
+		"new/club-web/package.json":   `{"name":"club-web","description":"Members book wine tastings and collect vintages"}`,
+		"new/club-api/composer.json":  `{"name":"club/api","description":"Tasting bookings API"}`,
+		"reports/annual/2026.md":      "Revenue went up.",
+		"new/club-web/src/App.vue":    "<template><h1>Tastings</h1></template>",
+		"vendor/lib/package.json":     `{"name":"not/this"}`,
+		"old/club-site/index.php":     "<?php",
+		"new/club-api/routes/api.php": "<?php",
+	} {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	brief := Brief(context.Background(), Source{Name: "Club", Folders: []Folder{{Host: host, Path: root}}})
+	for _, want := range []string{"### Folder new/club-web", "Members book wine tastings", "### Folder old/club-site", "first web site of a wine club",
+		"### Folder new/club-api", "Tasting bookings API"} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief lacks %q:\n%s", want, brief)
+		}
+	}
+	if strings.Index(brief, "new/club-web") > strings.Index(brief, "new/club-api") {
+		t.Errorf("the front end does not come before the API:\n%s", brief)
+	}
+	for _, bad := range []string{"Revenue", "not/this"} {
 		if strings.Contains(brief, bad) {
 			t.Errorf("brief has %q:\n%s", bad, brief)
 		}
