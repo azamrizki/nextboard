@@ -2483,3 +2483,15 @@
   width: 100%;
   align-items: center;
 }
+
+/* an SSH hop's form is narrower than the Main page's: Port goes below Host, both full labels */
+.db-ssh-col .db-frow2 {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.db-ssh-col .db-frow2 > .db-frow + .db-frow {
+  grid-template-columns: 118px 1fr;
+}
+.db-ssh-col .db-frow2 > .db-frow + .db-frow .control {
+  max-width: 120px;
+}

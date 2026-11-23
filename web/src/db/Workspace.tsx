@@ -72,11 +72,9 @@ export interface WorkspaceProps {
   storeKey: string;
   /** a card kept to one connection */
   only?: string;
-  /** what a card shows when it has no room: no SmartDB side by side */
-  compact?: boolean;
 }
 
-export function DbWorkspace({ projectId, storeKey, only, compact }: WorkspaceProps) {
+export function DbWorkspace({ projectId, storeKey, only }: WorkspaceProps) {
   const { list: all, loaded } = useConnections(projectId);
   const list = useMemo(() => (only ? all.filter((c) => c.id === only) : all), [all, only]);
   const [saved, setSaved] = useState<Saved>(() => loadSaved(storeKey));
@@ -203,7 +201,8 @@ export function DbWorkspace({ projectId, storeKey, only, compact }: WorkspacePro
   );
 
   const smartOn = saved.smart && !!activeConn && activeConn.agents.access !== 'none';
-  const smartOverlay = narrow || compact;
+  // beside the tab only where both have room (connections 264 + a table + SmartDB 340)
+  const smartOverlay = width < 1100;
 
   return (
     <div className={`db-ws ${narrow ? 'is-narrow' : medium ? 'is-medium' : ''}`} ref={box}>

@@ -379,7 +379,7 @@ The contract is in [API-vault.md](API-vault.md). Three columns: sections, list, 
 
 The contract is in [API-db.md](API-db.md). One workspace (`db/Workspace.tsx`) for the Code view's Databases tab and the board's Database card: connections with their schema on the left, tables, SQL editors and Redis keys in tabs, SmartDB on the right.
 
-- **Width:** under 1000 px the connections column narrows to 220 px; under 640 px it goes behind a database button as an overlay, and SmartDB covers the tab instead of sitting beside it. Redis keys sit above the value under 560 px of tab (container queries).
+- **Width:** under 1000 px the connections column narrows to 220 px; under 640 px it goes behind a database button as an overlay. SmartDB sits beside the tab from 1100 px of workspace, and covers it below that. Redis keys sit above the value under 560 px of tab (container queries).
 - **Colour is the connection type:** a tag on every connection (Local green, Development blue `--viz-1`, Staging amber, Production red), a stripe on Staging and Production tabs. Drivers are two-letter marks on their own colour (My, Ma, Pg, Rd, Vk), no logos.
 - **Grid:** rows windowed at 30 px, mono cells, numbers right-aligned, NULL in italics, a foreign key underlined and followed by a click. A cell edits on double-click or Enter; edited cells amber, new rows green, deleted rows red and struck through, until Commit. The row's detail opens from its number (or Space) only, so a click never moves the grid.
 - **Asking before harm:** a write the connection asks about shows its SQL; a dangerous one is a red dialog that counts the rows, says whether it can be rolled back, and runs only with the connection's name typed. A transaction left open is an amber bar with Commit and Roll back.

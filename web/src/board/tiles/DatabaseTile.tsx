@@ -33,7 +33,7 @@ function DatabaseTileImpl({ id, data, selected }: NodeProps<FlowNode>) {
         menuLabel="Database card actions"
       />
       <div className="tile-db-body nodrag nowheel" onKeyDown={stopKeys}>
-        <DbWorkspace projectId={project.id} storeKey={`card:${id}`} only={d.connectionId || undefined} compact />
+        <DbWorkspace projectId={project.id} storeKey={`card:${id}`} only={d.connectionId || undefined} />
       </div>
     </TileFrame>
   );
