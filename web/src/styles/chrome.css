@@ -620,6 +620,7 @@
 }
 .project-card.card {
   gap: var(--s-3);
+  container: pcard / inline-size;
   transition:
     border-color var(--t-fast) var(--ease),
     box-shadow var(--t-fast) var(--ease),
@@ -1388,6 +1389,22 @@
   gap: var(--s-2);
   min-width: 0;
   white-space: nowrap;
+  /* a narrow card: the board count gives way, it never runs under the git state */
+  overflow: hidden;
+}
+.project-activity .status {
+  flex: 0 0 auto;
+}
+.project-boards {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* a card too narrow for terminals, boards, git state and last opened in one line: no board count */
+@container pcard (max-width: 479px) {
+  .project-boards {
+    display: none;
+  }
 }
 .project-activity .status {
   font-size: inherit;
