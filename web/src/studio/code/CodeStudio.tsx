@@ -21,7 +21,7 @@
 
 import { rememberCards } from './cardTabs';
 import { useReactFlow } from '@xyflow/react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { errorMessage } from '../../api';
 import type { BoardController } from '../../board/controller';
@@ -38,6 +38,7 @@ import { EditorKeyBar } from './EditorKeyBar';
 import { Button } from '../../components/Button';
 import { Icon, type IconName } from '../../components/Icon';
 import { HostPill } from '../../host/HostPill';
+import { DbStatusLeft, DbStatusRight } from '../../db/StatusItems';
 import { ContextMenu, type MenuEntry } from '../../components/Menu';
 import { Modal } from '../../components/Modal';
 import { useUi, type OpenFileRequest, type UiStore } from '../../board/ui';
@@ -129,6 +130,9 @@ const scaleOf = (el: Element | null) => {
 /** An editor card's title: the project, and with several parts the placement it shows. */
 const cardTitle = (project: Project, ws: Workspace) => (projectParts(project).length > 1 ? `${project.name} · ${isRoot(ws.placement) ? 'All parts' : placeLabel(project, ws.placement)}` : project.name);
 
+// the Databases side view loads when it is first shown (docs/API-db.md)
+const DbSideView = lazy(() => import('./tools/DbSideView'));
+
 const ACTIVITY: { view: SideView; icon: IconName; label: string; keys?: string }[] = [
   { view: 'files', icon: 'file', label: 'Explorer', keys: 'Ctrl+Shift+E' },
   { view: 'search', icon: 'search', label: 'Search', keys: 'Ctrl+Shift+F' },
@@ -137,6 +141,7 @@ const ACTIVITY: { view: SideView; icon: IconName; label: string; keys?: string }
   { view: 'debug', icon: 'bug', label: 'Run and Debug', keys: 'Ctrl+Shift+D' },
   { view: 'laravel', icon: 'layers', label: 'Laravel' },
   { view: 'extensions', icon: 'puzzle', label: 'Extensions', keys: 'Ctrl+Shift+X' },
+  { view: 'databases', icon: 'database', label: 'Databases' },
   { view: 'agents', icon: 'sparkle', label: 'Ask', keys: 'Ctrl+L' },
 ];
 
@@ -221,6 +226,7 @@ function StatusBar({ ws, onPick, onView, onPanel }: { ws: Workspace; onPick: (ki
           <span className="truncate">{crumbsOf(ws.paths, doc.path).map((x) => x.label).join(' › ')}</span>
         </button>
       )}
+      {ws.activeTab?.tool?.kind === 'db' && <DbStatusLeft />}
       {[...ws.docs.values()].some((d) => d.saving) && <span className="wb-status-note">Saving…</span>}
       {ws.debug.active && (
         <span className="wb-status-note wb-status-debug">
@@ -234,6 +240,7 @@ function StatusBar({ ws, onPick, onView, onPanel }: { ws: Workspace; onPick: (ki
         </span>
       )}
       <span className="spacer" />
+      {ws.activeTab?.tool?.kind === 'db' && <DbStatusRight />}
       <HostPill where="status" />
       {ws.ide.consoles.length > 0 && (
         <span className="wb-status-item" title={`Linked to this editor: ${ws.ide.consoles.map((c) => c.name).join(', ')}`}>
@@ -1264,6 +1271,11 @@ function Workbench({
               {ws.side === 'debug' && <DebugView ws={ws} onInstall={installInTerminal} />}
               {ws.side === 'laravel' && <LaravelPanel ws={ws} onTerminal={installInTerminal} />}
               {ws.side === 'extensions' && <ExtensionsPanel ws={ws} onInstall={installInTerminal} />}
+              {ws.side === 'databases' && (
+                <Suspense fallback={null}>
+                  <DbSideView ws={ws} />
+                </Suspense>
+              )}
               {ws.side === 'agents' && <AgentsPanel ws={ws} ctl={ctl} nodeId={nodeId} context={context} setContext={setContext} request={agentRequest} focusTick={agentsTick} />}
               {ws.side === 'settings' && <SettingsPanel ws={ws} onInstall={installInTerminal} />}
             </aside>

@@ -14,7 +14,7 @@ import { fromRow, fromSaved, leaves, prune, readSaved, toSaved, type SavedGrid }
 import { asFileKey, cleanAbs, fileKey, keyUnder, PERSIST_VERSION, storedPaths, type FileKey } from './paths';
 import { isToolKind, type ToolKind } from './toolKinds';
 
-export type SideView = 'files' | 'search' | 'scm' | 'review' | 'debug' | 'laravel' | 'extensions' | 'agents' | 'settings';
+export type SideView = 'files' | 'search' | 'scm' | 'review' | 'debug' | 'laravel' | 'extensions' | 'databases' | 'agents' | 'settings';
 export type PanelView = 'terminal' | 'problems' | 'output' | 'debug' | 'tasks' | 'ports';
 export type MdView = 'reader' | 'split' | 'source';
 /** The code view's right side bar: the lead, the Agents list, or a pane put there. */

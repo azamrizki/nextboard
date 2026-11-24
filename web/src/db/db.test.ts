@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { outgoing, tunnelProblem } from './ConnectionDialog';
+import { cellKind, numText, pillTone } from './DataGrid';
+import { dbArg, dbTabMeta, newQueryId, parseDbArg, rememberDbTitle } from './tabs';
 import { cellText } from './DataGrid';
 import { ttlText } from './RedisView';
 import { sqlBlocks } from './SmartPanel';
@@ -93,5 +95,56 @@ describe('the tunnel a connection dialog sends', () => {
     c.reach.hops![1].user = 'deploy';
     expect(tunnelProblem(c)).toBe('');
     expect(outgoing(form(c)).c.reach.hops).toHaveLength(2);
+  });
+});
+
+describe('database tabs of the Code view', () => {
+  it('reads back what it writes: a table with its filter, a query, a Redis database', () => {
+    const t = { kind: 'table' as const, conn: 'db_1', schema: 'public', table: 'or:ders', filter: { column: 'id', op: '=', value: '18' } };
+    expect(parseDbArg(dbArg(t))).toEqual(t);
+    expect(parseDbArg(dbArg({ kind: 'query', conn: 'db_1', id: 'n2-abc' }))).toEqual({ kind: 'query', conn: 'db_1', id: 'n2-abc' });
+    expect(parseDbArg(dbArg({ kind: 'keys', conn: 'db_r', db: 0 }))).toEqual({ kind: 'keys', conn: 'db_r', db: 0 });
+    expect(parseDbArg(dbArg({ kind: 'keys', conn: 'db_r' }))).toEqual({ kind: 'keys', conn: 'db_r' });
+    expect(parseDbArg('')).toEqual({ kind: 'home' });
+    expect(parseDbArg('table:x')).toEqual({ kind: 'home' });
+  });
+
+  it('names a tab after its table, its query, else what the tab learned', () => {
+    expect(dbTabMeta(dbArg({ kind: 'table', conn: 'c', schema: 's', table: 'orders' }))).toMatchObject({ title: 'orders', icon: 'table' });
+    const q = dbArg({ kind: 'query', conn: 'c', id: newQueryId(3) });
+    expect(dbTabMeta(q).title).toBe('SQL 3');
+    expect(rememberDbTitle(q, 'paid per day.sql')).toBe(true);
+    expect(rememberDbTitle(q, 'paid per day.sql')).toBe(false);
+    expect(dbTabMeta(q).title).toBe('paid per day.sql');
+    expect(dbTabMeta(undefined).title).toBe('Databases');
+  });
+});
+
+describe('the grid reads values by their kind', () => {
+  it('knows numbers, text, keys, enums and NULL', () => {
+    expect(cellKind(null, {})).toBe('null');
+    expect(cellKind('12.50', { type: 'decimal(12,2)' })).toBe('num');
+    expect(cellKind('IDR', { type: 'char(3)' })).toBe('str');
+    expect(cellKind('77', { type: 'bigint', fk: true })).toBe('fk');
+    expect(cellKind('paid', { type: "enum('paid','pending')", values: ['paid', 'pending'] })).toBe('enum');
+    expect(cellKind('2026-11-23 09:12:44', { type: 'timestamp' })).toBe('plain');
+  });
+
+  it('groups a number and keeps its decimals, big ones too', () => {
+    const g = numText('1120000.50');
+    expect(g.replace(/\D/g, '')).toBe('112000050');
+    expect(g.length).toBeGreaterThan('1120000.50'.length);
+    expect(numText('-5')).toBe('-5');
+    expect(numText('12345678901234567890').replace(/\D/g, '')).toBe('12345678901234567890');
+    expect(numText('abc')).toBe('abc');
+  });
+
+  it('colours a status by what it means', () => {
+    expect(pillTone('paid')).toBe('ok');
+    expect(pillTone('Pending')).toBe('warn');
+    expect(pillTone('refunded')).toBe('violet');
+    expect(pillTone('failed')).toBe('err');
+    expect(pillTone('cancelled')).toBe('off');
+    expect(pillTone('whatever')).toBe(pillTone('whatever'));
   });
 });

@@ -6,7 +6,10 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../api';
 import { Button } from '../components/Button';
+import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
+import { hlSQL } from './hl';
+import { connWhere, useMachineName } from './where';
 import { dbApi } from './api';
 import type { Connection, Stmt } from './types';
 
@@ -84,7 +87,7 @@ function ConfirmDialogFor({ conn, asking }: { conn: Connection; asking: Asking }
     return (
       <Modal title={`Password of ${conn.name}`} icon="key" onClose={asking.stop} size="sm"
         footer={<><Button variant="ghost" onClick={asking.stop}>Cancel</Button><Button variant="primary" loading={busy} onClick={() => void save()}>Connect</Button></>}>
-        <p className="text-2 fs-sm">This connection does not save its password. The hub keeps it in memory until it restarts.</p>
+        <p className="db-dlg-note">This connection does not save its password. The hub keeps it in memory until it restarts.</p>
         <input className="control db-input" type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void save()} aria-label="Password" />
         {err && <p className="text-danger fs-sm">{err}</p>}
       </Modal>
@@ -95,10 +98,9 @@ function ConfirmDialogFor({ conn, asking }: { conn: Connection; asking: Asking }
     return (
       <Modal title="Run what changes data?" icon="alert" onClose={asking.stop} size="md"
         footer={<><Button variant="ghost" onClick={asking.stop}>Cancel</Button><Button variant="primary" autoFocus onClick={() => asking.go({ confirmed: true })}>Run</Button></>}>
-        <p className="text-2 fs-sm">
-          <b>{conn.name}</b> asks before every change ({conn.env}). These run:
-        </p>
-        <pre className="db-sql-preview">{asking.stmts.map((s) => s.sql).join(';\n\n')}</pre>
+        <ConnLine conn={conn} />
+        <p className="db-dlg-note">This connection asks before what changes data. These run:</p>
+        <pre className="db-sql-preview">{hlSQL(asking.stmts.map((s) => s.sql).join(';\n\n') + ';')}</pre>
       </Modal>
     );
   }
@@ -110,6 +112,7 @@ function ConfirmDialogFor({ conn, asking }: { conn: Connection; asking: Asking }
     <Modal title={dangerTitle(st)} icon="alert" tone="danger" onClose={asking.stop} size="md"
       footer={
         <>
+          <span className="db-foot-note">A Production connection that is read-only refuses it at once.</span>
           <Button variant="ghost" onClick={asking.stop} autoFocus>
             Cancel
           </Button>
@@ -118,21 +121,38 @@ function ConfirmDialogFor({ conn, asking }: { conn: Connection; asking: Asking }
           </Button>
         </>
       }>
-      <div className="db-conn-line">
-        <DriverMark driver={conn.driver} />
-        <b>{conn.name}</b>
-        <span className="text-3">· {conn.database || conn.host}</span>
-        <EnvTag env={conn.env} />
-      </div>
-      <pre className="db-sql-preview">{asking.stmts.map((s) => s.sql).join(';\n\n')}</pre>
+      <ConnLine conn={conn} />
+      <pre className="db-sql-preview">{hlSQL(asking.stmts.map((s) => s.sql).join(';\n\n') + ';')}</pre>
       <div className="db-banner db-banner-danger">
-        {st?.danger}
-        {rows >= 0 ? ` (about ${rows.toLocaleString()} rows).` : '.'} DELETE, UPDATE without WHERE, DROP and TRUNCATE always ask like this, whatever the connection allows.
+        <Icon name="alert" />
+        <span>
+          {st?.verb === 'DELETE' || st?.verb === 'UPDATE' ? (
+            <>
+              It has no WHERE: all {rows >= 0 ? <b>≈{rows.toLocaleString()} rows</b> : 'its rows'} {st.verb === 'DELETE' ? 'go' : 'change'}
+              {rows >= 0 ? " (the planner's estimate)" : ''}.
+            </>
+          ) : (
+            <>
+              {st?.danger}
+              {rows >= 0 ? (
+                <>
+                  {' '}
+                  (<b>≈{rows.toLocaleString()} rows</b>)
+                </>
+              ) : null}
+              .
+            </>
+          )}{' '}
+          DELETE, UPDATE without WHERE, DROP and TRUNCATE always ask like this, whatever the connection allows.
+        </span>
       </div>
       <div className="db-banner db-banner-info">
-        {mysqlDDL
-          ? 'MySQL commits DROP, TRUNCATE and ALTER at once: this cannot be rolled back.'
-          : 'It runs inside a transaction: the rows it touched are counted first, and you commit or roll back after seeing them.'}
+        <Icon name="shield" />
+        <span>
+          {mysqlDDL
+            ? 'MySQL commits DROP, TRUNCATE and ALTER at once: this cannot be rolled back.'
+            : 'It runs inside a transaction: the rows it touched are counted first, and you commit or roll back after seeing them.'}
+        </span>
       </div>
       <label className="db-field">
         <span className="db-label">
@@ -141,6 +161,20 @@ function ConfirmDialogFor({ conn, asking }: { conn: Connection; asking: Asking }
         <input className="control db-input mono" value={typed} onChange={(e) => setTyped(e.target.value)} aria-label={`Type ${conn.name} to run it`} />
       </label>
     </Modal>
+  );
+}
+
+/** The connection a dialog is about: its mark, name, where, and its type on the right. */
+export function ConnLine({ conn }: { conn: Connection }) {
+  const machineName = useMachineName();
+  return (
+    <div className="db-conn-line">
+      <DriverMark driver={conn.driver} />
+      <b>{conn.name}</b>
+      <span className="db-conn-line-sub truncate">· {connWhere(conn, undefined, machineName)}</span>
+      <span className="db-spacer" />
+      <EnvTag env={conn.env} />
+    </div>
   );
 }
 

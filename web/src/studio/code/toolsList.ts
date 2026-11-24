@@ -5,6 +5,7 @@
 
 import type { IconName } from '../../components/Icon';
 import { externalUrl, localTarget, targetLabel } from '../../web/model';
+import { dbTabMeta } from '../../db/tabs';
 import { cardMeta } from './cardTabs';
 import type { ToolKind } from './toolKinds';
 
@@ -36,7 +37,6 @@ export const CODE_VIEW_TOOLS: CodeViewTool[] = [
   { kind: 'browser', icon: 'globe', label: 'Browser' },
   { kind: 'loops', icon: 'loop', label: 'Loops' },
   { kind: 'mission', icon: 'map', label: 'Mission Map' },
-  { kind: 'db', icon: 'database', label: 'Databases' },
 ];
 
 /** Every tool on its own, the studios opened up: a phone's ⋯ Tools menu, the command palette. */
@@ -84,6 +84,7 @@ export function toolMeta(kind: ToolKind, arg?: string): { title: string; icon: I
     const title = browserTitle(arg);
     return { title, icon: 'globe', tip: parseBrowserArg(arg).url || 'Browser' };
   }
+  if (kind === 'db') return dbTabMeta(arg); // a table, an SQL editor, a Redis connection's keys
   if (kind === 'card') {
     // a board card as a tab (Code view = Board view): its title as the card tab last saw it
     const c = cardMeta(arg);

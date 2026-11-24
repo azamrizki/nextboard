@@ -1,18 +1,20 @@
-// A table of an SQL connection (docs/API-db.md): its rows (filter chips, a raw WHERE, sort, pages,
-// SmartDB's Ask bar), its structure, indexes and relations. Edits in the grid stay pending until
-// Commit runs them in one transaction; Review SQL shows the statements first.
+// A table of an SQL connection (docs/API-db.md; mockups 1, 7 and 8): its rows with filter chips,
+// a raw WHERE, a sort and pages, SmartDB's Ask bar when SmartDB is on; its structure, indexes and
+// relations. Edits in the grid stay pending until Commit (Ctrl S) runs them in one transaction;
+// Review SQL shows the statements first. On a phone the rows are a list and a row a sheet.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { errorMessage } from '../api';
 import { Button } from '../components/Button';
-import { Icon } from '../components/Icon';
+import { Icon, type IconName } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { toast } from '../components/Toast';
 import { dbApi, downloadExport, type RowsRequest } from './api';
 import { useConfirmRunner } from './Confirm';
-import { cellText, DataGrid, type GridColumn } from './DataGrid';
+import { cellText, DataGrid, isNumType, numText, pillTone, type GridColumn } from './DataGrid';
+import { compactNum } from './Side';
 import { useSchemaRev } from './store';
-import type { Cell, Change, Connection, Filter, RowsPage, Sort, TableInfo } from './types';
+import type { Cell, Change, Column, Connection, Filter, ForeignKey, RowsPage, Sort, TableInfo } from './types';
 
 const OPS: { op: string; label: string; values?: boolean; none?: boolean }[] = [
   { op: '=', label: '=' },
@@ -24,31 +26,52 @@ const OPS: { op: string; label: string; values?: boolean; none?: boolean }[] = [
   { op: 'contains', label: 'contains' },
   { op: 'starts', label: 'starts with' },
   { op: 'ends', label: 'ends with' },
-  { op: 'like', label: 'LIKE' },
+  { op: 'like', label: 'like' },
   { op: 'in', label: 'in', values: true },
   { op: 'not in', label: 'not in', values: true },
   { op: 'between', label: 'between', values: true },
-  { op: 'null', label: 'is NULL', none: true },
-  { op: 'not null', label: 'is not NULL', none: true },
+  { op: 'null', label: 'is null', none: true },
+  { op: 'not null', label: 'is not null', none: true },
 ];
 
 type View = 'data' | 'structure' | 'indexes' | 'relations';
+const VIEWS: { id: View; label: string; icon: IconName }[] = [
+  { id: 'data', label: 'Data', icon: 'table' },
+  { id: 'structure', label: 'Structure', icon: 'layout' },
+  { id: 'indexes', label: 'Indexes', icon: 'key' },
+  { id: 'relations', label: 'Relations', icon: 'link' },
+];
 
 export interface TableViewProps {
   conn: Connection;
   schema: string;
   table: string;
+  /** a phone or a narrow card: rows as a list, a row as a sheet */
   compact?: boolean;
+  /** a board card: the toolbar is its head's */
+  card?: boolean;
   /** opens another table (a foreign key followed), with a filter */
   onOpenTable?: (schema: string, table: string, filter?: Filter) => void;
   initialFilter?: Filter;
+  onSmart?: () => void;
+  smartOn?: boolean;
 }
 
-function opLabel(op: string) {
-  return OPS.find((o) => o.op === op)?.label ?? op;
+const opLabel = (op: string) => OPS.find((o) => o.op === op)?.label ?? op;
+
+/** A type as a header says it: enum('a','b') is "enum", set(…) "set". */
+export const shortType = (t: string) => t.replace(/^(enum|set)\s*\(.*\)$/i, '$1');
+
+/** "bigint · PK", "bigint → users", "varchar(255) · null": a column under its name. */
+function subOf(col: Column | undefined, fk: ForeignKey | undefined, fallback?: string): string {
+  if (!col) return fallback ?? '';
+  const parts = [fk ? `${shortType(col.type)} → ${fk.refTable}` : shortType(col.type)];
+  if (col.key === 'PRI') parts.push('PK');
+  else if (col.nullable) parts.push('null');
+  return parts.join(' · ');
 }
 
-export function TableView({ conn, schema, table, compact, onOpenTable, initialFilter }: TableViewProps) {
+export function TableView({ conn, schema, table, compact, card, onOpenTable, initialFilter, onSmart, smartOn }: TableViewProps) {
   const [view, setView] = useState<View>('data');
   const [info, setInfo] = useState<TableInfo | null>(null);
   const [page, setPage] = useState<RowsPage | null>(null);
@@ -60,7 +83,7 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
-  // the row's detail: opened from its number, then it follows the selected row
+  // the row's detail: opened from its number (or a phone's tap), then it follows the selected row
   const [detail, setDetail] = useState(false);
   const [edits, setEdits] = useState<Map<number, Record<string, unknown>>>(new Map());
   const [deleted, setDeleted] = useState<Set<number>>(new Set());
@@ -102,19 +125,20 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
 
   useEffect(() => {
     void load();
+    // a new page when what it shows changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn.id, schema, table, filters, where, sort, offset, rev]);
 
   const pk = info?.primaryKey ?? [];
-  const fkCols = useMemo(() => new Set((info?.foreignKeys ?? []).flatMap((f) => f.columns)), [info]);
+  const fks = useMemo(() => info?.foreignKeys ?? [], [info]);
   const columns: GridColumn[] = useMemo(() => {
     const byName = new Map((info?.columns ?? []).map((c) => [c.name, c]));
     return (page?.columns ?? []).map((c) => {
       const col = byName.get(c.name);
-      const sub = col ? `${col.type}${col.key === 'PRI' ? ' · PK' : ''}${fkCols.has(c.name) ? ' → ' + (info?.foreignKeys ?? []).find((f) => f.columns.includes(c.name))?.refTable : ''}${col.nullable ? ' · null' : ''}` : c.type;
-      return { name: c.name, type: col?.type ?? c.type, sub: compact ? undefined : sub, fk: fkCols.has(c.name), key: col?.key };
+      const fk = fks.find((f) => f.columns.includes(c.name));
+      return { name: c.name, type: col?.type ?? c.type, sub: subOf(col, fk, c.type), fk: !!fk, key: col?.key, values: col?.values };
     });
-  }, [page, info, fkCols, compact]);
+  }, [page, info, fks]);
 
   const pending = edits.size + deleted.size + added.length;
   const canEdit = !conn.security.readOnly && pk.length > 0;
@@ -154,33 +178,46 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
   };
 
   // from Review SQL the owner has seen the statements: no second question
-  const commit = async (reviewed = false) => {
-    try {
-      const r = await run((a) => dbApi.apply(conn.id, { schema, table, changes: changes(), confirmed: reviewed || a.confirmed }));
-      if (!r) return;
-      toast.success(`${r.sql.length} change${r.sql.length === 1 ? '' : 's'} committed`);
-      discard();
-      setReview(null);
-      void load();
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
+  const commit = useCallback(
+    async (reviewed = false) => {
+      try {
+        const r = await run((a) => dbApi.apply(conn.id, { schema, table, changes: changes(), confirmed: reviewed || a.confirmed }));
+        if (!r) return;
+        toast.success(`${r.sql.length} change${r.sql.length === 1 ? '' : 's'} committed`);
+        discard();
+        setReview(null);
+        void load();
+      } catch (e) {
+        toast.error(errorMessage(e));
+      }
+    },
+    // the changes are read when it runs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conn.id, schema, table, edits, deleted, added, run, load],
+  );
 
-  const onEdit = (row: number, col: string, value: string) => {
+  // Ctrl S commits, as the mockup's button says
+  useEffect(() => {
+    if (!pending) return;
+    const key = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.shiftKey) {
+        e.preventDefault();
+        void commit();
+      }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [pending, commit]);
+
+  const onEdit = (row: number, col: string, value: string | null) => {
     const orig = page?.rows[row][page.columns.findIndex((c) => c.name === col)];
     const next = new Map(edits);
     const e = { ...(next.get(row) ?? {}) };
-    if (cellText(orig) === value && !(orig === null && value === '')) delete e[col];
+    if (value !== null && cellText(orig) === value && orig !== null) delete e[col];
+    else if (value === null && orig === null) delete e[col];
     else e[col] = value;
     if (Object.keys(e).length) next.set(row, e);
     else next.delete(row);
-    setEdits(next);
-  };
-
-  const setNull = (row: number, col: string) => {
-    const next = new Map(edits);
-    next.set(row, { ...(next.get(row) ?? {}), [col]: null });
     setEdits(next);
   };
 
@@ -198,12 +235,12 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
     setAskNote('');
     try {
       const r = await dbApi.aiFilters(conn.id, { schema, table, text: ask });
-      setFilters(r.filters);
-      setSort(r.sort);
-      setWhere(r.where);
+      setFilters(r.filters ?? []);
+      setSort(r.sort ?? []);
+      setWhere(r.where ?? '');
       setWhereOpen(!!r.where);
       setOffset(0);
-      setAskNote(r.note);
+      setAskNote(r.note ?? '');
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -212,7 +249,7 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
   };
 
   const followFk = (col: string, v: Cell) => {
-    const fk = (info?.foreignKeys ?? []).find((f) => f.columns.includes(col));
+    const fk = fks.find((f) => f.columns.includes(col));
     if (!fk || !onOpenTable) return;
     const refCol = fk.refColumns[fk.columns.indexOf(col)] ?? fk.refColumns[0];
     onOpenTable(fk.refSchema || schema, fk.refTable, { column: refCol, op: '=', value: cellText(v) });
@@ -230,37 +267,70 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
   const total = page?.total ?? -1;
   const shownTo = (page?.rows.length ?? 0) + offset;
   const selectedRow = selected !== null && page ? page.rows[selected] : null;
+  const views = compact ? VIEWS.filter((v) => v.id !== 'indexes') : VIEWS;
+  const smartAsk = smartOn && conn.agents.askBar !== false;
+
+  const detailEl =
+    detail && selectedRow && page ? (
+      <RowDetail
+        table={table}
+        info={info}
+        columns={page.columns.map((c) => c.name)}
+        row={selectedRow}
+        pkValue={pk.length ? cellText(selectedRow[page.columns.findIndex((c) => c.name === pk[0])]) : String((selected ?? 0) + offset + 1)}
+        edits={edits.get(selected!) ?? {}}
+        editable={canEdit}
+        deleted={deleted.has(selected!)}
+        sheet={compact}
+        onEdit={(col, v) => onEdit(selected!, col, v)}
+        onDelete={() => {
+          const next = new Set(deleted);
+          if (next.has(selected!)) next.delete(selected!);
+          else next.add(selected!);
+          setDeleted(next);
+        }}
+        onFollow={(col) => followFk(col, selectedRow[page.columns.findIndex((c) => c.name === col)])}
+        onReferenced={(fk) => {
+          // a table pointing here: its column (refColumns) holds our column's (columns) value
+          const key = selectedRow[page.columns.findIndex((c) => c.name === fk.columns[0])];
+          onOpenTable?.(fk.refSchema, fk.refTable, { column: fk.refColumns[0], op: '=', value: cellText(key) });
+        }}
+        onClose={() => setDetail(false)}
+      />
+    ) : null;
 
   return (
-    <div className={`db-table ${compact ? 'is-compact' : ''}`}>
+    <div className={`db-table ${compact ? 'is-compact' : ''} ${card ? 'is-card' : ''}`}>
       <div className="db-tbar">
-        <div className="segmented sm" role="tablist" aria-label="Table view">
-          {(['data', 'structure', 'indexes', 'relations'] as View[]).map((v) => (
-            <button key={v} type="button" role="tab" aria-selected={view === v} className={`segmented-item ${view === v ? 'is-active' : ''}`} onClick={() => setView(v)}>
-              {v[0].toUpperCase() + v.slice(1)}
+        <div className="db-seg" role="tablist" aria-label="Table view">
+          {views.map((v) => (
+            <button key={v.id} type="button" role="tab" aria-selected={view === v.id} className={view === v.id ? 'is-on' : ''} onClick={() => setView(v.id)}>
+              {!compact && <Icon name={v.icon} />}
+              {compact && v.id === 'structure' ? 'Columns' : v.label}
             </button>
           ))}
         </div>
-        {!compact && (
-          <span className="db-tbar-meta text-3">
-            {schema}.{table}
+        {!compact && !card && (
+          <span className="db-tbar-meta truncate">
+            {schema ? `${schema}.` : ''}
+            {table}
             {info && info.rows >= 0 ? ` · ≈${info.rows.toLocaleString()} rows` : ''}
           </span>
         )}
         <span className="db-spacer" />
-        <Button size="sm" variant="ghost" icon="refresh" onClick={() => void load()} loading={loading}>
+        <Button size="sm" icon="refresh" onClick={() => void load()} loading={loading} aria-label="Refresh" title="Refresh">
           {compact ? '' : 'Refresh'}
         </Button>
         <div className="db-menu-wrap">
-          <Button size="sm" variant="ghost" icon="download" onClick={() => setExportOpen((v) => !v)} aria-expanded={exportOpen}>
+          <Button size="sm" icon="upload" onClick={() => setExportOpen((v) => !v)} aria-expanded={exportOpen} aria-label="Export" title="Export">
             {compact ? '' : 'Export'}
           </Button>
           {exportOpen && (
             <div className="db-menu" role="menu">
               {(['csv', 'json', 'sql'] as const).map((f) => (
                 <button key={f} type="button" role="menuitem" onClick={() => void exportAs(f)}>
-                  {f.toUpperCase()}
-                  <span className="text-3">{f === 'sql' ? 'INSERT statements' : f === 'csv' ? 'a spreadsheet' : 'an array of rows'}</span>
+                  <b>{f.toUpperCase()}</b>
+                  <span>{f === 'sql' ? 'INSERT statements' : f === 'csv' ? 'a spreadsheet' : 'an array of rows'}</span>
                 </button>
               ))}
             </div>
@@ -271,19 +341,24 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
             Row
           </Button>
         )}
+        {onSmart && (
+          <Button size="sm" icon="sparkle" className={`db-smart-btn ${smartOn ? 'is-on' : ''}`} onClick={onSmart} aria-pressed={!!smartOn} title="SmartDB: ask in your words">
+            {compact ? '' : 'SmartDB'}
+          </Button>
+        )}
       </div>
 
       {view === 'data' && (
         <>
-          {conn.agents.askBar !== false && conn.agents.access !== 'none' && !compact && (
+          {smartAsk && (
             <form className="db-askbar" onSubmit={(e) => (e.preventDefault(), void askAI())}>
               <Icon name="sparkle" />
-              <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder={`Ask for rows in your words: "paid orders over 500 thousand, newest first"`} aria-label="Ask SmartDB for filters" />
-              {asking ? <span className="spinner" aria-label="SmartDB is thinking" /> : <kbd>Enter</kbd>}
+              <input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="Ask for rows in your words: paid orders over 500 thousand, newest first" aria-label="Ask SmartDB for filters" />
+              {asking ? <span className="spinner" aria-label="SmartDB is thinking" /> : <span className="db-askbar-k">Enter makes the filters</span>}
             </form>
           )}
           <div className="db-fbar">
-            <Icon name="sliders" />
+            <Icon name="sliders" className="db-fbar-i" />
             {filters.map((f, i) => (
               <span key={i} className="db-fchip">
                 {f.column} <span className="db-op">{opLabel(f.op)}</span>
@@ -294,23 +369,31 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
               </span>
             ))}
             <FilterAdder columns={info?.columns.map((c) => c.name) ?? []} onAdd={(f) => (setFilters([...filters, f]), setOffset(0))} />
-            <button type="button" className={`db-where-toggle mono ${whereOpen || where ? 'is-on' : ''}`} onClick={() => setWhereOpen(!whereOpen)}>
-              WHERE…
-            </button>
-            {askNote && <span className="db-ask-note text-3">✦ {askNote}</span>}
+            {!compact && (
+              <button type="button" className={`db-where-toggle ${whereOpen || where ? 'is-on' : ''}`} onClick={() => setWhereOpen(!whereOpen)}>
+                WHERE …
+              </button>
+            )}
+            {askNote && <span className="db-ask-note">✦ {askNote}</span>}
+            <span className="db-spacer" />
+            {sort[0] && (
+              <button type="button" className="db-sortchip" onClick={() => toggleSort(sort[0].column)} title="Change the order">
+                <Icon name="sort" />
+                {sort[0].column} <span className="db-op">{sort[0].desc ? 'desc' : 'asc'}</span>
+              </button>
+            )}
           </div>
           {(whereOpen || where) && (
             <form
               className="db-where"
               onSubmit={(e) => {
                 e.preventDefault();
-                const v = (new FormData(e.currentTarget).get('where') as string) ?? '';
-                setWhere(v);
+                setWhere(((new FormData(e.currentTarget).get('where') as string) ?? '').trim());
                 setOffset(0);
               }}
             >
-              <span className="mono text-3">WHERE</span>
-              <input name="where" className="mono" defaultValue={where} key={where} aria-label="A WHERE condition" placeholder="user_id IN (SELECT id FROM users WHERE city = 'Jakarta')" />
+              <span className="db-where-k">WHERE</span>
+              <input name="where" defaultValue={where} key={where} aria-label="A WHERE condition" placeholder="user_id IN (SELECT id FROM users WHERE city = 'Jakarta')" />
               <Button size="sm" type="submit">
                 Apply
               </Button>
@@ -326,6 +409,8 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
               <div className="db-error" role="alert">
                 {error}
               </div>
+            ) : compact && page ? (
+              <RowList info={info} page={page} pk={pk} deleted={deleted} onOpen={(i) => (setSelected(i), setDetail(true))} />
             ) : (
               <DataGrid
                 label={`${table} rows`}
@@ -339,71 +424,43 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
                 selected={selected}
                 onSelect={setSelected}
                 onOpenRow={() => setDetail(true)}
-                onEdit={onEdit}
+                onEdit={(r, c, v) => onEdit(r, c, v)}
                 onEditAdded={(i, col, v) => setAdded(added.map((r, j) => (j === i ? { ...r, [col]: v } : r)))}
                 onFk={onOpenTable ? followFk : undefined}
                 sort={sort}
                 onSort={toggleSort}
               />
             )}
-            {detail && selectedRow && page && (
-              <RowDetail
-                info={info}
-                columns={page.columns.map((c) => c.name)}
-                row={selectedRow}
-                edits={edits.get(selected!) ?? {}}
-                editable={canEdit}
-                deleted={deleted.has(selected!)}
-                onEdit={(col, v) => onEdit(selected!, col, v)}
-                onNull={(col) => setNull(selected!, col)}
-                onDelete={() => {
-                  const next = new Set(deleted);
-                  if (next.has(selected!)) next.delete(selected!);
-                  else next.add(selected!);
-                  setDeleted(next);
-                }}
-                onFollow={(col) => followFk(col, selectedRow[page.columns.findIndex((c) => c.name === col)])}
-                onReferenced={(fk) => {
-                  // a table pointing here: its column (refColumns) holds our column's (columns) value
-                  const key = selectedRow[page.columns.findIndex((c) => c.name === fk.columns[0])];
-                  onOpenTable?.(fk.refSchema, fk.refTable, { column: fk.refColumns[0], op: '=', value: cellText(key) });
-                }}
-                onClose={() => setDetail(false)}
-              />
-            )}
+            {!compact && detailEl}
           </div>
+          {compact && detailEl}
           <div className="db-foot">
             {pending > 0 ? (
               <>
                 <span className="db-changes">
                   <Icon name="pencil" />
                   {pending} change{pending === 1 ? '' : 's'}
-                  <span className="text-3">
-                    : {edits.size} edited · {added.length} new · {deleted.size} deleted
-                  </span>
+                  {!compact && `: ${[edits.size && `${edits.size} edited`, added.length && `${added.length} new`, deleted.size && `${deleted.size} deleted`].filter(Boolean).join(' · ')}`}
                 </span>
-                <Button size="sm" variant="ghost" icon="eye" onClick={() => void showSQL()}>
+                <Button size="sm" icon="eye" onClick={() => void showSQL()}>
                   Review SQL
                 </Button>
                 <Button size="sm" variant="ghost" onClick={discard}>
                   Discard
                 </Button>
                 <Button size="sm" variant="primary" icon="check" onClick={() => void commit()}>
-                  Commit
+                  Commit {!compact && <kbd className="db-kbd">Ctrl S</kbd>}
                 </Button>
               </>
             ) : (
-              !canEdit && (
-                <span className="text-3 fs-xs">{conn.security.readOnly ? 'Read-only connection' : pk.length === 0 && info ? 'No primary key: change rows with SQL' : ''}</span>
-              )
+              !canEdit &&
+              info && <span className="db-foot-note">{conn.security.readOnly ? 'Read-only connection' : pk.length === 0 ? 'No primary key: change rows with SQL' : ''}</span>
             )}
             <span className="db-spacer" />
-            <span className="tabular text-2">
-              {page ? `${page.rows.length ? offset + 1 : 0}–${shownTo}${total >= 0 ? ` of ${total.toLocaleString()}` : ''}` : ''}
-            </span>
+            <span className="db-foot-range tabular">{page ? `${page.rows.length ? offset + 1 : 0}–${shownTo}${total >= 0 ? ` of ${total.toLocaleString()}` : ''}` : ''}</span>
             <Button size="sm" variant="ghost" iconOnly icon="chevronLeft" aria-label="Previous page" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))} />
             <Button size="sm" variant="ghost" iconOnly icon="chevronRight" aria-label="Next page" disabled={!page || page.rows.length < limit || (total >= 0 && shownTo >= total)} onClick={() => setOffset(offset + limit)} />
-            {page && <span className="text-3 tabular fs-xs">{page.ms} ms</span>}
+            {page && !compact && <span className="db-foot-ms tabular">{page.ms} ms</span>}
           </div>
         </>
       )}
@@ -415,7 +472,7 @@ export function TableView({ conn, schema, table, compact, onOpenTable, initialFi
       {review && (
         <Modal title="What Commit runs" icon="eye" size="md" onClose={() => setReview(null)}
           footer={<><Button variant="ghost" onClick={() => setReview(null)}>Close</Button><Button variant="primary" icon="check" onClick={() => void commit(true)}>Commit</Button></>}>
-          <p className="text-2 fs-sm">In one transaction; an UPDATE or DELETE that would touch other than one row rolls all of it back.</p>
+          <p className="db-dlg-note">In one transaction; an UPDATE or DELETE that would touch other than one row rolls all of it back.</p>
           <pre className="db-sql-preview">{review.join(';\n') + ';'}</pre>
         </Modal>
       )}
@@ -469,87 +526,171 @@ function FilterAdder({ columns, onAdd }: { columns: string[]; onAdd: (f: Filter)
   );
 }
 
+/** A phone's rows (mockup 7): the key and its status, an amount, and who and when under them. */
+function RowList({ info, page, pk, deleted, onOpen }: { info: TableInfo | null; page: RowsPage; pk: string[]; deleted: Set<number>; onOpen: (i: number) => void }) {
+  const cols = page.columns.map((c) => c.name);
+  const byName = new Map((info?.columns ?? []).map((c) => [c.name, c]));
+  const fkCols = new Set((info?.foreignKeys ?? []).flatMap((f) => f.columns));
+  const idI = cols.indexOf(pk[0] ?? cols[0]);
+  const pillI = cols.findIndex((n) => byName.get(n)?.values?.length);
+  const typeOf = (n: string, i: number) => byName.get(n)?.type ?? page.columns[i]?.type ?? '';
+  const amountI = cols.findIndex((n, i) => i !== idI && !fkCols.has(n) && isNumType(typeOf(n, i)));
+  const fkI = cols.findIndex((n) => fkCols.has(n));
+  const timeI = cols.findIndex((n, i) => /time|date/i.test(typeOf(n, i)));
+  const textI = cols.findIndex((n, i) => i !== idI && i !== pillI && /char|text/i.test(typeOf(n, i)));
+  const when = (v: Cell) => {
+    const s = cellText(v);
+    const m = /(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/.exec(s);
+    if (!m) return s;
+    return m[1] === new Date().toISOString().slice(0, 10) ? m[2] : m[1];
+  };
+  if (page.rows.length === 0) return <div className="db-empty">No rows</div>;
+  return (
+    <ul className="db-rowlist" aria-label="Rows">
+      {page.rows.map((r, i) => {
+        const sub = [fkI >= 0 && r[fkI] !== null ? `${cols[fkI].replace(/_id$/, '')} ${cellText(r[fkI])}` : '', timeI >= 0 && r[timeI] !== null ? when(r[timeI]) : '', fkI < 0 && textI >= 0 && r[textI] !== null ? cellText(r[textI]) : '']
+          .filter(Boolean)
+          .join(' · ');
+        return (
+          <li key={i}>
+            <button type="button" className={`db-rowcard ${deleted.has(i) ? 'is-del' : ''}`} onClick={() => onOpen(i)}>
+              <span className="db-rowcard-top">
+                <b className="mono">#{cellText(r[idI])}</b>
+                {pillI >= 0 && r[pillI] !== null && <span className={`db-pill tone-${pillTone(cellText(r[pillI]))}`}>{cellText(r[pillI])}</span>}
+                <span className="db-spacer" />
+                {amountI >= 0 && <span className="mono">{numText(r[amountI])}</span>}
+              </span>
+              {sub && <span className="db-rowcard-sub truncate">{sub}</span>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function RowDetail(p: {
+  table: string;
   info: TableInfo | null;
   columns: string[];
   row: Cell[];
+  pkValue: string;
   edits: Record<string, unknown>;
   editable: boolean;
   deleted: boolean;
-  onEdit: (col: string, v: string) => void;
-  onNull: (col: string) => void;
+  sheet?: boolean;
+  onEdit: (col: string, v: string | null) => void;
   onDelete: () => void;
   onFollow: (col: string) => void;
-  onReferenced: (fk: NonNullable<TableInfo['referencedBy']>[number]) => void;
+  onReferenced: (fk: ForeignKey) => void;
   onClose: () => void;
 }) {
+  const [editing, setEditing] = useState(!p.sheet);
   const cols = new Map((p.info?.columns ?? []).map((c) => [c.name, c]));
   const fks = p.info?.foreignKeys ?? [];
-  return (
-    <aside className="db-detail" aria-label="The row">
-      <div className="db-detail-head">
-        <Icon name="table" />
-        <b>Row</b>
-        <span className="db-spacer" />
-        {p.editable && (
-          <Button size="sm" variant={p.deleted ? 'secondary' : 'danger-ghost'} icon={p.deleted ? 'undo' : 'trash'} onClick={p.onDelete}>
-            {p.deleted ? 'Keep' : 'Delete'}
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close the row" onClick={p.onClose} />
-      </div>
-      <div className="db-detail-body">
-        {p.columns.map((name, i) => {
-          const c = cols.get(name);
-          const edited = name in p.edits;
-          const v = edited ? p.edits[name] : p.row[i];
-          const fk = fks.find((f) => f.columns.includes(name));
-          return (
-            <label key={name} className="db-detail-field">
-              <span className="db-detail-label">
-                {name} <small className="mono">{c?.type}</small>
-                {edited && <span className="db-edited">edited</span>}
-                {p.editable && c?.nullable && v !== null && (
-                  <button type="button" className="db-link-btn" onClick={(e) => (e.preventDefault(), p.onNull(name))}>
-                    NULL
-                  </button>
-                )}
-              </span>
-              {c?.values?.length && p.editable ? (
-                <select className={`control db-input ${edited ? 'is-edited' : ''}`} value={v === null ? '' : cellText(v)} onChange={(e) => p.onEdit(name, e.target.value)}>
-                  {c.nullable && <option value="">NULL</option>}
-                  {c.values.map((x) => (
-                    <option key={x}>{x}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className={`control db-input mono ${edited ? 'is-edited' : ''} ${v === null ? 'is-null' : ''}`}
-                  value={v === null ? '' : cellText(v)}
-                  placeholder={v === null ? 'NULL' : ''}
-                  readOnly={!p.editable}
-                  onChange={(e) => p.onEdit(name, e.target.value)}
-                />
-              )}
-              {fk && v !== null && (
-                <button type="button" className="db-link-btn" onClick={(e) => (e.preventDefault(), p.onFollow(name))}>
-                  → {fk.refTable} #{cellText(v)}
+  const canEdit = p.editable && editing;
+  const fields = (
+    <div className="db-detail-body">
+      {p.columns.map((name, i) => {
+        const c = cols.get(name);
+        const edited = name in p.edits;
+        const v = edited ? p.edits[name] : p.row[i];
+        const fk = fks.find((f) => f.columns.includes(name));
+        return (
+          <div key={name} className="db-field">
+            <label className="db-field-l" htmlFor={`dbf-${name}`}>
+              {name} {!p.sheet && <small>{c ? shortType(c.type) : ''}</small>}
+              {edited && <span className="db-edited">edited</span>}
+              {canEdit && c?.nullable && v !== null && (
+                <button type="button" className="db-link-btn" onClick={() => p.onEdit(name, null)}>
+                  NULL
                 </button>
               )}
             </label>
-          );
-        })}
-        {(p.info?.referencedBy ?? []).length > 0 && (
-          <div className="db-detail-field">
-            <span className="db-detail-label">Referenced by</span>
-            {(p.info?.referencedBy ?? []).map((fk) => (
-              <button key={fk.name + fk.refTable} type="button" className="db-link-btn" onClick={() => p.onReferenced(fk)}>
-                {fk.refTable} ({fk.columns.join(', ')})
+            {c?.values?.length && canEdit ? (
+              <select id={`dbf-${name}`} className={`db-field-in ${edited ? 'is-edited' : ''}`} value={v === null ? '' : cellText(v)} onChange={(e) => p.onEdit(name, e.target.value)}>
+                {c.nullable && <option value="">NULL</option>}
+                {c.values.map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                id={`dbf-${name}`}
+                className={`db-field-in ${edited ? 'is-edited' : ''} ${v === null ? 'is-null' : ''}`}
+                value={v === null ? '' : cellText(v)}
+                placeholder={v === null ? 'NULL' : ''}
+                readOnly={!canEdit}
+                onChange={(e) => p.onEdit(name, e.target.value)}
+              />
+            )}
+            {edited && <span className="db-was">was {cellText(p.row[i])}</span>}
+            {fk && v !== null && (
+              <button type="button" className="db-link-btn" onClick={() => p.onFollow(name)}>
+                → {fk.refTable} #{cellText(v)}
               </button>
-            ))}
+            )}
           </div>
-        )}
+        );
+      })}
+      {(p.info?.referencedBy ?? []).length > 0 && (
+        <div className="db-field db-refby">
+          <span className="db-field-l">Referenced by</span>
+          {(p.info?.referencedBy ?? []).map((fk) => (
+            <button key={fk.name + fk.refTable} type="button" className="db-link-btn" onClick={() => p.onReferenced(fk)}>
+              {fk.refTable} · {fk.refColumns.join(', ')}
+            </button>
+          ))}
+        </div>
+      )}
+      {p.editable && !p.sheet && (
+        <button type="button" className={`db-link-btn ${p.deleted ? '' : 'is-danger'}`} onClick={p.onDelete}>
+          {p.deleted ? 'Keep this row' : 'Delete this row'}
+        </button>
+      )}
+    </div>
+  );
+  if (p.sheet) {
+    const json = Object.fromEntries(p.columns.map((n, i) => [n, p.row[i]]));
+    return (
+      <Modal
+        title={`Row ${p.pkValue}`}
+        icon="table"
+        size="md"
+        onClose={p.onClose}
+        className="db-row-sheet"
+        actions={<span className="db-detail-sub">{p.table}</span>}
+        footer={
+          <>
+            <Button icon="copy" onClick={() => void navigator.clipboard?.writeText(JSON.stringify(json, null, 2)).then(() => toast.success('Copied'))}>
+              Copy JSON
+            </Button>
+            {p.editable && !editing ? (
+              <Button variant="primary" icon="pencil" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            ) : p.editable ? (
+              <Button variant={p.deleted ? 'secondary' : 'danger-ghost'} icon={p.deleted ? 'undo' : 'trash'} onClick={p.onDelete}>
+                {p.deleted ? 'Keep' : 'Delete'}
+              </Button>
+            ) : null}
+          </>
+        }
+      >
+        {fields}
+      </Modal>
+    );
+  }
+  return (
+    <aside className="db-detail" aria-label="The row">
+      <div className="db-detail-h">
+        <Icon name="table" />
+        <b>Row {p.pkValue}</b>
+        <span className="db-detail-sub">{p.table}</span>
+        <span className="db-spacer" />
+        <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close the row" onClick={p.onClose} />
       </div>
+      {fields}
     </aside>
   );
 }
@@ -572,13 +713,13 @@ function Structure({ info }: { info: TableInfo }) {
         <tbody>
           {info.columns.map((c) => (
             <tr key={c.name}>
-              <td className="mono">{c.name}</td>
-              <td className="mono text-2">{c.type}</td>
+              <td className="mono db-strong">{c.name}</td>
+              <td className="mono db-dim">{c.type}</td>
               <td>{c.nullable ? 'yes' : ''}</td>
-              <td className="mono text-2">{c.default ?? ''}</td>
-              <td>{c.key}</td>
-              <td className="text-2">{c.extra}</td>
-              <td className="text-2">{c.comment}</td>
+              <td className="mono db-dim">{c.default ?? ''}</td>
+              <td>{c.key === 'PRI' ? <span className="db-pill tone-warn">PK</span> : c.key}</td>
+              <td className="db-dim">{c.extra}</td>
+              <td className="db-dim">{c.comment}</td>
             </tr>
           ))}
         </tbody>
@@ -609,28 +750,27 @@ function Indexes({ info }: { info: TableInfo }) {
         <tbody>
           {(info.indexes ?? []).map((ix) => (
             <tr key={ix.name}>
-              <td className="mono">
-                {ix.name}
-                {ix.primary && <span className="db-pk">PK</span>}
+              <td className="mono db-strong">
+                {ix.name} {ix.primary && <span className="db-pill tone-warn">PK</span>}
               </td>
-              <td className="mono text-2">{ix.columns.join(', ')}</td>
+              <td className="mono db-dim">{ix.columns.join(', ')}</td>
               <td>{ix.unique ? 'yes' : ''}</td>
-              <td className="text-2">{ix.kind}</td>
+              <td className="db-dim">{ix.kind}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      {(info.indexes ?? []).length === 0 && <p className="text-3 fs-sm">No index.</p>}
+      {(info.indexes ?? []).length === 0 && <p className="db-dlg-note">No index.</p>}
     </div>
   );
 }
 
 function Relations({ info, onOpen }: { info: TableInfo; onOpen?: (schema: string, table: string) => void }) {
-  const row = (fk: NonNullable<TableInfo['foreignKeys']>[number], out: boolean) => (
+  const row = (fk: ForeignKey, out: boolean) => (
     <tr key={fk.name + fk.refTable + out}>
-      <td className="mono">{fk.name}</td>
+      <td className="mono db-dim">{fk.name}</td>
       <td className="mono">{out ? `${info.name}(${fk.columns.join(', ')})` : `${fk.refTable}(${fk.refColumns.join(', ')})`}</td>
-      <td>→</td>
+      <td className="db-dim">→</td>
       <td className="mono">
         {onOpen ? (
           <button type="button" className="db-link-btn" onClick={() => onOpen(fk.refSchema, fk.refTable)}>
@@ -646,16 +786,17 @@ function Relations({ info, onOpen }: { info: TableInfo; onOpen?: (schema: string
   );
   return (
     <div className="db-struct">
-      <h4 className="section-title">Points to</h4>
+      <h4 className="db-cap">Points to</h4>
       <table className="db-plain">
         <tbody>{(info.foreignKeys ?? []).map((f) => row(f, true))}</tbody>
       </table>
-      {(info.foreignKeys ?? []).length === 0 && <p className="text-3 fs-sm">No foreign key.</p>}
-      <h4 className="section-title">Pointed to by</h4>
+      {(info.foreignKeys ?? []).length === 0 && <p className="db-dlg-note">No foreign key.</p>}
+      <h4 className="db-cap">Pointed to by</h4>
       <table className="db-plain">
         <tbody>{(info.referencedBy ?? []).map((f) => row(f, false))}</tbody>
       </table>
-      {(info.referencedBy ?? []).length === 0 && <p className="text-3 fs-sm">No table points here.</p>}
+      {(info.referencedBy ?? []).length === 0 && <p className="db-dlg-note">No table points here.</p>}
+      <p className="db-dlg-note">{compactNum(info.rows) ? `≈${info.rows.toLocaleString()} rows` : ''}</p>
     </div>
   );
 }

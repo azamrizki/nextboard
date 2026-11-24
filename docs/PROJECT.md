@@ -584,7 +584,7 @@ A password manager on the board, modeled on Bitwarden; its contract and security
 
 ### 5.20 Database browser
 
-A database client of the hub's own, like DBeaver or TablePlus; the contract is in [API-db.md](API-db.md). A project's connections show in the Code view's Databases tab and on every `database` card; the hub connects (directly, over a machine of the project, or through an SSH tunnel with jump servers), the browser never does.
+A database client of the hub's own, like DBeaver or TablePlus; the contract is in [API-db.md](API-db.md). A project's connections show in the Code view's Databases side view, whose tables, queries and Redis keys open as editor tabs, and on every `database` card (one connection each); the hub connects (directly, over a machine of the project, or through an SSH tunnel with jump servers), the browser never does.
 
 - **Connections** are made in DBeaver's flow (Select your database › Connection settings with Main, SSH, SSL, Driver properties › Details), or filled from the project's `.env` files. Passwords and SSH keys are sealed on the hub and never sent back.
 - **Tables:** filter chips, a raw WHERE, sort, pages, edits in the grid committed in one transaction after Review SQL, the row's detail with its foreign keys followed both ways, structure, indexes, relations, export to CSV, JSON or INSERTs.

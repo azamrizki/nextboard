@@ -1,14 +1,16 @@
-// SmartDB's assistant (docs/API-db.md, SmartDB): the owner asks about a connection in any
-// language; Claude looks with the hub's database tools, each of its queries shows here as it runs
-// ("dbAgentCall"), then its answer ("dbChat").
+// SmartDB's assistant (docs/API-db.md, SmartDB; mockup 8): the owner asks about a connection in
+// any language; Claude looks with the hub's database tools, each of its queries shows here as it
+// runs ("dbAgentCall": its SQL, a chart of a series, its first rows), then its answer ("dbChat").
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { errorMessage } from '../api';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
+import { toast } from '../components/Toast';
 import { store } from '../store';
 import { dbApi } from './api';
-import { cellText } from './DataGrid';
+import { cellText, isNumType, numText } from './DataGrid';
+import { hlSQL } from './hl';
 import type { Cell, Connection, ResultColumn } from './types';
 
 interface Call {
@@ -39,21 +41,55 @@ export function sqlBlocks(text: string): string[] {
   return out;
 }
 
+/** **bold** and `code` in a line of the answer. */
+function inline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((p, i) =>
+    p.startsWith('**') && p.endsWith('**') ? (
+      <b key={i}>{p.slice(2, -2)}</b>
+    ) : p.startsWith('`') && p.endsWith('`') ? (
+      <code key={i}>{p.slice(1, -1)}</code>
+    ) : (
+      <Fragment key={i}>{p}</Fragment>
+    ),
+  );
+}
+
 function Answer({ text }: { text: string }) {
   const parts = text.split(/(```[\s\S]*?```)/g);
   return (
     <div className="db-answer">
       {parts.map((p, i) =>
         p.startsWith('```') ? (
-          <pre key={i} className="db-sql-preview">
-            {p.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '')}
+          <pre key={i} className="db-answer-code">
+            {hlSQL(p.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim())}
           </pre>
-        ) : (
-          <p key={i} style={{ whiteSpace: 'pre-wrap' }}>
-            {p.trim()}
-          </p>
-        ),
+        ) : p.trim() ? (
+          <p key={i}>{inline(p.trim())}</p>
+        ) : null,
       )}
+    </div>
+  );
+}
+
+/** A series to draw: a column of days (or times) and a numeric one, 3 to 31 rows; categories stay a table. */
+function series(c: Call): number[] | null {
+  const cols = c.columns ?? [];
+  const rows = c.rows ?? [];
+  if (cols.length !== 2 || rows.length < 3 || rows.length > 31) return null;
+  const timeLike = /date|time/i.test(cols[0].type ?? '') || rows.every((r) => /^\d{4}-\d{2}(-\d{2})?/.test(cellText(r[0])));
+  if (!timeLike) return null;
+  if (!isNumType(cols[1].type) && !rows.every((r) => !Number.isNaN(Number(cellText(r[1]))))) return null;
+  return rows.map((r) => Number(cellText(r[1])) || 0);
+}
+
+function Bars({ values }: { values: number[] }) {
+  const max = Math.max(1, ...values);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  return (
+    <div className="db-bars" aria-hidden="true">
+      {values.map((v, i) => (
+        <i key={i} className={v < avg * 0.6 ? 'is-low' : ''} style={{ height: `${Math.max(4, (v / max) * 100)}%` }} />
+      ))}
     </div>
   );
 }
@@ -63,6 +99,7 @@ export function SmartPanel({ conn, table, schema, onOpenQuery, onClose }: { conn
   const [text, setText] = useState('');
   const end = useRef<HTMLDivElement>(null);
   const busy = msgs.some((m) => m.role === 'assistant' && !m.done);
+  const ro = conn.security.readOnly || conn.agents.access === 'read';
 
   useEffect(
     () =>
@@ -77,6 +114,8 @@ export function SmartPanel({ conn, table, schema, onOpenQuery, onClose }: { conn
     [conn.id],
   );
 
+  // a block, not an arrow's value: newer browsers' scrollIntoView returns a promise, which React
+  // would call as the effect's cleanup ("l is not a function" stopped the tab)
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
   }, [msgs]);
@@ -95,22 +134,34 @@ export function SmartPanel({ conn, table, schema, onOpenQuery, onClose }: { conn
     }
   };
 
+  const save = async (sql: string) => {
+    try {
+      const q = await dbApi.saveQuery(conn.projectId, { name: `SmartDB ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`, sql, connectionId: conn.id });
+      toast.success(`Saved as ${q.name}.sql`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   return (
     <aside className="db-smart" aria-label="SmartDB">
       <div className="db-smart-head">
-        <Icon name="sparkle" />
+        <Icon name="sparkle" className="db-smart-i" />
         <b>SmartDB</b>
-        <span className="text-3 fs-xs truncate">{conn.name}</span>
+        <span className="db-smart-sub truncate">{conn.name} · Claude</span>
         <span className="db-spacer" />
-        <span className="db-pill">
-          <Icon name="shield" /> {conn.security.readOnly || conn.agents.access === 'read' ? 'read-only' : conn.agents.access === 'ask' ? 'asks to write' : 'may write'}
+        <span className="db-pill-o">
+          <Icon name="shield" /> {ro ? 'read-only' : conn.agents.access === 'ask' ? 'asks to write' : 'may write'}
         </span>
         {onClose && <Button size="sm" variant="ghost" iconOnly icon="close" aria-label="Close SmartDB" onClick={onClose} />}
       </div>
       <div className="db-smart-msgs">
         {msgs.length === 0 && (
-          <div className="db-empty text-3">
-            Ask about {conn.name} in your words: "why did revenue drop yesterday?", "which customers ordered most this month?". SmartDB reads the schema and runs read-only queries itself.
+          <div className="db-smart-empty">
+            <Icon name="sparkle" />
+            <p>
+              Ask about <b>{conn.name}</b> in your words: why did revenue drop yesterday, which customers ordered most this month. SmartDB reads the schema and runs read-only queries itself.
+            </p>
           </div>
         )}
         {msgs.map((m, i) =>
@@ -120,40 +171,47 @@ export function SmartPanel({ conn, table, schema, onOpenQuery, onClose }: { conn
             </div>
           ) : (
             <div key={i} className="db-bot">
-              {(m.calls ?? []).map((c, j) => (
-                <div key={j} className="db-call">
-                  <div className="db-call-head">
-                    <Icon name="database" /> <b>query</b>
-                    <span className="text-3">
-                      · {c.ms} ms{c.columns ? ` · ${c.total ?? c.rows?.length ?? 0} rows` : c.affected ? ` · ${c.affected} changed` : ''}
-                    </span>
-                  </div>
-                  <pre className="db-call-sql">{c.sql}</pre>
-                  {c.error && <div className="text-danger fs-xs">{c.error}</div>}
-                  {c.columns && c.rows && c.rows.length > 0 && (
-                    <table className="db-mini">
-                      <thead>
-                        <tr>
-                          {c.columns.map((col) => (
-                            <th key={col.name}>{col.name}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {c.rows.slice(0, 6).map((r, k) => (
-                          <tr key={k}>
-                            {r.map((v, n) => (
-                              <td key={n}>{cellText(v)}</td>
+              {(m.calls ?? []).map((c, j) => {
+                const s = series(c);
+                return (
+                  <div key={j} className="db-call">
+                    <div className="db-call-head">
+                      <Icon name="database" />
+                      <b>db_query</b>
+                      <span>
+                        · {conn.name} · {c.ms} ms{c.columns ? ` · ${(c.total ?? c.rows?.length ?? 0).toLocaleString()} rows` : c.affected ? ` · ${c.affected} changed` : ''}
+                      </span>
+                    </div>
+                    <pre className="db-call-sql">{hlSQL(c.sql)}</pre>
+                    {c.error && <div className="db-call-err">{c.error}</div>}
+                    {s && <Bars values={s} />}
+                    {!s && c.columns && c.rows && c.rows.length > 0 && (
+                      <table className="db-mini">
+                        <thead>
+                          <tr>
+                            {c.columns.map((col) => (
+                              <th key={col.name}>{col.name}</th>
                             ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              ))}
+                        </thead>
+                        <tbody>
+                          {c.rows.slice(0, 6).map((r, k) => (
+                            <tr key={k}>
+                              {r.map((v, n) => (
+                                <td key={n} className={typeof v === 'number' || isNumType(c.columns?.[n]?.type) ? 'is-num' : ''}>
+                                  {typeof v === 'number' || isNumType(c.columns?.[n]?.type) ? numText(v) : cellText(v)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                );
+              })}
               {!m.done && (
-                <div className="db-thinking text-3">
+                <div className="db-thinking">
                   <span className="spinner" /> {m.calls?.length ? 'looking further…' : 'reading the schema…'}
                 </div>
               )}
@@ -161,12 +219,19 @@ export function SmartPanel({ conn, table, schema, onOpenQuery, onClose }: { conn
               {m.text && <Answer text={m.text} />}
               {m.done && m.text && (
                 <div className="db-chips">
-                  {sqlBlocks(m.text).slice(0, 1).map((s) => (
-                    <button key="open" type="button" className="db-chip" onClick={() => onOpenQuery?.(s)}>
-                      <Icon name="fileCode" /> Open as query
-                    </button>
-                  ))}
-                  <button type="button" className="db-chip" onClick={() => void navigator.clipboard?.writeText(m.text)}>
+                  {sqlBlocks(m.text)
+                    .slice(0, 1)
+                    .map((s) => (
+                      <Fragment key="sql">
+                        <button type="button" className="db-chip" onClick={() => onOpenQuery?.(s)}>
+                          <Icon name="file" /> Open as query
+                        </button>
+                        <button type="button" className="db-chip" onClick={() => void save(s)}>
+                          <Icon name="star" /> Save
+                        </button>
+                      </Fragment>
+                    ))}
+                  <button type="button" className="db-chip" onClick={() => void navigator.clipboard?.writeText(m.text).then(() => toast.success('Copied'))}>
                     <Icon name="copy" /> Copy
                   </button>
                 </div>
@@ -180,7 +245,7 @@ export function SmartPanel({ conn, table, schema, onOpenQuery, onClose }: { conn
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={`Ask about ${conn.name}…`}
+          placeholder={`Ask about ${conn.name}… it reads the schema and runs read-only queries`}
           aria-label="Ask SmartDB"
           rows={2}
           onKeyDown={(e) => {
@@ -192,11 +257,12 @@ export function SmartPanel({ conn, table, schema, onOpenQuery, onClose }: { conn
         />
         <div className="db-smart-ask-row">
           {table && (
-            <span className="text-3 fs-xs">
+            <span className="db-smart-ctx">
               <Icon name="table" /> {table} in view
             </span>
           )}
           <span className="db-spacer" />
+          <span className="db-smart-model">Claude</span>
           <Button size="sm" variant="primary" iconOnly icon="send" aria-label="Ask" type="submit" disabled={!text.trim() || busy} />
         </div>
       </form>

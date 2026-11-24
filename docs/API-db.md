@@ -1,10 +1,10 @@
 # Database browser
 
-A database client of the hub's own, in the spirit of DBeaver and TablePlus: a project's MySQL, MariaDB, PostgreSQL, Redis and Valkey connections, their tables and keys, an SQL editor, and SmartDB (the owner's agent CLI reading the database for them). The hub connects; a browser never reaches a database. Package `internal/dbx`, handlers `internal/server/h_db.go`, `h_db_agents.go` (agent tools and approvals), `h_db_ai.go` (SmartDB); client `web/src/db/`, the Code view's Databases tab (`studio/code/tools/DbTool.tsx`) and the board's Database card (`board/tiles/DatabaseTile.tsx`).
+A database client of the hub's own, in the spirit of DBeaver and TablePlus: a project's MySQL, MariaDB, PostgreSQL, Redis and Valkey connections, their tables and keys, an SQL editor, and SmartDB (the owner's agent CLI reading the database for them). The hub connects; a browser never reaches a database. Package `internal/dbx`, handlers `internal/server/h_db.go`, `h_db_agents.go` (agent tools and approvals), `h_db_ai.go` (SmartDB); client `web/src/db/`: the Code view's Databases side view (`db/Side.tsx`) whose tables, queries and Redis keys open as editor tabs (`studio/code/tools/DbTool.tsx`, a `db` tool tab whose argument says what it shows, `db/tabs.ts`), and the board's Database card (`board/tiles/DatabaseTile.tsx`).
 
 ## Model
 
-Connections belong to a **project**. Every Database card of the project and its Code view's Databases tab show the same connections, saved queries and history. A card may keep to one connection (`data.connectionId`), which is also what "only consoles wired to its card" means for agents (below). Deleting a card does not delete a connection; deleting a project deletes its connections, saved queries, history and activity log.
+Connections belong to a **project**. Every Database card of the project and its Code view's Databases side view show the same connections, saved queries and history. A card shows one connection (`data.connectionId`, and what of it is open in `data.object`), which is also what "only consoles wired to its card" means for agents (below). Deleting a card does not delete a connection; deleting a project deletes its connections, saved queries, history and activity log.
 
 Files under the data folder (0600, written atomically):
 

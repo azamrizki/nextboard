@@ -8,5 +8,5 @@ export const TOOL_KINDS: readonly ToolKind[] = ['chats', 'memory', 'documents', 
 
 export const isToolKind = (v: unknown): v is ToolKind => typeof v === 'string' && (TOOL_KINDS as readonly string[]).includes(v);
 
-/** Kinds open once per argument (a browser per address, a board card per card); every other kind is open once at most. */
-export const toolPerArg = (kind: ToolKind): boolean => kind === 'browser' || kind === 'card';
+/** Kinds open once per argument (a browser per address, a board card per card, a database table or query); every other kind is open once at most. */
+export const toolPerArg = (kind: ToolKind): boolean => kind === 'browser' || kind === 'card' || kind === 'db';

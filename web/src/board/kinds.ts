@@ -224,9 +224,12 @@ export function readCredentials(n: BoardNode): { title: string } {
   return { title: str(n.data.title, 'Credentials') };
 }
 
-/** A title and, for a card kept to one connection, its id: the hub's, never its credentials. */
-export function readDatabase(n: BoardNode): { title: string; connectionId: string } {
-  return { title: str(n.data.title, 'Database'), connectionId: str(n.data.connectionId) };
+/**
+ * A title; the connection the card shows (its id: the hub's, never its credentials) and what of it
+ * is open there, as a database tab's argument (db/tabs.ts).
+ */
+export function readDatabase(n: BoardNode): { title: string; connectionId: string; object: string } {
+  return { title: str(n.data.title, 'Database'), connectionId: str(n.data.connectionId), object: str(n.data.object) };
 }
 
 export function readCalendar(n: BoardNode): CalendarData {

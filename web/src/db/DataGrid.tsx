@@ -1,17 +1,22 @@
-// The grid of the database browser: a table's rows or a query's result. Rows are windowed, so a
-// page of thousands scrolls smoothly. In a table view cells edit in place (double-click or Enter);
-// the edits stay pending, coloured, until the view commits them.
+// The grid of the database browser (mockup 1): a table's rows or a query's result. Rows are
+// windowed, so a page of thousands scrolls smoothly. Values read by their kind: numbers right and
+// grouped, text in the string colour, a foreign key in blue that opens its row, an enum as a pill,
+// NULL quiet. In a table view cells edit in place (double-click or Enter); edits stay pending,
+// coloured, until the view commits them.
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as RKeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as RKeyboardEvent, type ReactNode } from 'react';
 import type { Cell } from './types';
 
 export interface GridColumn {
   name: string;
   type?: string;
+  /** under the name: "bigint · PK", "bigint → users", "varchar(255) · null" */
   sub?: string;
   /** a foreign key: its values link to the row they point to */
   fk?: boolean;
   key?: string;
+  /** an enum's values: its cells are pills */
+  values?: string[];
 }
 
 export interface GridProps {
@@ -37,7 +42,7 @@ export interface GridProps {
   label: string;
 }
 
-const ROW_H = 30;
+const ROW_H = 29;
 
 export function cellText(v: Cell | unknown): string {
   if (v === null || v === undefined) return 'NULL';
@@ -50,17 +55,64 @@ export function cellText(v: Cell | unknown): string {
   return String(v);
 }
 
-function cellClass(v: unknown, type?: string): string {
-  if (v === null || v === undefined) return 'db-null';
-  if (typeof v === 'number' || /int|decimal|numeric|float|double|real|serial|money/i.test(type ?? '')) return 'db-num';
-  if (typeof v === 'object') return 'db-special';
-  return '';
+export type CellKind = 'null' | 'num' | 'str' | 'enum' | 'fk' | 'plain' | 'special';
+
+const NUM_TYPE = /\b(tiny|small|medium|big)?int(eger)?\d*\b|serial|decimal|numeric|float|double|real|money/i;
+const STR_TYPE = /char|text|citext|uuid|inet|cidr|macaddr|name\b|enum|set\(/i;
+
+/** A column type that holds numbers. */
+export const isNumType = (t: string | undefined) => !!t && NUM_TYPE.test(t) && !/point|interval/i.test(t);
+
+/** How a cell reads: by its column's type, else by its value. */
+export function cellKind(v: unknown, col: Pick<GridColumn, 'type' | 'fk' | 'values'>): CellKind {
+  if (v === null || v === undefined) return 'null';
+  if (typeof v === 'object') return 'special';
+  if (col.fk) return 'fk';
+  if (col.values?.length || /^enum\b/i.test(col.type ?? '')) return 'enum';
+  if (typeof v === 'number' || (col.type && NUM_TYPE.test(col.type) && !/point|interval/i.test(col.type))) return 'num';
+  if (typeof v === 'boolean') return 'plain';
+  if (col.type && STR_TYPE.test(col.type)) return 'str';
+  return 'plain';
+}
+
+const GROUP = new Intl.NumberFormat(undefined, { useGrouping: true, maximumFractionDigits: 0 });
+const DECIMAL = (1.5).toLocaleString(undefined).charAt(1);
+
+/** A number as it reads: its integer part grouped (big ones too), its decimals as the database gives them. */
+export function numText(v: Cell | unknown): string {
+  const s = cellText(v);
+  const m = /^(-?)(\d+)(?:\.(\d+))?$/.exec(s);
+  if (!m) return s;
+  let int: string;
+  try {
+    int = GROUP.format(BigInt(m[2]));
+  } catch {
+    int = m[2];
+  }
+  return `${m[1]}${int}${m[3] !== undefined ? DECIMAL + m[3] : ''}`;
+}
+
+// the words statuses use, by what they mean: done, waiting, back, failed, off
+const TONES: [RegExp, string][] = [
+  [/^(paid|active|success|succeeded|done|completed?|delivered|approved|enabled|published|verified|ok|open|online|yes|true|settled|confirmed)$/i, 'ok'],
+  [/^(pending|processing|waiting|queued|draft|review|in[_ -]?progress|unpaid|hold|on[_ -]?hold|partial|running|scheduled)$/i, 'warn'],
+  [/^(refunded|returned|archived|reversed|chargeback)$/i, 'violet'],
+  [/^(failed|error|rejected|declined|expired|blocked|banned|overdue|deleted|fraud)$/i, 'err'],
+  [/^(cancell?ed|inactive|disabled|closed|no|false|unknown|void|offline)$/i, 'off'],
+];
+const HUES = ['info', 'cyan', 'violet', 'warn', 'ok'];
+
+export function pillTone(v: string): string {
+  for (const [re, tone] of TONES) if (re.test(v)) return tone;
+  let h = 0;
+  for (let i = 0; i < v.length; i++) h = (h * 31 + v.charCodeAt(i)) >>> 0;
+  return HUES[h % HUES.length];
 }
 
 function widthOf(col: GridColumn, rows: Cell[][], i: number): number {
-  let chars = Math.max(col.name.length, (col.sub ?? '').length * 0.85);
-  for (let r = 0; r < Math.min(rows.length, 60); r++) chars = Math.max(chars, Math.min(48, cellText(rows[r][i]).length));
-  return Math.round(Math.min(380, Math.max(72, chars * 7.6 + 24)));
+  let chars = Math.max(col.name.length * 1.05, (col.sub ?? '').length * 0.86);
+  for (let r = 0; r < Math.min(rows.length, 60); r++) chars = Math.max(chars, Math.min(44, cellText(rows[r][i]).length * 1.04));
+  return Math.round(Math.min(360, Math.max(64, chars * 7.4 + 22)));
 }
 
 export function DataGrid(p: GridProps) {
@@ -110,8 +162,7 @@ export function DataGrid(p: GridProps) {
   };
 
   const onKey = (e: RKeyboardEvent) => {
-    if (editing) return;
-    if (!cur) return;
+    if (editing || !cur) return;
     const move = (dr: number, dc: number) => {
       const r = Math.max(0, Math.min(total - 1, cur.r + dr));
       const c = Math.max(0, Math.min(p.columns.length - 1, cur.c + dc));
@@ -152,7 +203,7 @@ export function DataGrid(p: GridProps) {
     e.preventDefault();
   };
 
-  const tableW = 52 + widths.reduce((a, b) => a + b, 0);
+  const tableW = 46 + widths.reduce((a, b) => a + b, 0);
   const sortOf = (name: string) => p.sort?.find((s) => s.column === name);
 
   return (
@@ -166,7 +217,6 @@ export function DataGrid(p: GridProps) {
               <div key={c.name + i} className="db-grid-th" role="columnheader" style={{ width: widths[i] }} aria-sort={s ? (s.desc ? 'descending' : 'ascending') : undefined}>
                 <button type="button" className="db-grid-th-btn" onClick={() => p.onSort?.(c.name)} disabled={!p.onSort} title={c.type}>
                   <span className="db-grid-th-name">
-                    {c.key === 'PRI' && <span className="db-pk" aria-label="primary key">PK</span>}
                     {c.name}
                     {s && <span className="db-sort-mark">{s.desc ? '↓' : '↑'}</span>}
                   </span>
@@ -185,13 +235,7 @@ export function DataGrid(p: GridProps) {
             const edits = isAdded ? undefined : p.edits?.get(row);
             const sel = !isAdded && p.selected === row;
             return (
-              <div
-                key={r}
-                role="row"
-                className={`db-grid-row ${isAdded ? 'is-new' : ''} ${del ? 'is-del' : ''} ${sel ? 'is-sel' : ''}`}
-                style={{ top: r * ROW_H }}
-                onClick={() => !isAdded && p.onSelect?.(row)}
-              >
+              <div key={r} role="row" className={`db-grid-row ${isAdded ? 'is-new' : ''} ${del ? 'is-del' : ''} ${sel ? 'is-sel' : ''}`} style={{ top: r * ROW_H }} onClick={() => !isAdded && p.onSelect?.(row)}>
                 <div className="db-grid-rn" role="rowheader">
                   {!isAdded && p.onOpenRow ? (
                     <button type="button" className="db-rn-btn" aria-label={`Open row ${(p.first ?? 1) + row}`} title="Open the row" onClick={(e) => (e.stopPropagation(), p.onSelect?.(row), p.onOpenRow?.(row))}>
@@ -229,24 +273,28 @@ export function DataGrid(p: GridProps) {
                       </div>
                     );
                   }
+                  const kind = isAdded && v === null ? 'null' : cellKind(v, c);
                   const text = cellText(v);
+                  // amounts grouped; a key (an id) as it is
+                  let content: ReactNode = kind === 'num' && c.key !== 'PRI' && !/^(id|.*_id)$/i.test(c.name) ? numText(v) : text;
+                  if (kind === 'enum') content = <span className={`db-pill tone-${pillTone(text)}`}>{text}</span>;
+                  if (kind === 'fk' && p.onFk)
+                    content = (
+                      <button type="button" className="db-fk-btn" onClick={(e) => (e.stopPropagation(), p.onFk?.(c.name, v as Cell))} title={`Open the row ${text} points to`}>
+                        {text}
+                      </button>
+                    );
                   return (
                     <div
                       key={i}
                       role="gridcell"
-                      className={`db-grid-td ${cellClass(v, c.type)} ${isEdited ? 'is-edited' : ''} ${isCur ? 'is-cur' : ''} ${c.fk && v !== null ? 'db-fk' : ''}`}
+                      className={`db-grid-td k-${kind} ${isEdited ? 'is-edited' : ''} ${isCur ? 'is-cur' : ''}`}
                       style={{ width: widths[i] }}
                       title={text.length > 40 ? text.slice(0, 2000) : undefined}
                       onMouseDown={() => setCur({ r, c: i })}
                       onDoubleClick={() => startEdit(r, i)}
                     >
-                      {c.fk && v !== null && p.onFk ? (
-                        <button type="button" className="db-fk-btn" onClick={(e) => (e.stopPropagation(), p.onFk?.(c.name, v as Cell))} title={`Open the row ${text} points to`}>
-                          {text}
-                        </button>
-                      ) : (
-                        text
-                      )}
+                      {isAdded && v === null && c.key === 'PRI' ? <span className="db-auto">auto</span> : content}
                       {typeof v === 'object' && v !== null && '$cut' in (v as object) && <span className="db-cut">…</span>}
                     </div>
                   );
@@ -256,7 +304,7 @@ export function DataGrid(p: GridProps) {
           })}
         </div>
       </div>
-      {total === 0 && <div className="db-empty">No rows</div>}
+      {total === 0 && <div className="db-empty db-grid-empty">No rows</div>}
     </div>
   );
 }
