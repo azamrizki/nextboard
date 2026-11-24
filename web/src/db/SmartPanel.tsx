@@ -77,7 +77,9 @@ export function SmartPanel({ conn, table, schema, onOpenQuery, onClose }: { conn
     [conn.id],
   );
 
-  useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [msgs]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end' });
+  }, [msgs]);
 
   const send = async () => {
     const q = text.trim();

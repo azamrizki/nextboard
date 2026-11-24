@@ -383,7 +383,9 @@ function Console({ conn, db, onChanged }: { conn: Connection; db: number; onChan
   const [run, confirmDialog] = useConfirmRunner(conn);
   const end = useRef<HTMLDivElement>(null);
 
-  useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [lines]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end' });
+  }, [lines]);
 
   const send = async () => {
     const cmd = line.trim();

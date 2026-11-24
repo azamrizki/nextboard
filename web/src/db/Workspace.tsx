@@ -96,7 +96,9 @@ export function DbWorkspace({ projectId, storeKey, only }: WorkspaceProps) {
   const narrow = width < NARROW;
   const medium = !narrow && width < 1000;
 
-  useEffect(() => keep(storeKey, saved), [storeKey, saved]);
+  useEffect(() => {
+    keep(storeKey, saved);
+  }, [storeKey, saved]);
 
   // tabs of a connection that is gone close
   useEffect(() => {
