@@ -277,7 +277,7 @@ function ChatView({ sessionId, variant, chat, focusTick, className = '' }: NextC
     if (again) void send(again);
   };
 
-  const act = useMemo(() => ({ answer: chat.answer, setMode: chat.setMode }), [chat.answer, chat.setMode]);
+  const act = useMemo(() => ({ answer: chat.answer }), [chat.answer]);
   const lastRow = rows[rows.length - 1];
   const tailStreams = streams.top;
   const empty = state.loaded && !state.items.length && !state.streams.length && !state.requests.length;

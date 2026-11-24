@@ -309,6 +309,51 @@
   font-size: var(--fs-xs);
 }
 
+/* the agent's plan as it gave it, folded to its first lines (mockups/nextcode-plans, A) */
+.nc-planrow .nc-tbody {
+  padding: var(--s-2) var(--s-3) var(--s-2);
+}
+.nc-planrow-md {
+  position: relative;
+  max-height: 150px;
+  overflow: hidden;
+}
+/* longer than the fold: it fades out above "Show all" */
+.nc-planrow-md.is-over {
+  -webkit-mask-image: linear-gradient(#000 55%, transparent);
+  mask-image: linear-gradient(#000 55%, transparent);
+}
+.nc-planrow-md.is-all {
+  max-height: none;
+}
+.nc-planrow-md .nc-md {
+  font-size: var(--fs-sm);
+}
+.nc-planrow .nc-more {
+  margin: 2px 0 0;
+}
+/* the owner's decision on it: Approved, or Keep planning with their note */
+.nc-me-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--fw-medium);
+}
+.nc-me-verdict svg {
+  width: 14px;
+  height: 14px;
+}
+.nc-me-verdict.is-ok svg {
+  color: var(--tint-success-text);
+}
+.nc-me-verdict.is-again svg {
+  color: var(--tint-warning-text);
+}
+.nc-me-sub {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
 /* the agent's run: its mark, then its work */
 .nc-agent {
   display: flex;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { costText, elapsed, isLoginError, liveLine, loginHelp, matchCommands, MODES, modeOf, modesFor, rateLimitText, retryAfterSignIn, withoutSettledLogins } from './format';
-import { answerLines, answerTime, planOf, questionsOf, shortPath, tail, toolArg, toolLabel, toolMeta } from './tools';
+import { approvedIn, costText, elapsed, isLoginError, liveLine, loginHelp, matchCommands, MODES, modeOf, modesFor, rateLimitText, retryAfterSignIn, withoutSettledLogins } from './format';
+import { answerLines, answerTime, planOf, planTitle, questionsOf, shortPath, tail, toolArg, toolLabel, toolMeta } from './tools';
 import type { Status } from './types';
 
 const status = (over: Partial<Status> = {}): Status => ({ engine: 'claude', process: 'running', working: false, ...over });
@@ -198,5 +198,18 @@ describe('the owner’s answer in the chat', () => {
     expect(before).toMatch(/20/);
     expect(before).toMatch(/09.05|9.05/);
     expect(answerTime('nope', now)).toBe('');
+  });
+});
+
+describe('a plan in the chat', () => {
+  it('is named by its first heading, else its first line, without Markdown marks', () => {
+    expect(planTitle('I looked around.\n\n## Rate limiting for **login**\n\n1. Add it')).toBe('Rate limiting for login');
+    expect(planTitle('\n  1. Add `ratelimit.go` per [the doc](https://x.dev)\n2. Test it')).toBe('Add ratelimit.go per the doc');
+    expect(planTitle('')).toBe('');
+  });
+  it('says the mode it was approved into', () => {
+    expect(approvedIn('acceptEdits')).toBe('and Accept edits: it edits files without asking');
+    expect(approvedIn('bypassPermissions')).toBe('and Bypass');
+    expect(approvedIn('someNewMode')).toBe('and someNewMode');
   });
 });

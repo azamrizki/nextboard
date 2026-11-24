@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -369,6 +370,9 @@ func (d *Driver) Warm() error {
 
 // Answer answers a request.
 func (d *Driver) Answer(id string, a Answer) error {
+	if a.Mode != "" && !slices.Contains(PermissionModes, a.Mode) {
+		return ErrBadMode
+	}
 	if handled, err := d.answerRouted(id, a); handled {
 		return err
 	}
@@ -393,7 +397,11 @@ func (d *Driver) Answer(id string, a Answer) error {
 	if (a.Decision == Deny || a.Decision == DenyStop) && r.ToolUseID != "" {
 		d.denied[r.ToolUseID] = true
 	}
-	if r.Kind == ReqQuestion {
+	mode := ""
+	if r.Kind == ReqPlan && (a.Decision == Allow || a.Decision == AllowAlways) {
+		mode = a.Mode
+	}
+	if r.Kind == ReqQuestion || r.Kind == ReqPlan {
 		// the answer stays in the chat: the CLI's own record of it is a tool result, or nothing
 		it := answerItem(r, a, time.Now().UTC())
 		d.upsertLocked(it)
@@ -409,7 +417,11 @@ func (d *Driver) Answer(id string, a Answer) error {
 		d.later(d.cfg.On.Answered)
 	}
 	d.unlock()
-	return d.write(b)
+	if err := d.write(b); err != nil || mode == "" {
+		return err
+	}
+	// the hub's mode, and the CLI's in case it took the approval's mode before leaving plan mode
+	return d.SetPermissionMode(mode)
 }
 
 // Interrupt stops the current turn.

@@ -20,7 +20,7 @@ const (
 	KindPrompt   = "prompt"   // the task a sub-agent was given (Parent = its tool call)
 	KindError    = "error"    // a failed turn, a CLI that ended
 	KindNotice   = "notice"   // the conversation was compacted, a turn was stopped, …
-	KindAnswer   = "answer"   // the owner's answer to the agent's questions (Answer set)
+	KindAnswer   = "answer"   // the owner's answer to the agent's questions or plan (Answer set)
 )
 
 // Tool statuses.
@@ -49,20 +49,30 @@ type Item struct {
 	Answer *Answered `json:"answer,omitempty"`
 }
 
-// Answered is the owner's answer to the agent's questions, kept in the chat so it can be read
-// back: the questions as they were asked and what was chosen, or that nothing was.
+// Answered is the owner's answer to the agent's questions or to its plan, kept in the chat so
+// it can be read back: the questions as they were asked and what was chosen, or that nothing
+// was; whether the plan was approved, and the owner's note when it was not.
 type Answered struct {
-	// ToolUseID: the question's tool call (AskUserQuestion), when the CLI shows it as one.
+	// Kind is the request answered: ReqQuestion ("" in chats kept before plans were) or ReqPlan.
+	Kind string `json:"kind,omitempty"`
+	// ToolUseID: the question's or plan's tool call (AskUserQuestion, ExitPlanMode), when the
+	// CLI shows it as one.
 	ToolUseID string `json:"toolUseId,omitempty"`
-	// Input: the questions with their options, in AskUserQuestion's shape ({"questions": […]}).
+	// Input: of a question, the questions with their options, in AskUserQuestion's shape
+	// ({"questions": […]}). A plan's is in its tool call only.
 	Input json.RawMessage `json:"input,omitempty"`
 	// Answers: the chosen labels by question text; a label that is not an option is the owner's
 	// own words.
 	Answers map[string][]string `json:"answers,omitempty"`
-	// Message: the owner's own reply, beside or instead of the options.
+	// Message: the owner's own reply, beside or instead of the options; of a plan not approved,
+	// what to change in it ("" = no note).
 	Message string `json:"message,omitempty"`
 	// Skipped: the owner answered nothing and the agent went on without it.
 	Skipped bool `json:"skipped,omitempty"`
+	// Approved: of a plan, the owner approved it; else the agent keeps planning.
+	Approved bool `json:"approved,omitempty"`
+	// Mode: of a plan approved, the permission mode it was approved into ("" = as it was).
+	Mode string `json:"mode,omitempty"`
 }
 
 // Tool is a tool call of the agent.
@@ -119,6 +129,9 @@ type Answer struct {
 	Message string `json:"message,omitempty"`
 	// Answers: of a question, the chosen labels by question text (several for multi-select).
 	Answers map[string][]string `json:"answers,omitempty"`
+	// Mode: of a plan approved (ReqPlan, Allow), the permission mode the agent carries it out in,
+	// e.g. "acceptEdits" ("" = as it is). Ignored on other answers.
+	Mode string `json:"mode,omitempty"`
 }
 
 // Process states of Status.

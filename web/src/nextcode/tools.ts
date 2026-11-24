@@ -221,6 +221,21 @@ export function questionsOf(input: unknown): Question[] {
 /** ExitPlanMode's plan. */
 export const planOf = (input: unknown) => str(inputOf(input).plan);
 
+/** A plan's name for its row: its first heading, else its first line, without Markdown's marks. */
+export function planTitle(plan: string): string {
+  const lines = plan
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const line = lines.find((l) => /^#{1,6}\s/.test(l)) ?? lines[0] ?? '';
+  return line
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^(?:[-*+]|\d+[.)])\s+/, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`]+/g, '')
+    .trim();
+}
+
 /** One line of the owner's answer: the question's header (or the question), and what was chosen. */
 export interface AnswerLine {
   /** The question's header, else its text. */

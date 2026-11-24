@@ -479,6 +479,15 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
   chosen: the agent went on without it", the row saying "skipped". The hub keeps the answer as a
   chat item, so it survives a reload and shows on every engine; for Codex, which shows no tool
   call, the answer item draws the questions itself.
+- **Plans in the history** (mockup `mockups/nextcode-plans/`, option A, 2026-11-24): the plan
+  stays open as a row "Plan · <its first heading>" (checklist icon), its Markdown at `--fs-sm`
+  folded to 150 px; a longer plan fades out (a mask from 55 %) above a "Show all" link. While it
+  waits only the row shows, with "needs you", the card holding the plan. The decision is the
+  owner's own bubble under it: "↩ Your decision · 10:42", then "✓ Approved" (green), with "and
+  Accept edits: it edits files without asking" when approved so; or "↻ Keep planning" (amber)
+  with the owner's note in quotes, italic, or "No note: it plans again on its own". A plan sent
+  back and its second version read in order: v1, the note, v2, Approved. The hub keeps the
+  decision as a chat item, so it survives a reload and goes along in a hand-over.
 - **Bottom:**
   - a live line: the state dot, "Working · <activity>" / "Needs you · <what>" / "Ready", and the
     turn's time;

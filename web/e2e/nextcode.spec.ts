@@ -99,6 +99,64 @@ test('a NextCode console is a chat on the board and in the Code view', async ({ 
   }
 });
 
+test('the owner’s decisions on a plan stay in the chat, under the plan', async ({ page, hub }, info) => {
+  test.skip(info.project.name !== 'light' && info.project.name !== 'dark', 'desktop');
+  test.setTimeout(90_000);
+  await hub.call('PATCH', '/api/settings', { agents: { paths: { local: { claude: FAKE } } } });
+  const p = await hub.project('NextCode plans');
+  const s = await hub.call('POST', '/api/sessions', { agent: 'nextcode', workspaceId: p.wid });
+  try {
+    await expect.poll(async () => (await hub.call('GET', `/api/sessions/${s.id}`)).agentState, { timeout: 20_000 }).toBe('ready');
+    await page.goto(`/p/${p.id}/w/${p.wid}`);
+    const card = page.locator('.react-flow__node', { has: page.locator('.nc-chat') });
+    const input = card.getByRole('combobox', { name: `Message to @${s.handle}` });
+    await input.fill('plan');
+    await input.press('Enter');
+
+    // while it waits, the card holds the plan and its row only its head
+    const ask = card.getByRole('group', { name: 'Plan ready' });
+    await expect(ask).toContainText('Rate limiting for login', { timeout: 15_000 });
+    const rows = card.locator('.nc-planrow');
+    await expect(rows.first()).toContainText('needs you');
+    await expect(card.locator('.nc-planrow-md')).toHaveCount(0);
+
+    // sent back with a note, then the second plan approved into Accept edits
+    await ask.getByRole('button', { name: 'Keep planning…' }).click();
+    await ask.getByRole('textbox', { name: 'What to change in the plan' }).fill('Use the Redis we have.');
+    await ask.getByRole('button', { name: 'Keep planning', exact: true }).click();
+    await expect(ask).toContainText('(v2)', { timeout: 15_000 });
+    await ask.getByRole('button', { name: 'Approve, accept edits' }).click();
+    await expect(card.getByText('Plan approved. Starting with', { exact: false })).toBeVisible({ timeout: 15_000 });
+
+    // each plan as it was, each decision as the owner's reply under it
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).locator('.nc-targ')).toHaveText('Rate limiting for login');
+    await expect(rows.nth(1).locator('.nc-targ')).toHaveText('Rate limiting for login (v2)');
+    const decisions = card.getByRole('group', { name: 'Your decision' });
+    await expect(decisions).toHaveCount(2);
+    await expect(decisions.nth(0)).toContainText('Keep planning');
+    await expect(decisions.nth(0)).toContainText('“Use the Redis we have.”');
+    await expect(decisions.nth(1)).toContainText('Approved');
+    await expect(decisions.nth(1)).toContainText('and Accept edits: it edits files without asking');
+    // a long plan is folded until Show all
+    await rows.nth(1).getByRole('button', { name: 'Show all' }).click();
+    await expect(rows.nth(1).locator('.nc-planrow-md.is-all')).toContainText('docs/auth.md');
+    await expect(rows.nth(1).getByRole('button', { name: 'Show all' })).toHaveCount(0);
+
+    // the hub keeps the decisions, and the console works in Accept edits from then on
+    const kept = await hub.call('GET', `/api/sessions/${s.id}/nextcode`);
+    const plans = kept.items.filter((i: { kind: string; answer?: { kind?: string } }) => i.kind === 'answer' && i.answer?.kind === 'plan').map((i: { answer: unknown }) => i.answer);
+    expect(plans).toEqual([expect.objectContaining({ message: 'Use the Redis we have.' }), expect.objectContaining({ approved: true, mode: 'acceptEdits' })]);
+    expect(plans[0].approved).toBeFalsy();
+    expect(kept.status.permissionMode).toBe('acceptEdits');
+    await page.reload();
+    await expect(card.getByRole('group', { name: 'Your decision' })).toHaveCount(2, { timeout: 20_000 });
+  } finally {
+    await hub.call('DELETE', `/api/sessions/${s.id}`);
+    await hub.call('PATCH', '/api/settings', { agents: { paths: { local: { claude: null } } } });
+  }
+});
+
 test('Settings › NextCode has its accounts and defaults', async ({ page, hub }, info) => {
   test.skip(info.project.name !== 'light' && info.project.name !== 'dark', 'desktop');
   await page.goto('/settings/nextcode');

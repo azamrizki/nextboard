@@ -99,11 +99,12 @@ func TestHandOverPrompt(t *testing.T) {
 		{Kind: KindTool, Parent: "toolu_x", Tool: &Tool{Name: "Read", Status: ToolDone}},
 		{Kind: KindTool, Tool: &Tool{Name: "Edit", Input: json.RawMessage(`{"file_path":"/a.go"}`), Status: ToolDenied}},
 		{Kind: KindAnswer, Text: "Store: Redis", Answer: &Answered{}},
+		{Kind: KindAnswer, Text: "Keep planning: per account too", Answer: &Answered{Kind: ReqPlan, Message: "per account too"}},
 		{Kind: KindText, Text: "Done."},
 		{Kind: KindNotice, Text: "Stopped."},
 	}
 	got := handOverPrompt(items)
-	want := "User:\nfix the tests\n\nAssistant used Bash: npm test\n  → ok 12 tests\n\nAssistant used Edit: /a.go (denied)\n\nUser answered the assistant's questions:\nStore: Redis\n\nAssistant:\nDone.\n</conversation_so_far>\n\n"
+	want := "User:\nfix the tests\n\nAssistant used Bash: npm test\n  → ok 12 tests\n\nAssistant used Edit: /a.go (denied)\n\nUser answered the assistant's questions:\nStore: Redis\n\nUser's decision on the assistant's plan: Keep planning: per account too\n\nAssistant:\nDone.\n</conversation_so_far>\n\n"
 	if !strings.HasPrefix(got, "<conversation_so_far>\n") || !strings.HasSuffix(got, want) || strings.Contains(got, "secret") || strings.Contains(got, "Read") {
 		t.Fatalf("prompt:\n%s", got)
 	}

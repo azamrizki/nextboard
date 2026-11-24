@@ -1274,15 +1274,18 @@ NB_NEXTCODE_GUARD  {"blocked":[patterns],"sandbox":{"network":bool,"write":[dirs
 }
 ```
 
-An `answer` item is the hub's record of the owner's answer to a question, made when the answer is sent: Claude Code keeps its own only in a tool result, Codex none. The view draws it as the owner's reply under the question. Its `text` says it in words, a line per question (`"Store: Redis"`, or `"Skipped: the owner answered nothing."`), and goes into a hand-over. `answer`:
+An `answer` item is the hub's record of the owner's answer to a question or decision on a plan, made when the answer is sent: Claude Code keeps its own only in a tool result, Codex none. The view draws it as the owner's reply under the question or the plan. Its `text` says it in words, a line per question (`"Store: Redis"`, or `"Skipped: the owner answered nothing."`), or the decision (`"Approved the plan."`, `"Approved the plan, with Accept edits: it edits files without asking."`, `"Keep planning: <note>"`, `"Keep planning (no note)."`), and goes into a hand-over. `answer`:
 
 ```jsonc
 {
-  "toolUseId": "toolu_…",            // the question's tool call (AskUserQuestion), when the CLI shows one; Codex shows none
-  "input": {"questions": […]},       // the questions with their options, in AskUserQuestion's shape
+  "kind": "question",                // question | plan; missing in chats kept before plans were: a question
+  "toolUseId": "toolu_…",            // the tool call (AskUserQuestion, ExitPlanMode), when the CLI shows one; Codex shows none
+  "input": {"questions": […]},       // a question's: the questions with their options, in AskUserQuestion's shape (a plan's is in its tool call)
   "answers": {"<question>": ["<label>", …]},  // what was chosen; a label that is not an option is the owner's own words
-  "message": "…",                    // the owner's own reply, if any
-  "skipped": true                    // the owner answered nothing (deny); no answers or message then
+  "message": "…",                    // the owner's own reply, if any; of a plan sent back, their note
+  "skipped": true,                   // the owner answered nothing (deny); no answers or message then
+  "approved": true,                  // a plan: approved (allow); else the agent keeps planning
+  "mode": "acceptEdits"              // a plan approved into a permission mode
 }
 ```
 
@@ -1305,11 +1308,12 @@ The chat is kept in `<data>/nextcode/<sessionId>.jsonl` (JSON lines, `0600`). It
 **REST** (every route `409 not_nextcode` for a terminal console):
 - `GET /api/sessions/{id}/nextcode?before=<item id>&limit=1–1000` → `{"items", "more", "requests", "status"}`: the latest 300 items, or those before an item.
 - `POST /api/sessions/{id}/nextcode/messages {"text"}` → `202`. It starts the CLI when none runs; while the agent works, the CLI queues the message. NextCode's own commands (`/effort`, `/model`, `/mode`, above) are carried out by the hub instead, and start no CLI. Errors: `400 bad_request` (empty), `413 too_long` (> 100 000 characters), `502 cli_failed` (the CLI could not start).
-- `POST /api/sessions/{id}/nextcode/requests/{rid} {"decision", "message"?, "answers"?}` → `200`.
+- `POST /api/sessions/{id}/nextcode/requests/{rid} {"decision", "message"?, "answers"?, "mode"?}` → `200`.
   - `decision`: `allow`, `allowAlways` (with the CLI's suggested rules), `deny`, or `denyStop` (deny and stop the turn).
-  - `message` tells the agent why, or is a free reply to a question.
+  - `message` tells the agent why, or is a free reply to a question. A plan sent back without one: the agent is told "Keep planning: the owner did not approve this plan yet.", and the chat keeps no note (nor for those words sent as the message).
   - `answers` (`{"<question>": ["<label>", …]}`) answers a question.
-  - Errors: `400 bad_decision`, `404 request_gone` (answered, or cancelled by the CLI).
+  - `mode`, on a plan approved: the permission mode it is carried out in (the view's "Approve, accept edits" sends `acceptEdits`). The approval carries it (`updatedPermissions` `setMode`), so the CLI does not leave plan mode for its default after a mode change it took in first, then the hub sets it as `PUT …/mode` does. Ignored on other answers.
+  - Errors: `400 bad_decision`, `400 bad_request` (an unknown `mode`; the request still waits), `404 request_gone` (answered, or cancelled by the CLI).
 - `POST /api/sessions/{id}/nextcode/interrupt` → `200`: stops the turn (a notice "Stopped.", not an error). `409 not_working`.
 - `PUT /api/sessions/{id}/nextcode/mode {"mode"}` → `{"status"}`: `default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`. It applies now and to every CLI after this one.
 - `PUT /api/sessions/{id}/nextcode/model {"model"?, "effort"?, "account"?}` → `{"status"}`. A field left out is unchanged; `""` is the CLI's own.
@@ -1317,7 +1321,7 @@ The chat is kept in `<data>/nextcode/<sessionId>.jsonl` (JSON lines, `0600`). It
   - The model switches the running CLI at once (Claude: `set_model`; Codex: from its next turn). The effort applies from the CLI's next start: the hub ends the CLI as soon as it is idle.
   - `account` (One NextCode): the login profile or API provider the model is on. The console's own account is the same as leaving it out. Another one **moves the chat there**: the console restarts as that account's agent (`nextcode`, `nextcode-codex` or `nextcode-api`) on that login or provider, with the model sent (left out = the account's own) and the effort sent (left out = the chat's, which goes along). No CLI can continue another's conversation, so:
     - the chat stays as it is (its file is not set aside), with a notice where it moved ("Now on Codex · gpt-5.5: a new conversation there, and your next message brings this chat so far.");
-    - the next message starts a new conversation and carries the chat so far, written out from the chat's items in front of the owner's message, inside `<conversation_so_far>`: the owner's messages, their answers to questions and the replies (each up to 6 KB, head and tail), each tool call in a line with what it acted on, how it ended and the tail of what it gave (800 bytes); no thinking, no sub-agents' steps, no notices; the latest 48 KB of it, saying when the earliest part is left out. The owner's item is what they wrote;
+    - the next message starts a new conversation and carries the chat so far, written out from the chat's items in front of the owner's message, inside `<conversation_so_far>`: the owner's messages, their answers to questions, their decisions on plans and the replies (each up to 6 KB, head and tail), each tool call in a line with what it acted on, how it ended and the tail of what it gave (800 bytes); no thinking, no sub-agents' steps, no notices; the latest 48 KB of it, saying when the earliest part is left out. The owner's item is what they wrote;
     - this survives a hub restart until that message goes (the chat file's records `{"meta":{"new","engine","handOver"}}` and `{"meta":{"handedOver"}}`).
   - Errors: `400 bad_model` when a name is not a model or effort name; `400 nextcode_account` for an id that is neither a NextCode login nor an API provider; `404 profile_not_found` / `provider_not_found`; `409 provider_budget`; `409 agent_disabled`.
 
@@ -1331,7 +1335,7 @@ The chat is kept in `<data>/nextcode/<sessionId>.jsonl` (JSON lines, `0600`). It
 A view that falls behind is closed with `1013` and reconnects for a new snapshot.
 
 **Tested**:
-- unit (`internal/nextcode`, a fake CLI in the shapes of Claude Code 2.1.329): streamed text, history after a restart, allow, allow always, deny, a question and its answer item (answered, skipped, kept after a restart, under a sub-agent's card), stop, a failed turn, a CLI that ends by itself, idle exit and resume, sub-agents, an unknown control request;
+- unit (`internal/nextcode`, a fake CLI in the shapes of Claude Code 2.1.329): streamed text, history after a restart, allow, allow always, deny, a question and its answer item (answered, skipped, kept after a restart, under a sub-agent's card), a plan and its decision (sent back with a note and without, an unknown mode refused, approved into Accept edits with the mode in the approval and set after it, approved as it is, kept after a restart), stop, a failed turn, a CLI that ends by itself, idle exit and resume, sub-agents, an unknown control request;
 - `internal/agent`: the headless launch has the terminal launch's arguments and environment, and the terminal agents are unchanged;
 - `internal/server` (with a shell fake):
   - a NextCode console end to end through REST, WebSocket and a delivery;
@@ -1345,6 +1349,7 @@ A view that falls behind is closed with `1013` and reconnects for a new snapshot
 - e2e (`web/e2e/nextcode.spec.ts`, fake `fake-nextcode.sh`):
   - the board card and a Code view tab of one console, live together;
   - a message streamed, a permission allowed, a question answered from the tab;
+  - a plan sent back with a note, the second approved into Accept edits: both plans and both decisions in the chat, Show all, kept by the hub and after a reload, and the console in Accept edits;
   - Settings › NextCode saving the permission mode.
 
 Checked by hand against the real Claude Code 2.1.329 through a hub.

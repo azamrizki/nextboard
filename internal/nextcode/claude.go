@@ -131,7 +131,11 @@ func (e *claudeEngine) answer(r *Request, a Answer) ([]byte, error) {
 	}
 	switch a.Decision {
 	case Deny, DenyStop:
-		resp = deny(a.Message)
+		msg := a.Message
+		if r.Kind == ReqPlan && strings.TrimSpace(msg) == "" {
+			msg = planKeep
+		}
+		resp = deny(msg)
 	case Allow, AllowAlways:
 		input := r.Input
 		if len(input) == 0 {
@@ -160,6 +164,11 @@ func (e *claudeEngine) answer(r *Request, a Answer) ([]byte, error) {
 		}
 		if a.Decision == AllowAlways && len(r.suggestions) > 0 {
 			resp["updatedPermissions"] = r.suggestions
+		}
+		if r.Kind == ReqPlan && a.Mode != "" {
+			// the mode comes with the approval, so the CLI does not leave plan mode for its default
+			// after a mode change it took in first (the driver sends that one too)
+			resp["updatedPermissions"] = []map[string]any{{"type": "setMode", "mode": a.Mode, "destination": "session"}}
 		}
 	default:
 		return nil, fmt.Errorf("unknown decision %q", a.Decision)

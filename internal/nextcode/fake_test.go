@@ -89,6 +89,12 @@ func fakeClaude() {
 			if r["subtype"] == "initialize" {
 				emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"],
 					"response": map[string]any{"commands": []any{map[string]any{"name": "review"}, map[string]any{"name": "compact"}}}}})
+			} else if f := os.Getenv("NEXTCODE_FAKE_LOG"); f != "" {
+				// the other control requests, in a line each: "set_permission_mode acceptEdits"
+				if fh, err := os.OpenFile(f, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+					fmt.Fprintln(fh, r["subtype"], r["mode"])
+					fh.Close()
+				}
 			}
 			continue
 		case "user":
@@ -156,6 +162,22 @@ func fakeClaude() {
 			b, _ := json.Marshal(upd["answers"])
 			toolResult("toolu_q", "answers "+string(b), false, nil)
 			text(msg+"b", "You chose "+string(b))
+			result("success", false, "")
+		case "plan":
+			p := map[string]any{"plan": "## Rate limits\n\n1. Add a limiter to `Login`."}
+			toolUse(msg, "toolu_p", "ExitPlanMode", p, nil)
+			emit(map[string]any{"type": "control_request", "request_id": "req_p", "request": map[string]any{"subtype": "can_use_tool",
+				"tool_name": "ExitPlanMode", "input": p, "tool_use_id": "toolu_p"}})
+			r := response("req_p")
+			resp, _ := r["response"].(map[string]any)
+			if resp["behavior"] == "allow" {
+				b, _ := json.Marshal(resp["updatedPermissions"])
+				toolResult("toolu_p", "User has approved your plan.", false, nil)
+				text(msg+"b", "approved "+string(b))
+			} else {
+				toolResult("toolu_p", fmt.Sprint(resp["message"]), true, nil)
+				text(msg+"b", "kept planning: "+fmt.Sprint(resp["message"]))
+			}
 			result("success", false, "")
 		case "long":
 			stream(map[string]any{"type": "message_start", "message": map[string]any{"id": msg}})

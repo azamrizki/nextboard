@@ -23,6 +23,12 @@ export function modesFor(engine: string | undefined): typeof MODES {
   return MODES.map((m) => (m.value === 'auto' ? { ...m, title: API_AUTO_TITLE } : m));
 }
 
+/** What a plan approved into a permission mode says under "Approved". */
+export function approvedIn(mode: string): string {
+  if (mode === 'acceptEdits') return 'and Accept edits: it edits files without asking';
+  return `and ${MODES.find((m) => m.value === mode)?.label ?? mode}`;
+}
+
 export function modeOf(status: Status | null): PermissionMode {
   const m = status?.permissionMode;
   return MODES.some((x) => x.value === m) ? (m as PermissionMode) : 'default';

@@ -4,6 +4,7 @@
 # pipe, in the shapes of Claude Code 2.1.329. Never calls anything.
 #   "run tests"  asks to run `npm test`, then reports the result
 #   "ask"        asks a multiple-choice question, then says the answer
+#   "plan"       gives a plan to approve; sent back, it gives a second one (v2)
 #   anything     streams "Done: <text>" in two parts
 # Its arguments go to .fake-nextcode-argv.log in its folder, one start per line.
 printf '%s\n' "$*" >> .fake-nextcode-argv.log
@@ -16,6 +17,13 @@ field() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"; }
 ev() { printf '{"type":"stream_event","event":%s,"parent_tool_use_id":null,"session_id":"%s"}\n' "$1" "$sid"; }
 inited=0
 n=0
+p1='{"plan":"## Rate limiting for login\n\n1. Add a Redis service to `docker-compose.yml` for the counters.\n2. Add `internal/auth/ratelimit.go`: 5 tries a minute per IP.\n3. Call it at the top of `Login`; answer 429 with `Retry-After`.\n\n**Check:** `go test ./internal/auth/...`"}'
+p2='{"plan":"## Rate limiting for login (v2)\n\n1. Use the Redis already in `docker-compose.yml` (`REDIS_URL`).\n2. Add `internal/auth/ratelimit.go`: 5 tries a minute per IP, 10 an hour per account.\n3. Call it at the top of `Login`; answer 429 with `Retry-After`.\n4. Add `ratelimit_test.go`: the 6th try is refused, and the lockout ends after a minute.\n5. Note the new limits in `docs/auth.md`.\n\n**Check:** `go test ./internal/auth/...`"}'
+plan() { # $1 tool call id, $2 input
+  printf '{"type":"assistant","message":{"id":"m_%s","content":[{"type":"tool_use","id":"%s","name":"ExitPlanMode","input":%s}]},"parent_tool_use_id":null}\n' "$1" "$1" "$2"
+  printf '{"type":"control_request","request_id":"req_%s","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":%s,"tool_use_id":"%s"}}\n' "$1" "$2" "$1"
+}
+approved() { printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"%s","content":"User has approved your plan. You can now start coding."}]},"parent_tool_use_id":null}\n' "$1"; }
 while IFS= read -r line; do
   case "$line" in
   *'"subtype":"initialize"'*)
@@ -48,6 +56,19 @@ while IFS= read -r line; do
       choice=$(printf '%s' "$ans" | sed -n 's/.*"Which colour?":"\([^"]*\)".*/\1/p')
       printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_%s","content":"answered"}]},"parent_tool_use_id":null}\n' "$n"
       printf '{"type":"assistant","message":{"id":"%sb","content":[{"type":"text","text":"You chose %s."}]},"parent_tool_use_id":null}\n' "$msg" "$choice";;
+    "plan")
+      plan "toolu_p$n" "$p1"
+      IFS= read -r ans
+      case "$ans" in
+      *'"behavior":"allow"'*) approved "toolu_p$n";;
+      *)
+        printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_p%s","content":"%s","is_error":true}]},"parent_tool_use_id":null}\n' "$n" "$(field "$ans" message)"
+        printf '{"type":"assistant","message":{"id":"%sb","content":[{"type":"text","text":"Understood: the Redis in docker-compose, and limits per account too."}]},"parent_tool_use_id":null}\n' "$msg"
+        plan "toolu_q$n" "$p2"
+        IFS= read -r ans
+        approved "toolu_q$n";;
+      esac
+      printf '{"type":"assistant","message":{"id":"%sc","content":[{"type":"text","text":"Plan approved. Starting with `internal/auth/ratelimit.go`."}]},"parent_tool_use_id":null}\n' "$msg";;
     *)
       ev "{\"type\":\"message_start\",\"message\":{\"id\":\"$msg\"}}"
       ev '{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'

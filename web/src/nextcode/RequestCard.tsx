@@ -9,11 +9,10 @@ import { Icon, type IconName } from '../components/Icon';
 import { toolDiff } from './diff';
 import { ChatAccount, DiffBody, Markdown } from './Items';
 import { baseName, inputOf, inputText, planOf, questionsOf, toolArg, toolLabel, toolPath, type Question } from './tools';
-import type { Answer, PermissionMode, Request } from './types';
+import type { Answer, Request } from './types';
 
 export interface RequestActions {
   answer: (requestId: string, a: Answer) => Promise<boolean>;
-  setMode: (mode: PermissionMode) => Promise<void>;
 }
 
 interface CardProps {
@@ -38,11 +37,10 @@ export function RequestCard(props: CardProps) {
 /** Sends one answer at a time: the buttons wait while it goes. */
 function useSend(act: RequestActions, id: string) {
   const [busy, setBusy] = useState<string>('');
-  const send = async (key: string, a: Answer, after?: () => Promise<void>) => {
+  const send = async (key: string, a: Answer) => {
     if (busy) return;
     setBusy(key);
     const ok = await act.answer(id, a);
-    if (ok && after) await after();
     // a request that was answered goes from the list; this card is gone then
     if (!ok) setBusy('');
   };
@@ -295,7 +293,8 @@ function PlanCard({ req, act, compact, stacked }: CardProps) {
   const [keep, setKeep] = useState(false);
   const [note, setNote] = useState('');
   const plan = planOf(req.input);
-  const keepPlanning = () => send('keep', { decision: 'deny', message: note.trim() || 'Keep planning: the owner did not approve this plan yet.' });
+  // without a note the hub tells the agent to keep planning, and the chat shows no note
+  const keepPlanning = () => send('keep', { decision: 'deny', message: note.trim() || undefined });
   return (
     <div className="nc-ask" role="group" aria-label="Plan ready">
       <Head icon="checklist" title="Plan ready" why={compact ? '' : 'plan mode'} />
@@ -318,7 +317,7 @@ function PlanCard({ req, act, compact, stacked }: CardProps) {
           <Button size="sm" variant="primary" loading={busy === 'approve'} disabled={!!busy} onClick={() => void send('approve', { decision: 'allow' })}>
             Approve
           </Button>
-          <Button size="sm" loading={busy === 'edits'} disabled={!!busy} title="Approve, and let it edit files without asking" onClick={() => void send('edits', { decision: 'allow' }, () => act.setMode('acceptEdits'))}>
+          <Button size="sm" loading={busy === 'edits'} disabled={!!busy} title="Approve, and let it edit files without asking" onClick={() => void send('edits', { decision: 'allow', mode: 'acceptEdits' })}>
             Approve, accept edits
           </Button>
           <span className="spacer" />

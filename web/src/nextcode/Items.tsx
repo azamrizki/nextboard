@@ -1,9 +1,9 @@
 // The entries of a NextCode chat: the owner's messages, the agent's Markdown, folded thinking,
 // tool calls (a row for small tools, a diff for file edits, the command and the end of its output
-// for Bash, a group for a sub-agent's work), the agent's questions with the owner's answers,
-// errors and notices, and what is being streamed.
+// for Bash, a group for a sub-agent's work), the agent's questions with the owner's answers, its
+// plans with the owner's decisions, errors and notices, and what is being streamed.
 
-import { createContext, memo, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, memo, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMarkdown } from '../board/lazy';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
@@ -12,10 +12,10 @@ import { navigate } from '../lib/router';
 import { splitAttachedLine } from './attach';
 import { SentFiles } from './ChatAttachments';
 import { hunks, toolDiff, type Diff } from './diff';
-import { isLoginError, loginHelp } from './format';
+import { approvedIn, isLoginError, loginHelp } from './format';
 import type { Stream } from './reducer';
 import { splitBlocks, useSmoothText } from './smooth';
-import { answerLines, answerTime, inputText, questionsOf, tail, todosOf, toolArg, toolIcon, toolLabel, toolLook, toolMeta, toolPath } from './tools';
+import { answerLines, answerTime, inputText, planOf, planTitle, questionsOf, tail, todosOf, toolArg, toolIcon, toolLabel, toolLook, toolMeta, toolPath } from './tools';
 import type { Item, Tool } from './types';
 
 /**
@@ -37,6 +37,8 @@ export const AskedShown = createContext<Set<string>>(new Set());
 
 /** The tool the agents ask the owner with; Codex's questions come in its shape too. */
 export const ASK_TOOL = 'AskUserQuestion';
+/** The tool an agent in plan mode gives its plan with, for the owner to approve. */
+const PLAN_TOOL = 'ExitPlanMode';
 const NO_ITEMS: Item[] = [];
 const NO_STREAMS: Stream[] = [];
 
@@ -446,6 +448,90 @@ function AnswerItem({ item }: { item: Item }) {
   );
 }
 
+/**
+ * The agent's plan as it gave it, folded to its first lines; the owner's decision is the reply
+ * under it (an answer item). While it waits, only its head shows: the card at the end of the
+ * chat holds the plan.
+ */
+function PlanRow({ tool, waiting }: { tool: Tool; waiting: boolean }) {
+  const plan = planOf(tool.input);
+  const title = planTitle(plan);
+  const [all, setAll] = useState(false);
+  const [over, setOver] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const open = !waiting && tool.status !== 'running' && plan !== '';
+  // "Show all" only when the plan is longer than the fold; the Markdown renders late and the width changes
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || all) return;
+    const check = () => setOver(el.scrollHeight > el.clientHeight + 1);
+    check();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [open, all, plan]);
+  const state = tool.status === 'done' || tool.status === 'denied' ? null : <ToolState tool={tool} waiting={waiting} />;
+  return (
+    <div className={`nc-tool nc-planrow ${open ? 'is-open' : ''} is-${tool.status}`}>
+      <div className="nc-thead">
+        <Icon name="checklist" className="nc-ticon" />
+        <span className="nc-tname">Plan</span>
+        <span className="nc-targ" title={title}>
+          {title}
+        </span>
+        {state}
+      </div>
+      {open && (
+        <div className="nc-tbody">
+          <div ref={box} className={`nc-planrow-md ${all ? 'is-all' : over ? 'is-over' : ''}`}>
+            <Markdown text={plan} />
+          </div>
+          {over && !all && (
+            <button type="button" className="link-btn nc-more" onClick={() => setAll(true)}>
+              Show all
+            </button>
+          )}
+          {tool.status === 'error' && tool.output && <Output text={tool.output} error />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The owner's decision on the agent's plan, as their reply under it: approved (into a mode), or keep planning with their note. */
+function PlanDecision({ item }: { item: Item }) {
+  const a = item.answer!;
+  const when = answerTime(item.at);
+  return (
+    <div className="nc-me nc-me-ans" role="group" aria-label="Your decision" title={formatDateTime(item.at)}>
+      <span className="nc-me-kicker">
+        <Icon name="reply" />
+        Your decision
+        {when && ` · ${when}`}
+      </span>
+      {a.approved ? (
+        <>
+          <span className="nc-me-line nc-me-verdict is-ok">
+            <Icon name="check" />
+            Approved
+          </span>
+          {a.mode && <span className="nc-me-sub">{approvedIn(a.mode)}</span>}
+        </>
+      ) : (
+        <>
+          <span className="nc-me-line nc-me-verdict is-again">
+            <Icon name="again" />
+            Keep planning
+          </span>
+          {a.message ? <span className="nc-me-line nc-me-own">“{a.message}”</span> : <span className="nc-me-sub">No note: it plans again on its own</span>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ToolView(props: ToolProps) {
   const { item, compact, waiting } = props;
   const tool = item.tool!;
@@ -488,6 +574,7 @@ function ItemViewImpl({ item, compact, waitingFor, nested = false }: ItemProps) 
     case 'tool':
       if (!item.tool) return null;
       if (item.tool.name === ASK_TOOL) return <Asked input={item.tool.input} tool={item.tool} waiting={waitingFor.has(item.id)} />;
+      if (item.tool.name === PLAN_TOOL) return <PlanRow tool={item.tool} waiting={waitingFor.has(item.id)} />;
       return <ToolView item={item} compact={compact} waiting={waitingFor.has(item.id)} waitingFor={waitingFor} />;
     case 'prompt':
       return <TaskPrompt text={item.text ?? ''} />;
@@ -496,7 +583,7 @@ function ItemViewImpl({ item, compact, waitingFor, nested = false }: ItemProps) 
     case 'notice':
       return <span className="nc-notice">{item.text}</span>;
     case 'answer':
-      return <AnswerItem item={item} />;
+      return item.answer?.kind === 'plan' ? <PlanDecision item={item} /> : <AnswerItem item={item} />;
     default:
       return null;
   }

@@ -342,6 +342,98 @@ func TestQuestion(t *testing.T) {
 	}
 }
 
+func TestPlanDecision(t *testing.T) {
+	dir := t.TempDir()
+	r := newRig(t, dir, 0)
+	plan := func() *Request {
+		t.Helper()
+		_ = r.d.Send("plan")
+		req := r.until("plan", func(f Frame) bool { return f.T == FrameRequest }).Request
+		if req.Kind != ReqPlan || req.ToolUseID != "toolu_p" {
+			t.Fatalf("request %+v", req)
+		}
+		return req
+	}
+	reply := func(want string) {
+		t.Helper()
+		if txt := r.item(KindText); txt.Text != want {
+			t.Fatalf("reply %q, want %q", txt.Text, want)
+		}
+		r.turnEnded()
+	}
+	// sent back with a note: the agent is told it, the chat keeps it
+	req := plan()
+	_ = r.d.Answer(req.ID, Answer{Decision: Deny, Message: "Use the Redis we have."})
+	kept := r.item(KindAnswer)
+	if a := kept.Answer; a == nil || a.Kind != ReqPlan || a.Approved || a.Message != "Use the Redis we have." || a.ToolUseID != "toolu_p" || len(a.Input) != 0 ||
+		kept.Text != "Keep planning: Use the Redis we have." {
+		t.Fatalf("decision %+v %+v", kept, kept.Answer)
+	}
+	reply("kept planning: Use the Redis we have.")
+	// without a note the agent is told to keep planning; the chat has no note, nor for the
+	// words a client sends when there is none
+	for _, msg := range []string{"", planKeep} {
+		req = plan()
+		_ = r.d.Answer(req.ID, Answer{Decision: Deny, Message: msg})
+		if bare := r.item(KindAnswer); bare.Answer.Message != "" || bare.Text != "Keep planning (no note)." {
+			t.Fatalf("no note %q: %+v %+v", msg, bare, bare.Answer)
+		}
+		reply("kept planning: " + planKeep)
+	}
+	// an unknown mode is refused, and the plan still waits
+	req = plan()
+	if err := r.d.Answer(req.ID, Answer{Decision: Allow, Mode: "yolo"}); !errors.Is(err, ErrBadMode) {
+		t.Fatalf("bad mode: %v", err)
+	}
+	// approved into Accept edits: the approval carries the mode, and the console works in it
+	if err := r.d.Answer(req.ID, Answer{Decision: Allow, Mode: "acceptEdits"}); err != nil {
+		t.Fatal(err)
+	}
+	ok := r.item(KindAnswer)
+	if a := ok.Answer; !a.Approved || a.Mode != "acceptEdits" || a.Message != "" || ok.Text != "Approved the plan, with Accept edits: it edits files without asking." {
+		t.Fatalf("approved %+v %+v", ok, ok.Answer)
+	}
+	reply(`approved [{"destination":"session","mode":"acceptEdits","type":"setMode"}]`)
+	if m := r.d.Status().PermissionMode; m != "acceptEdits" {
+		t.Fatalf("mode %q", m)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		b, _ := os.ReadFile(r.log)
+		if strings.Contains(string(b), "set_permission_mode acceptEdits") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no mode change sent: %q", b)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// approved as it is
+	req = plan()
+	_ = r.d.Answer(req.ID, Answer{Decision: Allow})
+	if a := r.item(KindAnswer); !a.Answer.Approved || a.Answer.Mode != "" || a.Text != "Approved the plan." {
+		t.Fatalf("approved %+v %+v", a, a.Answer)
+	}
+	reply("approved null")
+	// all of it comes back after a restart
+	r.d.Close()
+	d2, err := New(Config{HistoryPath: filepath.Join(dir, "chat.jsonl")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d2.Close()
+	items, _ := d2.Items("", 0)
+	var texts []string
+	for _, it := range items {
+		if it.Kind == KindAnswer && it.Answer != nil && it.Answer.Kind == ReqPlan {
+			texts = append(texts, it.Text)
+		}
+	}
+	if got := strings.Join(texts, "|"); got != "Keep planning: Use the Redis we have.|Keep planning (no note).|Keep planning (no note).|Approved the plan, with Accept edits: it edits files without asking.|Approved the plan." {
+		t.Fatalf("kept decisions %q", got)
+	}
+}
+
 func TestAnswerText(t *testing.T) {
 	in := json.RawMessage(`{"questions":[{"question":"Where?","header":"Store","options":[{"label":"Redis"}]},{"question":"Which limits?","options":[{"label":"Per IP"}]}]}`)
 	a := &Answered{Input: in, Answers: map[string][]string{"Which limits?": {"Per IP", "Per account"}, "Where?": {"Redis"}, "Gone?": {"x"}}, Message: "and log it"}

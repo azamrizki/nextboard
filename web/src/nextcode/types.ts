@@ -31,18 +31,24 @@ export interface Item {
   answer?: Answered;
 }
 
-/** The owner's answer to the agent's questions, as the chat keeps it (an answer item). */
+/** The owner's answer to the agent's questions or plan, as the chat keeps it (an answer item). */
 export interface Answered {
-  /** The question's tool call (AskUserQuestion), when the CLI shows one; Codex shows none. */
+  /** The request answered: a question (also when missing, in chats kept before plans were) or a plan. */
+  kind?: 'question' | 'plan';
+  /** The question's or plan's tool call (AskUserQuestion, ExitPlanMode), when the CLI shows one; Codex shows none. */
   toolUseId?: string;
-  /** The questions with their options, in AskUserQuestion's shape. */
+  /** Of a question: the questions with their options, in AskUserQuestion's shape. A plan's is in its tool call. */
   input?: unknown;
   /** The chosen labels by question text; a label that is not an option is the owner's own words. */
   answers?: Record<string, string[]>;
-  /** The owner's own reply. */
+  /** The owner's own reply; of a plan sent back, what to change in it. */
   message?: string;
   /** Nothing was answered: the agent went on without it. */
   skipped?: boolean;
+  /** Of a plan: approved; else the agent keeps planning. */
+  approved?: boolean;
+  /** Of a plan approved: the permission mode it was approved into. */
+  mode?: PermissionMode | string;
 }
 
 export type RequestKind = 'permission' | 'question' | 'plan';
@@ -74,6 +80,8 @@ export interface Answer {
   message?: string;
   /** Of a question: the chosen labels by question text. */
   answers?: Record<string, string[]>;
+  /** Of a plan approved: the permission mode it is carried out in. */
+  mode?: PermissionMode;
 }
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions';
