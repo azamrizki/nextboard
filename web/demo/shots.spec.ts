@@ -1,8 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { OUT } from './playwright.config';
-import { assertPrivate, call, consoles, docsBoard, openShop, platformBoard, projects, releaseBoard, seedVault, shopBoard } from './demo';
+import { OUT, STATE_FILE } from './playwright.config';
+import { assertPrivate, call, consoles, docsBoard, nextcodeBoard, openShop, platformBoard, projects, releaseBoard, seedVault, shopBoard } from './demo';
 
 // The README's screenshots, from the demo hub, all in the dark theme, one feature each: the board
 // and its agents' states, the projects with their covers, select mode, the Archived view and the
@@ -10,12 +10,14 @@ import { assertPrivate, call, consoles, docsBoard, openShop, platformBoard, proj
 // where a console works (Root or a part), consoles at the root and in parts, the editor at the
 // root, every part's git, review, Local History and git in the code card, the web preview,
 // layouts placed in parts, memory, the vault, API providers, a sleeping agent, a phone, uptime and
-// its public page.
+// its public page; then, in a test of their own, NextCode's plan and its change, the Code view,
+// and the database browser's table and SQL editor.
 //
 // The board and the memory galaxy are taken at 1600 × 900; the rest at 1280 × 720 and a device
 // scale of 1.25, so that panels and dialogs come out at the same 1600 px, larger and readable.
 
 const DIR = join(OUT, 'shots');
+const STATE = STATE_FILE;
 
 test.use({ viewport: { width: 1600, height: 900 }, colorScheme: 'dark', actionTimeout: 20_000 });
 
@@ -217,7 +219,8 @@ test('screenshots', async ({ page, request, browser }) => {
   await shot(p, 'sleep');
 
   // ---- memory, as a galaxy, at 1600 × 900
-  await page.getByRole('link', { name: 'Memory' }).first().click();
+  await page.getByRole('button', { name: /^Memory/ }).first().click();
+  await page.getByRole('link', { name: 'memory page' }).first().click();
   await settle(page, 3500);
   await shot(page, 'memory');
 
@@ -233,7 +236,7 @@ test('screenshots', async ({ page, request, browser }) => {
   phone.setDefaultTimeout(20_000);
   const mobile = await phone.newPage();
   await mobile.goto(`/p/${shop.id}/w/${shop.wid}`);
-  await expect(mobile.getByText(`@${of('reviewer').handle}`).first()).toBeVisible({ timeout: 15_000 });
+  await expect(mobile.getByRole('region', { name: 'Cards' }).getByText(`@${of('reviewer').handle}`).first()).toBeVisible({ timeout: 15_000 });
   await settle(mobile, 2500);
   await shot(mobile, 'phone-board');
   await mobile.goto(`/p/${shop.id}/w/${shop.wid}?card=${nodes.reviewer}`);
@@ -366,5 +369,104 @@ test('screenshots', async ({ page, request, browser }) => {
   await p.goto(`/status/${pub.token}`);
   await settle(p, 1000);
   await shot(p, 'status-page');
+  await big.close();
+});
+
+// NextCode, the Code view and the database browser, at 1280 × 720 and 125 % as the panels above.
+// A test of its own, so that it can run alone (-g); after the first it sees the tester's change.
+test('screenshots of NextCode, the Code view and the databases', async ({ browser, request }) => {
+  test.setTimeout(300_000);
+  mkdirSync(DIR, { recursive: true });
+  const shop = projects()['acme-shop'];
+  const nc = await nextcodeBoard(request, shop);
+  const big = await browser.newContext({ storageState: STATE, viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1.25, colorScheme: 'dark' });
+  big.setDefaultTimeout(20_000);
+  const p = await big.newPage();
+
+  // ---- NextCode: a chat, its plan waiting for the owner's decision
+  await expect.poll(async () => (await session(request, nc.sid)).agentState, { timeout: 20_000 }).toBe('ready');
+  await p.goto(`/p/${shop.id}/w/${nc.wid}?card=${nc.node}`);
+  const chat = p.locator('.react-flow__node.is-focused .nc-chat');
+  await expect(chat).toBeVisible({ timeout: 20_000 });
+  const input = chat.getByRole('combobox', { name: `Message to @${nc.handle}` });
+  await input.fill('Make each coupon work once per customer');
+  await input.press('Enter');
+  const approve = chat.getByRole('button', { name: 'Approve, accept edits' });
+  await expect(approve).toBeVisible({ timeout: 20_000 });
+  await blur(p);
+  await settle(p, 1200);
+  await shot(p, 'nextcode-plan');
+
+  // ---- approved: it edits, runs the tests and reports, the decision kept in the chat
+  await approve.click();
+  await expect(chat.getByText('All 47 tests pass', { exact: false })).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => (await session(request, nc.sid)).agentState, { timeout: 20_000 }).toBe('ready');
+  await blur(p);
+  await settle(p, 1500);
+  await shot(p, 'nextcode');
+
+  // the Code view and the databases at 1600 × 900: an editor needs the width
+  const wide = await browser.newContext({ storageState: STATE, viewport: { width: 1600, height: 900 }, colorScheme: 'dark' });
+  wide.setDefaultTimeout(20_000);
+  const w = await wide.newPage();
+
+  // ---- the Code view: the project as an editor, its storefront's checkout beside NextCode's chat
+  await w.goto(`/p/${shop.id}/code`);
+  await expect(w.locator('.wb.is-page')).toBeVisible({ timeout: 20_000 });
+  const files = w.locator('.wb-side');
+  await files.getByRole('treeitem', { name: 'src' }).first().click();
+  await files.getByRole('treeitem', { name: 'checkout.ts' }).first().dblclick();
+  await expect(w.locator('.wb-tab.is-active')).toContainText('checkout.ts', { timeout: 15_000 });
+  const right = w.locator('.wb-right.is-page');
+  if (!(await right.isVisible())) await w.getByRole('button', { name: /^Toggle the lead and agents side bar/ }).click();
+  await right.getByRole('tab', { name: /^Agents/ }).click();
+  await right.locator('.wb-agent-row', { hasText: `@${nc.handle}` }).getByRole('button', { name: `Open @${nc.handle} as a tab` }).click();
+  const chatTab = w.locator('.wb-pane-tab .nc-chat.is-tab');
+  await expect(chatTab).toBeVisible({ timeout: 15_000 });
+  await w.locator('.wb-tab.is-active').click({ button: 'right' });
+  await w.getByRole('menuitem', { name: 'Split Right' }).click();
+  await w.getByRole('button', { name: /^Toggle the lead and agents side bar/ }).click();
+  await expect(right).toBeHidden();
+  await expect(chatTab.getByText('All 47 tests pass', { exact: false })).toBeVisible({ timeout: 15_000 });
+  await blur(w);
+  await settle(w, 2500);
+  await shot(w, 'code');
+  // the chat's tab goes, the checkout stays
+  await chatTab.click({ position: { x: 40, y: 40 } });
+  await w.keyboard.press('Alt+w');
+  await expect(chatTab).toHaveCount(0);
+
+  // ---- the database browser: the shop's orders, then a query of the coupons used
+  const views = w.getByRole('navigation', { name: 'Views' });
+  await views.getByRole('button', { name: 'Databases', exact: true }).click();
+  const dbSide = w.locator('section.db-side');
+  await expect(dbSide).toBeVisible();
+  if (await dbSide.getByRole('button', { name: /^acme_shop/ }).count()) {
+    await dbSide.getByRole('button', { name: /^acme_shop/ }).click();
+    const tree = dbSide.getByRole('tree', { name: 'acme_shop schema' });
+    await tree.getByRole('button', { name: /^orders/ }).click({ timeout: 20_000 });
+    const tab = w.locator('.tool-db:visible');
+    await expect(tab.locator('.db-foot')).toContainText('of 320', { timeout: 15_000 });
+    await blur(w);
+    await settle(w, 1500);
+    await shot(w, 'database');
+
+    await dbSide.getByRole('button', { name: 'Actions for acme_shop' }).click();
+    await w.getByRole('menuitem', { name: 'New SQL editor' }).click();
+    const ed = w.locator('.tool-db:visible .db-sql-editor .cm-content');
+    await ed.click();
+    await w.keyboard.press('ControlOrMeta+a');
+    await w.keyboard.press('Delete');
+    await w.keyboard.insertText(
+      "SELECT c.code, count(*) AS orders, count(DISTINCT o.customer_id) AS customers,\n       sum(o.total_cents) / 100 AS revenue_usd\nFROM orders o JOIN coupons c ON c.code = o.coupon\nWHERE o.status <> 'refunded'\nGROUP BY c.code\nORDER BY orders DESC;",
+    );
+    await w.keyboard.press('Escape');
+    await w.keyboard.press('ControlOrMeta+Enter');
+    await expect(w.locator('.tool-db:visible').getByRole('tab', { name: /Result 1 · 2 rows/ })).toBeVisible({ timeout: 15_000 });
+    await blur(w);
+    await settle(w, 1200);
+    await shot(w, 'database-sql');
+  }
+  await wide.close();
   await big.close();
 });

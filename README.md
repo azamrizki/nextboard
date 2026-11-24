@@ -21,7 +21,7 @@ Their terminals, your code, live previews and shared memory on one canvas, acros
 
 <sub>Send work with an @mention, watch the agent work in its terminal, and read its report in the thread.</sub>
 
-**[▶ Watch the product tour](docs/media/demo.mp4)** (73 s, MP4) · [Releases](https://github.com/azamrizki/nextboard/releases) · [Report an issue](https://github.com/azamrizki/nextboard/issues)
+**[▶ Watch the product tour](docs/media/demo.mp4)** (1 min 53 s, MP4) · [Releases](https://github.com/azamrizki/nextboard/releases) · [Report an issue](https://github.com/azamrizki/nextboard/issues)
 
 </div>
 
@@ -33,6 +33,8 @@ Their terminals, your code, live previews and shared memory on one canvas, acros
 - **See every agent at once.** Each console shows whether its agent is working, needs you or is ready, so you stop opening terminals to find the one that waits.
 - **Work keeps running.** Agents run on the hub machine, not in the browser. Close the tab and pick up later from another computer or your phone.
 - **Direct a team, not a tab.** Send work with an @mention or ask the lead agent to plan it. Reports come back to the thread.
+- **Or chat with NextCode.** The hub's own code agent plans, asks before it acts and shows every edit, on Claude Code, Codex or your own API key.
+- **A board or an editor.** Open a project as a canvas of agents, or as a code editor with its files, git, databases and the same agents beside the code.
 - **One project, even across machines.** A storefront on your PC and its API on a server stay one project, with one memory and one lead.
 - **Yours.** One Go binary on your machine, with your agent logins or your own API keys. No account and no cloud service in between.
 
@@ -60,7 +62,7 @@ The script checks the release's SHA-256, puts `nextboard` in `~/.local/bin`, set
 
 ### Update
 
-`nextboard update` installs the latest stable release and restarts the service. The web does the same: the label at the end of the header (`v0.9.0 · 3f2a1c9`, the build that runs; on a phone, **… › About this hub**) opens About this hub, with the version, the commit, the build time and, when a newer release is out, an **Update to vX.Y.Z** button for the admin. It downloads the release, checks its SHA-256, replaces the binary (the old one stays as `nextboard.old`) and restarts the hub. Consoles reconnect, agents come back asleep or resume, and data and logins stay. A beta follows the newest beta, or the stable release after it; a dev build updates with `git pull`. The button needs a hub run by the service that `nextboard install` sets up. With [several instances](#several-instances-on-one-machine), both ways restart every instance that runs the binary and name them first. To go back, `nextboard update --version <tag> --force`.
+`nextboard update` installs the latest stable release and restarts the service. The web does the same: the label at the end of the header (`v0.9.0 · 3f2a1c9`, the build that runs; on a phone, **… › About this hub**) opens About this hub, with the version, the commit, the build time and, when a newer release is out, an **Update to vX.Y.Z** button for the admin. When the app opens and a newer release is out, it also offers it: **Update now**, **Skip this version**, or **Skip for now** (it asks again in a day). It downloads the release, checks its SHA-256, replaces the binary (the old one stays as `nextboard.old`) and restarts the hub. Consoles reconnect, agents come back asleep or resume, and data and logins stay. A beta follows the newest beta, or the stable release after it; a dev build updates with `git pull`. The button needs a hub run by the service that `nextboard install` sets up. With [several instances](#several-instances-on-one-machine), both ways restart every instance that runs the binary and name them first. To go back, `nextboard update --version <tag> --force`.
 
 > [!TIP]
 > No subscription? Claude Code, Codex and OpenCode consoles can run on an Anthropic- or OpenAI-compatible API with a key of your own. See [API providers](#api-providers).
@@ -166,14 +168,15 @@ About this hub shows the same rows at any time, with the other instances on This
 
 ## Features
 
-[Agents and orchestration](#agents-and-orchestration) · [Code and review](#code-and-review) · [Projects across machines](#projects-across-machines) · [Project list](#project-list) · [Previews and apps](#previews-and-apps) · [Memory](#memory) · [Credentials](#credentials) · [Uptime](#uptime) · [Phones and tablets](#phones-and-tablets) · [Supported agents](#supported-agents)
+[Agents and orchestration](#agents-and-orchestration) · [NextCode](#nextcode) · [Code view and review](#code-view-and-review) · [Databases](#databases) · [Projects across machines](#projects-across-machines) · [Project list](#project-list) · [Previews and apps](#previews-and-apps) · [Memory](#memory) · [Credentials](#credentials) · [Uptime](#uptime) · [Phones and tablets](#phones-and-tablets) · [Supported agents](#supported-agents)
 
 ### Agents and orchestration
 
-- **Status at a glance.** `WORKING`, `NEEDS YOU` or `READY` on every console; `N` jumps to the agent that has waited longest.
+- **Status at a glance.** `WORKING`, `NEEDS YOU` or `READY` on every console; `N` jumps to the agent that has waited longest. The header counts who needs you and who is idle, and so do the browser tab's title and icon.
 - **Orders with @mentions.** The hub types an order only when the agent's prompt is on screen, never into a shell or a dialog, and posts the reply to the thread.
 - **A lead agent** plans, splits the work and forwards results, and asks first only when a plan could do damage. Plain commands such as `spawn 3 codex reviewers` work without it.
-- **Teams.** Groups with roles, handoffs, loops, task boards, Mission Map, and layout templates that deploy a whole team.
+- **Teams.** Groups with roles, handoffs, loops, task boards, Mission Map, mission cards to write, follow and run again, and layout templates that deploy a whole team.
+- **Chats come back.** Resume any earlier chat of an agent or of the lead from its history.
 - **Light with many agents.** An idle agent nobody is watching sleeps after 30 minutes and resumes its conversation when you open it, type or send it work. Consoles on screen share a budget of GPU contexts, so a large board keeps drawing.
 
 <img src="docs/media/board.png" alt="The acme-shop board: consoles marked Working, Needs you and Idle, a sprint kanban, a sticky note and a live storefront preview">
@@ -191,25 +194,60 @@ About this hub shows the same rows at any time, with the other instances on This
 </tr>
 </table>
 
-### Code and review
+### NextCode
 
+NextCode is NextBoard's own code agent: a console that is a chat instead of a terminal, on the board or as a tab of the Code view.
+
+- **A chat that shows the work.** Every tool call is a row: files read, searches, edits as diffs, commands with their output, to-dos. Permission requests and questions are answered in the chat. A plan waits for **Approve**, **Approve, accept edits** or **Keep planning** with a note, and your answers and decisions stay in the history.
+- **One agent, on the accounts you add.** It runs on Claude Code (headless), on Codex (`codex app-server`) or on its own engine with a key from [API providers](#api-providers). Pick a model of any of them in the chat; it stays one chat.
+- **The same on every engine.** Five permission modes (Ask, Accept edits, Plan, Auto, Bypass), one effort scale, `/model`, `/effort` and `/mode`, sub-agents, and its own skills, memory and MCP servers. Nothing of the CLI's own settings, plugins or connectors comes along.
+
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/media/nextcode-plan.png" alt="A NextCode chat on acme-shop: it read coupons.ts and searched for findCoupon, and its plan, One use per customer for coupons, waits with Approve, Approve accept edits and Keep planning"><br><sub>Its plan waits for your decision</sub></td>
+<td width="50%" align="center"><img src="docs/media/nextcode.png" alt="The same chat after Approved, and Accept edits: two edits, a new test file, npm test passing and a summary of the change"><br><sub>Approved: it edits, runs the tests and reports</sub></td>
+</tr>
+</table>
+
+### Code view and review
+
+- **A board or a code editor.** Every project opens as either, and the hub remembers your choice (Settings › General › Open projects in). The Code view is the same board: its consoles and NextCode chats as tabs or in the side bar, the lead beside the code, and its groups, links and cards.
 - **An editor for the whole project.** Monaco with each part's own language servers and debuggers, search, tasks, ports and a terminal panel. An editor card at the project root shows every part as a folder; a card in one part shows only that part. Cards that show the same file share its unsaved edits. Open VSX themes and grammars load as data; extension code never runs.
 - **Review.** Each agent's changes, file by file, to keep or undo, for every CLI and for folders without git.
 - **Local History.** Every earlier state of a file, to compare and restore.
 - **Git.** Stage single changes, commit, push, stash, resolve conflicts, browse the graph and open pull requests through `gh`. Discard moves files to a trash; it never deletes. The board's Git panel lists every part's repository, each with its branches, stash and history graph.
 
-<img src="docs/media/review.png" alt="The Review view: Cantika's changes to checkout.ts and coupons.ts as a diff, with Keep and Undo per change and per file">
+<img src="docs/media/code.png" alt="The Code view of acme-shop: the three parts in the explorer, checkout.ts open, and a NextCode chat beside it with the test run and its report">
 
-<p align="center"><sub>Each agent's changes, file by file, to keep or undo</sub></p>
+<p align="center"><sub>The Code view: the project's code, with an agent beside it</sub></p>
 
 <table>
 <tr>
+<td width="50%" align="center"><img src="docs/media/review.png" alt="The Review view: Cantika's changes to checkout.ts and coupons.ts as a diff, with Keep and Undo per change and per file"><br><sub>Each agent's changes, file by file, to keep or undo</sub></td>
 <td width="50%" align="center"><img src="docs/media/history.png" alt="Local History of checkout.ts: Cantika's version beside the one from two minutes earlier, with Restore this version"><br><sub>Every earlier state of a file, whoever wrote it</sub></td>
-<td width="50%" align="center"><img src="docs/media/git.png" alt="Source control: two staged files, a commit message, Commit and Push buttons, the branch history and a diff"><br><sub>Stage, commit and push from the code card</sub></td>
 </tr>
 <tr>
+<td width="50%" align="center"><img src="docs/media/git.png" alt="Source control: two staged files, a commit message, Commit and Push buttons, the branch history and a diff"><br><sub>Stage, commit and push from the code card</sub></td>
 <td width="50%" align="center"><img src="docs/media/editor-root.png" alt="The code editor at the root of acme-shop: a search for coupon finds 32 results grouped under Storefront, API and Worker, with the API's coupons.go open"><br><sub>The editor at the root: one search across every part</sub></td>
+</tr>
+<tr>
 <td width="50%" align="center"><img src="docs/media/git-parts.png" alt="The board's Git panel for 3 parts: Storefront with 2 changed files and 1 commit to push, API with 1 to push, and Worker open on its history graph, in sync with origin/main"><br><sub>Every part's repository in the board's Git panel</sub></td>
+<td width="50%"></td>
+</tr>
+</table>
+
+### Databases
+
+- **A database client per project**, in the spirit of DBeaver or TablePlus: MySQL, MariaDB, PostgreSQL, Redis and Valkey, in the Code view's Databases view or a card on the board. The hub connects; a browser never reaches a database.
+- **Tables and SQL.** Rows with filters, foreign keys to follow and edits committed together; an SQL editor with results, a chart and Explain; export to CSV, JSON or SQL.
+- **Safe by type.** Local, development, staging or production, each with its colour. Production is read-only to start with, writes to staging ask first, and a `DROP` or a `DELETE` without `WHERE` asks you to type the connection's name, then runs in a transaction you commit or roll back.
+- **Wherever it runs.** Directly, through a machine the hub already reaches, or an SSH tunnel with jump hosts and `~/.ssh/config`. Connections in the project's `.env` files are found for you.
+- **Agents ask before they write.** The project's agents read through hub tools; a write waits for your approval, and masked columns never reach their model. **SmartDB** turns your words into filters and SQL with your own Claude Code.
+
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/media/database.png" alt="The Databases view of acme-shop: the acme_shop PostgreSQL connection marked Staging and a Redis cache marked Local, and the orders table, 320 rows with their customer, total, coupon and status"><br><sub>A table: rows, filters and foreign keys</sub></td>
+<td width="50%" align="center"><img src="docs/media/database-sql.png" alt="The SQL editor on acme_shop: a query of orders, customers and revenue per coupon code, and its two result rows"><br><sub>The SQL editor and its results</sub></td>
 </tr>
 </table>
 
@@ -244,7 +282,7 @@ A project holds up to eight named parts, each a folder on This PC or on an SSH m
 
 ### Project list
 
-- **Covers and icons.** Give a project's card a cover and an icon: upload a picture, or let **Create with AI** make one with the hub's Codex when it can generate images. Without one, the card shows a quiet gradient and a monogram.
+- **Covers and icons.** Give a project's card a cover and an icon: upload a picture, or let **Create with AI** make one with the hub's Codex when it can generate images, as a small 3D diorama of what the project is. Without one, the card shows a quiet gradient and a monogram. Badges and a tagline say what it is at a glance.
 - **One card for a project in parts.** Its parts sit in one row, such as `3 parts · 3 machines`, and its git row adds up every repository. Click the row for each part's folder, machine and status. Arrange the list by host or by your groups.
 - **Many at once.** **Select** picks projects, Shift a run and Ctrl/⌘ one more; the bar at the bottom archives them, deletes them permanently or moves them to a group. Machines and groups have the same select mode.
 - **Archive or delete.** An archived project's consoles stop, while its boards, memory and history wait under **Archived** until you restore it. Delete permanently lists what goes and asks you to type `delete`. Folders and files on disk stay either way.
@@ -317,6 +355,7 @@ A project holds up to eight named parts, each a folder on This PC or on an SSH m
 
 | Agent | Integration |
 |---|---|
+| **NextCode** | NextBoard's own chat agent, on Claude Code, Codex or an API provider: see [NextCode](#nextcode) |
 | **Claude Code**, **Codex** | Most tested: live status, exact conversation resume, project memory, remote tools, project sandbox and API providers |
 | **OpenCode** | Remote tools and API providers; less real-world testing |
 | **Gemini CLI** | Built-in preset with screen-based status; not yet tried with the real CLI |
@@ -324,7 +363,7 @@ A project holds up to eight named parts, each a folder on This PC or on an SSH m
 
 Capabilities and limits per agent: [API-agents.md](docs/API-agents.md).
 
-**Also included:** Documents (to PDF) and Diagrams studios, a Markdown vault with a link graph, a skills manager, MCP servers set up once for Claude Code, Codex and OpenCode, usage and token charts, voice input, and light and dark themes.
+**Also included:** Documents (to PDF) and Diagrams studios, a Markdown vault with a link graph, a skills manager, MCP servers set up once for Claude Code, Codex and OpenCode, usage and token charts, This PC's CPU, memory, GPU and temperatures in the header, the round trip to the hub with a speed test on demand, voice input, and light and dark themes.
 
 <sub>The screenshots and video come from a demo hub with made-up projects and scripted agents. Recreate them with `make demo` ([web/demo](web/demo)).</sub>
 
@@ -386,6 +425,8 @@ Everything lives in one folder (mode 0700), `~/.nextboard-<name>` for [another i
   threads/  orders.json  loops.json  lead threads, orders, loops
   memory/                            project memory, sub-memories, critical notes
   agents/  profiles/                 agent CLI state and login profiles
+  nextcode/                          NextCode chats, one file per console
+  dbs/                               database connections (secrets sealed), saved queries, history
   providers.json  providers/         API providers (keys sealed) and their CLI folders
   review/                            shadow repos behind Review and Local History
   vault.json                         credentials vault, ciphertext only
@@ -486,7 +527,7 @@ make test-e2e   # browser tests with fake agents; needs `cd web && npx playwrigh
 make test-e2e-fast  # the same over several hubs side by side (E2E_SHARDS=n): ~10 min instead of ~30
 make test-ssh   # SSH tests against a throwaway local sshd
 make test-db    # database browser tests against throwaway MySQL and PostgreSQL containers (Docker)
-make demo       # the screenshots and the video in docs/media, from a hub of made-up data; needs ffmpeg
+make demo       # the screenshots and the video in docs/media, from a hub of made-up data; needs ffmpeg, and Docker for its databases
 make build      # web + bin/nextboard
 make snapshot   # goreleaser build for linux/darwin, amd64/arm64
 ```
@@ -515,6 +556,8 @@ internal/session/   terminals, scrollback, resume, sleep and wake
 internal/machine/   local PTY and agentless SSH
 internal/project/   projects, groups, parts, merge and split
 internal/agent/     agent catalog, status, hooks
+internal/nextcode/  NextCode: its chat, requests and engines
+internal/dbx/       database browser: drivers, statement checks, SSH tunnels
 internal/orch/      command bar, lead and planner, orders, loops, memory
 internal/jobs/      hidden runs of the agent CLIs (planner, summaries, commit messages)
 internal/providers/ API providers: sealed keys, prices, budgets
@@ -548,7 +591,8 @@ Start with [PROJECT.md](docs/PROJECT.md) for an overview; use the API contracts 
 | [DESIGN.md](docs/DESIGN.md) | Design system |
 | [API.md](docs/API.md) | Core API, authentication, devices and machines |
 | [API-board.md](docs/API-board.md) | Projects, parts, merge and split, workspaces, board operations and assets |
-| [API-agents.md](docs/API-agents.md) | Agent catalog, sessions, remote tools, access rules, providers, sandbox and sleeping agents |
+| [API-agents.md](docs/API-agents.md) | Agent catalog, sessions, remote tools, access rules, providers, sandbox, sleeping agents and NextCode |
+| [API-db.md](docs/API-db.md) | Database browser: connections, SSH tunnels, safety, agent tools and SmartDB |
 | [API-orchestration.md](docs/API-orchestration.md) | Lead agent, orders, handoffs, loops, memory and layouts |
 | [API-studio.md](docs/API-studio.md) | Workbench, git, previews, language servers, debuggers and studios |
 | [API-gui.md](docs/API-gui.md) | Desktop apps, browser tiles and media streaming |

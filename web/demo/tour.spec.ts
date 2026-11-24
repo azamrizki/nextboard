@@ -3,13 +3,15 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { OUT } from './playwright.config';
 import { Recorder } from './record';
-import { OVERLAY, assertPrivate, call, caption, click, consoles, hideTitleCard, openShop, platformBoard, point, projects, releaseBoard, seedVault, shopBoard, titleCard, type } from './demo';
+import { OVERLAY, assertPrivate, call, caption, click, consoles, glide, hideTitleCard, nextcodeBoard, openShop, platformBoard, point, projects, releaseBoard, seedVault, shopBoard, titleCard, type } from './demo';
 
-// The product video: about a minute through the demo hub, in the dark theme, recorded from the
-// page. Its story: a project in three parts, work sent with an @mention, the agent at work, its
-// report in the thread, its change reviewed in the code card; then a glance at the rest, among it
-// consoles at the project's root and in its parts. Captions and the cursor are drawn
-// into the page (demo.ts); everything else is the real UI.
+// The product video: about a minute and a half through the demo hub, in the dark theme, recorded
+// from the page. Its story: a project in three parts, opened as a board, work sent with an
+// @mention, the agent at work, its report in the thread, its change reviewed in the code card;
+// then a glance at the rest: a team from a template, consoles at the project's root and in its
+// parts, Mission Map, NextCode planning and making a change, the Code view and its databases,
+// memory and the vault. Captions and the cursor are drawn into the page (demo.ts); everything
+// else is the real UI.
 
 // Chrome sends the frames in CSS pixels, whatever the device scale
 const W = 1600;
@@ -23,6 +25,7 @@ test('product tour', async ({ page, request }) => {
   await shopBoard(request, shop);
   const release = await releaseBoard(request, shop);
   const platform = await platformBoard(request, shop);
+  const nc = await nextcodeBoard(request, shop);
   const tile = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
   const head = (id: string) => tile(id).locator('.nb-node-header, .tile-head').first();
   const nodes = await consoles(request, shop.wid);
@@ -39,6 +42,7 @@ test('product tour', async ({ page, request }) => {
   await seedVault(page);
   await page.keyboard.press('Escape');
   for (const id of Object.values(nodes)) await expect(tile(id)).toContainText('demo agent', { timeout: 15_000 });
+  await expect.poll(async () => (await call(request, 'GET', `/api/sessions/${nc.sid}`)).agentState, { timeout: 20_000 }).toBe('ready');
   await page.getByRole('link', { name: 'All projects' }).first().click();
   await expect(page.getByText('acme-shop', { exact: true }).first()).toBeVisible();
   await page.waitForTimeout(800);
@@ -63,6 +67,17 @@ test('product tour', async ({ page, request }) => {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
   await click(page, shopCard.locator('.project-open'), { ms: 600 });
+  // the first time, it asks: a board or a code editor
+  const choice = page.getByRole('dialog', { name: 'Open “acme-shop”' });
+  if (await choice.waitFor({ timeout: 3000 }).then(() => true, () => false)) {
+    await caption(page, 'Open it as a board, or as a code editor', 'Both show the same agents, groups and cards');
+    await page.waitForTimeout(900);
+    await click(page, choice.getByRole('radio', { name: /Code view/ }), { ms: 500 });
+    await page.waitForTimeout(500);
+    await click(page, choice.getByRole('radio', { name: /Board view/ }), { ms: 450 });
+    await page.waitForTimeout(300);
+    await click(page, choice.getByRole('button', { name: 'Open in Board view' }), { ms: 450 });
+  }
 
   // 3. the board
   for (const id of Object.values(nodes)) await expect(tile(id)).toContainText('demo agent', { timeout: 15_000 });
@@ -196,12 +211,75 @@ test('product tour', async ({ page, request }) => {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
 
-  // 13. memory
+  // 13. NextCode: a plan to approve, then the change, the tests and the report
+  await caption(page, 'NextCode, the hub’s own code agent', 'A chat on Claude Code, Codex or your API key: it plans, you decide');
+  await click(page, page.getByRole('tab', { name: /^Coupons/ }).first(), { ms: 550 });
+  await expect(page).toHaveURL(new RegExp(`/w/${nc.wid}`));
+  // the card full size: Focus, from its menu
+  await click(page, head(nc.node), { dx: 0.3 });
+  await point(page, head(nc.node), 200, 0.3);
+  const hb = (await head(nc.node).boundingBox())!;
+  await page.mouse.click(hb.x + hb.width * 0.3, hb.y + hb.height / 2, { button: 'right' });
+  await click(page, page.getByRole('menuitem', { name: 'Focus', exact: true }), { ms: 450 });
+  const chat = page.locator('.react-flow__node.is-focused .nc-chat');
+  await expect(chat).toBeVisible({ timeout: 15_000 });
+  await click(page, chat.getByRole('combobox', { name: `Message to @${nc.handle}` }), { ms: 450 });
+  await type(page, 'Make each coupon work once per customer', 32);
+  await page.keyboard.press('Enter');
+  const approve = chat.getByRole('button', { name: 'Approve, accept edits' });
+  await expect(approve).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(2200);
+  await click(page, approve, { ms: 500 });
+  await caption(page, 'It edits, runs the tests and reports', 'Your decision stays in the chat, under the plan');
+  await expect(chat.getByText('All 47 tests pass', { exact: false })).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(2200);
+  await click(page, page.getByRole('toolbar', { name: 'Focused card' }).getByRole('button').first(), { ms: 450 });
+  await page.waitForTimeout(300);
+
+  // 14. the same project as a code editor, and its databases
+  await caption(page, 'The same project as a code editor', 'Files, terminals, git and the agents of its board, in one window');
+  await click(page, page.getByRole('group', { name: 'View' }).getByRole('button', { name: /Code/ }), { ms: 500 });
+  await expect(page.locator('.wb.is-page')).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(1600);
+  const databases = page.getByRole('navigation', { name: 'Views' }).getByRole('button', { name: 'Databases', exact: true });
+  if (await databases.count()) {
+    await caption(page, 'Its databases, beside the code', 'PostgreSQL, MySQL and Redis, over SSH too; agents ask before they write');
+    await click(page, databases, { ms: 500 });
+    const dbSide = page.locator('section.db-side');
+    const conn = dbSide.getByRole('button', { name: /^acme_shop/ });
+    if (await conn.waitFor({ timeout: 5000 }).then(() => true, () => false)) {
+      await click(page, conn, { ms: 450 });
+      const orders = dbSide.getByRole('tree', { name: 'acme_shop schema' }).getByRole('button', { name: /^orders/ });
+      await expect(orders).toBeVisible({ timeout: 20_000 });
+      await click(page, orders, { ms: 450 });
+      await expect(page.locator('.tool-db:visible .db-foot')).toContainText('of 320', { timeout: 15_000 });
+      await page.waitForTimeout(2200);
+    }
+  }
+  await click(page, page.getByRole('group', { name: 'View' }).getByRole('button', { name: /Board/ }), { ms: 500 });
+  await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+
+  // 15. memory
   await caption(page, 'One memory per project, shared by every agent', 'Each agent is sent only what it does not have yet');
-  await click(page, page.getByRole('link', { name: 'Memory' }).first());
+  await click(page, page.getByRole('button', { name: /^Memory/ }).first());
+  await page.waitForTimeout(1400);
+  // its galaxy: the memory page
+  // the link wraps over two lines: its middle is between them, so the click goes to its first piece
+  const link = page.getByRole('link', { name: 'memory page' }).first();
+  const at = await link.evaluate((el) => {
+    const r = el.getClientRects()[0];
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await glide(page, at.x, at.y, 500);
+  await page.waitForTimeout(140);
+  await page.mouse.down();
+  await page.waitForTimeout(70);
+  await page.mouse.up();
+  await expect(page).toHaveURL(/\/memory/);
   await page.waitForTimeout(2900);
 
-  // 14. the vault
+  // 16. the vault
   await caption(page, 'A zero-knowledge credentials vault', 'Agents use a secret through one approved command, without seeing it');
   await click(page, page.getByRole('button', { name: /^Credentials/ }).first());
   await expect(page.getByRole('button', { name: 'Lock the vault' })).toBeVisible();
@@ -212,7 +290,7 @@ test('product tour', async ({ page, request }) => {
   await page.waitForTimeout(300);
   await assertPrivate(page);
 
-  // 15. the end
+  // 17. the end
   await caption(page);
   await titleCard(page, 'NextBoard', 'Open source · MIT', ['github.com/azamrizki/nextboard']);
   await page.waitForTimeout(3000);

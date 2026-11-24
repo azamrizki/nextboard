@@ -160,6 +160,22 @@ export async function platformBoard(request: APIRequestContext, p: Made): Promis
   return ws.id;
 }
 
+/** acme-shop's "Coupons" board: NextCode, the hub's own code agent, as a chat card in the storefront. */
+export async function nextcodeBoard(request: APIRequestContext, p: Made): Promise<{ wid: string; sid: string; node: string; handle: string }> {
+  const project = (await call(request, 'GET', '/api/projects')).find((x: { id: string }) => x.id === p.id);
+  const ws = project.workspaces.find((w: { name: string }) => w.name === 'Coupons') ?? (await call(request, 'POST', `/api/projects/${p.id}/workspaces`, { name: 'Coupons' }));
+  const find = async () => (await call(request, 'GET', `/api/workspaces/${ws.id}/board`)).nodes.find((n: { kind: string }) => n.kind === 'terminal');
+  let node = await find();
+  if (!node) {
+    const parts: { id: string; name: string }[] = project.parts;
+    const part = parts.find((pt) => pt.name === 'Storefront') ?? parts[0];
+    await call(request, 'POST', '/api/sessions', { agent: 'nextcode', workspaceId: ws.id, name: 'Coupons', partId: part.id, node: { x: 0, y: 0, w: 820, h: 860 } });
+    node = await find();
+  }
+  const s = await call(request, 'GET', `/api/sessions/${node.data.sessionId}`);
+  return { wid: ws.id, sid: s.id, node: node.id, handle: s.handle };
+}
+
 /**
  * What must never be on a screenshot or in the video: this machine's name, home folder, or the
  * account the demo's SSH server lets in. Checked on the page's text before each capture.

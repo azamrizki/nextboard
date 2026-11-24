@@ -19,6 +19,11 @@ import { PARTS, PROJECTS, type Art, type DemoPart, type DemoProject } from './pr
 // The "servers" of acme-shop's other parts are one throwaway OpenSSH server on a loopback port,
 // with keys made here, whose sessions get a demo home and a bare PATH; without /usr/sbin/sshd the
 // project keeps one part. The API provider is a stand-in on loopback that only lists models.
+//
+// NextCode's engine is web/demo/nextcode.sh, found where Claude Code's CLI would be. The database
+// browser gets a PostgreSQL and a Redis of the shop's own: two throwaway containers named
+// nb-dbtest-demo-<pid>-*, started here from images already pulled, and removed when the demo ends;
+// without Docker or the images the shop has no database. No other container is touched.
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MARK = '.nextboard-demo';
@@ -97,6 +102,88 @@ function router(key: string): Promise<Server> {
     res.end(req.url?.endsWith('/models') ? '{"object":"list","data":[{"id":"coder-large"},{"id":"coder-small"},{"id":"reasoner-pro"}]}' : '{"id":"demo"}');
   });
   return new Promise((done) => server.listen(ROUTER_PORT, '127.0.0.1', () => done(server)));
+}
+
+const PG_IMAGE = 'postgres:18.6-alpine';
+const REDIS_IMAGE = 'redis:8.4.8-alpine';
+
+const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+
+/** The shop's database: customers, products, coupons, 320 orders and their lines; made-up names. */
+const SHOP_SQL = `
+  CREATE TABLE customers (id serial PRIMARY KEY, name text NOT NULL, email text NOT NULL UNIQUE, city text, joined_at date NOT NULL);
+  CREATE TABLE products (sku text PRIMARY KEY, name text NOT NULL, price_cents int NOT NULL, stock int NOT NULL);
+  CREATE TABLE coupons (code text PRIMARY KEY, kind text NOT NULL, value int NOT NULL, expires date NOT NULL);
+  CREATE TABLE orders (id serial PRIMARY KEY, customer_id int NOT NULL REFERENCES customers(id), total_cents int NOT NULL, coupon text REFERENCES coupons(code), status text NOT NULL, placed_at timestamptz NOT NULL);
+  CREATE TABLE order_lines (order_id int REFERENCES orders(id), sku text REFERENCES products(sku), qty int NOT NULL, PRIMARY KEY (order_id, sku));
+  CREATE VIEW coupon_uses AS SELECT coupon, customer_id, count(*) AS uses FROM orders WHERE coupon IS NOT NULL GROUP BY 1, 2;
+  INSERT INTO customers (name, email, city, joined_at)
+    SELECT f || ' ' || l, lower(f) || '.' || lower(l) || '@example.com',
+      (ARRAY['Lisbon','Austin','Osaka','Nairobi','Toronto','Melbourne','Berlin','Bogotá'])[1 + (g * 7) % 8], DATE '2026-11-20' - (g * 7) % 400
+    FROM generate_series(1, 48) g,
+      LATERAL (SELECT (ARRAY['Ava','Ben','Chloe','Dev','Elena','Felix','Grace','Hugo','Iris','Jonah','Kemi','Liam'])[1 + g % 12] AS f,
+        (ARRAY['Okafor','Hart','Park','Chen','Silva','Novak','Reyes','Tanaka'])[1 + (g / 12 + g) % 8] AS l) n;
+  INSERT INTO products VALUES ('pour-over','Pour-over set',3400,42), ('desk-planter','Desk planter',1800,65), ('day-pack','Day pack',5900,18),
+    ('wool-socks','Wool socks',1200,140), ('cedar-candle','Cedar candle',2200,57), ('tea-kettle','Tea kettle',4100,23);
+  INSERT INTO coupons VALUES ('SPRING10','percent',10,'2027-05-31'), ('WELCOME5','amount',500,'2027-12-31'), ('FREESHIP','amount',499,'2026-12-31');
+  INSERT INTO orders (customer_id, total_cents, coupon, status, placed_at)
+    SELECT 1 + (g * 17) % 48, 1200 + (g * 2371) % 14000, CASE WHEN g % 5 = 0 THEN 'SPRING10' WHEN g % 11 = 0 THEN 'WELCOME5' END,
+      (ARRAY['paid','shipped','shipped','delivered','delivered','refunded'])[1 + g % 6], TIMESTAMPTZ '2026-11-24 09:30:00+00' - g * INTERVAL '4 hours 13 minutes'
+    FROM generate_series(1, 320) g;
+  INSERT INTO order_lines SELECT g, (ARRAY['pour-over','desk-planter','day-pack','wool-socks','cedar-candle','tea-kettle'])[1 + g % 6], 1 + g % 3 FROM generate_series(1, 320) g;
+  INSERT INTO order_lines SELECT g, (ARRAY['pour-over','desk-planter','day-pack','wool-socks','cedar-candle','tea-kettle'])[1 + (g + 3) % 6], 1 FROM generate_series(1, 320) g WHERE g % 3 = 0;`;
+
+interface Databases {
+  names: string[];
+  pg: { port: number; password: string };
+  redis: { port: number };
+}
+
+/** The shop's PostgreSQL and Redis, or null without Docker or the images. */
+async function databases(): Promise<Databases | null> {
+  try {
+    docker('image', 'inspect', PG_IMAGE);
+    docker('image', 'inspect', REDIS_IMAGE);
+  } catch {
+    return null;
+  }
+  const prefix = `nb-dbtest-demo-${process.pid}`;
+  const names = [`${prefix}-pg`, `${prefix}-redis`];
+  const password = `demo-${randomBytes(9).toString('base64url')}`;
+  docker('run', '-d', '--rm', '--name', names[0], '-e', `POSTGRES_PASSWORD=${password}`, '-e', 'POSTGRES_DB=acme_shop', '-p', '127.0.0.1::5432', PG_IMAGE);
+  docker('run', '-d', '--rm', '--name', names[1], '-p', '127.0.0.1::6379', REDIS_IMAGE);
+  const portOf = (c: string, p: string) => Number(docker('port', c, p).split('\n')[0].split(':').pop());
+  const psql = (sql: string) => docker('exec', names[0], 'psql', '-h', '127.0.0.1', '-U', 'postgres', '-d', 'acme_shop', '-v', 'ON_ERROR_STOP=1', '-tAc', sql);
+  const until = async (what: string, ok: () => boolean) => {
+    for (const end = Date.now() + 60_000; Date.now() < end; await new Promise((r) => setTimeout(r, 500))) {
+      try {
+        if (ok()) return;
+      } catch {
+        /* not yet */
+      }
+    }
+    throw new Error(`${what} did not start`);
+  };
+  try {
+    // over TCP: the image's first, temporary server listens on its socket only
+    await until('PostgreSQL', () => psql('SELECT 1') === '1');
+    await until('Redis', () => docker('exec', names[1], 'redis-cli', 'ping') === 'PONG');
+    psql(SHOP_SQL);
+    const cli = (...a: string[]) => docker('exec', names[1], 'redis-cli', ...a);
+    for (const [id, items] of [['c41', 'pour-over 1 wool-socks 2'], ['c07', 'day-pack 1'], ['c23', 'tea-kettle 1 cedar-candle 3']] as const) cli('HSET', `cart:${id}`, ...items.split(' '));
+    cli('SET', 'session:9f2c', '{"customer":41,"cart":"cart:c41"}', 'EX', '86400');
+    cli('SET', 'session:1b7e', '{"customer":7,"cart":"cart:c07"}', 'EX', '86400');
+    cli('RPUSH', 'queue:receipts', 'order:318', 'order:319', 'order:320');
+    for (const [sku, n] of [['pour-over', '42'], ['day-pack', '18'], ['tea-kettle', '23']]) cli('SET', `stock:${sku}`, n);
+    cli('SET', 'coupon:SPRING10:uses', '64');
+    // new containers bring up network interfaces: a page loading meanwhile fails with
+    // ERR_NETWORK_CHANGED, so let them settle first (web/e2e/db-browser.spec.ts)
+    await new Promise((r) => setTimeout(r, 3000));
+    return { names, pg: { port: portOf(names[0], '5432/tcp'), password }, redis: { port: portOf(names[1], '6379/tcp') } };
+  } catch (err) {
+    docker('rm', '-f', ...names);
+    throw err;
+  }
 }
 
 function freePort(): Promise<number> {
@@ -182,8 +269,9 @@ export default async function globalSetup() {
   mkdirSync(tools, { recursive: true });
   // the agents, and a tailscale that knows nothing, ahead of the real one in /usr/bin
   copyFileSync(join(HERE, 'agent.sh'), join(tools, 'demo-agent'));
+  copyFileSync(join(HERE, 'nextcode.sh'), join(tools, 'demo-nextcode'));
   writeFileSync(join(tools, 'tailscale'), '#!/bin/sh\nexit 1\n');
-  for (const f of ['demo-agent', 'tailscale']) chmodSync(join(tools, f), 0o755);
+  for (const f of ['demo-agent', 'demo-nextcode', 'tailscale']) chmodSync(join(tools, f), 0o755);
   const prompt = "PS1='demo@devbox:\\w\\$ '\n";
   writeFileSync(join(home, '.bashrc'), prompt);
   writeFileSync(join(home, '.bash_profile'), '. ~/.bashrc\n');
@@ -212,10 +300,19 @@ export default async function globalSetup() {
   const shop = await site();
   const llm = await router(routerKey);
   const ssh = await sshd(home);
+  const dbs = await databases();
   const halt = () => {
     shop.close();
     llm.close();
     ssh?.proc.kill('SIGTERM');
+    // only the two containers made above
+    if (dbs) {
+      try {
+        docker('rm', '-f', ...dbs.names);
+      } catch {
+        /* already gone */
+      }
+    }
   };
   const stop = async () => {
     halt();
@@ -259,7 +356,11 @@ export default async function globalSetup() {
     // start at all (no usage pill either: it is about those CLIs)
     const off = Object.fromEntries(['claude', 'codex', 'gemini', 'opencode', 'aider', 'amp', 'auggie', 'cline', 'codebuff', 'cn', 'copilot', 'crush', 'cursor-agent', 'droid', 'goose', 'kimi', 'kiro', 'pi', 'qwen', 'vibe'].map((a) => [a, true]));
     // no pop-up per finished turn or question either: the board and its header say it
-    await call(ctx, 'PATCH', '/api/settings', { agents: { defaults: { local: 'tester' }, disabled: off }, notifications: { needsYou: false, finished: false } });
+    // NextCode runs on Claude Code's CLI: here the demo's stand-in (nextcode.sh)
+    await call(ctx, 'PATCH', '/api/settings', {
+      agents: { defaults: { local: 'tester' }, disabled: off, paths: { local: { claude: join(tools, 'demo-nextcode') } } },
+      notifications: { needsYou: false, finished: false },
+    });
     // the hub's own project for its home folder: the demo has its own (permanently, not archived)
     for (const p of await call(ctx, 'GET', '/api/projects')) if (p.path === home) await call(ctx, 'DELETE', `/api/projects/${p.id}?permanent=1`);
 
@@ -304,6 +405,15 @@ export default async function globalSetup() {
         const p = PROJECTS.find((x) => x.slug === pt.project)!;
         await call(ctx, 'POST', `/api/projects/${p.id}/parts`, { name: pt.name, machineId: id, path: join(home, 'srv', pt.slug) });
       }
+    }
+
+    // the shop's databases, as the owner would add them: its PostgreSQL and its Redis
+    if (dbs) {
+      await call(ctx, 'POST', `/api/projects/${shopId}/dbs`, {
+        connection: { name: 'acme_shop', driver: 'postgres', env: 'staging', host: '127.0.0.1', port: dbs.pg.port, database: 'acme_shop', user: 'postgres', savePassword: true, tls: 'off', reach: { kind: 'direct' } },
+        secrets: { password: dbs.pg.password },
+      });
+      await call(ctx, 'POST', `/api/projects/${shopId}/dbs`, { connection: { name: 'cache', driver: 'redis', env: 'local', host: '127.0.0.1', port: dbs.redis.port, reach: { kind: 'direct' } }, secrets: {} });
     }
 
     // an API provider, to run consoles on a key of one's own: a stand-in on loopback

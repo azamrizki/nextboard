@@ -8,7 +8,7 @@ mkdir -p "$dst"
 ff() { nice -n 19 ffmpeg -y -loglevel error "$@"; }
 
 cp "$src/demo.mp4" "$src/demo.gif" "$dst/"
-for f in board projects select archive command mission parts place root-console editor-root git-parts review history git preview layouts vault providers sleep uptime status-page; do
+for f in board projects select archive command mission parts place root-console editor-root git-parts review history git preview layouts vault providers sleep uptime status-page nextcode-plan nextcode code database database-sql; do
   cp "$src/shots/$f.png" "$dst/$f.png"
 done
 # the galaxy is a photo more than a screen: a JPEG is a fifth of the PNG
