@@ -20,6 +20,7 @@ const (
 	KindPrompt   = "prompt"   // the task a sub-agent was given (Parent = its tool call)
 	KindError    = "error"    // a failed turn, a CLI that ended
 	KindNotice   = "notice"   // the conversation was compacted, a turn was stopped, …
+	KindAnswer   = "answer"   // the owner's answer to the agent's questions (Answer set)
 )
 
 // Tool statuses.
@@ -44,6 +45,24 @@ type Item struct {
 	// Stream is the id the item had while it was streamed (Frame "block"/"delta"), so a view
 	// replaces what it drew from the deltas with the item.
 	Stream string `json:"stream,omitempty"`
+	// Answer: of a KindAnswer item, what was asked and answered. Text says it in words.
+	Answer *Answered `json:"answer,omitempty"`
+}
+
+// Answered is the owner's answer to the agent's questions, kept in the chat so it can be read
+// back: the questions as they were asked and what was chosen, or that nothing was.
+type Answered struct {
+	// ToolUseID: the question's tool call (AskUserQuestion), when the CLI shows it as one.
+	ToolUseID string `json:"toolUseId,omitempty"`
+	// Input: the questions with their options, in AskUserQuestion's shape ({"questions": […]}).
+	Input json.RawMessage `json:"input,omitempty"`
+	// Answers: the chosen labels by question text; a label that is not an option is the owner's
+	// own words.
+	Answers map[string][]string `json:"answers,omitempty"`
+	// Message: the owner's own reply, beside or instead of the options.
+	Message string `json:"message,omitempty"`
+	// Skipped: the owner answered nothing and the agent went on without it.
+	Skipped bool `json:"skipped,omitempty"`
 }
 
 // Tool is a tool call of the agent.

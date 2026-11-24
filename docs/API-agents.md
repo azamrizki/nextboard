@@ -1264,12 +1264,25 @@ NB_NEXTCODE_GUARD  {"blocked":[patterns],"sandbox":{"network":bool,"write":[dirs
 ```jsonc
 {
   "id": "msg_01…/0",                 // the CLI's ids where it has them (tool calls: their tool_use id)
-  "kind": "user",                    // user | text | thinking | tool | prompt (a sub-agent's task) | error | notice
+  "kind": "user",                    // user | text | thinking | tool | prompt (a sub-agent's task) | error | notice | answer
   "at": "…", "text": "…",            // Markdown for text; thinking may be empty (the CLI hides it)
   "tool": {"name": "Bash", "input": {…}, "output": "…", "status": "running", "clipped": false},
                                      // status: running | done | error | denied | stopped; input ≤ 64 KB, output ≤ 32 KB (head and tail)
   "parent": "toolu_…",               // the sub-agent's tool call, "" in the main conversation
-  "stream": "msg_01…/0"              // the id it had while streamed (frames block/delta)
+  "stream": "msg_01…/0",             // the id it had while streamed (frames block/delta)
+  "answer": {…}                      // kind answer only, below
+}
+```
+
+An `answer` item is the hub's record of the owner's answer to a question, made when the answer is sent: Claude Code keeps its own only in a tool result, Codex none. The view draws it as the owner's reply under the question. Its `text` says it in words, a line per question (`"Store: Redis"`, or `"Skipped: the owner answered nothing."`), and goes into a hand-over. `answer`:
+
+```jsonc
+{
+  "toolUseId": "toolu_…",            // the question's tool call (AskUserQuestion), when the CLI shows one; Codex shows none
+  "input": {"questions": […]},       // the questions with their options, in AskUserQuestion's shape
+  "answers": {"<question>": ["<label>", …]},  // what was chosen; a label that is not an option is the owner's own words
+  "message": "…",                    // the owner's own reply, if any
+  "skipped": true                    // the owner answered nothing (deny); no answers or message then
 }
 ```
 
@@ -1304,7 +1317,7 @@ The chat is kept in `<data>/nextcode/<sessionId>.jsonl` (JSON lines, `0600`). It
   - The model switches the running CLI at once (Claude: `set_model`; Codex: from its next turn). The effort applies from the CLI's next start: the hub ends the CLI as soon as it is idle.
   - `account` (One NextCode): the login profile or API provider the model is on. The console's own account is the same as leaving it out. Another one **moves the chat there**: the console restarts as that account's agent (`nextcode`, `nextcode-codex` or `nextcode-api`) on that login or provider, with the model sent (left out = the account's own) and the effort sent (left out = the chat's, which goes along). No CLI can continue another's conversation, so:
     - the chat stays as it is (its file is not set aside), with a notice where it moved ("Now on Codex · gpt-5.5: a new conversation there, and your next message brings this chat so far.");
-    - the next message starts a new conversation and carries the chat so far, written out from the chat's items in front of the owner's message, inside `<conversation_so_far>`: the owner's messages and the replies (each up to 6 KB, head and tail), each tool call in a line with what it acted on, how it ended and the tail of what it gave (800 bytes); no thinking, no sub-agents' steps, no notices; the latest 48 KB of it, saying when the earliest part is left out. The owner's item is what they wrote;
+    - the next message starts a new conversation and carries the chat so far, written out from the chat's items in front of the owner's message, inside `<conversation_so_far>`: the owner's messages, their answers to questions and the replies (each up to 6 KB, head and tail), each tool call in a line with what it acted on, how it ended and the tail of what it gave (800 bytes); no thinking, no sub-agents' steps, no notices; the latest 48 KB of it, saying when the earliest part is left out. The owner's item is what they wrote;
     - this survives a hub restart until that message goes (the chat file's records `{"meta":{"new","engine","handOver"}}` and `{"meta":{"handedOver"}}`).
   - Errors: `400 bad_model` when a name is not a model or effort name; `400 nextcode_account` for an id that is neither a NextCode login nor an API provider; `404 profile_not_found` / `provider_not_found`; `409 provider_budget`; `409 agent_disabled`.
 
@@ -1318,7 +1331,7 @@ The chat is kept in `<data>/nextcode/<sessionId>.jsonl` (JSON lines, `0600`). It
 A view that falls behind is closed with `1013` and reconnects for a new snapshot.
 
 **Tested**:
-- unit (`internal/nextcode`, a fake CLI in the shapes of Claude Code 2.1.329): streamed text, history after a restart, allow, allow always, deny, a question, stop, a failed turn, a CLI that ends by itself, idle exit and resume, sub-agents, an unknown control request;
+- unit (`internal/nextcode`, a fake CLI in the shapes of Claude Code 2.1.329): streamed text, history after a restart, allow, allow always, deny, a question and its answer item (answered, skipped, kept after a restart, under a sub-agent's card), stop, a failed turn, a CLI that ends by itself, idle exit and resume, sub-agents, an unknown control request;
 - `internal/agent`: the headless launch has the terminal launch's arguments and environment, and the terminal agents are unchanged;
 - `internal/server` (with a shell fake):
   - a NextCode console end to end through REST, WebSocket and a delivery;

@@ -250,6 +250,65 @@
   overflow: hidden;
 }
 
+/* the owner's answer to the agent's questions: their reply, under the questions (mockups/nextcode-answers, B) */
+.nc-me.nc-me-ans {
+  gap: 4px;
+}
+.nc-me-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.nc-me-kicker svg {
+  width: 12px;
+  height: 12px;
+}
+.nc-me-line {
+  font-size: var(--nc-fs);
+  overflow-wrap: anywhere;
+}
+.nc-me-line b {
+  margin-right: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+/* a question with no header: its words over the answer */
+.nc-me-line.is-q {
+  display: flex;
+  flex-direction: column;
+}
+.nc-me-q {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.nc-me-own {
+  font-style: italic;
+}
+
+/* the agent's questions as asked, each with its options in a line */
+.nc-qrow .nc-tbody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3) var(--s-3);
+}
+.nc-qrow-q {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+.nc-qrow-opts {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
 /* the agent's run: its mark, then its work */
 .nc-agent {
   display: flex;

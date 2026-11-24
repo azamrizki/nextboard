@@ -621,6 +621,10 @@ func TestCodexQuestion(t *testing.T) {
 		t.Fatalf("request %+v", req)
 	}
 	_ = r.d.Answer(req.ID, Answer{Decision: Allow, Answers: map[string][]string{"Colour?": {"Blue"}}})
+	// Codex shows no tool call for it: the answer item holds the questions as well
+	if ans := r.item(KindAnswer); ans.Answer == nil || ans.Answer.ToolUseID != "call_q" || !strings.Contains(string(ans.Answer.Input), `"Colour?"`) || ans.Text != "Colour: Blue" {
+		t.Fatalf("answer item %+v", ans)
+	}
 	if txt := r.item(KindText); txt.Text != `You chose {"colour":{"answers":["Blue"]}}` {
 		t.Fatalf("reply %q", txt.Text)
 	}

@@ -470,6 +470,15 @@ of a terminal (`web/src/nextcode/`, `styles/nextcode.css`; mockup outside the re
     Deny… on the right; Deny… opens a note box with Deny and tell it / Deny and stop;
   - **question:** radio or checkbox options with their descriptions, Other…, Answer;
   - **plan:** the plan as Markdown with Approve and start / Approve, accept edits / Keep planning….
+- **Questions in the history** (mockup `mockups/nextcode-answers/`, option B, 2026-11-24): the
+  question stays as a row "Asked · 2 questions" (help icon), open under it each question
+  numbered with its options in a `--text-3` line ("Redis · In memory · PostgreSQL"); while it
+  waits only the row shows, with "needs you". The answer is the owner's own bubble under it:
+  "↩ Your answer · 10:42", then a line per question, its header in small capitals and what was
+  chosen (the owner's own words in quotes, italic). Skipped: "Skipped · 10:42" and "Nothing
+  chosen: the agent went on without it", the row saying "skipped". The hub keeps the answer as a
+  chat item, so it survives a reload and shows on every engine; for Codex, which shows no tool
+  call, the answer item draws the questions itself.
 - **Bottom:**
   - a live line: the state dot, "Working · <activity>" / "Needs you · <what>" / "Ready", and the
     turn's time;

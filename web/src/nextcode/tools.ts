@@ -220,3 +220,42 @@ export function questionsOf(input: unknown): Question[] {
 
 /** ExitPlanMode's plan. */
 export const planOf = (input: unknown) => str(inputOf(input).plan);
+
+/** One line of the owner's answer: the question's header (or the question), and what was chosen. */
+export interface AnswerLine {
+  /** The question's header, else its text. */
+  label: string;
+  /** label is a header (short, shown in capitals), not the question's text. */
+  header: boolean;
+  /** What was chosen; own is the owner's words, not one of the options. */
+  values: { text: string; own: boolean }[];
+}
+
+/** The owner's answer as lines, in the order the questions were asked (answers to questions the input does not hold last). */
+export function answerLines(input: unknown, answers: Record<string, string[]> | undefined): AnswerLine[] {
+  const qs = questionsOf(input);
+  const got = answers ?? {};
+  const lines: AnswerLine[] = [];
+  const seen = new Set<string>();
+  for (const q of qs) {
+    const labels = got[q.question];
+    if (!labels?.length || seen.has(q.question)) continue;
+    seen.add(q.question);
+    const options = new Set(q.options.map((o) => o.label));
+    lines.push({ label: q.header || q.question, header: !!q.header, values: labels.map((t) => ({ text: t, own: !options.has(t) })) });
+  }
+  for (const [q, labels] of Object.entries(got).sort(([a], [b]) => a.localeCompare(b))) {
+    if (!seen.has(q) && labels?.length) lines.push({ label: q, header: false, values: labels.map((t) => ({ text: t, own: false })) });
+  }
+  return lines;
+}
+
+/** When the owner answered: the time today ("10:42"), else the day too. */
+export function answerTime(at: string, now = new Date()): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return time;
+  const day = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' as const } : {}) });
+  return `${day}, ${time}`;
+}

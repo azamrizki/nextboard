@@ -94,6 +94,11 @@ func (d *Driver) relay(child *Driver, f Frame, parent, prefix string) {
 		if it.Kind == KindUser {
 			it.Kind = KindPrompt // the task it was given
 		}
+		if a := it.Answer; a != nil && a.ToolUseID != "" {
+			b := *a
+			b.ToolUseID = prefix + a.ToolUseID // its question's tool call, as this chat names it
+			it.Answer = &b
+		}
 		d.PutItem(it)
 	case FrameBlock, FrameDelta:
 		g := f

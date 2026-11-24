@@ -1,7 +1,7 @@
 // NextCode's chat (docs/API-agents.md §30): the shapes the hub sends and takes. The source of truth
 // is internal/nextcode/types.go; keep the two in step.
 
-export type ItemKind = 'user' | 'text' | 'thinking' | 'tool' | 'prompt' | 'error' | 'notice';
+export type ItemKind = 'user' | 'text' | 'thinking' | 'tool' | 'prompt' | 'error' | 'notice' | 'answer';
 export type ToolStatus = 'running' | 'done' | 'error' | 'denied' | 'stopped';
 
 /** A tool call of the agent. */
@@ -27,6 +27,22 @@ export interface Item {
   parent?: string;
   /** The id it had while streamed: the block it replaces. */
   stream?: string;
+  /** Of an answer item: what was asked and answered. */
+  answer?: Answered;
+}
+
+/** The owner's answer to the agent's questions, as the chat keeps it (an answer item). */
+export interface Answered {
+  /** The question's tool call (AskUserQuestion), when the CLI shows one; Codex shows none. */
+  toolUseId?: string;
+  /** The questions with their options, in AskUserQuestion's shape. */
+  input?: unknown;
+  /** The chosen labels by question text; a label that is not an option is the owner's own words. */
+  answers?: Record<string, string[]>;
+  /** The owner's own reply. */
+  message?: string;
+  /** Nothing was answered: the agent went on without it. */
+  skipped?: boolean;
 }
 
 export type RequestKind = 'permission' | 'question' | 'plan';

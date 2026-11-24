@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { costText, elapsed, isLoginError, liveLine, loginHelp, matchCommands, MODES, modeOf, modesFor, rateLimitText, retryAfterSignIn, withoutSettledLogins } from './format';
-import { planOf, questionsOf, shortPath, tail, toolArg, toolLabel, toolMeta } from './tools';
+import { answerLines, answerTime, planOf, questionsOf, shortPath, tail, toolArg, toolLabel, toolMeta } from './tools';
 import type { Status } from './types';
 
 const status = (over: Partial<Status> = {}): Status => ({ engine: 'claude', process: 'running', working: false, ...over });
@@ -170,5 +170,33 @@ describe('NextCode’s sub-agents', () => {
     expect(toolArg('mcp__nextboard__agent', { tasks: [{ description: 'API routes', prompt: 'x' }, { description: 'Web pages', prompt: 'y' }] })).toBe('2 tasks · API routes, Web pages');
     expect(toolArg('Agent', { description: 'API routes', prompt: 'x' })).toBe('API routes');
     expect(toolLabel('mcp__github__create_issue')).toBe('github · create_issue');
+  });
+});
+
+describe('the owner’s answer in the chat', () => {
+  const input = {
+    questions: [
+      { question: 'Where should the limiter keep its counts?', header: 'Store', options: [{ label: 'Redis' }, { label: 'In memory' }] },
+      { question: 'Which limits?', multiSelect: true, options: [{ label: 'Per IP' }, { label: 'Per account' }] },
+    ],
+  };
+
+  it('says each answer under its question’s header, in the order asked, and marks the owner’s own words', () => {
+    const lines = answerLines(input, { 'Which limits?': ['Per IP', 'Per account'], 'Where should the limiter keep its counts?': ['Redis, with a fallback'], 'Gone?': ['x'] });
+    expect(lines).toEqual([
+      { label: 'Store', header: true, values: [{ text: 'Redis, with a fallback', own: true }] },
+      { label: 'Which limits?', header: false, values: [{ text: 'Per IP', own: false }, { text: 'Per account', own: false }] },
+      { label: 'Gone?', header: false, values: [{ text: 'x', own: false }] },
+    ]);
+    expect(answerLines(input, undefined)).toEqual([]);
+  });
+
+  it('gives the time of an answer today, and the day as well before today', () => {
+    const now = new Date(2026, 10, 24, 15, 0);
+    expect(answerTime(new Date(2026, 10, 24, 10, 42).toISOString(), now)).toMatch(/10.42/);
+    const before = answerTime(new Date(2026, 10, 20, 9, 5).toISOString(), now);
+    expect(before).toMatch(/20/);
+    expect(before).toMatch(/09.05|9.05/);
+    expect(answerTime('nope', now)).toBe('');
   });
 });

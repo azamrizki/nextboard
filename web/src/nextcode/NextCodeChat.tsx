@@ -18,7 +18,7 @@ import { useChatAttachments } from './ChatAttachments';
 import { Composer } from './Composer';
 import { engineOf, withNextCodeCommands } from './engines';
 import { costText, elapsed, liveLine, modeOf, modesFor, rateLimitText, retryAfterSignIn, withoutSettledLogins } from './format';
-import { ChatAccount, ChildItems, ChildStreams, ItemView, NcMark, StreamView } from './Items';
+import { ASK_TOOL, AskedShown, ChatAccount, ChildItems, ChildStreams, ItemView, NcMark, StreamView } from './Items';
 import { groupItems, groupStreams, type Stream } from './reducer';
 import { ModelMenu } from './ModelMenu';
 import { RequestCard } from './RequestCard';
@@ -180,6 +180,8 @@ function ChatView({ sessionId, variant, chat, focusTick, className = '' }: NextC
   const account = useMemo(() => ({ engine, onProvider, signIn: login ? () => setSigning(true) : undefined }), [engine, onProvider, login]);
 
   const tree = useMemo(() => groupItems(state.items), [state.items]);
+  // the question tool calls loaded: their answers need not show the questions again
+  const askedShown = useMemo(() => new Set(state.items.filter((i) => i.tool?.name === ASK_TOOL).map((i) => i.id)), [state.items]);
   const streams = useMemo(() => groupStreams(state.streams, tree.ids), [state.streams, tree.ids]);
   const rows = useMemo(() => rowsOf(withoutSettledLogins(tree.top)), [tree.top]);
   // NextCode's own commands (/model, /effort, /mode) on every engine, then the CLI's
@@ -310,18 +312,20 @@ function ChatView({ sessionId, variant, chat, focusTick, className = '' }: NextC
                   <p className="nc-quiet">{compact ? 'Ask for a change, a review or an explanation.' : 'Ask for a change, a review or an explanation. It works in this console’s folder and asks before it does anything your rules do not allow.'}</p>
                 </div>
               )}
-              <ChildItems.Provider value={tree.children}>
-                <ChildStreams.Provider value={streams.children}>
-                  {rows.map((r, i) =>
-                    r.t === 'item' ? (
-                      <ItemView key={r.item.id} item={r.item} compact={compact} waitingFor={waitingFor} />
-                    ) : (
-                      <AgentRun key={r.key} items={r.items} streams={i === rows.length - 1 ? tailStreams : NO_STREAMS} compact={compact} waitingFor={waitingFor} />
-                    ),
-                  )}
-                  {tailStreams.length > 0 && lastRow?.t !== 'agent' && <AgentRun items={[]} streams={tailStreams} compact={compact} waitingFor={waitingFor} />}
-                </ChildStreams.Provider>
-              </ChildItems.Provider>
+              <AskedShown.Provider value={askedShown}>
+                <ChildItems.Provider value={tree.children}>
+                  <ChildStreams.Provider value={streams.children}>
+                    {rows.map((r, i) =>
+                      r.t === 'item' ? (
+                        <ItemView key={r.item.id} item={r.item} compact={compact} waitingFor={waitingFor} />
+                      ) : (
+                        <AgentRun key={r.key} items={r.items} streams={i === rows.length - 1 ? tailStreams : NO_STREAMS} compact={compact} waitingFor={waitingFor} />
+                      ),
+                    )}
+                    {tailStreams.length > 0 && lastRow?.t !== 'agent' && <AgentRun items={[]} streams={tailStreams} compact={compact} waitingFor={waitingFor} />}
+                  </ChildStreams.Provider>
+                </ChildItems.Provider>
+              </AskedShown.Provider>
               {state.requests.map((r) => (
                 <RequestCard key={r.id} req={r} act={act} compact={compact} stacked={variant === 'phone'} />
               ))}

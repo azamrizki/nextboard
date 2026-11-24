@@ -90,6 +90,8 @@ func handOverPrompt(items []Item) string {
 			s = "Assistant:\n" + clipMiddle(it.Text, handOverText)
 		case KindError:
 			s = "(Error: " + clipMiddle(it.Text, handOverInput) + ")"
+		case KindAnswer:
+			s = "User answered the assistant's questions:\n" + clipMiddle(it.Text, handOverText)
 		case KindTool:
 			s = toolLine(it.Tool)
 		}

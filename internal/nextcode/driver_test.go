@@ -292,13 +292,20 @@ func TestPermissionAllowAlwaysAndDeny(t *testing.T) {
 }
 
 func TestQuestion(t *testing.T) {
-	r := newRig(t, t.TempDir(), 0)
+	dir := t.TempDir()
+	r := newRig(t, dir, 0)
 	_ = r.d.Send("ask")
 	req := r.until("question", func(f Frame) bool { return f.T == FrameRequest }).Request
 	if req.Kind != ReqQuestion {
 		t.Fatalf("request %+v", req)
 	}
 	_ = r.d.Answer(req.ID, Answer{Decision: Allow, Answers: map[string][]string{"Colour?": {"Blue"}}})
+	// the answer is kept in the chat: what was asked, what was chosen, in words too
+	ans := r.item(KindAnswer)
+	if a := ans.Answer; a == nil || a.ToolUseID != "toolu_q" || a.Skipped || len(a.Answers["Colour?"]) != 1 || a.Answers["Colour?"][0] != "Blue" ||
+		!strings.Contains(string(a.Input), `"Red"`) || ans.Text != "Colour: Blue" || ans.Parent != "" {
+		t.Fatalf("answer item %+v %+v", ans, ans.Answer)
+	}
 	txt := r.item(KindText)
 	if txt.Text != `You chose {"Colour?":"Blue"}` {
 		t.Fatalf("reply %q", txt.Text)
@@ -306,6 +313,40 @@ func TestQuestion(t *testing.T) {
 	r.turnEnded()
 	if calls := strings.Join(r.called(), "|"); !strings.Contains(calls, "needs question Question") {
 		t.Fatalf("listener %q", calls)
+	}
+	// a question skipped is kept as skipped, without the note meant for the agent
+	_ = r.d.Send("ask")
+	req = r.until("question", func(f Frame) bool { return f.T == FrameRequest }).Request
+	_ = r.d.Answer(req.ID, Answer{Decision: Deny, Message: "The owner chose not to answer."})
+	skipped := r.item(KindAnswer)
+	if !skipped.Answer.Skipped || skipped.Answer.Message != "" || len(skipped.Answer.Answers) != 0 || skipped.Text != "Skipped: the owner answered nothing." {
+		t.Fatalf("skipped %+v %+v", skipped, skipped.Answer)
+	}
+	r.turnEnded()
+	// both come back after a restart
+	r.d.Close()
+	d2, err := New(Config{HistoryPath: filepath.Join(dir, "chat.jsonl")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d2.Close()
+	items, _ := d2.Items("", 0)
+	var kept []string
+	for _, it := range items {
+		if it.Kind == KindAnswer && it.Answer != nil {
+			kept = append(kept, it.Text)
+		}
+	}
+	if strings.Join(kept, "|") != "Colour: Blue|Skipped: the owner answered nothing." {
+		t.Fatalf("kept answers %q", kept)
+	}
+}
+
+func TestAnswerText(t *testing.T) {
+	in := json.RawMessage(`{"questions":[{"question":"Where?","header":"Store","options":[{"label":"Redis"}]},{"question":"Which limits?","options":[{"label":"Per IP"}]}]}`)
+	a := &Answered{Input: in, Answers: map[string][]string{"Which limits?": {"Per IP", "Per account"}, "Where?": {"Redis"}, "Gone?": {"x"}}, Message: "and log it"}
+	if got := answerText(a); got != "Store: Redis\nWhich limits?: Per IP, Per account\nGone?: x\nand log it" {
+		t.Fatalf("text %q", got)
 	}
 }
 

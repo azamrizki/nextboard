@@ -3,7 +3,7 @@ import { expect, test } from './hub';
 
 // NextCode (docs/API-agents.md §30): a console with a chat instead of a terminal, on a fake of
 // Claude Code headless (fake-nextcode.sh). The board card and a Code view tab of one console
-// show the same live chat; a permission and a question are answered there.
+// show the same live chat; a permission and a question are answered there, and the answer stays.
 
 const FAKE = fileURLToPath(new URL('./fake-nextcode.sh', import.meta.url));
 
@@ -71,9 +71,22 @@ test('a NextCode console is a chat on the board and in the Code view', async ({ 
     await q.getByText('Blue', { exact: true }).click();
     await q.getByRole('button', { name: 'Answer', exact: true }).click();
     await expect(tab.getByText('You chose Blue.')).toBeVisible({ timeout: 15_000 });
+    // the answer stays in the chat as the owner's reply, under the question as it was asked
+    const asked = tab.locator('.nc-qrow');
+    await expect(asked).toContainText('Which colour?');
+    await expect(asked).toContainText('Red · Blue');
+    const reply = tab.getByRole('group', { name: 'Your answer' });
+    await expect(reply).toContainText('Colour');
+    await expect(reply).toContainText('Blue');
+    const kept = await hub.call('GET', `/api/sessions/${s.id}/nextcode`);
+    expect(kept.items.find((i: { kind: string }) => i.kind === 'answer')?.answer?.answers).toEqual({ 'Which colour?': ['Blue'] });
     await page.bringToFront();
     await expect(card.getByText('You chose Blue.')).toBeVisible({ timeout: 15_000 });
+    await expect(card.getByRole('group', { name: 'Your answer' })).toContainText('Blue');
     await code.close();
+    // and after a reload
+    await page.reload();
+    await expect(card.getByRole('group', { name: 'Your answer' })).toContainText('Blue', { timeout: 20_000 });
 
     // the CLI ran headless with the permission prompt on its pipe, never a terminal
     const fs = await import('node:fs');

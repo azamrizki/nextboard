@@ -1,6 +1,7 @@
 // The entries of a NextCode chat: the owner's messages, the agent's Markdown, folded thinking,
 // tool calls (a row for small tools, a diff for file edits, the command and the end of its output
-// for Bash, a group for a sub-agent's work), errors and notices, and what is being streamed.
+// for Bash, a group for a sub-agent's work), the agent's questions with the owner's answers,
+// errors and notices, and what is being streamed.
 
 import { createContext, memo, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useMarkdown } from '../board/lazy';
@@ -14,7 +15,7 @@ import { hunks, toolDiff, type Diff } from './diff';
 import { isLoginError, loginHelp } from './format';
 import type { Stream } from './reducer';
 import { splitBlocks, useSmoothText } from './smooth';
-import { inputText, tail, todosOf, toolArg, toolIcon, toolLabel, toolLook, toolMeta, toolPath } from './tools';
+import { answerLines, answerTime, inputText, questionsOf, tail, todosOf, toolArg, toolIcon, toolLabel, toolLook, toolMeta, toolPath } from './tools';
 import type { Item, Tool } from './types';
 
 /**
@@ -30,6 +31,12 @@ export const ChildStreams = createContext<Map<string, Stream[]>>(new Map());
  * whether an API provider runs it instead of a login (always so on the API engine).
  */
 export const ChatAccount = createContext<{ engine: string; onProvider: boolean; signIn?: () => void }>({ engine: '', onProvider: false });
+
+/** The ids of the question tool calls (AskUserQuestion) loaded: an answer to one of them shows only the reply. */
+export const AskedShown = createContext<Set<string>>(new Set());
+
+/** The tool the agents ask the owner with; Codex's questions come in its shape too. */
+export const ASK_TOOL = 'AskUserQuestion';
 const NO_ITEMS: Item[] = [];
 const NO_STREAMS: Stream[] = [];
 
@@ -362,6 +369,83 @@ function SubAgent({ item, compact, waitingFor, waiting }: ToolProps) {
   );
 }
 
+/**
+ * The agent's questions as asked: each question with its options in a line. The owner's answer
+ * is the reply under it (an answer item); while it waits, only its head shows, the card at the
+ * end of the chat holding the questions.
+ */
+function Asked({ input, tool, waiting }: { input: unknown; tool?: Tool; waiting: boolean }) {
+  const qs = useMemo(() => questionsOf(input), [input]);
+  const n = qs.length;
+  const state = !tool ? null : tool.status === 'denied' ? <span className="nc-tstate is-stopped">skipped</span> : <ToolState tool={tool} waiting={waiting} />;
+  const open = !waiting && n > 0;
+  return (
+    <div className={`nc-tool nc-qrow ${open ? 'is-open' : ''} is-${tool?.status ?? 'done'}`}>
+      <div className="nc-thead">
+        <Icon name="help" className="nc-ticon" />
+        <span className="nc-tname">Asked</span>
+        <span className="nc-targ">{n ? `${n} ${n === 1 ? 'question' : 'questions'}` : ''}</span>
+        {state}
+      </div>
+      {open && (
+        <div className="nc-tbody">
+          {qs.map((q, i) => (
+            <div key={q.question} className="nc-qrow-q">
+              <span>
+                {n > 1 ? `${i + 1}. ` : ''}
+                {q.question}
+                {q.multiSelect && <span className="nc-quiet"> · choose any</span>}
+              </span>
+              {q.options.length > 0 && <span className="nc-qrow-opts">{q.options.map((o) => o.label).join(' · ')}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The owner's answer to the agent's questions, as their own reply; the questions above it when no tool call shows them (Codex). */
+function AnswerItem({ item }: { item: Item }) {
+  const a = item.answer;
+  const shown = useContext(AskedShown);
+  const lines = useMemo(() => answerLines(a?.input, a?.answers), [a?.input, a?.answers]);
+  const asked = useMemo(() => questionsOf(a?.input).length > 0, [a?.input]);
+  if (!a) return null;
+  const when = answerTime(item.at);
+  return (
+    <>
+      {asked && !(a.toolUseId && shown.has(a.toolUseId)) && <Asked input={a.input} waiting={false} />}
+      <div className="nc-me nc-me-ans" role="group" aria-label={a.skipped ? 'You skipped the question' : 'Your answer'} title={formatDateTime(item.at)}>
+        <span className="nc-me-kicker">
+          <Icon name={a.skipped ? 'skip' : 'reply'} />
+          {a.skipped ? 'Skipped' : 'Your answer'}
+          {when && ` · ${when}`}
+        </span>
+        {a.skipped ? (
+          <span className="nc-me-line nc-quiet">Nothing chosen: the agent went on without it.</span>
+        ) : (
+          <>
+            {lines.map((l) => (
+              <span key={l.label} className={`nc-me-line ${l.header ? '' : 'is-q'}`}>
+                {l.header ? <b>{l.label}</b> : <span className="nc-me-q">{l.label}</span>}
+                {l.values.map((v, i) => (
+                  <span key={i}>
+                    {i > 0 && ', '}
+                    {v.own ? <i className="nc-me-own">“{v.text}”</i> : v.text}
+                  </span>
+                ))}
+              </span>
+            ))}
+            {a.message && <span className="nc-me-line">{a.message}</span>}
+            {!lines.length && !a.message && item.text && <span className="nc-me-line">{item.text}</span>}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 function ToolView(props: ToolProps) {
   const { item, compact, waiting } = props;
   const tool = item.tool!;
@@ -403,6 +487,7 @@ function ItemViewImpl({ item, compact, waitingFor, nested = false }: ItemProps) 
       return <Thinking text={item.text ?? ''} />;
     case 'tool':
       if (!item.tool) return null;
+      if (item.tool.name === ASK_TOOL) return <Asked input={item.tool.input} tool={item.tool} waiting={waitingFor.has(item.id)} />;
       return <ToolView item={item} compact={compact} waiting={waitingFor.has(item.id)} waitingFor={waitingFor} />;
     case 'prompt':
       return <TaskPrompt text={item.text ?? ''} />;
@@ -410,6 +495,8 @@ function ItemViewImpl({ item, compact, waitingFor, nested = false }: ItemProps) 
       return <ErrorItem text={item.text ?? ''} />;
     case 'notice':
       return <span className="nc-notice">{item.text}</span>;
+    case 'answer':
+      return <AnswerItem item={item} />;
     default:
       return null;
   }

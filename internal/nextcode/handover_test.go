@@ -98,11 +98,12 @@ func TestHandOverPrompt(t *testing.T) {
 		{Kind: KindTool, Tool: &Tool{Name: "Bash", Input: in, Output: "ok 12 tests\n", Status: ToolDone}},
 		{Kind: KindTool, Parent: "toolu_x", Tool: &Tool{Name: "Read", Status: ToolDone}},
 		{Kind: KindTool, Tool: &Tool{Name: "Edit", Input: json.RawMessage(`{"file_path":"/a.go"}`), Status: ToolDenied}},
+		{Kind: KindAnswer, Text: "Store: Redis", Answer: &Answered{}},
 		{Kind: KindText, Text: "Done."},
 		{Kind: KindNotice, Text: "Stopped."},
 	}
 	got := handOverPrompt(items)
-	want := "User:\nfix the tests\n\nAssistant used Bash: npm test\n  → ok 12 tests\n\nAssistant used Edit: /a.go (denied)\n\nAssistant:\nDone.\n</conversation_so_far>\n\n"
+	want := "User:\nfix the tests\n\nAssistant used Bash: npm test\n  → ok 12 tests\n\nAssistant used Edit: /a.go (denied)\n\nUser answered the assistant's questions:\nStore: Redis\n\nAssistant:\nDone.\n</conversation_so_far>\n\n"
 	if !strings.HasPrefix(got, "<conversation_so_far>\n") || !strings.HasSuffix(got, want) || strings.Contains(got, "secret") || strings.Contains(got, "Read") {
 		t.Fatalf("prompt:\n%s", got)
 	}
@@ -161,4 +162,19 @@ func TestAttachSubAgent(t *testing.T) {
 	if len(parent.d.Pending()) != 0 || child.d.Final() == "" {
 		t.Fatalf("pending %+v final %q", parent.d.Pending(), child.d.Final())
 	}
+
+	// its question is answered in the main chat; the answer shows under its card, naming its
+	// question's tool call as the main chat does
+	if err := child.d.Send("ask"); err != nil {
+		t.Fatal(err)
+	}
+	q := parent.until("its question", func(f Frame) bool { return f.T == FrameRequest }).Request
+	if err := parent.d.Answer(q.ID, Answer{Decision: Allow, Answers: map[string][]string{"Colour?": {"Red"}}}); err != nil {
+		t.Fatal(err)
+	}
+	ans := parent.item(KindAnswer)
+	if ans.Parent != "card1" || !strings.HasPrefix(ans.ID, "card1/") || ans.Answer.ToolUseID != "card1/toolu_q" || ans.Text != "Colour: Red" {
+		t.Fatalf("answer %+v %+v", ans, ans.Answer)
+	}
+	child.turnEnded()
 }

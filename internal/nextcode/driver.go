@@ -393,6 +393,13 @@ func (d *Driver) Answer(id string, a Answer) error {
 	if (a.Decision == Deny || a.Decision == DenyStop) && r.ToolUseID != "" {
 		d.denied[r.ToolUseID] = true
 	}
+	if r.Kind == ReqQuestion {
+		// the answer stays in the chat: the CLI's own record of it is a tool result, or nothing
+		it := answerItem(r, a, time.Now().UTC())
+		d.upsertLocked(it)
+		d.persistLocked(record{Item: &it})
+		d.broadcastLocked(Frame{T: FrameItem, Item: &it})
+	}
 	if a.Decision == DenyStop {
 		d.status.Stopping = true
 		d.statusChangedLocked()
