@@ -452,11 +452,9 @@
 .home-group-title .menu {
   margin-right: calc(-1 * var(--s-1));
 }
-/* a sub-group hangs from its parent's line */
+/* A sub-group sits on the same grid as its parent: its heading says where it is (Acme / Web) */
 .home-group .home-group {
-  margin: var(--s-5) 0 0 var(--s-2);
-  padding-left: var(--s-4);
-  border-left: var(--hairline) solid var(--glass-border);
+  margin: var(--s-8) 0 0;
 }
 .home-group-toggle {
   display: inline-flex;
@@ -486,6 +484,109 @@
 .home-group-note {
   font-size: var(--fs-sm);
   color: var(--text-3);
+}
+
+/* The Group arrangement's headings (mockups/nested-groups, option A): a folder, the group's
+   place, a rule to its counts */
+.home-group.is-tree:not(.is-sub) {
+  margin-bottom: var(--s-10);
+}
+.home-group.is-tree > .home-group-title {
+  gap: var(--s-2);
+  margin-bottom: var(--s-4);
+}
+.home-group.is-tree:not(.is-sub) > .home-group-title {
+  font-size: var(--fs-lg);
+}
+.home-group.is-tree .home-group-toggle {
+  gap: var(--s-3);
+}
+.home-group-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: var(--text-2);
+  background: var(--glass-2);
+  border: var(--hairline) solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
+}
+.home-group-toggle .home-group-icon svg,
+.home-group-icon svg {
+  width: 16px;
+  height: 16px;
+  color: inherit;
+}
+/* All projects has no toggle and no menu: its folder and counts line up with the others' */
+.home-group.is-loose > .home-group-title > .home-group-icon {
+  margin-left: calc(var(--size-icon) + var(--s-3));
+}
+.home-group.is-loose > .home-group-title > .home-group-name {
+  margin-left: calc(var(--s-3) - var(--s-2));
+}
+.home-group-menu-room {
+  flex: none;
+  width: var(--h-icon-btn-sm);
+  margin-right: calc(-1 * var(--s-1));
+}
+.home-group-where {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.home-group-name {
+  flex: none;
+  max-width: 100%;
+  color: var(--text);
+  font-weight: var(--fw-semibold);
+}
+.home-group-path {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--text-3);
+  font-weight: var(--fw-regular);
+}
+.home-group-path .truncate {
+  min-width: 2ch;
+}
+.home-group-sep {
+  flex: none;
+  margin: 0 7px;
+  opacity: 0.55;
+}
+.home-group-rule {
+  flex: 1;
+  min-width: var(--s-6);
+  height: var(--hairline);
+  margin: 0 var(--s-2);
+  background: var(--glass-border);
+}
+.home-group-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  white-space: nowrap;
+  color: var(--text-2);
+  background: var(--glass-2);
+  border: var(--hairline) solid var(--glass-border);
+}
+@media (max-width: 719px) {
+  .home-group-rule {
+    flex-basis: 0;
+    min-width: 0;
+    margin: 0;
+    background: none;
+  }
+  .home-group-pill.is-subs {
+    display: none;
+  }
 }
 
 .home-tags {

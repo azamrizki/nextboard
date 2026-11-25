@@ -3,7 +3,7 @@
 // several to act on at once (§3.18). Arrow keys move between projects, Enter opens, Delete asks
 // to remove; Ctrl/⌘+O adds a project.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, errorMessage } from '../api';
 import { machineStatus } from '../board/sessionStatus';
 import { AppHeader } from '../components/AppHeader';
@@ -48,6 +48,8 @@ function savedBy(): HomeBy | null {
 
 interface GroupSectionProps {
   node: GroupNode;
+  /** The names of the groups it is in, from the top: its heading says where it is. */
+  path: string[];
   collapsed: Set<string>;
   onToggle: (id: string) => void;
   /** A filter is on: everything that matched stays open and nothing is empty. */
@@ -58,19 +60,42 @@ interface GroupSectionProps {
   onDelete: (g: ProjectGroup) => void;
 }
 
-function GroupSection({ node, collapsed, onToggle, filtering, renderProjects, onSubgroup, onEdit, onDelete }: GroupSectionProps) {
+/**
+ * A group of the Group arrangement (DESIGN.md §3.11): every depth on the one grid of cards, its
+ * heading saying where it is (Acme / Web / Mobile), then its counts.
+ */
+function GroupSection({ node, path, collapsed, onToggle, filtering, renderProjects, onSubgroup, onEdit, onDelete }: GroupSectionProps) {
   const g = node.group;
   const open = filtering || !collapsed.has(g.id);
   const Title = `h${Math.min(node.depth + 2, 6)}` as 'h2';
   const empty = !node.projects.length && !node.children.length;
+  const subs = node.children.length;
   return (
-    <section className="home-group" aria-labelledby={`grp-${g.id}`}>
+    <section className={`home-group is-tree ${path.length ? 'is-sub' : ''}`} aria-labelledby={`grp-${g.id}`}>
       <Title className="home-group-title" id={`grp-${g.id}`}>
         <button type="button" className="home-group-toggle" aria-expanded={open} disabled={filtering} onClick={() => onToggle(g.id)}>
           <Icon name={open ? 'chevronDown' : 'chevronRight'} />
-          <span className="truncate">{g.name}</span>
+          <span className="home-group-icon" aria-hidden="true">
+            <Icon name="folder" />
+          </span>
+          <span className="home-group-where">
+            {path.length > 0 && (
+              // the nesting is the sections' own; the path is for the eye
+              <span className="home-group-path" aria-hidden="true">
+                {path.map((name, i) => (
+                  <Fragment key={i}>
+                    <span className="truncate">{name}</span>
+                    <span className="home-group-sep">/</span>
+                  </Fragment>
+                ))}
+              </span>
+            )}
+            <span className="home-group-name truncate">{g.name}</span>
+          </span>
         </button>
-        <span className="home-group-count">{plural(node.total, 'project')}</span>
+        <span className="home-group-rule" aria-hidden="true" />
+        <span className="home-group-pill">{plural(node.total, 'project')}</span>
+        {subs > 0 && <span className="home-group-pill is-subs">{plural(subs, 'sub-group')}</span>}
         <Menu
           label={`Actions for group ${g.name}`}
           items={[
@@ -86,7 +111,7 @@ function GroupSection({ node, collapsed, onToggle, filtering, renderProjects, on
           {node.projects.length > 0 && renderProjects(node.projects)}
           {empty && <p className="home-group-note">No projects here yet. A project’s menu moves it into a group.</p>}
           {node.children.map((c) => (
-            <GroupSection key={c.group.id} node={c} collapsed={collapsed} onToggle={onToggle} filtering={filtering} renderProjects={renderProjects} onSubgroup={onSubgroup} onEdit={onEdit} onDelete={onDelete} />
+            <GroupSection key={c.group.id} node={c} path={[...path, g.name]} collapsed={collapsed} onToggle={onToggle} filtering={filtering} renderProjects={renderProjects} onSubgroup={onSubgroup} onEdit={onEdit} onDelete={onDelete} />
           ))}
         </>
       )}
@@ -616,6 +641,7 @@ export function HomePage() {
                 <GroupSection
                   key={n.group.id}
                   node={n}
+                  path={[]}
                   collapsed={collapsed}
                   onToggle={toggleGroup}
                   filtering={filtering}
@@ -626,11 +652,16 @@ export function HomePage() {
                 />
               ))}
               {tree.loose.length > 0 && (
-                <section className="home-group" aria-labelledby="grp-loose">
+                <section className="home-group is-tree is-loose" aria-labelledby="grp-loose">
                   <h2 className="home-group-title" id="grp-loose">
-                    <Icon name="folder" />
-                    All projects
-                    <span className="home-group-count">{plural(tree.loose.length, 'project')}</span>
+                    <span className="home-group-icon" aria-hidden="true">
+                      <Icon name="folder" />
+                    </span>
+                    <span className="home-group-name">All projects</span>
+                    <span className="home-group-rule" aria-hidden="true" />
+                    <span className="home-group-pill">{plural(tree.loose.length, 'project')}</span>
+                    {/* no menu here: its room, so that the counts line up with the groups' */}
+                    <span className="home-group-menu-room" aria-hidden="true" />
                   </h2>
                   {renderProjects(tree.loose)}
                 </section>
