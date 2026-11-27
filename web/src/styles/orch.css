@@ -520,6 +520,8 @@
 }
 .attach-meta {
   color: var(--text-3);
+  /* hidden (opacity 0) it still lay on the remove button and took its click */
+  pointer-events: none;
 }
 .msg-attached {
   display: flex;
